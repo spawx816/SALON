@@ -1,0 +1,18 @@
+User-agent: *
+Allow: /
+Allow: /planes
+Allow: /regalar
+Allow: /sucursales
+
+# Disallow internal and private routes
+Disallow: /login
+Disallow: /clients
+Disallow: /mis-servicios
+Disallow: /dashboard
+Disallow: /pagos
+Disallow: /perfil
+Disallow: /configuracion
+Disallow: /activar
+Disallow: /encuesta
+
+Sitemap: https://planbeautyrd.com/sitemap.xml

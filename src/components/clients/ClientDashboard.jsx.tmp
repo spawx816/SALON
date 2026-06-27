@@ -1,0 +1,12 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  ShoppingBag, Phone, MapPin, CheckCircle2, Star, 
+  Gift, Heart, MessageSquare, ExternalLink, ChevronRight,
+  Sparkles, Scissors, CreditCard, X, Camera, User
+} from 'lucide-react';
+import { useTranslation } from '../../context/LanguageContext';
+import { dataService } from '../../utils/dataService';
+import { useAuth } from '../../context/AuthContext';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const ClientDashboard = () => {

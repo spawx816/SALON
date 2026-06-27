@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Mínimo CardNet</title>
+    <!-- Public Key Script -->
+    <script type="text/javascript"
+        src="https://labservicios.cardnet.com.do/servicios/tokens/v1/Scripts/PWCheckout.js?key=J_eHXPYlDo9wlFpFXjgalm_I56ONV7HQ"></script>
+    <style>
+        body {
+            font-family: -apple-system, sans-serif;
+            padding: 2rem;
+            max-width: 600px;
+            margin: 0 auto;
+            background: #f4f4f5;
+        }
+
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        button {
+            background: #000;
+            color: #fff;
+            border: none;
+            padding: 1rem 2rem;
+            cursor: pointer;
+            border-radius: 8px;
+            font-weight: bold;
+            width: 100%;
+            font-size: 1.1rem;
+        }
+
+        button:disabled {
+            background: #a1a1aa;
+            cursor: not-allowed;
+        }
+
+        pre {
+            background: #18181b;
+            color: #10b981;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+
+        .log-error {
+            color: #f43f5e;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+        <h2 style="margin-top:0;">Prueba Aislada CardNet</h2>
+        <p>Este form no depende de React. Sirve para confirmar si llave de CardNet genera el Iframe sin errores.</p>
+
+        <!-- Formulario Oculto Exigido por CardNet -->
+        <form id="checkout_form_fake" style="margin-bottom: 2rem;">
+            <div style="margin-bottom: 1rem;">
+                <label style="font-size: 0.8rem; font-weight: bold; display: block; margin-bottom: 0.5rem;">Correo de
+                    Prueba:</label>
+                <input type="email" id="testEmail" value="pulugna430@hotmail.com"
+                    style="width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px;" />
+            </div>
+
+            <input type="hidden" id="PWToken" name="PWToken" />
+            <input type="hidden" id="SessionId" name="SessionId" />
+
+            <button type="button" id="btnInit">1. Generar Sesión (Backend)</button>
+            <button type="button" id="btnOpen" style="margin-top: 1rem; display: none; background: #2563eb;">2. Abrir
+                Iframe CardNet</button>
+        </form>
+
+        <h3>Logs del Proceso</h3>
+        <pre id="logArea">Listo para probar...</pre>
+    </div>
+
+    <script>
+        const logArea = document.getElementById('logArea');
+        const btnInit = document.getElementById('btnInit');
+        const btnOpen = document.getElementById('btnOpen');
+        let currentUniqueId = "";
+        let currentCaptureUrl = "";
+
+        const log = (msg, isError = false) => {
+            console.log(msg);
+            const line = document.createElement('div');
+            line.textContent = typeof msg === 'object' ? JSON.stringify(msg, null, 2) : msg;
+            if (isError) line.className = 'log-error';
+            logArea.prepend(line);
+        };
+
+        // 1. Obtener UniqueID del Backend Local
+        btnInit.addEventListener('click', async () => {
+            btnInit.disabled = true;
+            const selectedEmail = document.getElementById('testEmail').value;
+            log(`-> Pidiendo Sesión para: ${selectedEmail}`);
+            
+            try {
+                const res = await fetch('http://localhost:5005/api/cardnet/customer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: selectedEmail })
+                });
+
+                const data = await res.json();
+
+                if (data.success || data.CustomerId || data.uniqueId) {
+                    currentUniqueId = data.uniqueId || data.UniqueID;
+                    currentCaptureUrl = data.captureUrl || data.CaptureURL;
+                    if (currentCaptureUrl && !currentCaptureUrl.endsWith('/')) currentCaptureUrl += '/';
+
+                    document.getElementById('SessionId').value = currentUniqueId;
+
+                    log("✅ Sesión Creada Exitosamente!");
+                    log(`UniqueID: ${currentUniqueId}`);
+                    log(`CaptureURL: ${currentCaptureUrl}`);
+
+                    btnInit.style.display = 'none';
+                    btnOpen.style.display = 'block';
+                } else {
+                    log("❌ Error de backend:", true);
+                    log(data, true);
+                    btnInit.disabled = false;
+                }
+            } catch (e) {
+                log("❌ Error de red / Backend Apagado:", true);
+                log(e.message, true);
+                btnInit.disabled = false;
+            }
+        });
+
+        // Callback de CardNet
+        window.PWCheckout.Bind("tokenCreated", function (token) {
+            log("===================");
+            log("🔄 CALLBACK DISPARADO (tokenCreated)");
+            log(token, token && token.error ? true : false);
+            log("===================");
+            if (token && token.TokenId) {
+                alert("¡ÉXITO! Iframe funcionó y tenemos TokenId: " + token.TokenId);
+            } else {
+                alert("Hubo un error de declinación. Revisa los logs verdes.");
+            }
+        });
+
+        // Parche crítico para bug de CardNet JS: Evita que crashee al tratar de cerrar un Iframe ya cerrado
+        const patchCardnet = setInterval(() => {
+            if (window.PWCheckout && window.PWCheckout.Iframe && window.PWCheckout.Iframe.Close) {
+                clearInterval(patchCardnet);
+                const originalClose = window.PWCheckout.Iframe.Close;
+                window.PWCheckout.Iframe.Close = function () {
+                    console.log("[CardNet Parche] Intentando cerrar iframe...");
+                    if (!document.getElementById(PWCheckout.Iframe.frameId)) {
+                        console.warn("[CardNet Parche] El Iframe ya no existe en el DOM, ignorando cierre para evitar crash.");
+                        return;
+                    }
+                    try {
+                        originalClose.apply(this, arguments);
+                        console.log("[CardNet Parche] Cierre ejecutado.");
+                    } catch (err) {
+                        console.error("[CardNet Parche] Error interno de CardNet silenciado:", err);
+                    }
+                };
+            }
+        }, 100);
+
+        // 2. Ejecutar Iframe
+        btnOpen.addEventListener('click', () => {
+            const selectedEmail = document.getElementById('testEmail').value;
+
+            PWCheckout.SetProperties({
+                "name": "Suscripcion SalonPro",
+                "email": selectedEmail,
+                "button_label": "Asociar Tarjeta",
+                "description": "Suscripcion Recurrente Test",
+                "currency": "DOP",
+                "amount": "",
+                "lang": "ESP",
+                "form_id": "checkout_form_fake",
+                "checkout_card": 1,
+                "session_id": currentUniqueId,
+                "autoSubmit": "false",
+                "empty": "false",
+                "merchant_number": "349100111",
+                "merchant_terminal": "10311240"
+            });
+
+            log("-> Abriendo Iframe Custom...");
+            const public_key = "J_eHXPYlDo9wlFpFXjgalm_I56ONV7HQ";
+            const finalUrl = `${currentCaptureUrl}?key=${public_key}&session_id=${currentUniqueId}`;
+            log(`URL: ${finalUrl}`);
+
+            PWCheckout.OpenIframeCustom(finalUrl, currentUniqueId);
+        });
+
+    </script>
+</body>
+
+</html>

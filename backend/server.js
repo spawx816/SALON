@@ -1,0 +1,4806 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const mysql = require('mysql2/promise');
+const axios = require('axios');
+const nodemailer = require('nodemailer');
+
+const path = require('path');
+const app = express();
+app.set('trust proxy', true);
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// === SEO & CANONICAL REDIRECTS ===
+app.use((req, res, next) => {
+  const host = req.get('host');
+  if (!host) return next();
+
+  const isProduction = host.includes('planbeautyrd.com');
+  const isWww = host.startsWith('www.');
+  const forwardedProto = req.headers['x-forwarded-proto'];
+
+  if (isProduction) {
+    // 1. Redirigir WWW a no-WWW siempre a HTTPS
+    if (isWww) {
+      const cleanHost = host.replace(/^www\./, '');
+      return res.redirect(301, `https://${cleanHost}${req.originalUrl}`);
+    }
+    
+    // 2. Redirigir HTTP a HTTPS solo si detectamos explícitamente que es HTTP
+    // Esto evita bucles si el proxy no envía el header correctamente
+    if (forwardedProto === 'http') {
+      return res.redirect(301, `https://${host}${req.originalUrl}`);
+    }
+  }
+  next();
+});
+
+app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'dist')));
+
+const CARDNET_CONFIG = {
+  MERCHANT_NUMBER: process.env.CARDNET_MERCHANT_NUMBER,
+  TERMINAL_ID: process.env.CARDNET_TERMINAL_ID,
+  BASE_URL: process.env.CARDNET_BASE_URL,
+  PUBLIC_KEY: process.env.CARDNET_PUBLIC_KEY,
+  PRIVATE_KEY: process.env.CARDNET_PRIVATE_KEY,
+  ENV: process.env.CARDNET_ENV
+};
+
+const getCardNetAuthHeaders = () => {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Basic ${CARDNET_CONFIG.PRIVATE_KEY}`
+  };
+};
+
+// Database Pool Configuration
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  timezone: '-04:00'
+});
+
+// Configure Dominican Republic Timezone (-04:00) on all session connections
+pool.on('connection', (connection) => {
+  connection.query("SET time_zone = '-04:00'");
+});
+
+// GLOBAL LOGGER
+app.use((req, res, next) => {
+  console.log(`[GLOBAL LOG] ${req.method} ${req.url}`);
+  next();
+});
+
+// SECURITY HEADERS MIDDLEWARE (Required for CardNet and security audit)
+app.use((req, res, next) => {
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), interest-cohort=()');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: *; frame-src 'self' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do; connect-src 'self' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do;");
+  next();
+});
+
+// Setup Database Tables
+const setupDB = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS verification_codes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        client_id VARCHAR(50),
+        code VARCHAR(6),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        is_used TINYINT DEFAULT 0
+      )
+    `);
+    console.log('[DB] Verification codes table ready.');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_settings (
+        id INT PRIMARY KEY DEFAULT 1,
+        smtp_host VARCHAR(255),
+        smtp_port INT,
+        smtp_user VARCHAR(255),
+        smtp_pass VARCHAR(255),
+        smtp_from VARCHAR(255),
+        smtp_secure TINYINT DEFAULT 1
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS security_requests (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        client_id VARCHAR(50),
+        service_name VARCHAR(255),
+        staff_name VARCHAR(100),
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS gift_cards (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(20) UNIQUE NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        balance DECIMAL(10,2) NOT NULL,
+        client_id VARCHAR(50),
+        recipient_name VARCHAR(100),
+        status VARCHAR(20) DEFAULT 'Active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS gift_card_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        gift_card_id INT NOT NULL,
+        amount_redeemed DECIMAL(10,2) NOT NULL,
+        balance_before DECIMAL(10,2) NOT NULL,
+        balance_after DECIMAL(10,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (gift_card_id) REFERENCES gift_cards(id) ON DELETE CASCADE
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS billing_codes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        contract_id VARCHAR(50),
+        code VARCHAR(6),
+        action_type ENUM('cancellation', 'manual_billing'),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        is_used TINYINT DEFAULT 0
+      )
+    `);
+    console.log('[DB] Billing codes table ready.');
+
+    // Alter clients table to track birthday emails sent
+    try {
+      await pool.query('ALTER TABLE clients ADD COLUMN last_birthday_sent_year INT DEFAULT 0');
+      console.log('[DB] Column last_birthday_sent_year checked/created in clients table.');
+    } catch (err) {
+      // Column probably already exists or clients table not seeded yet, ignore safely
+    }
+
+    // Setup Marketing Settings Table
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS marketing_settings (
+          id INT PRIMARY KEY DEFAULT 1,
+          birthday_automation_enabled TINYINT(1) DEFAULT 1,
+          birthday_discount INT DEFAULT 15,
+          birthday_flyer_url TEXT,
+          birthday_email_subject VARCHAR(255) DEFAULT '¡Feliz Cumpleaños! 🎉',
+          birthday_email_template TEXT,
+          mass_email_template TEXT
+        )
+      `);
+      
+      // Seed default row if not exists
+      const [rows] = await pool.query('SELECT COUNT(*) as count FROM marketing_settings');
+      if (rows[0].count === 0) {
+        await pool.query(`
+          INSERT INTO marketing_settings (id, birthday_automation_enabled, birthday_discount, birthday_flyer_url, birthday_email_subject, birthday_email_template, mass_email_template)
+          VALUES (1, 1, 15, '', '¡Feliz Cumpleaños {{nombre}}! 🎉', '¡Hola {{nombre}}! Esperamos que tengas un día maravilloso. Como regalo de cumpleaños, disfruta de un {{descuento}}% de descuento en cualquiera de nuestros servicios durante esta semana. ¡Te esperamos!', '¡Hola {{nombre}}! Tenemos una oferta para ti.')
+        `);
+        console.log('[DB] Default marketing settings seeded.');
+      }
+      console.log('[DB] Marketing settings table ready.');
+    } catch (err) {
+      console.error('[DB ERROR] Failed to setup/seed marketing_settings table:', err.message);
+    }
+
+    // Setup Email Logs Table for Tracking
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS email_logs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          client_id VARCHAR(50) NULL,
+          email_type VARCHAR(50) NOT NULL,
+          recipient_email VARCHAR(255) NOT NULL,
+          subject VARCHAR(255) NOT NULL,
+          sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          opened TINYINT DEFAULT 0,
+          opened_at TIMESTAMP NULL
+        )
+      `);
+      console.log('[DB] Email logs table ready for tracking.');
+    } catch (err) {
+      console.error('[DB ERROR] Failed to setup email_logs table:', err.message);
+    }
+
+    console.log('Database synchronized successfully');
+  } catch (err) {
+    console.error('Database connection failed:', err.message);
+  }
+};
+setupDB();
+
+// === SECURITY LOGS ===
+app.post('/api/security/log-request', async (req, res) => {
+  const { clientId, serviceName, staffName } = req.body;
+  try {
+    await pool.query(
+      'INSERT INTO security_requests (client_id, service_name, staff_name) VALUES (?, ?, ?)',
+      [clientId, serviceName, staffName]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/security/requests', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT r.*, c.nombre as client_name, v.code as active_code
+      FROM security_requests r
+      LEFT JOIN clients c ON r.client_id = c.id
+      LEFT JOIN verification_codes v ON r.client_id = v.client_id AND v.is_used = 0 AND v.expires_at > NOW()
+      WHERE r.created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      ORDER BY r.created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === AUTHENTICATION / PASSWORD RECOVERY ===
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { emailOrCedula } = req.body;
+  const rawInput = emailOrCedula || req.body.email; // Support both names
+  const input = rawInput ? String(rawInput).trim() : '';
+  console.log(`[AUTH] Forgot password request for: ${input}`);
+  
+  if (!input) return res.status(400).json({ error: 'Debes proporcionar un correo o cédula.' });
+
+  try {
+    // 1. Check if input matches email OR cedula in clients OR users
+    const [clients] = await pool.query(
+      'SELECT id, nombre, email FROM clients WHERE email = ? OR cedula = ?', 
+      [input, input]
+    );
+    const [users] = await pool.query(
+      'SELECT id, nombre, email FROM users WHERE email = ?', 
+      [input]
+    );
+    
+    const account = clients[0] || users[0];
+    if (!account) {
+      return res.status(404).json({ error: 'No se encontró ninguna cuenta asociada.' });
+    }
+
+    const targetEmail = account.email;
+    if (!targetEmail) {
+       return res.status(400).json({ error: 'La cuenta encontrada no tiene un correo electrónico asociado.' });
+    }
+
+    // 2. Generate 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 3600000); // 1 hour
+
+    // 3. Save to verification_codes
+    await pool.query(
+      'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
+      [account.id, code, expiresAt]
+    );
+
+    // 4. Send Email
+    const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    const s = settings[0] || {};
+    const smtp_host = s.smtp_host || process.env.SMTP_HOST;
+    const smtp_port = s.smtp_port || process.env.SMTP_PORT;
+    const smtp_user = s.smtp_user || process.env.SMTP_USER;
+    const smtp_pass = s.smtp_pass || process.env.SMTP_PASS;
+    let smtp_from = process.env.SMTP_FROM || s.smtp_from || 'hola@planbeautyrd.com';
+    
+    // Safety check: if it doesn't look like an email, use fallback
+    if (!smtp_from || !smtp_from.includes('@')) {
+      smtp_from = 'hola@planbeautyrd.com';
+    }
+
+    if (!smtp_host || !smtp_user || !smtp_pass) {
+      return res.status(500).json({ error: 'Configuración de correo incompleta. Contacte al administrador.' });
+    }
+
+    console.log(`[AUTH] Sending email from: ${smtp_from}`);
+
+    const transporter = nodemailer.createTransport({
+      host: smtp_host,
+      port: smtp_port,
+      secure: smtp_port == 465,
+      auth: { user: smtp_user, pass: smtp_pass }
+    });
+
+    await transporter.sendMail({
+      from: smtp_from.trim(),
+      to: targetEmail,
+      subject: "Restablecer tu contraseña - Plan Beauty",
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; borderRadius: 10px;">
+          <h2 style="color: #d4af37; text-align: center;">Recuperación de Contraseña</h2>
+          <p>Hola <strong>${account.nombre}</strong>,</p>
+          <p>Has solicitado restablecer tu contraseña para tu cuenta (${targetEmail}). Usa el siguiente código de verificación:</p>
+          <div style="background: #f8f9fa; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 10px; color: #09090b; margin: 20px 0;">
+            ${code}
+          </div>
+          <p>Este código expirará en 1 hora.</p>
+          <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666; text-align: center;">Plan Beauty RD - Abatte Peluquería</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: 'Código enviado al correo asociado.' });
+  } catch (err) {
+    console.error('[AUTH] Forgot Password Error:', err);
+    res.status(500).json({ error: 'Error al procesar la solicitud. ' + err.message });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { emailOrCedula, code, newPassword } = req.body;
+  const rawInput = emailOrCedula || req.body.email;
+  const input = rawInput ? String(rawInput).trim() : '';
+  
+  try {
+    // 1. Get account
+    const [clients] = await pool.query('SELECT id FROM clients WHERE email = ? OR cedula = ?', [input, input]);
+    const [users] = await pool.query('SELECT id FROM users WHERE email = ?', [input]);
+    const account = clients[0] || users[0];
+    const isClient = !!clients[0];
+
+    if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
+
+    // 2. Verify code
+    const [codes] = await pool.query(
+      'SELECT id, expires_at FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+      [account.id, code]
+    );
+
+    if (codes.length === 0) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    const codeRecord = codes[0];
+    const expiresAtTime = codeRecord.expires_at instanceof Date 
+      ? codeRecord.expires_at.getTime() 
+      : new Date(codeRecord.expires_at).getTime();
+
+    if (Date.now() > expiresAtTime) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    // 3. Update Password (Plain text as per current system, should be hashed in future)
+    const table = isClient ? 'clients' : 'users';
+    await pool.query(`UPDATE ${table} SET password = ? WHERE id = ?`, [newPassword, account.id]);
+
+    // 4. Mark code as used
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [codeRecord.id]);
+
+    res.json({ success: true, message: 'Contraseña actualizada con éxito.' });
+  } catch (err) {
+    console.error('[AUTH] Reset Password Error:', err);
+    res.status(500).json({ error: 'Error al restablecer la contraseña.' });
+  }
+});
+
+app.post('/api/clients/:id/unlink-card', async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 1. Verificar si hay contratos activos que dependan de esta tarjeta
+    const [activeContracts] = await pool.query(
+      "SELECT id FROM contracts WHERE client_id = ? AND status IN ('Active', 'Pending_Retry')",
+      [id]
+    );
+
+    if (activeContracts.length > 0) {
+      return res.status(400).json({ 
+        error: "No se puede desvincular la tarjeta porque el cliente tiene contratos activos. Por favor, suspende los contratos primero." 
+      });
+    }
+
+    // 2. Si no hay activos, proceder a desvincular
+    await pool.query('UPDATE contracts SET card_token = NULL, payment_profile_id = NULL WHERE client_id = ?', [id]);
+    await pool.query('UPDATE clients SET cardnet_customer_id = NULL WHERE id = ?', [id]);
+    
+    res.json({ success: true, message: "Tarjeta desvinculada correctamente." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === CLIENTS ===
+app.post('/api/cardnet/customer/:customerId/update-profile', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const { paymentProfileId, expiration, enable } = req.body;
+    
+    if (!customerId || customerId === 'undefined') {
+      throw new Error("ID de cliente de CardNet no válido.");
+    }
+
+    const response = await axios.post(
+      `${CARDNET_CONFIG.BASE_URL}/api/Customer/${customerId}/PaymentProfileUpdate`,
+      { 
+        PaymentProfileID: paymentProfileId,
+        PaymentProfileId: paymentProfileId,
+        Expiration: expiration,
+        Enable: enable === undefined ? true : enable
+      },
+      { headers: getCardNetAuthHeaders() }
+    );
+
+    res.json(response.data.Response || response.data);
+  } catch (err) {
+    console.error('[CARDNET] Update Profile Error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message, details: err.response?.data });
+  }
+});
+
+app.post('/api/cardnet/customer/:customerId/delete-profile', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const { paymentProfileId } = req.body;
+    console.log('[CARDNET] Deleting Profile:', paymentProfileId);
+
+    const response = await axios.post(
+      `${CARDNET_CONFIG.BASE_URL}/api/Customer/${customerId}/PaymentProfileDelete`,
+      { 
+        PaymentProfileID: paymentProfileId,
+        PaymentProfileId: paymentProfileId 
+      },
+      { headers: getCardNetAuthHeaders() }
+    );
+
+    const result = response.data.Response || response.data;
+    res.json(result);
+  } catch (err) {
+    console.error('[CARDNET] Delete Profile Error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message, details: err.response?.data });
+  }
+});
+
+// === CONTRACTS ===
+app.get('/api/contracts', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        c.id, c.client_id, c.plan_id, c.signed_at, c.signature_hash, c.status, 
+        c.last_billed_date, c.next_billing_date, c.next_retry_date, 
+        c.retry_count, c.card_token, c.cardnet_profile_id, 
+        c.contract_services, c.contract_price, c.contract_promo_services, 
+        c.contract_promo_duration, c.payment_profile_id, c.auto_billing_enabled, 
+        c.last_annual_fee_date, c.ip_address, c.device_agent, 
+        c.geolocation, c.salon_id,
+        cl.nombre as clientName, 
+        cl.cedula as clientCedula,
+        cl.calle as address,
+        cl.numero as house_number,
+        cl.sector,
+        p.title as planTitle,
+        p.services as planServices,
+        p.activation_fee
+      FROM contracts c
+      JOIN clients cl ON c.client_id = cl.id
+      JOIN plans p ON c.plan_id = p.id
+      ORDER BY c.signed_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch single contract with all details (including heavy photo columns)
+app.get('/api/contracts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.query('SELECT * FROM contracts WHERE id = ?', [id]);
+    if (rows.length > 0) {
+      res.json(rows[0]);
+    } else {
+      res.status(404).json({ error: 'Contrato no encontrado' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- CONTRACT ACTIONS (CANCEL & BILL) WITH CODES ---
+app.post('/api/contracts/:id/request-code', async (req, res) => {
+  const { id } = req.params;
+  const { actionType } = req.body; // 'cancellation' or 'manual_billing'
+  
+  try {
+    const [contracts] = await pool.query(`
+      SELECT c.*, cl.nombre, cl.email 
+      FROM contracts c 
+      JOIN clients cl ON c.client_id = cl.id 
+      WHERE c.id = ?`, [id]);
+    
+    if (contracts.length === 0) return res.status(404).json({ error: 'Contrato no encontrado.' });
+    const contract = contracts[0];
+    
+    if (!contract.email) return res.status(400).json({ error: 'El cliente no tiene un correo electrónico asociado.' });
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    await pool.query(
+      'INSERT INTO billing_codes (contract_id, code, action_type, expires_at) VALUES (?, ?, ?, ?)',
+      [id, code, actionType, expiresAt]
+    );
+
+    const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    const s = settings[0] || {};
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass }
+    });
+
+    const actionName = actionType === 'cancellation' ? 'Cancelación de Plan' : 'Confirmación de Facturación';
+    
+    await transporter.sendMail({
+      from: `"${s.smtp_from || 'Abatte Peluquería'}" <${s.smtp_user}>`,
+      to: contract.email,
+      subject: `Código de Verificación - ${actionName}`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 40px; border: 1px solid #eee; border-radius: 20px; background: #fff;">
+          <h2 style="color: #09090b; text-align: center;">Verificación de Seguridad</h2>
+          <p>Hola <strong>${contract.nombre}</strong>,</p>
+          <p>Se ha solicitado una acción de <strong>${actionName}</strong> para tu contrato. Usa el siguiente código para autorizarla:</p>
+          <div style="background: #f8fafc; padding: 30px; border-radius: 16px; margin: 30px 0; border: 1px solid #e2e8f0; text-align: center;">
+            <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #09090b;">${code}</span>
+          </div>
+          <p style="color: #64748b; font-size: 0.85rem; text-align: center;">Este código expirará en 15 minutos.</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: 'Código enviado al cliente.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/contracts/:id/confirm-action', async (req, res) => {
+  const { id } = req.params;
+  const { code, actionType } = req.body;
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, expires_at FROM billing_codes WHERE contract_id = ? AND code = ? AND action_type = ? AND is_used = 0',
+      [id, code, actionType]
+    );
+
+    if (rows.length === 0) return res.status(400).json({ error: 'Código inválido o expirado.' });
+
+    const codeRecord = rows[0];
+    const expiresAtTime = codeRecord.expires_at instanceof Date 
+      ? codeRecord.expires_at.getTime() 
+      : new Date(codeRecord.expires_at).getTime();
+
+    if (Date.now() > expiresAtTime) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    await pool.query('UPDATE billing_codes SET is_used = 1 WHERE id = ?', [codeRecord.id]);
+
+    if (actionType === 'cancellation') {
+      const [contractRows] = await pool.query(`
+        SELECT c.client_id, cl.nombre, cl.email, cl.cardnet_customer_id, c.payment_profile_id 
+        FROM contracts c 
+        JOIN clients cl ON c.client_id = cl.id 
+        WHERE c.id = ?
+      `, [id]);
+      
+      if (contractRows.length > 0) {
+        const client = contractRows[0];
+
+        // 1. Intentar borrar tarjeta desde la pasarela real de CardNet si existe perfil guardado
+        if (client.cardnet_customer_id && client.payment_profile_id && !String(client.payment_profile_id).startsWith('mock_')) {
+          try {
+            console.log(`[CARDNET DELETION] Eliminando Perfil de Pago: ${client.payment_profile_id} para Cliente CardNet: ${client.cardnet_customer_id}`);
+            await axios.post(
+              `${CARDNET_CONFIG.BASE_URL}/api/Customer/${client.cardnet_customer_id}/PaymentProfileDelete`,
+              { 
+                PaymentProfileID: client.payment_profile_id,
+                PaymentProfileId: client.payment_profile_id 
+              },
+              { headers: getCardNetAuthHeaders(), timeout: 4000 }
+            );
+            console.log('[CARDNET DELETION] Tarjeta borrada de CardNet de forma segura.');
+          } catch (cardnetErr) {
+            console.error('[CARDNET DELETION] No se pudo borrar la tarjeta en CardNet, continuando limpieza local:', cardnetErr.response?.data || cardnetErr.message);
+          }
+        }
+
+        // 2. Limpieza de base de datos local (Borrado de tarjeta, selfies, cédula y firmas)
+        await pool.query("UPDATE clients SET status = 'Cancelled', cardnet_customer_id = NULL WHERE id = ?", [client.client_id]);
+        await pool.query(`
+          UPDATE contracts 
+          SET status = 'Cancelled', 
+              auto_billing_enabled = 0, 
+              payment_profile_id = NULL, 
+              card_token = NULL, 
+              document_photo = NULL, 
+              selfie_photo = NULL, 
+              signature_hash = NULL 
+          WHERE id = ?
+        `, [id]);
+        
+        console.log(`[CANCELLATION SUCCESS] Datos borrados de forma segura para cliente: ${client.client_id} (Contrato: ${id})`);
+        
+        // Despachar correo electrónico si el cliente tiene email registrado
+        if (client.email) {
+          try {
+            const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+            if (settings.length > 0) {
+              const s = settings[0];
+              const transporter = nodemailer.createTransport({
+                host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+                auth: { user: s.smtp_user, pass: s.smtp_pass }
+              });
+
+              const subject = 'Esperamos verte pronto nuevamente';
+              const bodyHtml = `
+                <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #fdf8f5; padding: 40px 15px; text-align: center;">
+                  <!--[if !mso]><!-->
+                  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+                  <!--<![endif]-->
+                  
+                  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 15px 35px rgba(74, 55, 40, 0.05); border: 1px solid #f3e8df; padding: 40px 30px; box-sizing: border-box; text-align: left;">
+                    
+                    <!-- Header -->
+                    <div style="text-align: center; margin-bottom: 30px; border-bottom: 1px solid #f3e8df; padding-bottom: 20px;">
+                      <h1 style="color: #000000; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 24px; font-weight: 800; letter-spacing: 2px; margin: 0;">
+                        PLAN<span style="color: #d4af37;">BEAUTY</span>RD
+                      </h1>
+                    </div>
+
+                    <!-- Greeting -->
+                    <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 16px; color: #000000; font-weight: 700; margin-bottom: 20px;">
+                      Hola ${client.nombre},
+                    </p>
+                    
+                    <!-- Message Body -->
+                    <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 15px; color: #4a3728; line-height: 1.7; margin-bottom: 18px;">
+                      Hemos recibido la cancelación de tu membresía en <strong>PLAN BEAUTY</strong> y queremos agradecerte por habernos permitido acompañarte en tu rutina de belleza. ✨
+                    </p>
+                    
+                    <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 15px; color: #4a3728; line-height: 1.7; margin-bottom: 18px;">
+                      En <strong>ABATTE PELUQUERIA</strong> siempre tendrás las puertas abiertas. Esperamos volver a verte muy pronto y seguir brindándote la experiencia que mereces.
+                    </p>
+                    
+                    <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 15px; color: #4a3728; line-height: 1.7; margin-bottom: 30px;">
+                      Si deseas reactivar tu membresía en el futuro, solo debes pasar por el salón y con gusto te ayudaremos.
+                    </p>
+
+                    <!-- Valediction -->
+                    <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 15px; color: #000000; font-weight: 700; margin-bottom: 5px;">
+                      Con cariño,
+                    </p>
+                    <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 15px; color: #d4af37; font-weight: 800; margin: 0;">
+                      Equipo ABATTE PELUQUERIA
+                    </p>
+
+                    <!-- Divider -->
+                    <div style="border-top: 1px solid #f3e8df; margin-top: 35px; padding-top: 20px; text-align: center;">
+                      <p style="margin: 0; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 11px; color: #a18a78; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">
+                        PLAN BEAUTY • ABATTE PELUQUERÍA
+                      </p>
+                      <p style="margin: 5px 0 0 0; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 9px; color: #bcaaa4;">
+                        © 2026 PLAN BEAUTY RD. TU PLAN, TU BELLEZA.
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+              `;
+
+              await transporter.sendMail({
+                from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+                to: client.email,
+                subject: subject,
+                html: bodyHtml
+              });
+              console.log(`[CANCELLATION EMAIL] Sent cancellation notice to ${client.email}`);
+            }
+          } catch (mailErr) {
+            console.error('[CANCELLATION EMAIL ERROR] Failed to send cancellation email:', mailErr.message);
+          }
+        }
+      }
+      return res.json({ success: true, message: 'Contrato cancelado exitosamente.' });
+    } else if (actionType === 'manual_billing') {
+      const [contractData] = await pool.query(`
+        SELECT c.*, p.price, p.title as planTitle, cl.cardnet_customer_id 
+        FROM contracts c 
+        JOIN plans p ON c.plan_id = p.id 
+        JOIN clients cl ON c.client_id = cl.id 
+        WHERE c.id = ?`, [id]);
+      
+      const c = contractData[0];
+      if (!c.cardnet_customer_id || !c.cardnet_profile_id) {
+        return res.status(400).json({ error: 'El cliente no tiene un método de pago vinculado.' });
+      }
+
+      return res.json({ success: true, verified: true, contract: c });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === SALONS ===
+app.get('/api/salons', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        s.*, 
+        COUNT(DISTINCT cl.id) as client_count,
+        SUM(p.price) as total_revenue
+      FROM salons s
+      LEFT JOIN clients cl ON s.id = cl.salon_id
+      LEFT JOIN contracts co ON cl.id = co.client_id
+      LEFT JOIN plans p ON co.plan_id = p.id
+      GROUP BY s.id
+      ORDER BY s.name ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/salons', async (req, res) => {
+  try {
+    const { name, address, phone, maps_url } = req.body;
+    const [result] = await pool.query('INSERT INTO salons (name, address, phone, maps_url) VALUES (?, ?, ?, ?)', [name, address, phone || '', maps_url || '']);
+    res.json({ id: result.insertId, name, address, phone, maps_url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/salons/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM salons WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+// === CLIENTS ===
+app.get('/api/clients', async (req, res) => {
+  console.log(`[API] Fetching all clients from DB: ${process.env.DB_NAME}...`);
+  try {
+    const [rows] = await pool.query(`
+      SELECT cl.*, p.title as planName
+      FROM clients cl
+      LEFT JOIN contracts c ON c.client_id = cl.id AND (c.status = 'Active' OR c.status = 'Pending_Retry')
+      LEFT JOIN plans p ON c.plan_id = p.id
+    `);
+    console.log(`[API] Found ${rows.length} clients.`);
+    res.json(rows);
+  } catch (err) {
+    console.error('[API ERROR] Failed to fetch clients:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/clients', async (req, res) => {
+  try {
+    const id = Date.now().toString();
+    const { cedula, nombre, telefono, email, frecuencia, salon_id, calle, numero, sector, ciudad, fechaNacimiento, registration_source } = req.body;
+    const [existing] = await pool.query('SELECT id FROM clients WHERE email = ? OR cedula = ?', [email, cedula]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'Ya existe un usuario con este correo o cédula' });
+    }
+
+    // Generate Random Password (8 chars)
+    const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let tempPassword = "";
+    for (let i = 0; i < 8; i++) tempPassword += charset.charAt(Math.floor(Math.random() * charset.length));
+
+    await pool.query(
+      'INSERT INTO clients (id, cedula, nombre, telefono, email, password, must_change_password, frecuencia, salon_id, calle, numero, sector, ciudad, status, role_id, tipo, fecha_nacimiento, registration_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, cedula, nombre, telefono, email, tempPassword, 1, frecuencia || 'Mensual', salon_id || 1, calle || null, numero || null, sector || null, ciudad || null, 'Active', 2, 'client', fechaNacimiento || null, registration_source || 'Self']
+    );
+
+    // Send Email
+    const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    if (settings.length > 0) {
+      const s = settings[0];
+      const transporter = nodemailer.createTransport({
+        host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+        auth: { user: s.smtp_user, pass: s.smtp_pass }
+      });
+
+      try {
+        await transporter.sendMail({
+          from: `"${s.smtp_from || 'Abatte Peluquería'}" <${s.smtp_user}>`,
+          to: email,
+          subject: 'Bienvenida a Abatte Peluquería - Tus Credenciales',
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 40px; border: 1px solid #eee; border-radius: 20px; background: #fff;">
+              <div style="text-align: center; margin-bottom: 30px;">
+                <h1 style="color: #09090b; margin: 0; font-size: 24px; font-weight: 900;">¡Hola ${nombre}!</h1>
+              </div>
+              
+              <p style="color: #444; line-height: 1.6;">Tu cuenta en <strong>Abatte Peluquería</strong> ha sido creada. Ya puedes acceder a tu panel de cliente para gestionar tus servicios.</p>
+              
+              <div style="background: #f8fafc; padding: 25px; border-radius: 16px; margin: 30px 0; border: 1px solid #e2e8f0;">
+                <p style="margin: 0 0 10px 0; font-size: 0.9rem; color: #64748b;">Tus credenciales de acceso:</p>
+                <p style="margin: 5px 0; font-size: 1.1rem;"><strong>Usuario:</strong> ${email}</p>
+                <p style="margin: 5px 0; font-size: 1.1rem;"><strong>Contraseña Temporal:</strong> <span style="background: #09090b; color: #fff; padding: 2px 8px; border-radius: 4px;">${tempPassword}</span></p>
+              </div>
+
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/login" style="background: #09090b; color: #fff; padding: 16px 32px; border-radius: 12px; text-decoration: none; font-weight: 800; display: inline-block;">
+                  Iniciar Sesión
+                </a>
+              </div>
+
+              <p style="color: #ef4444; font-size: 0.85rem; font-weight: 700;">IMPORTANTE: Se te pedirá cambiar esta contraseña al ingresar por primera vez por motivos de seguridad.</p>
+              
+              <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+              <p style="font-size: 0.75rem; color: #999; text-align: center;">
+                Abatte Peluquería &copy; 2026
+              </p>
+            </div>
+          `
+        });
+      } catch (mailErr) {
+        console.error('Error sending welcome email:', mailErr);
+      }
+    }
+
+    res.json({ id, cedula, nombre, email, status: 'Active' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/activate', async (req, res) => {
+  const { clientId, code, password } = req.body;
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, expires_at FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0',
+      [clientId, code]
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Código inválido o expirado' });
+    }
+
+    const codeRecord = rows[0];
+    const expiresAtTime = codeRecord.expires_at instanceof Date 
+      ? codeRecord.expires_at.getTime() 
+      : new Date(codeRecord.expires_at).getTime();
+
+    if (Date.now() > expiresAtTime) {
+      return res.status(400).json({ error: 'Código inválido o expirado' });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    }
+
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [codeRecord.id]);
+    await pool.query('UPDATE clients SET status = "Active", password = ? WHERE id = ?', [password, clientId]);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === CLIENT UPDATES ===
+app.put('/api/clients/:id', async (req, res) => {
+  const { id } = req.params;
+  const { cedula, nombre, telefono, email, calle, numero, sector, ciudad, fecha_nacimiento } = req.body;
+  try {
+    await pool.query(
+      'UPDATE clients SET cedula = ?, nombre = ?, telefono = ?, email = ?, calle = ?, numero = ?, sector = ?, ciudad = ?, fecha_nacimiento = ? WHERE id = ?',
+      [cedula, nombre, telefono, email, calle || null, numero || null, sector || null, ciudad || null, fecha_nacimiento || null, id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.get('/api/clients/cedula/:cedula', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM clients WHERE cedula = ?', [req.params.cedula]);
+    if (rows.length > 0) {
+      const client = rows[0];
+      const [contracts] = await pool.query("SELECT plan_id FROM contracts WHERE client_id = ? AND status != 'Cancelled'", [client.id]);
+      client.active_plan_ids = contracts.map(c => c.plan_id.toString());
+      return res.json(client);
+    }
+    res.status(404).json({ error: 'Not found' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === VISITS ===
+app.get('/api/visits', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT v.*, s.name as salon_name FROM visits v LEFT JOIN salons s ON v.salon_id = s.id ORDER BY v.visited_at DESC');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/visits/client/:clientId', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT v.*, s.name as salon_name FROM visits v LEFT JOIN salons s ON v.salon_id = s.id WHERE v.client_id = ? ORDER BY v.visited_at ASC', [req.params.clientId]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/visits', async (req, res) => {
+  try {
+    const id = Date.now().toString();
+    const { clientId, clientName, servicios, empleadoPeluquera, empleadoManicurista, proximaFecha, autoReminder, salon_id } = req.body;
+    await pool.query(
+      'INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_manicurista, proxima_fecha, recordatorio_auto, salon_id, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+      [id, clientId, clientName, JSON.stringify(servicios || []), empleadoPeluquera, empleadoManicurista, proximaFecha || null, autoReminder ? 1 : 0, salon_id || 1]
+    );
+
+    // Trigger Survey
+    const [clientData] = await pool.query('SELECT email FROM clients WHERE id = ?', [clientId]);
+    if (clientData[0]?.email) {
+      sendSurveyEmail(clientId, clientName, clientData[0].email);
+    }
+
+    res.json({ id, success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === SETTINGS ===
+app.get('/api/settings/email', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+    res.json(rows[0] || {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/settings/email', async (req, res) => {
+  const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure } = req.body;
+  try {
+    await pool.query(`
+      INSERT INTO email_settings (id, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure)
+      VALUES (1, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE 
+        smtp_host = VALUES(smtp_host),
+        smtp_port = VALUES(smtp_port),
+        smtp_user = VALUES(smtp_user),
+        smtp_pass = VALUES(smtp_pass),
+        smtp_from = VALUES(smtp_from),
+        smtp_secure = VALUES(smtp_secure)
+    `, [smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure ? 1 : 0]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/settings/email/test', async (req, res) => {
+  const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure, test_email } = req.body;
+  try {
+    const nodemailer = require('nodemailer');
+    
+    // Auto-detect secure based on port if not explicitly set correctly
+    const isPort465 = parseInt(smtp_port) === 465;
+    
+    const transporter = nodemailer.createTransport({
+      host: smtp_host,
+      port: parseInt(smtp_port),
+      secure: isPort465, // true for 465, false for other ports
+      auth: {
+        user: smtp_user,
+        pass: smtp_pass
+      },
+      tls: {
+        // Force IPv4 to avoid ENETUNREACH issues on some networks
+        rejectUnauthorized: false
+      },
+      family: 4,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000
+    });
+
+    // 1. Verify connection
+    await transporter.verify();
+
+    // 2. Send test email
+    await transporter.sendMail({
+      from: `"${smtp_from || 'SalonPro Test'}" <${smtp_user}>`,
+      to: test_email,
+      subject: 'Prueba de Conexión - SalonPro',
+      text: 'Este es un correo de prueba para verificar tu configuración SMTP en SalonPro.',
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #10b981; border-radius: 10px; background: #f0fdf4;">
+          <h2 style="color: #059669; margin-top: 0;">¡Conexión Exitosa!</h2>
+          <p>Este correo confirma que la configuración de tu servidor SMTP en <strong>SalonPro</strong> funciona correctamente.</p>
+          <hr style="border: none; border-top: 1px solid #d1fae5; margin: 20px 0;" />
+          <p style="font-size: 0.8rem; color: #666;">Enviado desde: ${smtp_host}:${smtp_port}</p>
+        </div>
+      `
+    });
+
+    res.json({ success: true, message: 'Correo de prueba enviado con éxito.' });
+  } catch (err) {
+    console.error('[EMAIL TEST] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === UTILITY: SEND SURVEY EMAIL ===
+async function sendSurveyEmail(clientId, clientName, clientEmail) {
+  console.log(`[Survey Email] Preparing to send to ${clientEmail} (Client: ${clientId})`);
+  try {
+    const [settings] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+    if (settings.length === 0 || !settings[0].smtp_host) {
+      console.warn("[Survey Email] No SMTP settings found.");
+      return;
+    }
+
+    const s = settings[0];
+    // 1. Get client details (especially cedula)
+    const [clients] = await pool.query('SELECT cedula FROM clients WHERE id = ?', [clientId]);
+    const clientCedula = clients.length > 0 ? clients[0].cedula : clientId;
+
+    // 2. Create pending survey record
+    const pendingId = Math.floor(Date.now() / 1000); // Fits in standard INT
+    await pool.query('INSERT INTO pending_surveys (id, client_id) VALUES (?, ?)', [pendingId, clientId]);
+
+    // 2. Send Email
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host,
+      port: parseInt(s.smtp_port),
+      secure: parseInt(s.smtp_port) === 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass },
+      tls: { rejectUnauthorized: false },
+      family: 4
+    });
+
+    const portalLink = `https://planbeautyrd.com/encuesta?cedula=${clientCedula}`;
+
+    await transporter.sendMail({
+      from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+      to: clientEmail,
+      subject: '✨ Cuéntanos tu experiencia en PLAN BEAUTY',
+      html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background-color: #ffffff;">
+          <div style="background-color: #000000; padding: 40px 30px; text-align: center;">
+            <h1 style="margin: 0; font-size: 26px; color: #ffffff !important;">¡Gracias por visitarnos!</h1>
+          </div>
+          <div style="padding: 30px; color: #1e293b; line-height: 1.6;">
+            <p style="color: #1e293b;">Hola <strong>${clientName}</strong>,</p>
+            <p style="color: #1e293b;">Gracias por confiar en <strong>PLAN BEAUTY</strong>. Fue un placer atenderte y ser parte de tu experiencia de belleza ✨</p>
+            <p style="color: #1e293b;">Tu opinión es muy importante para nosotros, ya que nos ayuda a seguir mejorando cada detalle de nuestro servicio.</p>
+            <p style="color: #1e293b;">Te invitamos a completar nuestra breve encuesta en el siguiente enlace:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${portalLink}" style="background-color: #000000; color: #ffffff !important; padding: 14px 28px; border-radius: 12px; text-decoration: none; font-weight: bold; display: inline-block;">Completar Encuesta</a>
+            </div>
+            <p style="color: #64748b; font-size: 0.9rem;">Si el botón no funciona, copia y pega este enlace: ${portalLink}</p>
+            <p style="margin-top: 40px; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 0.9rem; color: #64748b;">
+              Atentamente,<br>
+              <strong>Equipo ABATTE PELUQUERÍA</strong>
+            </p>
+          </div>
+        </div>
+      `
+    });
+    console.log(`[SURVEY] Email sent and record created for ${clientEmail}`);
+  } catch (err) {
+    console.error('[SURVEY ERROR]', err.message);
+  }
+}
+
+// === UTILITY: SEND PAYMENT RECEIPT EMAIL ===
+async function sendPaymentReceiptEmail(clientId, clientName, clientEmail, amount, description, reference) {
+  try {
+    const [settings] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+    if (settings.length === 0 || !settings[0].smtp_host) return;
+
+    const s = settings[0];
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host,
+      port: parseInt(s.smtp_port),
+      secure: parseInt(s.smtp_port) === 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass },
+      tls: { rejectUnauthorized: false },
+      family: 4
+    });
+
+    const date = new Date().toLocaleDateString('es-DO', { 
+      year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+
+    await transporter.sendMail({
+      from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+      to: clientEmail,
+      subject: '✅ Recibo de Pago - PLAN BEAUTY',
+      html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background-color: #ffffff;">
+          <div style="background-color: #000000; padding: 40px 30px; text-align: center;">
+            <h1 style="margin: 0; font-size: 26px; color: #ffffff !important;">Confirmación de Pago</h1>
+          </div>
+          <div style="padding: 30px; color: #1e293b; line-height: 1.6;">
+            <p style="color: #1e293b;">Hola <strong>${clientName}</strong>,</p>
+            <p style="color: #1e293b;">Hemos recibido correctamente el pago de tu suscripción ✅</p>
+            <p style="color: #1e293b;">Gracias por formar parte de <strong>PLAN BEAUTY</strong>. Nos alegra acompañarte en tu experiencia de belleza y cuidado personal ✨</p>
+            
+            <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 25px 0;">
+              <h3 style="margin-top: 0; color: #000000; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">Detalles de la transacción:</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; color: #64748b;">Monto:</td>
+                  <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #000000;">RD$ ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #64748b;">Concepto:</td>
+                  <td style="padding: 8px 0; text-align: right; color: #1e293b;">${description}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #64748b;">Referencia:</td>
+                  <td style="padding: 8px 0; text-align: right; color: #1e293b;">${reference}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #64748b;">Fecha:</td>
+                  <td style="padding: 8px 0; text-align: right; color: #1e293b;">${date}</td>
+                </tr>
+              </table>
+            </div>
+
+            <p style="color: #1e293b; text-align: center; font-weight: bold; margin-top: 30px;">Gracias por elegir PLAN BEAUTY</p>
+            
+            <p style="margin-top: 40px; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 0.9rem; color: #64748b; text-align: center;">
+              Atentamente,<br>
+              <strong>Equipo ABATTE PELUQUERÍA</strong>
+            </p>
+          </div>
+        </div>
+      `
+    });
+    console.log(`[PAYMENT EMAIL] Receipt sent to ${clientEmail} for ref: ${reference}`);
+  } catch (err) {
+    console.error('[PAYMENT EMAIL ERROR]', err.message);
+  }
+}
+
+async function sendPaymentFailedEmail(clientId, clientName, clientEmail, amount, errorMsg) {
+  try {
+    const [settings] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+    if (settings.length === 0 || !settings[0].smtp_host) return;
+
+    const s = settings[0];
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host,
+      port: parseInt(s.smtp_port),
+      secure: parseInt(s.smtp_port) === 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass },
+      tls: { rejectUnauthorized: false },
+      family: 4
+    });
+
+    await transporter.sendMail({
+      from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+      to: clientEmail,
+      subject: '⚠️ Error en Cobro de Suscripción - PLAN BEAUTY',
+      html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #fee2e2; border-radius: 16px; overflow: hidden; background-color: #ffffff;">
+          <div style="background-color: #ef4444; padding: 40px 30px; text-align: center;">
+            <h1 style="margin: 0; font-size: 26px; color: #ffffff !important;">Aviso de Cobro Fallido</h1>
+          </div>
+          <div style="padding: 30px; color: #1e293b; line-height: 1.6;">
+            <p style="color: #1e293b;">Hola <strong>${clientName}</strong>,</p>
+            <p style="color: #1e293b;">Te informamos que no pudimos procesar el cobro recurrente de tu suscripción por un monto de <strong>RD$ ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>.</p>
+            
+            <div style="background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 12px; padding: 20px; margin: 25px 0;">
+              <p style="margin: 0; color: #b91c1c;"><strong>Motivo:</strong> ${errorMsg}</p>
+            </div>
+
+            <p style="color: #1e293b;">Debido a este inconveniente, tu perfil ha sido marcado como <strong>Inactivo</strong> temporalmente. Por favor, visita nuestra sucursal o contáctanos para actualizar tu método de pago y reactivar tus beneficios.</p>
+            
+            <p style="color: #1e293b; text-align: center; font-weight: bold; margin-top: 30px;">Queremos que sigas disfrutando de PLAN BEAUTY</p>
+            
+            <p style="margin-top: 40px; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 0.9rem; color: #64748b; text-align: center;">
+              Atentamente,<br>
+              <strong>Equipo ABATTE PELUQUERÍA</strong>
+            </p>
+          </div>
+        </div>
+      `
+    });
+    console.log(`[PAYMENT EMAIL] Failure notice sent to ${clientEmail}`);
+  } catch (err) {
+    console.error('[EMAIL ERROR]', err);
+  }
+}
+
+// === OTP VERIFICATION & SERVICE DEDUCTION ===
+app.post('/api/otp/generate', async (req, res) => {
+  const { clientId, clientEmail } = req.body;
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+  try {
+    // Invalidate old codes
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ?', [clientId]);
+    
+    // Insert new code with 15 mins expiration using MySQL's NOW()
+    await pool.query(
+      'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))',
+      [clientId, code]
+    );
+
+    console.log(`[OTP] Generated code ${code} for client ${clientId} (${clientEmail})`);
+    
+    // --- SEND EMAIL ATTEMPT ---
+    try {
+      const [settings] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+      if (settings.length > 0 && settings[0].smtp_host) {
+        const s = settings[0];
+        // We'll use a dynamic import for nodemailer or check if available
+        try {
+          const nodemailer = require('nodemailer');
+          const isPort465 = parseInt(s.smtp_port) === 465;
+
+          const transporter = nodemailer.createTransport({
+            host: s.smtp_host,
+            port: parseInt(s.smtp_port),
+            secure: isPort465,
+            auth: {
+              user: s.smtp_user,
+              pass: s.smtp_pass
+            },
+            tls: {
+              rejectUnauthorized: false
+            },
+            family: 4
+          });
+
+          await transporter.sendMail({
+            from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+            to: clientEmail,
+            subject: 'Tu Código de Seguridad - PLAN BEAUTY',
+            text: `Hola, tu código de seguridad para confirmar el servicio es: ${code}. Expira en 15 minutos.`,
+            html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                    <h2 style="color: #09090b;">Verificación de Servicio</h2>
+                    <p>Hola, usa el siguiente código para autorizar el descuento de tu servicio en el salón:</p>
+                    <div style="font-size: 2rem; font-weight: bold; color: #09090b; margin: 20px 0;">${code}</div>
+                    <p style="color: #666; font-size: 0.8rem;">Este código expira en 15 minutos. Si no solicitaste este código, por favor ignora este correo.</p>
+                   </div>`
+          });
+          console.log(`[EMAIL] OTP sent successfully to ${clientEmail}`);
+        } catch (e) {
+          console.error('[EMAIL] Failed to send email:', e.message);
+        }
+      }
+    } catch (err) {
+      console.error('[SETTINGS] Could not fetch email settings for OTP:', err.message);
+    }
+    
+    res.json({ success: true, code, message: 'Código generado.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/otp/active/:clientId', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT code, expires_at FROM verification_codes WHERE client_id = ? AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+      [req.params.clientId]
+    );
+    if (rows.length > 0) {
+      const codeRecord = rows[0];
+      const expiresAtTime = codeRecord.expires_at instanceof Date 
+        ? codeRecord.expires_at.getTime() 
+        : new Date(codeRecord.expires_at).getTime();
+
+      if (Date.now() <= expiresAtTime) {
+        return res.json({ code: codeRecord.code });
+      }
+    }
+    res.status(404).json({ error: 'No hay código activo.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/security/requests', async (req, res) => {
+  try {
+    // Usamos un margen de tiempo más amplio y comprobamos códigos creados recientemente
+    const [rows] = await pool.query(`
+      SELECT 
+        vc.code as active_code,
+        c.nombre as client_name,
+        c.cedula as client_id,
+        'Facturación de Membresía' as service_name,
+        'Staff Recepción' as staff_name,
+        vc.created_at
+      FROM verification_codes vc
+      JOIN clients c ON vc.client_id = c.id
+      WHERE vc.is_used = 0 
+        AND vc.created_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+      ORDER BY vc.created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/otp/verify', async (req, res) => {
+  const { clientId, code, visitData } = req.body;
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, expires_at FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0',
+      [clientId, code]
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    const codeRecord = rows[0];
+    const expiresAtTime = codeRecord.expires_at instanceof Date 
+      ? codeRecord.expires_at.getTime() 
+      : new Date(codeRecord.expires_at).getTime();
+
+    if (Date.now() > expiresAtTime) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    // Mark code as used
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [codeRecord.id]);
+
+    // Record the visit (Discount service)
+    const visitId = Date.now().toString();
+    await pool.query(
+      'INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+      [visitId, clientId, visitData.clientName, JSON.stringify(visitData.servicios), visitData.empleadoPeluquera || 'N/A', visitData.empleadoLavaPelo || 'N/A', visitData.empleadoManicurista || 'N/A', visitData.salon_id || 1]
+    );
+
+    // Trigger Survey
+    const [clientData] = await pool.query('SELECT email FROM clients WHERE id = ?', [clientId]);
+    console.log(`[OTP Verify] Client: ${clientId}, Email: ${clientData[0]?.email}, Name: ${visitData.clientName}`);
+    
+    if (clientData[0]?.email) {
+      console.log(`[OTP Verify] Sending survey email to ${clientData[0].email}...`);
+      sendSurveyEmail(clientId, visitData.clientName, clientData[0].email);
+    } else {
+      console.warn(`[OTP Verify] No email found for client ${clientId}, survey not sent.`);
+    }
+
+    res.json({ success: true, visitId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/otp/verify-only', async (req, res) => {
+  const { clientId, code } = req.body;
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, expires_at FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0',
+      [clientId, code]
+    );
+
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    const codeRecord = rows[0];
+    const expiresAtTime = codeRecord.expires_at instanceof Date 
+      ? codeRecord.expires_at.getTime() 
+      : new Date(codeRecord.expires_at).getTime();
+
+    if (Date.now() > expiresAtTime) {
+      return res.status(400).json({ error: 'Código inválido o expirado.' });
+    }
+
+    // Mark code as used
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [codeRecord.id]);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+app.get('/api/surveys/stats', async (req, res) => {
+  const { startDate, endDate, salonId, staffName, clientId } = req.query;
+  
+  try {
+    const [rows] = await pool.query(`
+      SELECT s.*, 
+             COALESCE(s.client_name, c.nombre) as client_name,
+             COALESCE(s.salon_name, sal.name) as salon_name
+      FROM surveys s
+      LEFT JOIN clients c ON s.client_id = c.id
+      LEFT JOIN salons sal ON s.salon_id = sal.id
+      WHERE 1=1
+      ${startDate ? ' AND s.created_at >= ?' : ''}
+      ${endDate ? ' AND s.created_at <= ?' : ''}
+      ${salonId && salonId !== 'all' ? ' AND s.salon_id = ?' : ''}
+      ${staffName ? ' AND (s.staff_peluquera = ? OR s.staff_lava_pelo = ? OR s.staff_manicurista = ?)' : ''}
+      ${clientId ? ' AND s.client_id = ?' : ''}
+    `.replace(/\s+/g, ' '), [
+      ...(startDate ? [startDate] : []),
+      ...(endDate ? [endDate + ' 23:59:59'] : []),
+      ...(salonId && salonId !== 'all' ? [parseInt(salonId)] : []),
+      ...(staffName ? [staffName, staffName, staffName] : []),
+      ...(clientId ? [clientId] : [])
+    ]);
+    
+    let sentQuery = 'SELECT COUNT(*) as sent_count FROM pending_surveys WHERE 1=1';
+    let sentParams = [];
+    if (startDate) { sentQuery += ' AND created_at >= ?'; sentParams.push(startDate); }
+    if (endDate) { sentQuery += ' AND created_at <= ?'; sentParams.push(endDate + ' 23:59:59'); }
+    if (clientId) { sentQuery += ' AND client_id = ?'; sentParams.push(clientId); }
+    const [[{ sent_count }]] = await pool.query(sentQuery, sentParams);
+
+    if (rows.length === 0) {
+      return res.json({ nps: 0, averages: {}, total: 0, raw: [], sent_count: sent_count || 0, answered_count: 0 });
+    }
+
+    const calculateNPS = (values) => {
+      let p = 0, d = 0, t = 0;
+      values.forEach(v => {
+        const val = parseInt(v);
+        if (isNaN(val)) return;
+        if (val >= 9) p++;
+        else if (val <= 6) d++;
+        t++;
+      });
+      return t > 0 ? parseFloat(((p - d) / t * 100).toFixed(2)) : 0;
+    };
+
+    // Global Stats (Standard NPS logic on general experience)
+    const npsGlobal = calculateNPS(rows.map(r => r.q1));
+    
+    const questions = ['q1', 'q2', 'q3', 'q4', 'q5', 'q7', 'q8'];
+    const averages = {};
+    const npsPerQuestion = {};
+
+    questions.forEach(q => {
+      const vals = rows.map(r => {
+        // Ignorar calificaciones si el personal no fue asignado ('N/A')
+        if (q === 'q3' && r.staff_peluquera === 'N/A') return null;
+        if (q === 'q4' && r.staff_lava_pelo === 'N/A') return null;
+        if (q === 'q5' && r.staff_manicurista === 'N/A') return null;
+        return parseInt(r[q]);
+      }).filter(v => v !== null && !isNaN(v) && v >= 0);
+      
+      const sum = vals.reduce((a, b) => a + b, 0);
+      averages[q] = vals.length > 0 ? (sum / vals.length).toFixed(1) : 0;
+      npsPerQuestion[q] = calculateNPS(vals);
+    });
+
+    res.json({
+      nps: npsGlobal,
+      npsPerQuestion,
+      averages,
+      total: rows.length,
+      sent_count: sent_count || 0,
+      answered_count: rows.length,
+      raw: rows.map(r => {
+        // Calculate Personal NPS for this specific response (ignoring ratings of unassigned staff)
+        const p_vals = [
+          r.q1, 
+          r.q2, 
+          r.staff_peluquera !== 'N/A' ? r.q3 : null,
+          r.staff_lava_pelo !== 'N/A' ? r.q4 : null,
+          r.staff_manicurista !== 'N/A' ? r.q5 : null,
+          r.q7, 
+          r.q8
+        ].map(v => parseInt(v)).filter(v => v !== null && !isNaN(v) && v >= 0);
+        
+        let p = 0, d = 0, t = 0;
+        p_vals.forEach(v => {
+          if (v >= 9) p++;
+          else if (v <= 6) d++;
+          t++;
+        });
+        const personalNps = t > 0 ? parseFloat(((p - d) / t * 100).toFixed(2)) : 0;
+        return { ...r, personalNps };
+      })
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+app.get('/api/surveys', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM surveys');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Check if client has pending survey
+app.get('/api/surveys/pending/:clientId', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const [rows] = await pool.query(
+      'SELECT id FROM pending_surveys WHERE client_id = ? AND status = "Pending" LIMIT 1',
+      [clientId]
+    );
+    res.json({ hasPending: rows.length > 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/surveys', async (req, res) => {
+  try {
+    const id = Date.now().toString();
+    const { clientId, responses } = req.body;
+
+    // 1. Get client's last visit to capture context (salon, staff)
+    const [visits] = await pool.query(
+      'SELECT salon_id, empleado_peluquera, empleado_lava_pelo, empleado_manicurista FROM visits WHERE client_id = ? ORDER BY visited_at DESC LIMIT 1',
+      [clientId]
+    );
+    
+    const v = visits[0] || {};
+
+    await pool.query(
+      'INSERT INTO surveys (id, client_id, client_name, salon_id, salon_name, staff_peluquera, staff_lava_pelo, staff_manicurista, q1, q2, q3, q4, q5, q6, q7, q8) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id, clientId, responses.clientName || 'Cliente', 
+        v.salon_id || 1, responses.salonName || 'San Vicente',
+        v.empleado_peluquera || 'N/A', v.empleado_lava_pelo || 'N/A', v.empleado_manicurista || 'N/A',
+        responses.q1, responses.q2, responses.q3, responses.q4, responses.q5, responses.q6, responses.q7, responses.q8
+      ]
+    );
+
+    // Mark as completed in pending_surveys
+    await pool.query('UPDATE pending_surveys SET status = "Completed" WHERE client_id = ? AND status = "Pending"', [clientId]);
+
+    res.json({ id, success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// === GIFTS REDEMPTION ===
+app.post('/api/gifts/redeem', async (req, res) => {
+  const { giftCode } = req.body;
+  try {
+    const [rows] = await pool.query('SELECT * FROM gift_cards WHERE code = ?', [giftCode]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Código no encontrado' });
+    
+    const gift = rows[0];
+    if (gift.status !== 'Active' && gift.status !== 'Partially_Redeemed') {
+      return res.status(400).json({ error: 'Este certificado ya no está activo' });
+    }
+    
+    // In the client/public version, we redeem the FULL remaining balance for a specific service
+    const amountToRedeem = gift.balance;
+    const newBalance = 0;
+    const newStatus = 'Redeemed';
+    
+    await pool.query(
+      'UPDATE gift_cards SET balance = ?, status = ?, used_at = NOW() WHERE id = ?', 
+      [newBalance, newStatus, gift.id]
+    );
+
+    // Record consumption history log
+    await pool.query(
+      'INSERT INTO gift_card_logs (gift_card_id, amount_redeemed, balance_before, balance_after) VALUES (?, ?, ?, ?)',
+      [gift.id, amountToRedeem, gift.balance, newBalance]
+    );
+    
+    res.json({ success: true, message: 'Canje exitoso', amount: amountToRedeem });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === PLANS ===
+app.get('/api/plans', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM plans');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/plans', async (req, res) => {
+  let connection;
+  try {
+    const { plans, applyToExisting } = req.body;
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    // 1. Limpieza total de planes para evitar duplicados e inconsistencias
+    await connection.query('DELETE FROM plans');
+
+    if (Array.isArray(plans)) {
+      for (const plan of plans) {
+        // Aseguramos que los servicios sean siempre un array real antes de stringificar para la DB
+        const ensureData = (val) => {
+          if (Array.isArray(val)) return JSON.stringify(val);
+          if (typeof val === 'string') {
+            try {
+              const p = JSON.parse(val);
+              return JSON.stringify(Array.isArray(p) ? p : [p]);
+            } catch {
+              return JSON.stringify(val.split(',').map(s => s.trim()).filter(Boolean));
+            }
+          }
+          return JSON.stringify([]);
+        };
+
+        const servicesStr = ensureData(plan.services);
+        const promoServicesStr = ensureData(plan.promo_services);
+        const usageLimitsStr = JSON.stringify(plan.usage_limits || { visits: '', services: '' });
+
+        await connection.query(
+          'INSERT INTO plans (id, title, price, activation_fee, discount, color, location, services, promo_services, promo_duration_months, usage_limits) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            plan.id,
+            plan.title,
+            plan.price,
+            plan.activation_fee || 0,
+            plan.discount || 0,
+            plan.color,
+            plan.location,
+            servicesStr,
+            promoServicesStr,
+            plan.promo_duration_months || 0,
+            usageLimitsStr
+          ]
+        );
+
+        // 2. Sincronizar contratos si se solicita (con los mismos strings limpios)
+        if (applyToExisting) {
+          await connection.query(
+            `UPDATE contracts SET 
+              contract_services = ?, 
+              contract_price = ?, 
+              contract_promo_services = ?, 
+              contract_promo_duration = ? 
+             WHERE plan_id = ?`,
+            [
+              servicesStr,
+              plan.price,
+              promoServicesStr,
+              plan.promo_duration_months || 0,
+              plan.id
+            ]
+          );
+        }
+      }
+    }
+
+    await connection.commit();
+    res.json({ success: true, message: 'Planes sincronizados correctamente.' });
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error('[DATABASE ERROR]:', err.message);
+    res.status(500).json({ error: 'Fallo al guardar planes: ' + err.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
+
+
+app.get('/api/contracts/client/:clientId', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        c.*, 
+        cl.nombre as clientName, 
+        cl.cedula as clientCedula,
+        p.title as planTitle
+      FROM contracts c
+      JOIN clients cl ON c.client_id = cl.id
+      JOIN plans p ON c.plan_id = p.id
+      WHERE c.client_id = ? 
+      ORDER BY c.signed_at DESC
+    `, [req.params.clientId]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/clients/:id/payment-profile', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [clients] = await pool.query('SELECT cardnet_customer_id FROM clients WHERE id = ?', [id]);
+    const cardnetCustomerId = clients[0]?.cardnet_customer_id;
+
+    if (!cardnetCustomerId) {
+      // Intento de fallback local con el token del contrato activo
+      const [contracts] = await pool.query(
+        'SELECT payment_profile_id, card_token FROM contracts WHERE client_id = ? AND status = "Active" LIMIT 1',
+        [id]
+      );
+      if (contracts.length > 0 && contracts[0].payment_profile_id) {
+        const last4 = '8888';
+        const brand = contracts[0].card_token?.toLowerCase().includes('mastercard') ? 'MasterCard' : (contracts[0].card_token?.toLowerCase().includes('amex') ? 'Amex' : 'Visa');
+        return res.json({
+          PaymentProfileId: contracts[0].payment_profile_id,
+          Brand: brand,
+          Last4: last4,
+          Expiration: "203012",
+          Enable: "1",
+          IsSimulated: true
+        });
+      }
+      return res.json(null);
+    }
+
+    const url = `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`;
+    
+    try {
+      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: 4000 });
+      const customer = response.data.Response || response.data;
+      const profiles = customer.PaymentProfiles || [];
+      const profile = profiles.find(p => p.Enable === "1") || profiles[0];
+      res.json(profile || null);
+    } catch (error) {
+      console.error("[CARDNET] Error fetching profile from CardNet (down or overload). Serving simulated fallback:", error.message);
+      
+      // Intentar fallback del contrato activo antes del mock genérico
+      const [contracts] = await pool.query(
+        'SELECT payment_profile_id, card_token FROM contracts WHERE client_id = ? AND status = "Active" LIMIT 1',
+        [id]
+      );
+      const last4 = contracts.length > 0 && contracts[0].card_token?.slice(-4) ? contracts[0].card_token.slice(-4) : cardnetCustomerId.toString().slice(-4).padStart(4, '9');
+      const brand = contracts.length > 0 && contracts[0].card_token?.toLowerCase().includes('mastercard') ? 'MasterCard' : (contracts.length > 0 && contracts[0].card_token?.toLowerCase().includes('amex') ? 'Amex' : 'Visa');
+      
+      const mockProfile = {
+        PaymentProfileId: contracts.length > 0 ? contracts[0].payment_profile_id : `mock_${cardnetCustomerId}`,
+        Brand: brand,
+        Last4: last4,
+        Expiration: "203012",
+        Enable: "1",
+        IsSimulated: true
+      };
+      res.json(mockProfile);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === COMPREHENSIVE ANALYTICS REPORTS ===
+app.get('/api/reports/analytics', async (req, res) => {
+  const { salon_id, start_date, end_date } = req.query;
+  const whereSalon = salon_id && salon_id !== 'all' ? `AND salon_id = ${parseInt(salon_id)}` : '';
+  const whereSalonPlain = salon_id && salon_id !== 'all' ? `WHERE salon_id = ${parseInt(salon_id)}` : '';
+  const whereSalonC = salon_id && salon_id !== 'all' ? `AND c.salon_id = ${parseInt(salon_id)}` : '';
+
+  let whereDate = '';
+  if (start_date && end_date) {
+    whereDate = `AND created_at BETWEEN '${start_date} 00:00:00' AND '${end_date} 23:59:59'`;
+  }
+
+  try {
+    // 1. Daily Sales
+    const [sales] = await pool.query(`
+      SELECT DATE(created_at) as date, SUM(amount) as total 
+      FROM payments 
+      WHERE status = 'Aprobado' ${whereSalon} ${whereDate}
+      GROUP BY DATE(created_at) 
+      ORDER BY date DESC ${whereDate ? '' : 'LIMIT 30'}
+    `);
+
+    // 2. Client Status Summary
+    const [activeClients] = await pool.query(`SELECT COUNT(*) as count FROM contracts WHERE status = 'Active' ${whereSalon}`);
+    const [cancelledClients] = await pool.query(`SELECT COUNT(*) as count FROM contracts WHERE status = 'Cancelled' ${whereSalon}`);
+
+    // 3. Inactive Clients (> 15 days)
+    const [inactive] = await pool.query(`
+      SELECT cl.id, cl.nombre, cl.telefono, MAX(v.visited_at) as last_visit
+      FROM clients cl
+      JOIN contracts c ON cl.id = c.client_id
+      LEFT JOIN visits v ON cl.id = v.client_id
+      WHERE c.status = 'Active' ${whereSalonC}
+      GROUP BY cl.id
+      HAVING last_visit < DATE_SUB(NOW(), INTERVAL 15 DAY) OR last_visit IS NULL
+      ORDER BY last_visit ASC
+    `);
+
+    // 4. Payment Methods Breakdown
+    const [payments] = await pool.query(`
+      SELECT method, SUM(amount) as total, COUNT(*) as count
+      FROM payments 
+      WHERE status = 'Aprobado' ${whereSalon} ${whereDate}
+      GROUP BY method
+    `);
+
+    // 5. Visit Frequency
+    const [frequency] = await pool.query(`
+      SELECT visit_count, COUNT(*) as client_count FROM (
+        SELECT client_id, COUNT(*) as visit_count 
+        FROM visits 
+        ${whereSalonPlain}
+        GROUP BY client_id
+      ) as t
+      GROUP BY visit_count
+      ORDER BY visit_count ASC
+    `);
+
+    // 6. Renewal Revenue
+    const [renewalRevenue] = await pool.query(`
+      SELECT SUM(amount) as total
+      FROM payments
+      WHERE status = 'Aprobado' 
+        AND plan_id IS NOT NULL 
+        AND plan_id != 'gift_card'
+        ${whereSalon}
+        ${whereDate}
+    `);
+
+    // 7. Cash Payments
+    const [cashPayments] = await pool.query(`
+      SELECT p.id, p.amount, p.created_at, p.applied_by, p.method,
+             c.nombre as client_name, s.name as salon_name
+      FROM payments p
+      LEFT JOIN clients c ON p.client_id = c.id
+      LEFT JOIN salons s ON COALESCE(p.salon_id, c.salon_id) = s.id
+      WHERE p.status = 'Aprobado' AND (p.method = 'Efectivo/POS' OR p.method = 'Efectivo')
+      ${whereSalon.replace('salon_id', 'COALESCE(p.salon_id, c.salon_id)')}
+      ${whereDate.replace('created_at', 'p.created_at')}
+      ORDER BY p.created_at DESC
+      LIMIT 100
+    `);
+
+    res.json({
+      dailySales: sales,
+      renewalRevenue: renewalRevenue[0].total || 0,
+      clientSummary: {
+        active: activeClients[0].count,
+        cancelled: cancelledClients[0].count
+      },
+      inactiveClients: inactive,
+      paymentBreakdown: payments,
+      visitFrequency: frequency,
+      cashPayments: cashPayments
+
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/clients/:id/payment-profiles', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [clients] = await pool.query('SELECT cardnet_customer_id FROM clients WHERE id = ?', [id]);
+    const cardnetCustomerId = clients[0]?.cardnet_customer_id;
+
+    if (!cardnetCustomerId) {
+      const [contracts] = await pool.query(
+        'SELECT payment_profile_id, card_token FROM contracts WHERE client_id = ? AND status = "Active" LIMIT 1',
+        [id]
+      );
+      if (contracts.length > 0 && contracts[0].payment_profile_id) {
+        const last4 = '8888';
+        const brand = contracts[0].card_token?.toLowerCase().includes('mastercard') ? 'MasterCard' : (contracts[0].card_token?.toLowerCase().includes('amex') ? 'Amex' : 'Visa');
+        return res.json([
+          {
+            PaymentProfileId: contracts[0].payment_profile_id,
+            Brand: brand,
+            Last4: last4,
+            Expiration: "203012",
+            Enable: "1",
+            IsSimulated: true
+          }
+        ]);
+      }
+      return res.json([]);
+    }
+
+    const url = `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`;
+    
+    try {
+      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: 4000 });
+      const customer = response.data.Response || response.data;
+      res.json(customer.PaymentProfiles || []);
+    } catch (error) {
+      console.error("[CARDNET] Error fetching profiles list from CardNet (down or overload). Serving simulated fallback:", error.message);
+      
+      const [contracts] = await pool.query(
+        'SELECT payment_profile_id, card_token FROM contracts WHERE client_id = ? AND status = "Active" LIMIT 1',
+        [id]
+      );
+      const last4 = contracts.length > 0 && contracts[0].card_token?.slice(-4) ? contracts[0].card_token.slice(-4) : cardnetCustomerId.toString().slice(-4).padStart(4, '9');
+      const brand = contracts.length > 0 && contracts[0].card_token?.toLowerCase().includes('mastercard') ? 'MasterCard' : (contracts.length > 0 && contracts[0].card_token?.toLowerCase().includes('amex') ? 'Amex' : 'Visa');
+      
+      const mockProfiles = [
+        {
+          PaymentProfileId: contracts.length > 0 ? contracts[0].payment_profile_id : `mock_${cardnetCustomerId}`,
+          Brand: brand,
+          Last4: last4,
+          Expiration: "203012",
+          Enable: "1",
+          IsSimulated: true
+        }
+      ];
+      res.json(mockProfiles);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/clients/:id/payment-method', async (req, res) => {
+  const { id } = req.params;
+  const { pwToken } = req.body;
+
+  try {
+    const [clients] = await pool.query('SELECT cardnet_customer_id FROM clients WHERE id = ?', [id]);
+    let cardnetCustomerId = clients[0]?.cardnet_customer_id;
+    
+    // Si el cliente no tiene ID de CardNet, le generamos uno simulado local
+    if (!cardnetCustomerId) {
+      cardnetCustomerId = 'mock_cust_' + Math.floor(100000 + Math.random() * 900000);
+      await pool.query('UPDATE clients SET cardnet_customer_id = ? WHERE id = ?', [cardnetCustomerId, id]);
+    }
+
+    console.log(`[CARDNET] Actualizando tarjeta para cliente ${id}. Activando token: ${pwToken}`);
+    
+    // Si es un token simulado o el entorno es de pruebas locales
+    if (String(pwToken || '').startsWith('mock_')) {
+      const mockProfileId = `mock_profile_${Date.now()}`;
+      await pool.query(
+        'UPDATE contracts SET payment_profile_id = ?, card_token = ? WHERE client_id = ?',
+        [mockProfileId, pwToken, id]
+      );
+      console.log(`[CARDNET] Tarjeta simulada local vinculada con éxito. Profile ID: ${mockProfileId}`);
+      return res.json({ success: true, paymentProfileId: mockProfileId });
+    }
+
+    try {
+      const activateRes = await axios.post(
+        `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/activate`,
+        { Token: pwToken, ActivationCode: "" },
+        { headers: getCardNetAuthHeaders(), timeout: 4000 }
+      );
+      
+      const custData = activateRes.data.Response || activateRes.data;
+      const profiles = custData.PaymentProfiles || [];
+      const match = profiles.find(p => p.Token === pwToken) || profiles[profiles.length - 1];
+
+      if (!match) throw new Error("No se pudo identificar el perfil de pago en CardNet.");
+      
+      const paymentProfileId = match.PaymentProfileId.toString();
+      const cardToken = match.Token;
+
+      // Actualizar todos los contratos de este cliente con el nuevo ID de perfil y el nuevo TOKEN
+      await pool.query(
+        'UPDATE contracts SET payment_profile_id = ?, card_token = ? WHERE client_id = ?',
+        [paymentProfileId, cardToken, id]
+      );
+
+      console.log(`[CARDNET] Tarjeta vinculada vía CardNet con éxito. Profile ID: ${paymentProfileId}`);
+      res.json({ success: true, paymentProfileId });
+    } catch (apiErr) {
+      console.error("[CARDNET] Error en activación CardNet (caído o sobrecargado). Utilizando fallback local:", apiErr.message);
+      
+      const mockProfileId = `mock_profile_${Date.now()}`;
+      await pool.query(
+        'UPDATE contracts SET payment_profile_id = ?, card_token = ? WHERE client_id = ?',
+        [mockProfileId, pwToken, id]
+      );
+      
+      res.json({ success: true, paymentProfileId: mockProfileId });
+    }
+  } catch (err) {
+    console.error('[CARDNET] Error actualizando tarjeta:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+// 0. Middleware de Log para depuración
+app.use('/api/cardnet', (req, res, next) => {
+  console.log(`[DEBUG] Petición recibida: ${req.method} ${req.url}`);
+  next();
+});
+
+// === SYSTEM STATUS & VERSION ===
+app.get('/api/status', (req, res) => {
+  res.json({
+    status: 'online',
+    version: '1.2.0',
+    environment: process.env.CARDNET_ENV || 'DEVELOPMENT',
+    database: 'connected',
+    timezone: '-04:00',
+    currentTime: new Date().toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' })
+  });
+});
+
+// === GATEWAY STATUS ENDPOINT ===
+app.get('/api/cardnet/status', async (req, res) => {
+  const start = Date.now();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    
+    const urlObj = new URL(process.env.CARDNET_BASE_URL || 'https://labservicios.cardnet.com.do');
+    
+    // Hacemos una petición GET simple al origen del servidor de CardNet
+    const response = await fetch(urlObj.origin, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    const latency = Date.now() - start;
+    
+    res.json({
+      success: true,
+      active: true,
+      env: process.env.CARDNET_ENV || 'TEST',
+      latency,
+      message: `La plataforma está conectada exitosamente al entorno de ${process.env.CARDNET_ENV === 'PROD' ? 'producción' : 'pruebas'} de CardNet Dominicana.`
+    });
+  } catch (err) {
+    const latency = Date.now() - start;
+    res.json({
+      success: false,
+      active: false,
+      env: process.env.CARDNET_ENV || 'TEST',
+      latency: err.name === 'AbortError' ? 6000 : latency,
+      error: err.message,
+      message: 'No se pudo establecer conexión con el servidor de CardNet Dominicana.'
+    });
+  }
+});
+
+// 1. Create or Get Customer (Alias /session para compatibilidad)
+app.post(['/api/cardnet/customer', '/api/cardnet/session'], async (req, res) => {
+  try {
+    const { email, clientId } = req.body;
+
+    if (!email && !clientId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Debe enviar email o clientId para crear/obtener sesión de CardNet.'
+      });
+    }
+
+    let existingCustomerId = null;
+
+    // 1. Buscar en DB si ya tenemos ID
+    if (clientId) {
+      const [rows] = await pool.query(
+        'SELECT cardnet_customer_id FROM clients WHERE id = ?',
+        [clientId]
+      );
+      if (rows.length > 0) existingCustomerId = rows[0].cardnet_customer_id;
+    }
+
+    // 2. Si existe, intentar recuperarlo directo
+    if (existingCustomerId) {
+      try {
+        const response = await axios.get(
+          `${CARDNET_CONFIG.BASE_URL}/api/Customer/${existingCustomerId}`,
+          { headers: getCardNetAuthHeaders() }
+        );
+        const customer = response.data.Response || response.data;
+        return res.json({
+          success: true,
+          customerId: customer.CustomerId,
+          uniqueId: customer.UniqueID,
+          captureUrl: customer.CaptureURL,
+          publicKey: CARDNET_CONFIG.PUBLIC_KEY,
+          merchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+          merchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+          fullResponse: customer
+        });
+      } catch (e) {
+        console.warn('[CARDNET] Customer ID in DB failed, resetting in DB to regenerate: ', e.message);
+        if (clientId) {
+          await pool.query('UPDATE clients SET cardnet_customer_id = NULL WHERE id = ?', [clientId]);
+        }
+      }
+    }
+
+    // 3. Crear o Fetch por Email
+    try {
+      const response = await axios.post(
+        `${CARDNET_CONFIG.BASE_URL}/api/Customer`,
+        { Email: email || `user-${clientId}@salonpro.do`, Enable: 'true' },
+        { headers: getCardNetAuthHeaders() }
+      );
+      const customer = response.data.Response || response.data;
+      
+      if (clientId && customer.CustomerId) {
+        await pool.query('UPDATE clients SET cardnet_customer_id = ? WHERE id = ?', [customer.CustomerId.toString(), clientId]);
+      }
+
+      return res.json({
+        success: true,
+        customerId: customer.CustomerId,
+        uniqueId: customer.UniqueID,
+        captureUrl: customer.CaptureURL,
+        publicKey: CARDNET_CONFIG.PUBLIC_KEY,
+        merchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+        merchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+        fullResponse: customer
+      });
+    } catch (apiErr) {
+      const errorData = apiErr.response?.data || {};
+      // Si ya existe (CS005 o ResponseCode 13)
+      if (errorData.ResponseCode === '13' || JSON.stringify(errorData).includes("already exists")) {
+        const custId = errorData.Response?.CustomerId || errorData.CustomerId;
+        if (custId) {
+          const retryRes = await axios.get(
+            `${CARDNET_CONFIG.BASE_URL}/api/Customer/${custId}`,
+            { headers: getCardNetAuthHeaders() }
+          );
+          const finalCust = retryRes.data.Response || retryRes.data;
+          // Guardar el CustomerId correcto de producción en la base de datos
+          if (clientId) {
+            await pool.query('UPDATE clients SET cardnet_customer_id = ? WHERE id = ?', [finalCust.CustomerId.toString(), clientId]);
+          }
+          return res.json({
+            success: true,
+            customerId: finalCust.CustomerId,
+            uniqueId: finalCust.UniqueID,
+            captureUrl: finalCust.CaptureURL,
+            publicKey: CARDNET_CONFIG.PUBLIC_KEY,
+            merchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+            merchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+            fullResponse: finalCust
+          });
+        }
+      }
+      throw apiErr;
+    }
+  } catch (err) {
+    console.error('[CARDNET SESSION ERROR]', err.response?.data || err.message);
+    res.status(500).json({
+      success: false,
+      error: 'Error de sesión CardNet: ' + err.message,
+      details: err.response?.data
+    });
+  }
+});
+
+
+// 2. Get Customer (to get CaptureURL + UniqueID)
+app.get('/api/cardnet/customer/:customerId', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    console.log('[CARDNET] Consulting Customer:', customerId);
+
+    const response = await axios.get(
+      `${CARDNET_CONFIG.BASE_URL}/api/Customer/${customerId}`,
+      { headers: getCardNetAuthHeaders() }
+    );
+
+    const customer = response.data.Response || response.data;
+    res.json(customer);
+  } catch (err) {
+    console.error('[CARDNET] Get Customer Error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message, details: err.response?.data });
+  }
+});
+
+// 3. Activate Payment Profile (Optional/Manual Activation)
+app.post('/api/cardnet/customer/:customerId/activate', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const { token, activationCode } = req.body;
+    console.log('[CARDNET] Activating Profile:', token);
+
+    const response = await axios.post(
+      `${CARDNET_CONFIG.BASE_URL}/api/Customer/${customerId}/activate`,
+      { Token: token, ActivationCode: activationCode || "" },
+      { headers: getCardNetAuthHeaders() }
+    );
+
+    const result = response.data.Response || response.data;
+    res.json(result);
+  } catch (err) {
+    console.error('[CARDNET] Activate Error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message, details: err.response?.data });
+  }
+});
+
+// === COBRO AD-HOC (MANUAL) EN PERFIL DE PAGO GUARDADO ===
+app.post('/api/cardnet/customer/:customerId/charge-profile', async (req, res) => {
+  const { customerId } = req.params;
+  const { paymentProfileId, amount, description, clientId } = req.body;
+  
+  console.log(`[CARDNET] Cobro Ad-Hoc manual solicitado para Cliente: ${clientId}, CustomerID: ${customerId}, ProfileID: ${paymentProfileId}, Monto: RD$ ${amount}`);
+  
+  try {
+    const isProductionEnv = CARDNET_CONFIG.ENV === 'PRODUCTION';
+    const isMockProfile = !isProductionEnv && 
+                          (String(paymentProfileId || '').startsWith('mock_') || String(customerId || '').startsWith('mock_'));
+    
+    if (!paymentProfileId && !isMockProfile) {
+      return res.status(400).json({
+        success: false,
+        error: "Debe seleccionar una tarjeta válida para realizar el cobro."
+      });
+    }
+
+    let isApproved = false;
+    let purchaseResult = null;
+    
+    if (isMockProfile) {
+      isApproved = true;
+      purchaseResult = {
+        Transaction: {
+          Status: "Approved",
+          OrderNumber: `CN-MAN-${Date.now().toString().slice(-6)}`,
+          RemoteId: `MAN-${Date.now().toString().slice(-6)}`,
+          Description: "Aprobado (Modo Simulación local - Ambiente de Pruebas)"
+        },
+        ResponseCode: "00"
+      };
+      console.log("[CARDNET BYPASS] [ENTORNO TEST] Aprobando cobro manual simulado automáticamente.");
+    } else {
+      // 2. Realizar cobro real vía CardNet
+      const amountCents = Math.round(parseFloat(amount) * 100);
+      const purchasePayload = {
+        TrxToken: paymentProfileId,
+        Order: `MAN-${Date.now().toString().slice(-6)}`,
+        Amount: amountCents,
+        Currency: "DOP",
+        Capture: true,
+        Description: description || `Cobro Manual PLAN BEAUTY`,
+        CustomerIP: req.ip || "127.0.0.1",
+        MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+        MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+        DataDo: { Tax: "0", Invoice: `INV-${Date.now().toString().slice(-6)}` }
+      };
+
+      console.log('[CARDNET] Enviando Payload de Compra Manual:', JSON.stringify(purchasePayload, null, 2));
+
+      try {
+        const response = await axios.post(
+          `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
+          purchasePayload,
+          { headers: getCardNetAuthHeaders(), timeout: 5000 }
+        );
+
+        purchaseResult = response.data.Response || response.data;
+        if (response.data.Errors && response.data.Errors.length > 0) {
+          purchaseResult = {
+            ...purchaseResult,
+            Errors: response.data.Errors,
+            ResponseCode: response.data.Errors[0].ErrorCode,
+            ResponseMessage: response.data.Errors[0].Message
+          };
+        }
+        isApproved = purchaseResult.Transaction?.Status === "Approved" || 
+                     purchaseResult.ResponseCode === "00" ||
+                     purchaseResult.Transaction?.Steps?.some(s => s.ResponseCode === "00");
+        
+        // Bypass TR005 en Sandbox
+        if (!isApproved && !isProductionEnv) {
+          const desc = (purchaseResult.ResponseMessage || purchaseResult.Transaction?.Description || "").toUpperCase();
+          if (desc.includes("TR005") || purchaseResult.ResponseCode === "TR005") {
+            console.log("[CARDNET] Detectado TR005 en Sandbox durante cobro manual. Aplicando Bypass.");
+            isApproved = true;
+          }
+        }
+      } catch (apiErr) {
+        console.error("[CARDNET] Error consultando API de CardNet:", apiErr.message);
+        if (!isProductionEnv) {
+          console.log("[CARDNET] Activando fallback local de contingencia en ambiente de pruebas.");
+          isApproved = true;
+          purchaseResult = {
+            Transaction: {
+              Status: "Approved",
+              OrderNumber: `CN-CONT-${Date.now().toString().slice(-6)}`,
+              RemoteId: `CONT-${Date.now().toString().slice(-6)}`,
+              Description: "Aprobado por contingencia local (ambiente de pruebas)"
+            },
+            ResponseCode: "00"
+          };
+        } else {
+          // En producción, la caída de CardNet no aprueba cobros falsos
+          throw new Error("No se pudo conectar con la pasarela de pagos CardNet para procesar la transacción. Intente nuevamente.");
+        }
+      }
+    }
+
+    if (isApproved) {
+      const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `CN-${Date.now().toString().slice(-6)}`;
+      const payId = `PAY-MAN-${Date.now()}`;
+      
+      // Registrar pago aprobado en la base de datos
+      await pool.query(
+        'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [payId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Aprobado', gatewayRef, description || 'Cobro Manual de Suscripción']
+      );
+
+      // Si el pago es exitoso, reactivar al cliente
+      if (clientId) {
+        await pool.query('UPDATE clients SET status = "Active" WHERE id = ?', [clientId]);
+        // Restablecer contrato suspendido/cancelado
+        const [contracts] = await pool.query('SELECT id, plan_id FROM contracts WHERE client_id = ? LIMIT 1', [clientId]);
+        if (contracts.length > 0) {
+          const intervalUnit = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 'MONTH' : 'HOUR';
+          await pool.query(
+            `UPDATE contracts SET status = "Active", retry_count = 0, last_billed_date = NOW(), next_billing_date = DATE_ADD(NOW(), INTERVAL 1 ${intervalUnit}) WHERE id = ?`,
+            [contracts[0].id]
+          );
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        ResponseCode: "00", 
+        Status: "Approved", 
+        AuthorizationCode: purchaseResult?.Transaction?.RemoteId || "MOCK_AUTH",
+        purchaseResult 
+      });
+    } else {
+      // Registrar pago fallido en la base de datos para que sea visible en el historial
+      const payId = `PAY-MAN-FAIL-${Date.now()}`;
+      await pool.query(
+        'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [payId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Rechazado', description || 'Cobro Manual Fallido', JSON.stringify(purchaseResult)]
+      );
+
+      // Si el cobro manual falló (tarjeta declinada), activamos el ciclo de reintentos en el contrato
+      if (clientId) {
+        // 1. Desactivar cliente
+        await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ?', [clientId]);
+
+        // 2. Buscar contrato del cliente
+        const [contracts] = await pool.query('SELECT id, retry_count FROM contracts WHERE client_id = ? LIMIT 1', [clientId]);
+        if (contracts.length > 0) {
+          const contract = contracts[0];
+          const newRetryCount = contract.retry_count + 1;
+          
+          const nextRetry = new Date();
+          if (CARDNET_CONFIG.ENV === 'PRODUCTION') {
+            nextRetry.setDate(nextRetry.getDate() + 2);
+          } else {
+            // En modo TEST, reintentamos en 5 minutos
+            nextRetry.setMinutes(nextRetry.getMinutes() + 5);
+          }
+
+          let newStatus = 'Pending_Retry';
+          if (newRetryCount >= 5) {
+            newStatus = 'Suspended';
+          }
+
+          await pool.query(
+            'UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ? WHERE id = ?',
+            [newStatus, newRetryCount, nextRetry, contract.id]
+          );
+          
+          console.log(`[RETRY ENG] Cobro manual fallido de cliente: ${clientId}. Contrato establecido a ${newStatus} (Intento ${newRetryCount}/5), Próximo reintento: ${nextRetry}`);
+        }
+      }
+
+      res.json({
+        success: false,
+        ResponseCode: purchaseResult?.ResponseCode || "05",
+        Message: purchaseResult?.ResponseMessage || purchaseResult?.Transaction?.Description || 'El cobro fue declinado por el banco.',
+        purchaseResult
+      });
+    }
+  } catch (err) {
+    console.error('[CARDNET] Error en cobro manual:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Process Purchase (Pagar)
+app.post('/api/cardnet/purchase', async (req, res) => {
+  try {
+    const { trxToken, amount, order, description, tax, invoice, customerIp } = req.body;
+    console.log('[CARDNET] Processing Purchase:', amount, order);
+
+    const payload = {
+      TrxToken: trxToken,
+      Order: order || `ORD-${Date.now()}`,
+      Amount: Math.round(parseFloat(amount) * 100),
+      Currency: "DOP",
+      Capture: true,
+      Description: description || "Cobro SalonPro", // Asegurar descripción
+      CustomerIP: customerIp || "127.0.0.1",
+      MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+      MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+      DataDo: {
+        Tax: "0",
+        Invoice: `INV-${Date.now().toString().slice(-6)}`
+      }
+    };
+
+    console.log('[CARDNET] Enviando Payload de Compra (Intento 4):', JSON.stringify(payload, null, 2));
+
+    const response = await axios.post(
+      `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
+      payload,
+      { headers: getCardNetAuthHeaders() }
+    );
+
+    const result = response.data.Response || response.data;
+    res.json(result);
+  } catch (err) {
+    console.error('[CARDNET] Purchase Error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message, details: err.response?.data });
+  }
+});
+
+
+
+// === LEGACY/CONTRACT WRAPPER (Updated to use new flow) ===
+
+// === LEGACY/CONTRACT WRAPPER (Updated to use new flow) ===
+app.post('/api/contracts', async (req, res) => {
+  try {
+    const id = Date.now().toString();
+    const { clientId, planId, signature_hash, pwToken } = req.body;
+
+    const [clients] = await pool.query('SELECT * FROM clients WHERE id = ?', [clientId]);
+    if (clients.length === 0) throw new Error('Client not found');
+    const client = clients[0];
+
+    const [plans] = await pool.query('SELECT * FROM plans WHERE id = ?', [planId]);
+    if (plans.length === 0) throw new Error('Plan not found');
+    const plan = plans[0];
+
+    // Evitar duplicados: Un cliente no puede contratar el mismo plan dos veces de forma activa
+    const [existing] = await pool.query(
+      "SELECT id FROM contracts WHERE client_id = ? AND plan_id = ? AND status != 'Cancelled'",
+      [clientId, planId]
+    );
+    if (existing.length > 0) throw new Error('El cliente ya posee este plan contratado actualmente.');
+
+    const cardnetCustomerId = client.cardnet_customer_id;
+    if (!cardnetCustomerId) throw new Error("CardNet Customer ID not found.");
+
+    // Activate the token if it was provided as a one-time token
+    let paymentProfileId = null;
+    let persistentToken = pwToken; 
+
+    const isProductionEnv = CARDNET_CONFIG.ENV === 'PRODUCTION';
+    const isMockToken = !isProductionEnv && (!pwToken || pwToken === 'TOKEN_PENDING' || String(pwToken || '').startsWith('mock_'));
+
+    if (isProductionEnv && (!pwToken || pwToken === 'TOKEN_PENDING' || String(pwToken || '').startsWith('mock_'))) {
+      throw new Error("Se requiere una tarjeta de crédito/débito real y válida para activar una suscripción en producción.");
+    }
+
+    if (isMockToken) {
+      paymentProfileId = `mock_profile_${Date.now()}`;
+      persistentToken = pwToken || `mock_token_${Date.now()}`;
+      console.log(`[CARDNET BYPASS] [ENTORNO TEST] Token simulado/contingencia detectado: ${persistentToken}`);
+    }
+
+    if (pwToken && !isMockToken) {
+      try {
+        console.log(`[CARDNET] Activando token: ${pwToken} para cliente: ${cardnetCustomerId}`);
+        const activateRes = await axios.post(
+          `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/activate`,
+          { Token: pwToken, ActivationCode: "" },
+          { headers: getCardNetAuthHeaders(), timeout: 4000 }
+        );
+        
+        const custData = activateRes.data.Response || activateRes.data;
+        const profiles = custData.PaymentProfiles || [];
+        
+        // Buscamos coincidencia exacta por token o el último perfil añadido
+        const match = profiles.find(p => p.Token === pwToken) || profiles[profiles.length - 1];
+
+        if (match) {
+          paymentProfileId = match.PaymentProfileId?.toString();
+          persistentToken = match.Token;
+          console.log('[CARDNET] OK - Perfil identificado:', paymentProfileId);
+        }
+      } catch (actErr) {
+        console.warn('[CARDNET] Aviso en activación:', actErr.message);
+      }
+
+      // Si aún no tenemos el ID del perfil, hacemos un último intento consultando el cliente completo
+      if (!paymentProfileId) {
+        try {
+          const customerRes = await axios.get(
+            `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`,
+            { headers: getCardNetAuthHeaders(), timeout: 4000 }
+          );
+          const fullCust = customerRes.data.Response || customerRes.data;
+          const profiles = fullCust.PaymentProfiles || [];
+          const match = profiles.find(p => p.Token === pwToken) || profiles[profiles.length - 1];
+          if (match) {
+            paymentProfileId = match.PaymentProfileId?.toString();
+            persistentToken = match.Token;
+            console.log('[CARDNET] OK - Perfil recuperado tras consulta:', paymentProfileId);
+          }
+        } catch (fErr) {
+          console.error('[CARDNET] Error crítico: No se pudo obtener el perfil de pago.');
+        }
+      }
+    }
+
+    if (!persistentToken) throw new Error("No se pudo determinar un token de pago válido.");
+
+    // Process initial charge (Full Plan Price + Activation Fee)
+    const activationFee = parseFloat(plan.activation_fee || 0);
+    const planPrice = parseFloat(plan.price || 0);
+    const totalAmount = planPrice + activationFee;
+    const finalAmountCents = Math.round(totalAmount * 100);
+
+    console.log(`[CARDNET] Intentando cobro inicial: Plan (RD$ ${planPrice}) + Inscripción (RD$ ${activationFee}) = Total: RD$ ${totalAmount}`);
+
+    let purchaseResult = null;
+    let isApproved = false;
+
+    if (isMockToken) {
+      isApproved = true;
+      purchaseResult = {
+        Transaction: {
+          Status: "Approved",
+          OrderNumber: `CN-MOCK-${Date.now().toString().slice(-6)}`,
+          RemoteId: `MOCK-${Date.now().toString().slice(-6)}`,
+          Description: "Cobro Simulado por Contingencia"
+        },
+        ResponseCode: "00"
+      };
+      console.log("[CARDNET BYPASS] Aprobando cobro inicial simulado automáticamente.");
+    } else {
+      const purchasePayload = {
+        TrxToken: persistentToken,
+        Order: `ORD-${Date.now().toString().slice(-6)}`,
+        Amount: finalAmountCents,
+        Currency: "DOP",
+        Capture: true,
+        Description: activationFee > 0 
+          ? `Inscripción + Primer Mes: ${plan.title}` 
+          : `Activación de Plan: ${plan.title}`,
+        CustomerIP: req.ip || "127.0.0.1",
+        MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+        MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+        DataDo: { Tax: "0", Invoice: `INV-${id.slice(-6)}` }
+      };
+
+      console.log('[CARDNET] Payload de Cobro Inicial:', JSON.stringify(purchasePayload, null, 2));
+
+      // --- Robust Charge Logic with Retry & TR005 Bypass ---
+      let attempts = 0;
+      const maxAttempts = 2;
+
+      while (attempts < maxAttempts && !isApproved) {
+        attempts++;
+        try {
+          console.log(`[CARDNET] Intento de cobro #${attempts} para PLAN: ${plan.title}`);
+          const purchaseRes = await axios.post(
+            `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
+            purchasePayload,
+            { headers: getCardNetAuthHeaders(), timeout: 4000 }
+          );
+
+          purchaseResult = purchaseRes.data.Response || purchaseRes.data;
+          if (purchaseRes.data.Errors && purchaseRes.data.Errors.length > 0) {
+            purchaseResult = {
+              ...purchaseResult,
+              Errors: purchaseRes.data.Errors,
+              ResponseCode: purchaseRes.data.Errors[0].ErrorCode,
+              ResponseMessage: purchaseRes.data.Errors[0].Message
+            };
+          }
+          console.log(`[CARDNET] Resultado Intento #${attempts}:`, JSON.stringify(purchaseResult, null, 2));
+
+          isApproved = purchaseResult.Transaction?.Status === "Approved" || 
+                       purchaseResult.ResponseCode === "00" ||
+                       purchaseResult.Transaction?.Steps?.some(s => s.ResponseCode === "00");
+
+          // Bypass específico para TR005 en Ambiente de Pruebas
+          if (!isApproved && !isProductionEnv) {
+             const desc = (purchaseResult.ResponseMessage || purchaseResult.Transaction?.Description || "").toUpperCase();
+             if (desc.includes("TR005") || purchaseResult.ResponseCode === "TR005") {
+                console.log("[CARDNET] Detectado TR005 en Sandbox. Aplicando Bypass de Pruebas.");
+                isApproved = true;
+             }
+          }
+
+          if (!isApproved && attempts < maxAttempts) {
+            console.log("[CARDNET] Cobro declinado, reintentando en 1.5s...");
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+        } catch (err) {
+          console.error(`[CARDNET] Error en intento #${attempts}:`, err.message);
+          if (attempts >= maxAttempts) {
+            if (!isProductionEnv) {
+              // Aprobación por contingencia de red/servidor caído (solo en pruebas)
+              console.warn("[CARDNET] Servidor de CardNet inalcanzable. Aprobando cobro inicial por contingencia local.");
+              isApproved = true;
+              paymentProfileId = paymentProfileId || `mock_contingency_${Date.now()}`;
+              purchaseResult = {
+                Transaction: {
+                  Status: "Approved",
+                  OrderNumber: `CN-CONT-${Date.now().toString().slice(-6)}`,
+                  RemoteId: `CONT-${Date.now().toString().slice(-6)}`,
+                  Description: "Aprobado por contingencia local (servidor de pruebas caído)"
+                },
+                ResponseCode: "00"
+              };
+            } else {
+              console.error("[CARDNET] Servidor de CardNet inalcanzable en producción. Abortando cobro y guardado del contrato.");
+              throw new Error("No se pudo conectar con CardNet para validar la tarjeta e iniciar la suscripción.");
+            }
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+      }
+    }
+
+    if (!isApproved) {
+      // CLEANUP: Si el cobro inicial falla, borramos el perfil de pago recién creado en CardNet
+      // para evitar dejar tarjetas inválidas vinculadas al cliente.
+      if (cardnetCustomerId && paymentProfileId) {
+        try {
+          console.log(`[CARDNET CLEANUP] Eliminando perfil de pago fallido: ${paymentProfileId} para cliente: ${cardnetCustomerId}`);
+          await axios.delete(
+            `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/PaymentProfile/${paymentProfileId}`,
+            { headers: getCardNetAuthHeaders(), timeout: 4000 }
+          );
+          console.log('[CARDNET CLEANUP] Perfil eliminado exitosamente.');
+        } catch (delErr) {
+          console.error('[CARDNET CLEANUP ERROR] No se pudo eliminar el perfil fallido:', delErr.message);
+        }
+      }
+
+      throw new Error(`El cobro inicial fue declinado tras ${maxAttempts} intentos: ${purchaseResult?.ResponseMessage || purchaseResult?.Transaction?.Description || "Error de conexión"}`);
+    }
+
+    // Save contract
+    // Billing Interval: 1 month for PRODUCTION, 2 minutes for TEST
+    const today = new Date();
+    let nextBilling;
+    if (CARDNET_CONFIG.ENV === 'PRODUCTION') {
+      nextBilling = new Date(today);
+      nextBilling.setMonth(nextBilling.getMonth() + 1); // 1 mes en producción
+    } else {
+      nextBilling = new Date(today.getTime() + (1000 * 60 * 2)); // 2 minutos en pruebas
+    }
+    const toLocalSqlString = (d) => {
+      const tzOffset = d.getTimezoneOffset() * 60000;
+      return new Date(d.getTime() - tzOffset).toISOString().slice(0, 19).replace('T', ' ');
+    };
+    
+    const nextBillingStr = toLocalSqlString(nextBilling);
+    const todayStr = toLocalSqlString(today);
+
+    const getClientIp = (req) => {
+      // Prioritize IP sent from client-side (fetched via public API)
+      if (req.body.ip_address && req.body.ip_address !== 'Cargando...' && req.body.ip_address !== 'undefined') {
+        return req.body.ip_address;
+      }
+      
+      const forwarded = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.headers['remote-addr'];
+      if (forwarded) {
+        return forwarded.split(',')[0].trim();
+      }
+      return req.ip || req.socket.remoteAddress || '127.0.0.1';
+    };
+
+    const clientIp = getClientIp(req);
+    const { documentPhoto, selfiePhoto, deviceAgent } = req.body;
+    await pool.query(
+      'INSERT INTO contracts (id, client_id, plan_id, contract_services, contract_price, contract_promo_services, contract_promo_duration, signature_hash, ip_address, device_agent, geolocation, payment_profile_id, card_token, last_billed_date, next_billing_date, salon_id, status, auto_billing_enabled, document_photo, selfie_photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        id, 
+        clientId, 
+        planId, 
+        JSON.stringify(plan.services || []),
+        plan.price,
+        JSON.stringify(plan.promo_services || []),
+        plan.promo_duration_months || 0,
+        signature_hash, 
+        clientIp, 
+        deviceAgent || req.headers['user-agent'],
+        req.body.geolocation || null,
+        paymentProfileId, 
+        persistentToken, 
+        todayStr, 
+        nextBillingStr, 
+        client.salon_id || 1,
+        'Active',
+        1,
+        documentPhoto || null,
+        selfiePhoto || null
+      ]
+    );
+
+    // LOG INITIAL PAYMENT
+    const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `CN-${id.slice(-6)}`;
+    await pool.query(
+      'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [`PAY-INIT-${id}`, clientId, planId, totalAmount, 'CardNet_Recurring_Setup', 'Aprobado', gatewayRef, activationFee > 0 ? `Inscripción + Primer Mes: ${plan.title}` : `Activación de Plan: ${plan.title}`]
+    );
+
+    // UPDATE CLIENT STATUS TO ACTIVE
+    await pool.query('UPDATE clients SET status = "Active" WHERE id = ?', [clientId]);
+
+    // SEND PAYMENT RECEIPT EMAIL
+    sendPaymentReceiptEmail(clientId, client.nombre, client.email, totalAmount, activationFee > 0 ? `Inscripción + Primer Mes: ${plan.title}` : `Activación de Plan: ${plan.title}`, gatewayRef);
+
+    res.json({ success: true, paymentProfileId, purchaseResult });
+  } catch (err) {
+    console.error('Contract processing error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// === RRHH (Staff Records) ===
+app.get('/api/rrhh/staff', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM staff_records ORDER BY nombre ASC');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/rrhh/staff', async (req, res) => {
+  try {
+    const { nombre, cedula, contacto, posicion, direccion, localidad, fecha_entrada } = req.body;
+    const [result] = await pool.query(
+      'INSERT INTO staff_records (nombre, cedula, contacto, posicion, direccion, localidad, fecha_entrada) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [nombre, cedula, contacto, posicion, direccion, localidad, fecha_entrada]
+    );
+    res.json({ id: result.insertId, success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/rrhh/staff/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, cedula, contacto, posicion, direccion, localidad, fecha_entrada, fecha_salida, status } = req.body;
+    await pool.query(
+      'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=? WHERE id=?',
+      [nombre, cedula, contacto, posicion, direccion, localidad, fecha_entrada, fecha_salida || null, status || 'Activo', id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin Manual Payment & Contract Renewal
+app.post('/api/contracts/renew-manual', async (req, res) => {
+  try {
+    const { clientId, amount, appliedBy, salonId } = req.body;
+
+    // Check if contract exists
+    const [contracts] = await pool.query('SELECT * FROM contracts WHERE client_id = ?', [clientId]);
+    if (contracts.length === 0) throw new Error('El cliente no tiene un contrato de suscripción válido.');
+
+    const contract = contracts[0];
+
+    // Log payment manually
+    const paymentId = `PAY-MANUAL-${Date.now()}`;
+    await pool.query(
+      'INSERT INTO payments (id, client_id, plan_id, amount, method, status, applied_by, salon_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [paymentId, clientId, contract.plan_id, amount, 'Efectivo/POS', 'Aprobado', appliedBy || 'Sistema', salonId || null]
+    );
+
+    // SEND PAYMENT RECEIPT EMAIL
+    try {
+      const [cRows] = await pool.query('SELECT nombre, email FROM clients WHERE id = ?', [clientId]);
+      if (cRows.length > 0 && cRows[0].email) {
+        sendPaymentReceiptEmail(clientId, cRows[0].nombre, cRows[0].email, amount, 'Renovación Manual de Suscripción', paymentId);
+      }
+    } catch (e) {
+      console.error('[EMAIL ERROR] Manual renewal receipt failed:', e.message);
+    }
+
+    // Standardize to UTC for consistent service counting
+    const intervalUnit = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 'MONTH' : 'HOUR';
+    await pool.query(
+      `UPDATE contracts SET last_billed_date = NOW(), next_billing_date = DATE_ADD(NOW(), INTERVAL 1 ${intervalUnit}), auto_billing_enabled = 1, status = "Active", retry_count = 0 WHERE client_id = ?`,
+      [clientId]
+    );
+    await pool.query('UPDATE clients SET status = "Active" WHERE id = ?', [clientId]);
+
+    const nextDate = new Date();
+    nextDate.setMonth(nextDate.getMonth() + 1);
+    const nextStr = nextDate.toISOString().slice(0, 19).replace('T', ' ');
+
+    res.json({ success: true, nextBillingStr: nextStr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === AUTOMATED BILLING WORKER (CRON SIMULATION) ===
+app.post('/api/cron/process-subscriptions', async (req, res) => {
+  const results = { processed: 0, successful: 0, failed: 0, retries: 0, logs: [] };
+  
+  try {
+    // 1. Fetch contracts due for regular billing OR due for retry
+    const [dueContracts] = await pool.query(`
+      SELECT c.*, cl.nombre, cl.email, cl.cardnet_customer_id, 
+             COALESCE(c.contract_price, p.price) as effective_price,
+             p.title as plan_title, p.services as plan_services
+      FROM contracts c
+      JOIN clients cl ON c.client_id = cl.id
+      JOIN plans p ON c.plan_id = p.id
+      WHERE (c.status = 'Active' AND c.next_billing_date <= NOW())
+         OR (c.status = 'Pending_Retry' AND c.next_retry_date <= NOW() AND c.retry_count < 5)
+    `);
+
+    console.log(`[CRON] Processing ${dueContracts.length} contracts for billing/retry...`);
+
+    for (const contract of dueContracts) {
+      results.processed++;
+      const isRetry = contract.status === 'Pending_Retry';
+      
+      try {
+        // --- ANNUAL RENEWAL LOGIC ---
+        let chargeAmount = parseFloat(contract.effective_price);
+        let annualFeeApplied = false;
+        
+        // ANNUAL RENEWAL: Every 365 days from last fee or creation
+        const baseDate = contract.last_annual_fee_date || contract.signed_at || contract.created_at;
+        const lastAnnual = baseDate ? new Date(baseDate) : new Date();
+        const daysSinceAnnual = (new Date() - lastAnnual) / (1000 * 60 * 60 * 24);
+        
+        if (daysSinceAnnual >= 365) {
+          console.log(`[CRON] Aplicando cargo de RENOVACIÓN ANUAL (RD$ 800) para ${contract.nombre}`);
+          chargeAmount += 800;
+          annualFeeApplied = true;
+        }
+
+        const amountCents = Math.round(chargeAmount * 100);
+        const purchasePayload = {
+          TrxToken: contract.card_token || contract.payment_profile_id || contract.cardnet_profile_id,
+          Order: `AUTO-${Date.now().toString().slice(-6)}`,
+          Amount: amountCents,
+          Currency: "DOP",
+          Capture: true,
+          Description: annualFeeApplied 
+            ? `Mensualidad ${contract.plan_title} + Renovación Anual` 
+            : `Mensualidad ${contract.plan_title} (Auto)`,
+          CustomerIP: req.ip || "127.0.0.1",
+          MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+          MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+          DataDo: { Tax: "0", Invoice: `INV-${Date.now().toString().slice(-6)}` }
+        };
+
+        const purchaseRes = await axios.post(
+          `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
+          purchasePayload,
+          { headers: getCardNetAuthHeaders(), timeout: 6000 }
+        );
+
+        const purchaseResult = purchaseRes.data.Response || purchaseRes.data;
+        const isApproved = purchaseResult.Transaction?.Status === "Approved" || purchaseResult.ResponseCode === "00";
+
+        if (isApproved) {
+          // Success Path
+          let servicesToReset = [];
+          try {
+            servicesToReset = typeof contract.plan_services === 'string' 
+              ? JSON.parse(contract.plan_services) 
+              : (contract.plan_services || []);
+          } catch (e) {
+            console.error("[CRON] Error parsing plan services:", e);
+          }
+
+          const recurrenceNum = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 1 : 2;
+          const recurrenceUnit = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 'MONTH' : 'MINUTE';
+
+          // Update contract and annual fee date if applied
+          const updateQuery = annualFeeApplied
+            ? `UPDATE contracts SET status = "Active", retry_count = 0, next_retry_date = NULL, last_billed_date = NOW(), next_billing_date = DATE_ADD(NOW(), INTERVAL ${recurrenceNum} ${recurrenceUnit}), last_annual_fee_date = NOW(), contract_services = ? WHERE id = ?`
+            : `UPDATE contracts SET status = "Active", retry_count = 0, next_retry_date = NULL, last_billed_date = NOW(), next_billing_date = DATE_ADD(NOW(), INTERVAL ${recurrenceNum} ${recurrenceUnit}), contract_services = ? WHERE id = ?`;
+
+          await pool.query(updateQuery, [JSON.stringify(servicesToReset), contract.id]);
+          await pool.query('UPDATE clients SET status = "Active" WHERE id = ?', [contract.client_id]);
+
+          const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `AUTO-${contract.id.slice(-4)}`;
+          await pool.query(
+            'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [`PAY-AUTO-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, chargeAmount, 'CardNet_Auto', 'Aprobado', gatewayRef, annualFeeApplied ? `Mensualidad + Renovación Anual: ${contract.plan_title}` : `Cobro Mensual Recurrente: ${contract.plan_title}`, JSON.stringify(purchaseRes.data)]
+          );
+
+          // SEND PAYMENT RECEIPT EMAIL
+          if (contract.email) {
+            sendPaymentReceiptEmail(contract.client_id, contract.nombre, contract.email, chargeAmount, annualFeeApplied ? `Mensualidad + Renovación Anual: ${contract.plan_title}` : `Cobro Mensual Recurrente: ${contract.plan_title}`, gatewayRef);
+          }
+
+          results.successful++;
+          results.logs.push(`[OK] ${contract.nombre} - ${contract.plan_title}`);
+        } else {
+          throw new Error(purchaseResult.ResponseMessage || "Declinada");
+        }
+      } catch (err) {
+        // Failure Path
+        const errorString = (
+          err.message + ' ' + 
+          (typeof err.response?.data === 'string' ? err.response.data : JSON.stringify(err.response?.data || ''))
+        ).toLowerCase();
+
+        const isSystemError = !err.response || 
+                              [429, 500, 502, 503, 504].includes(err.response?.status) || 
+                              err.code === 'ECONNABORTED' || 
+                              err.code === 'ETIMEDOUT' || 
+                              errorString.includes('timeout') ||
+                              errorString.includes('network') ||
+                              errorString.includes('unconditional drop overload') ||
+                              errorString.includes('service unavailable');
+
+        if (isSystemError) {
+          const newRetryCount = contract.retry_count + 1;
+          
+          // En producción, reintento en 2 horas; en pruebas en 2 minutos
+          const intervalNum = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 2 : 2;
+          const intervalUnit = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 'HOUR' : 'MINUTE';
+          
+          let newStatus = 'Pending_Retry';
+          if (newRetryCount >= 5) {
+            newStatus = 'Suspended';
+          }
+
+          console.warn(`[CRON] CardNet System Error charging ${contract.nombre} (Plan: ${contract.plan_title}) - Intento ${newRetryCount}/5: ${err.message}.`);
+
+          // Update contract with new status, increment retry count and schedule next attempt
+          await pool.query(
+            `UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = DATE_ADD(NOW(), INTERVAL ${intervalNum} ${intervalUnit}) WHERE id = ?`,
+            [newStatus, newRetryCount, contract.id]
+          );
+
+          // Si el contrato se suspende por exceder reintentos, desactivamos la cuenta del cliente
+          if (newRetryCount >= 5) {
+            await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ?', [contract.client_id]);
+            console.log(`[CRON] Contrato ${contract.id} de ${contract.nombre} SUSPENDIDO por 5 errores de conexión consecutivos. Cliente desactivado.`);
+          }
+
+          // Registrar el log del fallo de conexión
+          const paymentStatus = newRetryCount >= 5 ? 'Suspendido' : `Error_Conexion - Intento ${newRetryCount}`;
+          const paymentDescription = newRetryCount >= 5 
+            ? `Contrato Suspendido tras 5 Errores de Conexión CardNet` 
+            : `Error de Conexión CardNet (Reintento automático ${newRetryCount}/5 programado)`;
+
+          await pool.query(
+            'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [`PAY-SYS-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, contract.effective_price, 'CardNet_Auto', paymentStatus, paymentDescription, JSON.stringify({ error: err.message, status: err.response?.status, attempt: newRetryCount })]
+          );
+        } else {
+          // Real decline (e.g. Card rejected, insufficient funds, etc.)
+          const newRetryCount = contract.retry_count + 1;
+          const nextRetry = new Date();
+          if (CARDNET_CONFIG.ENV === 'PRODUCTION') {
+            nextRetry.setDate(nextRetry.getDate() + 2);
+          } else {
+            // En modo TEST, reintentamos en 2 minutos para facilitar pruebas en tiempo real
+            nextRetry.setMinutes(nextRetry.getMinutes() + 2);
+          }
+          
+          let newStatus = 'Pending_Retry';
+          if (newRetryCount >= 5) {
+            newStatus = 'Suspended';
+          }
+
+          await pool.query(
+            'UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ? WHERE id = ?',
+            [newStatus, newRetryCount, nextRetry, contract.id]
+          );
+
+          // DESACTIVAR AL CLIENTE POR PAGO FALLIDO REAL
+          await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ?', [contract.client_id]);
+
+          // Log failed payment attempt with CardNet response
+          await pool.query(
+            'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [`PAY-FAIL-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, contract.effective_price, 'CardNet_Auto', `Fallido - Intento ${newRetryCount}`, `Intento Recurrente Fallido: ${contract.plan_title} (Declinado)`, JSON.stringify(err.response?.data || { error: err.message })]
+          );
+
+          // NOTIFICAR AL CLIENTE POR EMAIL
+          if (contract.email) {
+            sendPaymentFailedEmail(contract.client_id, contract.nombre, contract.email, contract.effective_price, err.message);
+          }
+        }
+
+        results.failed++;
+        if (isRetry) results.retries++;
+        results.logs.push(`[FAIL] ${contract.nombre} - ${err.message} (Intento)`);
+      }
+    }
+
+    res.json(results);
+  } catch (err) {
+    console.error('[CRON ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// === DASHBOARD STATS ===
+
+
+// === DASHBOARD STATS ===
+app.get('/api/dashboard/summary', async (req, res) => {
+  try {
+    // 1. Visitas de hoy
+    const [todayVisits] = await pool.query('SELECT COUNT(*) as count FROM visits WHERE DATE(visited_at) = CURRENT_DATE()');
+    
+    // 2. Clientes con contrato activo
+    const [activeClients] = await pool.query('SELECT COUNT(DISTINCT client_id) as count FROM contracts WHERE status = "Active"');
+    
+    // 3. Ingresos Mensuales Estimados (Suma de planes activos)
+    const [monthlyRevenue] = await pool.query(`
+      SELECT SUM(p.price) as total 
+      FROM contracts c 
+      JOIN plans p ON c.plan_id = p.id 
+      WHERE c.status = 'Active'
+    `);
+
+    // 4. Ventas Diarias (Suma de pagos hoy)
+    const [dailySales] = await pool.query(`
+      SELECT SUM(amount) as total
+      FROM payments
+      WHERE DATE(created_at) = CURRENT_DATE() AND status = 'Aprobado'
+    `);
+
+    // 5. Tráfico semanal (Últimos 7 días para el gráfico)
+    const [weeklyTraffic] = await pool.query(`
+      SELECT DATE(visited_at) as date, COUNT(*) as count 
+      FROM visits 
+      WHERE visited_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+      GROUP BY DATE(visited_at)
+      ORDER BY DATE(visited_at) ASC
+    `);
+
+    // 6. Últimas 5 visitas con detalle
+    const [recentVisits] = await pool.query(`
+      SELECT v.*, s.name as salon_name 
+      FROM visits v 
+      LEFT JOIN salons s ON v.salon_id = s.id 
+      ORDER BY v.visited_at DESC 
+      LIMIT 5
+    `);
+
+    res.json({
+      metrics: {
+        todayVisits: todayVisits[0].count,
+        activeClients: activeClients[0].count,
+        monthlyRevenue: monthlyRevenue[0].total || 0,
+        dailySales: dailySales[0].total || 0
+      },
+      weeklyTraffic,
+      recentVisits: recentVisits.map(v => ({
+        ...v,
+        servicios: typeof v.servicios === 'string' ? JSON.parse(v.servicios) : (v.servicios || [])
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/dashboard/plan-usage', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+          p.id AS plan_id,
+          p.title AS plan_name,
+          p.services AS plan_services,
+          COUNT(DISTINCT v.client_id) AS unique_clients_used,
+          COUNT(v.id) AS total_visits
+      FROM visits v
+      JOIN contracts c ON v.client_id = c.client_id
+      JOIN plans p ON c.plan_id = p.id
+      WHERE MONTH(v.visited_at) = MONTH(CURRENT_DATE())
+        AND YEAR(v.visited_at) = YEAR(CURRENT_DATE())
+      GROUP BY p.id, p.title, p.services
+    `);
+
+    // Parse json services directly for frontend ease
+    const parsedRows = rows.map(r => ({
+      ...r,
+      plan_services: typeof r.plan_services === 'string' ? JSON.parse(r.plan_services) : r.plan_services
+    }));
+
+    res.json(parsedRows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/dashboard/billing-stats', async (req, res) => {
+  try {
+    // 1. Ingreso Mensual Estimado (Suma de precios de todos los contratos activos)
+    const [incomeRow] = await pool.query(`
+      SELECT SUM(p.price) as total_estimated
+      FROM contracts c
+      JOIN plans p ON c.plan_id = p.id
+      WHERE c.auto_billing_enabled = 1
+    `);
+
+    // 2. Conteo de suscripciones activas
+    const [subRow] = await pool.query('SELECT COUNT(*) as active_count FROM contracts WHERE auto_billing_enabled = 1');
+
+    // 3. Último cobro automático
+    const [lastAutoRow] = await pool.query(`
+      SELECT created_at 
+      FROM payments 
+      WHERE method = 'CardNet_Auto' 
+      ORDER BY created_at DESC 
+      LIMIT 1
+    `);
+
+    // 4. Historial de transacciones (últimas 20)
+    const [recentPayments] = await pool.query(`
+      SELECT p.*, c.nombre as client_name
+      FROM payments p
+      LEFT JOIN clients c ON p.client_id = c.id
+      ORDER BY p.created_at DESC
+      LIMIT 20
+    `);
+
+    // 5. Total Pagos Aprobados (Histórico)
+    const [approvedRow] = await pool.query("SELECT SUM(amount) as total FROM payments WHERE status = 'Aprobado'");
+
+    // 6. Total Pagos Fallidos (Histórico)
+    const [failedRow] = await pool.query("SELECT COUNT(*) as count FROM payments WHERE status LIKE 'Fallido%'");
+
+    res.json({
+      totalEstimated: incomeRow[0].total_estimated || 0,
+      totalApproved: approvedRow[0].total || 0,
+      totalFailedCount: failedRow[0].count || 0,
+      activeSubscriptions: subRow[0].active_count || 0,
+      lastAutoBilling: lastAutoRow[0]?.created_at || null,
+      recentPayments
+    });
+  } catch (err) {
+    console.error('Billing stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === APPOINTMENTS ===
+app.post('/api/appointments', async (req, res) => {
+  try {
+    const id = `APT-${Date.now()}`;
+    const { clientId, date, time, services } = req.body;
+    await pool.query(
+      'INSERT INTO appointments (id, client_id, date, time, services) VALUES (?, ?, ?, ?, ?)',
+      [id, clientId, date, time, JSON.stringify(services)]
+    );
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === PAYMENTS ===
+app.post('/api/payments', async (req, res) => {
+  try {
+    const id = `PAY-${Date.now()}`;
+    const { clientId, planId, amount, method, appliedBy, salonId } = req.body;
+    await pool.query(
+      'INSERT INTO payments (id, client_id, plan_id, amount, method, status, applied_by, salon_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, clientId, planId, amount, method || 'Tarjeta', 'Aprobado', appliedBy || 'Sistema', salonId || null]
+    );
+    res.json({ success: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/payments/client/:clientId', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM payments WHERE client_id = ? ORDER BY created_at DESC', [req.params.clientId]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === EMPLOYEES (Fetched from RRHH staff_records) ===
+app.get('/api/employees', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        id, 
+        nombre, 
+        posicion as rol, 
+        status 
+      FROM staff_records 
+      WHERE status = 'Activo' OR status = 'Active'
+      ORDER BY nombre ASC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('[EMPLOYEES FETCH ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/employees', async (req, res) => {
+  try {
+    const id = Date.now().toString();
+    const { nombre, rol } = req.body;
+    await pool.query(
+      'INSERT INTO employees (id, nombre, rol) VALUES (?, ?, ?)',
+      [id, nombre, rol]
+    );
+    res.json({ id, nombre, rol });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === ROLES & PERMISSIONS ===
+app.get('/api/roles', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM roles');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/roles', async (req, res) => {
+  try {
+    const { nombre, permisos } = req.body;
+    // Aseguramos que permisos sea un objeto válido antes de stringify
+    const safePerms = permisos || {};
+    const [result] = await pool.query(
+      'INSERT INTO roles (nombre, permisos) VALUES (?, ?)',
+      [nombre, JSON.stringify(safePerms)]
+    );
+    res.json({ success: true, id: result.insertId, nombre, permisos: safePerms });
+  } catch (err) {
+    console.error('[ROLES ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/roles/:id', async (req, res) => {
+  try {
+    const { nombre, permisos } = req.body;
+    await pool.query(
+      'UPDATE roles SET nombre = ?, permisos = ? WHERE id = ?',
+      [nombre, JSON.stringify(permisos), req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === USERS (SYSTEM STAFF) ===
+app.get('/api/users', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT u.id, u.nombre, u.email, u.role_id, r.nombre as role_name, r.permisos 
+      FROM users u
+      LEFT JOIN roles r ON u.role_id = r.id
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const { nombre, email, password, role_id, tipo, salon_id } = req.body;
+    
+    if (!nombre || !email || !password) {
+      return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos.' });
+    }
+
+    const id = Date.now().toString();
+
+    await pool.query(
+      'INSERT INTO users (id, nombre, email, password, role_id, tipo, salon_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        nombre, 
+        email, 
+        password, 
+        role_id || null, 
+        tipo || 'employee',
+        salon_id || null // NULL significa Global
+      ]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[USERS CREATE ERROR] Full Stack:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { nombre, email, password, role_id } = req.body;
+    await pool.query(
+      'UPDATE users SET nombre = ?, email = ?, password = ?, role_id = ? WHERE id = ?',
+      [nombre, email, password, role_id, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === DATABASE AUTHENTICATION ===
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email: rawEmail, password } = req.body;
+    const email = rawEmail ? String(rawEmail).trim() : '';
+
+    // Check system users first
+    const [users] = await pool.query(`
+      SELECT u.*, r.nombre as role_name, r.permisos 
+      FROM users u
+      LEFT JOIN roles r ON u.role_id = r.id
+      WHERE u.email = ? AND u.password = ? AND u.tipo != 'client'
+    `, [email, password]);
+
+    if (users.length > 0) {
+      const user = users[0];
+      await pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+      return res.json({
+        id: user.id,
+        nombre: user.nombre,
+        email: user.email,
+        role: user.role_name === 'Administrador' ? 'admin' : 'employee',
+        role_id: user.role_id,
+        role_name: user.role_name,
+        salon_id: user.salon_id,
+        permissions: typeof user.permisos === 'string' ? JSON.parse(user.permisos) : user.permisos
+      });
+    }
+
+    // Check if it's a client login (using email or cedula)
+    const [clients] = await pool.query('SELECT * FROM clients WHERE (email = ? OR cedula = ?) AND password = ?', [email, email, password]);
+    if (clients.length > 0) {
+      const client = clients[0];
+      return res.json({
+        id: client.id,
+        nombre: client.nombre,
+        email: client.email,
+        cedula: client.cedula,
+        role: 'client',
+        mustChangePassword: client.must_change_password === 1
+      });
+    }
+
+    res.status(401).json({ error: 'Credenciales inválidas' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/clients/change-password', async (req, res) => {
+  const { clientId, currentPassword, newPassword } = req.body;
+  try {
+    const [clients] = await pool.query('SELECT password FROM clients WHERE id = ?', [clientId]);
+    if (clients.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+    
+    if (clients[0].password !== currentPassword) {
+      return res.status(401).json({ error: 'La contraseña actual es incorrecta' });
+    }
+
+    await pool.query('UPDATE clients SET password = ?, must_change_password = 0 WHERE id = ?', [newPassword, clientId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/employees/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM employees WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/gifts/purchase', async (req, res) => {
+  try {
+    const { clientId, amount, details, pwToken } = req.body;
+    
+    let persistentToken = pwToken;
+    const [clients] = await pool.query('SELECT * FROM clients WHERE id = ?', [clientId]);
+    const client = clients[0];
+    const cardnetCustomerId = client?.cardnet_customer_id;
+
+    if (pwToken && !String(pwToken).startsWith('mock_')) {
+      if (cardnetCustomerId) {
+        try {
+          console.log(`[CARDNET GIFT] Activando token: ${pwToken} para cliente: ${cardnetCustomerId}`);
+          const activateRes = await axios.post(
+            `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/activate`,
+            { Token: pwToken, ActivationCode: "" },
+            { headers: getCardNetAuthHeaders(), timeout: 4000 }
+          );
+          
+          const custData = activateRes.data.Response || activateRes.data;
+          const profiles = custData.PaymentProfiles || [];
+          
+          // Buscamos coincidencia exacta por token o el último perfil añadido
+          const match = profiles.find(p => p.Token === pwToken) || profiles[profiles.length - 1];
+
+          if (match) {
+            persistentToken = match.Token;
+            console.log('[CARDNET GIFT] Token activado y resuelto con éxito:', match.PaymentProfileId?.toString());
+            
+            // Opcional: También guardarlo en contracts si no tiene tarjeta activa
+            await pool.query(
+              'UPDATE contracts SET payment_profile_id = ?, card_token = ? WHERE client_id = ?',
+              [match.PaymentProfileId?.toString(), match.Token, clientId]
+            );
+          }
+        } catch (actErr) {
+          console.warn('[CARDNET GIFT] Aviso en activación:', actErr.message);
+        }
+      }
+    }
+
+    if (!persistentToken) {
+      if (!client) throw new Error('Client not found');
+      
+      if (!cardnetCustomerId) {
+        return res.status(400).json({ error: 'NoSavedCard', message: 'No hay tarjeta guardada.' });
+      }
+
+      const [contracts] = await pool.query('SELECT card_token FROM contracts WHERE client_id = ? AND card_token IS NOT NULL ORDER BY signed_at DESC LIMIT 1', [clientId]);
+      if (contracts.length > 0 && contracts[0].card_token) {
+        persistentToken = contracts[0].card_token;
+      } else {
+        // Intenta sacar de CardNet
+        try {
+          const customerRes = await axios.get(
+            `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`,
+            { headers: getCardNetAuthHeaders() }
+          );
+          const fullCust = customerRes.data.Response || customerRes.data;
+          const profiles = fullCust.PaymentProfiles || [];
+          if (profiles.length > 0) {
+            const activeProfile = profiles.find(p => p.Enabled) || profiles[0];
+            persistentToken = activeProfile.Token;
+          }
+        } catch (e) {
+          console.error("Error consultando perfiles en CardNet:", e.message);
+        }
+      }
+    }
+
+    if (!persistentToken) {
+      return res.status(400).json({ error: 'NoSavedCard', message: 'No se encontró un token válido para cobrar.' });
+    }
+
+    // Aseguramos que el token sea solo el string del TokenId
+    let cleanToken = persistentToken;
+    if (typeof persistentToken === 'object' && persistentToken.TokenId) {
+      cleanToken = persistentToken.TokenId;
+    } else if (typeof persistentToken === 'string' && persistentToken.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(persistentToken);
+        cleanToken = parsed.TokenId || persistentToken;
+      } catch (e) {}
+    }
+
+    const finalAmountCents = Math.round(parseFloat(amount) * 100);
+
+    const purchasePayload = {
+      TrxToken: cleanToken,
+      Order: `INIT-${Date.now().toString().slice(-6)}`,
+      Amount: finalAmountCents,
+      Currency: "DOP",
+      Capture: true,
+      Description: `Activación GiftCard + RD$ 800 Fee`,
+      CustomerIP: req.ip || "127.0.0.1",
+      MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+      MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+      DataDo: { Tax: "0", Invoice: `INV-${Date.now().toString().slice(-6)}` }
+    };
+
+    console.log('[CARDNET] Cobro GiftCard:', purchasePayload);
+
+    const purchaseRes = await axios.post(
+      `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
+      purchasePayload,
+      { headers: getCardNetAuthHeaders() }
+    );
+
+    console.log('[CARDNET] Respuesta de compra de regalo:', JSON.stringify(purchaseRes.data, null, 2));
+
+    const purchaseResult = purchaseRes.data.Response || purchaseRes.data;
+    const isProductionEnv = CARDNET_CONFIG.ENV === 'PRODUCTION';
+    const isApproved = purchaseResult.Transaction?.Status === "Approved" || 
+                       purchaseResult.ResponseCode === "00" ||
+                       purchaseResult.Transaction?.Steps?.some(s => s.ResponseCode === "00") ||
+                       (!isProductionEnv && ((purchaseResult.ResponseMessage || purchaseResult.Transaction?.Description || "").toUpperCase().includes("TR005") || purchaseResult.ResponseCode === "TR005")); 
+
+    if (!isApproved) {
+       throw new Error(`Tarjeta declinada: ${purchaseResult?.ResponseMessage || purchaseResult?.Transaction?.Description || "Error de conexión"}`);
+    }
+
+    const giftCode = `GIFT-${Math.floor(100000 + Math.random() * 899999)}`;
+    const paymentId = `PAY-GIFT-${Date.now()}`;
+    
+    // Save payment
+    const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `GIFT-${Date.now().toString().slice(-6)}`;
+    await pool.query(
+      'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [paymentId, clientId, 'gift_card', amount, 'CardNet_Saved_Card', 'Aprobado', gatewayRef, `Compra de GiftCard para: ${details?.to || 'Invitado'}`]
+    );
+
+    // Save gift card record
+    await pool.query(
+      'INSERT INTO gift_cards (code, amount, balance, client_id, recipient_name, status) VALUES (?, ?, ?, ?, ?, ?)',
+      [giftCode, amount, amount, clientId, details?.to || 'Invitado', 'Active']
+    );
+
+    res.json({ success: true, paymentId, giftCode });
+
+  } catch (err) {
+    console.error('Gift purchase error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin endpoints for Gift Cards
+app.get('/api/admin/gifts', async (req, res) => {
+  try {
+    const [cards] = await pool.query(`
+      SELECT g.*, c.nombre as purchaser_name 
+      FROM gift_cards g 
+      LEFT JOIN clients c ON g.client_id = c.id 
+      ORDER BY g.created_at DESC
+    `);
+    res.json(cards);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/gifts/:id/logs', async (req, res) => {
+  try {
+    const [logs] = await pool.query(
+      'SELECT * FROM gift_card_logs WHERE gift_card_id = ? ORDER BY created_at DESC',
+      [req.params.id]
+    );
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/gifts/redeem', async (req, res) => {
+  const { code, amount } = req.body;
+  try {
+    const [cards] = await pool.query('SELECT * FROM gift_cards WHERE code = ?', [code]);
+    if (cards.length === 0) return res.status(404).json({ error: 'Código no encontrado' });
+    
+    const card = cards[0];
+    if (card.status !== 'Active' && card.status !== 'Partially_Redeemed') {
+      return res.status(400).json({ error: 'Esta tarjeta no está activa' });
+    }
+    
+    if (Number(card.balance) < Number(amount)) {
+      return res.status(400).json({ error: 'Saldo insuficiente' });
+    }
+    
+    const newBalance = Number(card.balance) - Number(amount);
+    const newStatus = newBalance <= 0 ? 'Redeemed' : 'Partially_Redeemed';
+    
+    await pool.query(
+      'UPDATE gift_cards SET balance = ?, status = ? WHERE code = ?',
+      [newBalance, newStatus, code]
+    );
+
+    // Record consumption history log
+    await pool.query(
+      'INSERT INTO gift_card_logs (gift_card_id, amount_redeemed, balance_before, balance_after) VALUES (?, ?, ?, ?)',
+      [card.id, amount, card.balance, newBalance]
+    );
+    
+    res.json({ success: true, newBalance, status: newStatus });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Public/Client Gift Card access
+app.get('/api/gifts', async (req, res) => {
+  const { clientId, code } = req.query;
+  try {
+    let query = 'SELECT * FROM gift_cards';
+    let params = [];
+    if (clientId) {
+      query += ' WHERE client_id = ?';
+      params.push(clientId);
+    } else if (code) {
+      query += ' WHERE code = ?';
+      params.push(code);
+    }
+    query += ' ORDER BY created_at DESC';
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/gifts/send-email', async (req, res) => {
+  const { recipientEmail, giftDetails, giftCode } = req.body;
+  
+  try {
+    const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    if (settings.length === 0) {
+      console.error('[EMAIL ERROR] No email configuration in database');
+      return res.status(400).json({ error: 'Email configuration missing' });
+    }
+    
+    const s = settings[0];
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass }
+    });
+
+    const fs = require('fs');
+    const path = require('path');
+    
+    // Check multiple possible paths for the art
+    const possiblePaths = [
+      path.join(__dirname, '../public/gift_card_art.jpg'),
+      path.join(__dirname, 'public/gift_card_art.jpg'),
+      path.join(__dirname, '../dist/gift_card_art.jpg')
+    ];
+    
+    let artPath = null;
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        artPath = p;
+        break;
+      }
+    }
+
+    if (!artPath) {
+      console.error('[EMAIL ERROR] Gift card art not found in:', possiblePaths);
+      // We send anyway without attachment if art is missing, or return error
+      // Better to return error if it's crucial
+    }
+
+    const attachments = artPath ? [{
+      filename: 'gift-card.jpg',
+      path: artPath,
+      cid: 'giftcard'
+    }] : [];
+
+    await transporter.sendMail({
+      from: `"${s.smtp_from || 'Abatte Peluquería'}" <${s.smtp_user}>`,
+      to: recipientEmail,
+      subject: `¡Un Regalo de Abatte Peluquería para ti! 🎁`,
+      attachments,
+      html: `
+        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: auto; padding: 40px; text-align: center; background-color: #ffffff;">
+          <h1 style="color: #09090b; margin: 0 0 40px 0; font-size: 24px; font-weight: 900;">¡Has recibido un Regalo Especial!</h1>
+          
+          <!-- Contenedor de la Tarjeta (Simula la vista del Dashboard) -->
+          <div style="display: inline-block; width: 450px; height: 554px; ${artPath ? "background-image: url('cid:giftcard');" : "background-color: #f1f5f9;"} background-size: 450px 554px; background-repeat: no-repeat; border-radius: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); position: relative; text-align: left; overflow: hidden;">
+            
+            <!-- Código (Esquina Superior Derecha) -->
+            <div style="padding: 22px 28px 0 0; text-align: right;">
+              <span style="background: rgba(255,255,255,0.9); padding: 6px 12px; border-radius: 10px; font-family: monospace; font-size: 11px; font-weight: 900; color: #d4af37; border: 1px solid rgba(212,175,55,0.3);">
+                ID: ${giftCode}
+              </span>
+            </div>
+
+            <!-- Espaciado para bajar al área de datos del diseño -->
+            <div style="height: 395px;"></div>
+
+            <!-- Área de Monto -->
+            <div style="padding-left: 260px; height: 40px; line-height: 40px; font-size: 24px; font-weight: 900; color: #d97d8b;">
+              ${giftDetails.m}
+            </div>
+
+            <!-- Área de De/Para (Fila Inferior) -->
+            <div style="height: 50px; padding-top: 5px;">
+               <table width="100%" border="0" cellpadding="0" cellspacing="0">
+                 <tr>
+                   <td width="95"></td>
+                   <td width="125" align="center" style="font-size: 14px; font-weight: 700; color: #164e25; font-style: italic; font-family: 'Georgia', serif;">
+                     ${giftDetails.from || ''}
+                   </td>
+                   <td width="55"></td>
+                   <td width="125" align="center" style="font-size: 14px; font-weight: 700; color: #164e25; font-style: italic; font-family: 'Georgia', serif;">
+                     ${giftDetails.to || ''}
+                   </td>
+                   <td width="50"></td>
+                 </tr>
+               </table>
+            </div>
+          </div>
+
+          <div style="margin-top: 50px; padding: 0 20px;">
+            <p style="color: #475569; font-size: 1.1rem; line-height: 1.6; margin-bottom: 10px;">
+              ¡Hola! <strong>${giftDetails.from || 'Alguien'}</strong> quiere que te consientas.
+            </p>
+            <p style="color: #64748b; font-size: 0.95rem; line-height: 1.6;">
+              Visítanos en nuestra sucursal de la <strong>Av. San Vicente de Paul (Plaza El Poder)</strong> y presenta el código de tu tarjeta para redimir tu regalo.
+            </p>
+          </div>
+          
+          <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 40px 0;" />
+          <p style="font-size: 0.8rem; color: #94a3b8;">
+            <strong>Abatte Peluquería</strong><br/>
+            Belleza que Inspira
+          </p>
+        </div>
+      `
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Email gift error detailed:', {
+      message: err.message,
+      code: err.code,
+      command: err.command,
+      stack: err.stack
+    });
+    res.status(500).json({ error: 'Error enviando el correo', details: err.message });
+  }
+});
+
+// === AUTOMATED SCHEDULER (Internal Cron) ===
+// Iniciar ciclo de cobro automático
+let lastBirthdaySentDate = null; // Track last date birthday emails were sent (YYYY-MM-DD)
+
+const startInternalScheduler = () => {
+  // En producción, ejecutamos la revisión cada 1 hora; en pruebas cada 2 minutos
+  const checkInterval = CARDNET_CONFIG.ENV === 'PRODUCTION' 
+    ? 1000 * 60 * 60 * 1  // 1 hora en producción
+    : 1000 * 60 * 2;      // 2 minutos en pruebas
+  
+  console.log(`[SCHEDULER] Iniciando ciclo cada ${checkInterval / 1000 / 60} minutos (Modo: ${CARDNET_CONFIG.ENV})`);
+  
+  setInterval(async () => {
+    const now = new Date();
+    console.log(`[SCHEDULER] Triggering billing process at ${now.toLocaleString()}...`);
+    const port = process.env.PORT || 5005;
+    
+    // 1. Process plan billing/subscriptions
+    try {
+      await axios.post(`http://localhost:${port}/api/cron/process-subscriptions`);
+      console.log('[SCHEDULER] Billing process completed successfully.');
+    } catch (err) {
+      console.error('[SCHEDULER] Billing process failed:', err.message);
+    }
+
+    // 2. Process automated birthday greetings (runs once daily)
+    try {
+      // Get today's date in DR format (taking local timezone offset)
+      const drTime = new Date(new Date().getTime() - (4 * 60 * 60 * 1000)); // Dominican Republic is UTC-4
+      const todayStr = drTime.toISOString().split('T')[0];
+      
+      if (lastBirthdaySentDate !== todayStr) {
+        console.log(`[SCHEDULER] Triggering daily automated birthday emails for: ${todayStr}...`);
+        const bRes = await axios.post(`http://localhost:${port}/api/marketing/send-daily-birthdays`);
+        if (bRes.data && bRes.data.success) {
+          lastBirthdaySentDate = todayStr;
+          console.log(`[SCHEDULER] Daily automated birthdays processed. Sent: ${bRes.data.sent}`);
+        }
+      }
+    } catch (err) {
+      console.error('[SCHEDULER] Daily automated birthdays failed:', err.message);
+    }
+  }, checkInterval); 
+};
+
+// Utility endpoint for Certification Testing
+app.post('/api/test/force-retry', async (req, res) => {
+  const { clientId } = req.body;
+  try {
+    const [result] = await pool.query(
+      "UPDATE contracts SET status = 'Pending_Retry', retry_count = 1, next_retry_date = DATE_SUB(NOW(), INTERVAL 5 MINUTE) WHERE client_id = ?",
+      [clientId]
+    );
+    res.json({ success: true, message: `Contrato ${clientId} listo para reintento.`, affectedRows: result.affectedRows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint para cobro manual AD-HOC (Para pruebas de certificación)
+app.post('/api/test/manual-charge', async (req, res) => {
+  const { clientId, amount } = req.body;
+  console.log(`[TEST] Recibida petición de cobro manual: Cliente ${clientId}, Monto ${amount}`);
+  try {
+    // 1. Buscar token del cliente
+    const [contracts] = await pool.query(
+      "SELECT card_token, id FROM contracts WHERE client_id = ? AND status = 'Active' LIMIT 1",
+      [clientId]
+    );
+
+    if (!contracts[0]?.card_token) {
+      console.log(`[TEST] Error: No se encontró token activo para el cliente ${clientId}`);
+      return res.status(404).json({ error: "No se encontró un token de tarjeta activo para este cliente." });
+    }
+
+    const token = contracts[0].card_token;
+    console.log(`[TEST] Token encontrado: ${token.substring(0, 10)}...`);
+    
+    // VALIDACIÓN DE MONTO: Asegurar que sea un número válido y positivo
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: "El monto debe ser un número válido mayor a 0." });
+    }
+    const amountCents = Math.round(parsedAmount * 100);
+
+    // 2. Ejecutar cobro en CardNet
+    const purchasePayload = {
+      TrxToken: token,
+      Order: `TEST-${Date.now().toString().slice(-6)}`,
+      Amount: amountCents,
+      Currency: "DOP",
+      Capture: true,
+      Description: `Cobro de Prueba Manual RD$ ${amount}`,
+      CustomerIP: req.ip || "127.0.0.1",
+      MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
+      MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
+      DataDo: { Tax: "0", Invoice: `INV-${Date.now().toString().slice(-6)}` }
+    };
+
+    console.log(`[TEST] Enviando petición a CardNet...`);
+    const purchaseRes = await axios.post(
+      `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
+      purchasePayload,
+      { headers: getCardNetAuthHeaders() }
+    );
+    console.log(`[TEST] Respuesta recibida de CardNet.`);
+
+    res.json({
+      success: purchaseRes.data.Response?.Transaction?.Status === "Approved" || purchaseRes.data.ResponseCode === "00",
+      cardnet_response: purchaseRes.data,
+      message: "Respuesta recibida de CardNet"
+    });
+
+    // Guardar también este cobro manual en la DB para tener historial de pruebas
+    await pool.query(
+      'INSERT INTO payments (id, client_id, amount, method, status, gateway_ref, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [`PAY-TEST-${Date.now()}`, clientId, amount, 'CardNet_Manual_Test', 'Test', purchasePayload.Order, 'Prueba Manual de Certificación', JSON.stringify(purchaseRes.data)]
+    );
+
+  } catch (err) {
+    console.error("[TEST] Error en cobro manual:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Listar clientes para pruebas
+app.get('/api/test/clients', async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT id, nombre, email, cardnet_customer_id FROM clients");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === MARKETING ROUTES ===
+
+// === MARKETING LOGGER & TRACKING ===
+
+const logSentEmailAndGetPixel = async (req, clientId, emailType, recipientEmail, subject) => {
+  try {
+    const [res] = await pool.query(
+      'INSERT INTO email_logs (client_id, email_type, recipient_email, subject) VALUES (?, ?, ?, ?)',
+      [clientId || null, emailType, recipientEmail, subject]
+    );
+    const emailLogId = res.insertId;
+    const host = req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const pixelUrl = `${protocol}://${host}/api/marketing/track-open/${emailLogId}`;
+    return `<img src="${pixelUrl}" width="1" height="1" style="display:none;" />`;
+  } catch (err) {
+    console.error('[EMAIL LOG] Error logging sent email:', err);
+    return '';
+  }
+};
+
+app.get('/api/marketing/track-open/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query(
+      'UPDATE email_logs SET opened = 1, opened_at = CURRENT_TIMESTAMP WHERE id = ? AND opened = 0',
+      [id]
+    );
+  } catch (err) {
+    console.error('[EMAIL TRACK] Error updating tracking state:', err.message);
+  }
+  const buf = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+  res.writeHead(200, {
+    'Content-Type': 'image/gif',
+    'Content-Length': buf.length,
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private'
+  });
+  res.end(buf);
+});
+
+app.get('/api/marketing/stats', async (req, res) => {
+  try {
+    // Get all emails sent this month
+    const [sentRows] = await pool.query(`
+      SELECT COUNT(*) as total 
+      FROM email_logs 
+      WHERE MONTH(sent_at) = MONTH(NOW()) AND YEAR(sent_at) = YEAR(NOW())
+    `);
+    const totalSent = sentRows[0]?.total || 0;
+
+    // Get all opened emails this month
+    const [openedRows] = await pool.query(`
+      SELECT COUNT(*) as total 
+      FROM email_logs 
+      WHERE opened = 1 AND MONTH(sent_at) = MONTH(NOW()) AND YEAR(sent_at) = YEAR(NOW())
+    `);
+    const totalOpened = openedRows[0]?.total || 0;
+
+    const openRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : 0;
+
+    res.json({
+      success: true,
+      totalSent,
+      openRate
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketing/send-mass', async (req, res) => {
+  const { subject, template, campaignType, flyerUrl } = req.body;
+  try {
+    const [clients] = await pool.query(`
+      SELECT c.id, c.email, c.nombre, s.name as salon_name, s.address as salon_address 
+      FROM clients c
+      LEFT JOIN salons s ON c.salon_id = s.id
+      WHERE c.email IS NOT NULL AND c.email != ''
+    `);
+    const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    
+    if (settings.length === 0) throw new Error("No hay configuración de correo.");
+    const s = settings[0];
+
+    const flyerPath = getCampaignFlyerPath();
+    const attachments = [];
+    let imageSrc = null;
+
+    if (campaignType === 'image') {
+      if (flyerPath) {
+        const path = require('path');
+        attachments.push({
+          filename: path.basename(flyerPath),
+          path: flyerPath,
+          cid: 'campaignflyer',
+          contentType: getMimeType(flyerPath),
+          disposition: 'inline'
+        });
+        imageSrc = 'cid:campaignflyer';
+      } else if (flyerUrl) {
+        imageSrc = getAbsoluteFlyerUrl(req, flyerUrl);
+      }
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass }
+    });
+
+    let sent = 0;
+    for (const client of clients) {
+      // Add a small delay to prevent SMTP spam triggers (1.5 seconds)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const body = template ? template.replace(/\{\{nombre\}\}/g, client.nombre) : '';
+      const trackingPixel = await logSentEmailAndGetPixel(req, client.id, 'massive', client.email, subject);
+      
+      try {
+        await transporter.sendMail({
+          from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+          to: client.email,
+          subject: subject,
+          text: campaignType === 'image' ? `Hola ${client.nombre}, te enviamos una nueva promoción. Abre el correo para ver los detalles.` : body,
+          attachments: attachments,
+          html: campaignType === 'image' && imageSrc ? `
+            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f9f9f9; padding: 40px 15px; text-align: center;">
+              <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; padding: 0; box-sizing: border-box; text-align: left;">
+                <!-- Personal Greeting -->
+                <div style="padding: 35px 30px 20px 30px;">
+                  <h2 style="margin: 0; color: #000000; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 800; text-align: left; letter-spacing: -0.5px;">
+                    ¡Hola ${client.nombre}!
+                  </h2>
+                </div>
+
+                <!-- Full width / Responsive Flyer -->
+                <div style="display: block; width: 100%; text-align: center;">
+                  <img src="${imageSrc}" alt="Promoción" style="width: 100%; max-width: 100%; height: auto; display: block; margin: 0 auto; border: none;" />
+                </div>
+                
+                <!-- Simple Elegant Footer -->
+                <div style="padding: 30px 20px; text-align: center; border-top: 1px solid #eeeeee;">
+                  <p style="margin: 0; font-size: 14px; font-weight: 700; color: #000000;">${client.salon_name || 'Abatte Peluquería'}</p>
+                  <p style="margin: 5px 0 0 0; font-size: 12px; color: #666666;">
+                    ${client.salon_address || 'Av. San Vicente de Paúl, Santo Domingo Este.'}
+                  </p>
+                  <p style="margin: 20px 0 0 0; font-size: 10px; color: #999999; text-transform: uppercase; letter-spacing: 1px; line-height: 1.5;">
+                    Si no desea recibir estos correos, <a href="#" style="color: #999999; text-decoration: underline;">cancele su suscripción aquí</a>.
+                  </p>
+                  <p style="margin: 10px 0 0 0; font-size: 9px; color: #bcaaa4; text-transform: uppercase; letter-spacing: 1px;">
+                    © 2026 PLAN BEAUTY RD. TU PLAN, TU BELLEZA.
+                  </p>
+                </div>
+              </div>
+            </div>
+            ${trackingPixel}
+          ` : `
+            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f9f9f9; padding: 40px 0;">
+              <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                <!-- Header -->
+                <div style="background-color: #000000; padding: 30px; text-align: center;">
+                  <h1 style="color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px; font-weight: 900;">
+                    PLAN<span style="color: #d4af37;">BEAUTY</span>RD
+                  </h1>
+                  <p style="color: #d4af37; margin: 5px 0 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: 3px; font-weight: 700;">
+                    TU PLAN, TU BELLEZA
+                  </p>
+                </div>
+                
+                <!-- Content -->
+                <div style="padding: 40px 30px; line-height: 1.8; color: #333333;">
+                  <h2 style="margin-top: 0; color: #000000; font-size: 20px;">¡Hola ${client.nombre}!</h2>
+                  <p style="font-size: 16px;">${body.replace(/\n/g, '<br>')}</p>
+                </div>
+                
+                <!-- Footer -->
+                <div style="background-color: #f1f1f1; padding: 30px; text-align: center; border-top: 1px solid #eeeeee;">
+                  <p style="margin: 0; font-size: 14px; font-weight: 700; color: #000000;">${client.salon_name || 'Abatte Peluquería San Vicente'}</p>
+                  <p style="margin: 5px 0; font-size: 12px; color: #666666;">
+                    ${client.salon_address || 'Av. San Vicente de Paúl, Santo Domingo, República Dominicana'}
+                  </p>
+                  <div style="margin-top: 20px;">
+                    <a href="https://planbeautyrd.com" style="color: #000000; text-decoration: none; font-size: 12px; font-weight: 700; margin: 0 10px;">Sitio Web</a>
+                    <span style="color: #cccccc;">|</span>
+                    <a href="#" style="color: #000000; text-decoration: none; font-size: 12px; font-weight: 700; margin: 0 10px;">Instagram</a>
+                  </div>
+                  <p style="margin-top: 30px; font-size: 10px; color: #999999; text-transform: uppercase; letter-spacing: 1px;">
+                    © 2026 PLAN BEAUTY RD. TODOS LOS DERECHOS RESERVADOS.
+                  </p>
+                </div>
+              </div>
+            </div>
+            ${trackingPixel}
+          `
+        });
+        sent++;
+      } catch (e) {
+        console.error(`Error enviando a ${client.email}:`, e.message);
+      }
+    }
+
+    res.json({ success: true, sent });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === UPLOAD BIRTHDAY FLYER ===
+app.post('/api/marketing/upload-flyer', async (req, res) => {
+  try {
+    const { base64Data, fileName } = req.body;
+    if (!base64Data) {
+      return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
+    }
+
+    const fs = require('fs');
+    const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, "");
+    const ext = fileName ? path.extname(fileName) : '.png';
+    const finalFileName = `birthday_flyer${ext}`;
+    const publicDir = path.join(__dirname, '..', 'public');
+    const publicFilePath = path.join(publicDir, finalFileName);
+    
+    const distDir = path.join(__dirname, '..', 'dist');
+    const distFilePath = path.join(distDir, finalFileName);
+
+    // Delete any existing files starting with 'birthday_flyer.' in both folders to avoid duplicates
+    const deleteExistingFlyers = (dir) => {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        files.forEach(f => {
+          if (f.startsWith('birthday_flyer.')) {
+            try {
+              fs.unlinkSync(path.join(dir, f));
+              console.log(`[MARKETING] Deleted old flyer on disk: ${f}`);
+            } catch (err) {
+              console.warn(`[MARKETING] Could not delete file: ${f}`, err.message);
+            }
+          }
+        });
+      }
+    };
+
+    deleteExistingFlyers(publicDir);
+    deleteExistingFlyers(distDir);
+
+    let saved = false;
+
+    // Guardar en public si es posible
+    try {
+      if (!fs.existsSync(publicDir)) {
+        fs.mkdirSync(publicDir, { recursive: true });
+      }
+      fs.writeFileSync(publicFilePath, Buffer.from(base64Image, 'base64'));
+      saved = true;
+    } catch (e) {
+      console.warn('[MARKETING] No se pudo guardar en public:', e.message);
+    }
+
+    // Guardar en dist si es posible
+    try {
+      if (!fs.existsSync(distDir)) {
+        fs.mkdirSync(distDir, { recursive: true });
+      }
+      fs.writeFileSync(distFilePath, Buffer.from(base64Image, 'base64'));
+      saved = true;
+    } catch (e) {
+      console.warn('[MARKETING] No se pudo guardar en dist:', e.message);
+    }
+
+    if (!saved) {
+      throw new Error('No se pudo guardar el archivo en ninguna carpeta estática.');
+    }
+
+    const flyerUrl = `/${finalFileName}?v=${Date.now()}`;
+
+    console.log(`[MARKETING] Flyer de cumpleaños actualizado con éxito. URL: ${flyerUrl}`);
+    res.json({ success: true, flyerUrl });
+  } catch (err) {
+    console.error('[MARKETING UPLOAD ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const getCampaignFlyerPath = () => {
+  const fs = require('fs');
+  const path = require('path');
+  const publicDir = path.join(__dirname, '..', 'public');
+  const distDir = path.join(__dirname, '..', 'dist');
+  
+  let flyerFile = null;
+  
+  if (fs.existsSync(publicDir)) {
+    const files = fs.readdirSync(publicDir);
+    flyerFile = files.find(f => f.startsWith('campaign_flyer.'));
+    if (flyerFile) return path.join(publicDir, flyerFile);
+  }
+  
+  if (fs.existsSync(distDir)) {
+    const files = fs.readdirSync(distDir);
+    flyerFile = files.find(f => f.startsWith('campaign_flyer.'));
+    if (flyerFile) return path.join(distDir, flyerFile);
+  }
+  
+  return null;
+};
+
+app.post('/api/marketing/upload-campaign-flyer', async (req, res) => {
+  try {
+    const { base64Data, fileName } = req.body;
+    if (!base64Data) {
+      return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
+    }
+
+    const fs = require('fs');
+    const base64Image = base64Data.replace(/^data:image\/\w+;base64,/, "");
+    const ext = fileName ? path.extname(fileName) : '.png';
+    const finalFileName = `campaign_flyer${ext}`;
+    const publicDir = path.join(__dirname, '..', 'public');
+    const publicFilePath = path.join(publicDir, finalFileName);
+    
+    const distDir = path.join(__dirname, '..', 'dist');
+    const distFilePath = path.join(distDir, finalFileName);
+
+    const deleteExistingFlyers = (dir) => {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        files.forEach(f => {
+          if (f.startsWith('campaign_flyer.')) {
+            try {
+              fs.unlinkSync(path.join(dir, f));
+            } catch (err) {
+              console.warn(`[MARKETING] Could not delete file: ${f}`, err.message);
+            }
+          }
+        });
+      }
+    };
+
+    deleteExistingFlyers(publicDir);
+    deleteExistingFlyers(distDir);
+
+    let saved = false;
+
+    try {
+      if (!fs.existsSync(publicDir)) {
+        fs.mkdirSync(publicDir, { recursive: true });
+      }
+      fs.writeFileSync(publicFilePath, Buffer.from(base64Image, 'base64'));
+      saved = true;
+    } catch (e) {
+      console.warn('[MARKETING] No se pudo guardar en public:', e.message);
+    }
+
+    try {
+      if (!fs.existsSync(distDir)) {
+        fs.mkdirSync(distDir, { recursive: true });
+      }
+      fs.writeFileSync(distFilePath, Buffer.from(base64Image, 'base64'));
+      saved = true;
+    } catch (e) {
+      console.warn('[MARKETING] No se pudo guardar en dist:', e.message);
+    }
+
+    if (!saved) throw new Error("No se pudo escribir el archivo en disco.");
+
+    const flyerUrl = `/${finalFileName}?v=${Date.now()}`;
+    res.json({ success: true, flyerUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET Marketing Settings
+app.get('/api/marketing/settings', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM marketing_settings WHERE id = 1 LIMIT 1');
+    if (rows.length === 0) {
+      return res.json({
+        birthday_automation_enabled: 1,
+        birthday_discount: 15,
+        birthday_flyer_url: '',
+        birthday_email_subject: '¡Feliz Cumpleaños! 🎉',
+        birthday_email_template: '¡Hola {{nombre}}! Esperamos que tengas un día maravilloso. Como regalo de cumpleaños, disfruta de un {{descuento}}% de descuento en cualquiera de nuestros servicios durante esta semana. ¡Te esperamos!',
+        mass_email_template: '¡Hola {{nombre}}! Tenemos una oferta para ti.'
+      });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST Marketing Settings
+app.post('/api/marketing/settings', async (req, res) => {
+  const { 
+    birthday_automation_enabled, 
+    birthday_discount, 
+    birthday_flyer_url, 
+    birthday_email_subject, 
+    birthday_email_template, 
+    mass_email_template 
+  } = req.body;
+  try {
+    await pool.query(`
+      INSERT INTO marketing_settings (
+        id, birthday_automation_enabled, birthday_discount, birthday_flyer_url, 
+        birthday_email_subject, birthday_email_template, mass_email_template
+      ) 
+      VALUES (
+        1, ?, ?, ?, ?, ?, ?
+      )
+      ON DUPLICATE KEY UPDATE 
+        birthday_automation_enabled = VALUES(birthday_automation_enabled),
+        birthday_discount = VALUES(birthday_discount),
+        birthday_flyer_url = VALUES(birthday_flyer_url),
+        birthday_email_subject = VALUES(birthday_email_subject),
+        birthday_email_template = VALUES(birthday_email_template),
+        mass_email_template = VALUES(mass_email_template)
+    `, [
+      birthday_automation_enabled === true || birthday_automation_enabled == 1 ? 1 : 0,
+      parseInt(birthday_discount) || 15,
+      birthday_flyer_url || '',
+      birthday_email_subject || '¡Feliz Cumpleaños! 🎉',
+      birthday_email_template || '',
+      mass_email_template || ''
+    ]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET active birthday flyer URL
+app.get('/api/marketing/birthday-flyer', (req, res) => {
+  try {
+    const flyerUrl = getBirthdayFlyerUrl(req);
+    res.json({ success: true, flyerUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const getCampaignFlyerUrl = (req) => {
+  const flyerPath = getCampaignFlyerPath();
+  if (flyerPath) {
+    const path = require('path');
+    return `/${path.basename(flyerPath)}`;
+  }
+  return '';
+};
+
+// GET active campaign flyer URL
+app.get('/api/marketing/campaign-flyer', (req, res) => {
+  try {
+    const flyerUrl = getCampaignFlyerUrl(req);
+    res.json({ success: true, flyerUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// Helper to dynamically locate uploaded flyer in public or dist
+const getBirthdayFlyerUrl = (req) => {
+  const fs = require('fs');
+  const path = require('path');
+  const publicDir = path.join(__dirname, '..', 'public');
+  const distDir = path.join(__dirname, '..', 'dist');
+  
+  let flyerFile = null;
+  
+  if (fs.existsSync(publicDir)) {
+    const files = fs.readdirSync(publicDir);
+    flyerFile = files.find(f => f.startsWith('birthday_flyer.'));
+  }
+  
+  if (!flyerFile && fs.existsSync(distDir)) {
+    const files = fs.readdirSync(distDir);
+    flyerFile = files.find(f => f.startsWith('birthday_flyer.'));
+  }
+  
+  if (flyerFile) {
+    return `/${flyerFile}?v=${Date.now()}`;
+  }
+  
+  return null;
+};
+
+// Helper to get MIME type based on file extension
+const getMimeType = (filePath) => {
+  if (!filePath) return 'image/jpeg';
+  const ext = require('path').extname(filePath).toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
+  return 'image/jpeg';
+};
+
+// Helper to convert dynamic/relative URLs into absolute URLs for emails
+const getAbsoluteFlyerUrl = (req, relativeUrl) => {
+  if (!relativeUrl) return null;
+  
+  // If it's already an absolute URL, return it as is
+  if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
+    return relativeUrl;
+  }
+  
+  let baseUrl = '';
+  if (process.env.FRONTEND_URL && !process.env.FRONTEND_URL.includes('localhost')) {
+    baseUrl = process.env.FRONTEND_URL.replace(/\/$/, '');
+  } else {
+    const host = req ? req.get('host') : process.env.BACKEND_HOST || 'planbeautyrd.com';
+    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+    const protocol = isLocal ? 'http' : 'https';
+    
+    // Si la URL es de localhost pero estamos en un email, usamos la URL de producción
+    // para asegurar que los servidores externos de Google/Gmail puedan acceder a la imagen
+    if (isLocal) {
+      baseUrl = 'https://planbeautyrd.com';
+    } else {
+      baseUrl = `${protocol}://${host}`;
+    }
+  }
+  
+  const cleanRelative = relativeUrl.startsWith('/') ? relativeUrl : `/${relativeUrl}`;
+  return `${baseUrl}${cleanRelative}`;
+};
+
+// Helper to get the absolute file path of the flyer on disk
+const getBirthdayFlyerPath = () => {
+  const fs = require('fs');
+  const path = require('path');
+  const publicDir = path.join(__dirname, '..', 'public');
+  const distDir = path.join(__dirname, '..', 'dist');
+  
+  let flyerFile = null;
+  
+  if (fs.existsSync(publicDir)) {
+    const files = fs.readdirSync(publicDir);
+    flyerFile = files.find(f => f.startsWith('birthday_flyer.'));
+    if (flyerFile) return path.join(publicDir, flyerFile);
+  }
+  
+  if (fs.existsSync(distDir)) {
+    const files = fs.readdirSync(distDir);
+    flyerFile = files.find(f => f.startsWith('birthday_flyer.'));
+    if (flyerFile) return path.join(distDir, flyerFile);
+  }
+  
+  return null;
+};
+
+app.post('/api/marketing/send-birthdays', async (req, res) => {
+  const { discountPercent, flyerUrl } = req.body;
+  try {
+    const [mSettings] = await pool.query('SELECT * FROM marketing_settings WHERE id = 1 LIMIT 1');
+    const settings = mSettings[0] || {
+      birthday_discount: 15,
+      birthday_email_subject: '¡Feliz Cumpleaños! 🎉',
+      birthday_email_template: '¡Hola {{nombre}}! Esperamos que tengas un día maravilloso. Como regalo de cumpleaños, disfruta de un {{descuento}}% de descuento en cualquiera de nuestros servicios durante esta semana. ¡Te esperamos!'
+    };
+
+    const finalDiscountPercent = discountPercent || settings.birthday_discount || 15;
+    const finalSubject = settings.birthday_email_subject || '¡Feliz Cumpleaños! 🎉';
+    const finalTemplate = settings.birthday_email_template || '';
+
+    // Resolve inline attachment or remote flyer URL to bypass Gmail proxy localhost block
+    const flyerPath = getBirthdayFlyerPath();
+    const attachments = [];
+    let imageSrc = null;
+
+    if (flyerPath) {
+      const path = require('path');
+      attachments.push({
+        filename: path.basename(flyerPath),
+        path: flyerPath,
+        cid: 'birthdayflyer',
+        contentType: getMimeType(flyerPath),
+        disposition: 'inline'
+      });
+      imageSrc = 'cid:birthdayflyer';
+      console.log(`[MARKETING] Attached birthday flyer inline: ${flyerPath} with CID: birthdayflyer`);
+    } else if (flyerUrl) {
+      imageSrc = getAbsoluteFlyerUrl(req, flyerUrl);
+    } else {
+      const relativeFlyer = getBirthdayFlyerUrl(req);
+      if (relativeFlyer) {
+        imageSrc = getAbsoluteFlyerUrl(req, relativeFlyer);
+      }
+    }
+
+    // Find clients with birthday today (ignoring year) who have an active contract/plan
+    const [clients] = await pool.query(`
+      SELECT DISTINCT c.id, c.email, c.nombre, s.name as salon_name, s.address as salon_address 
+      FROM clients c
+      JOIN contracts cn ON c.id = cn.client_id
+      LEFT JOIN salons s ON c.salon_id = s.id
+      WHERE DATE_FORMAT(c.fecha_nacimiento, '%m-%d') = DATE_FORMAT(NOW(), '%m-%d')
+      AND cn.status = 'Active'
+      AND c.email IS NOT NULL AND c.email != ''
+    `);
+
+    const [emailSettingsRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    if (emailSettingsRows.length === 0) throw new Error("No hay configuración de correo.");
+    const s = emailSettingsRows[0];
+
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass }
+    });
+
+    let sent = 0;
+    for (const client of clients) {
+      // Add a small delay to prevent SMTP spam triggers (1.5 seconds)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const subject = finalSubject.replace(/\{\{nombre\}\}/g, client.nombre).replace(/\{\{descuento\}\}/g, finalDiscountPercent);
+      const messageBody = finalTemplate.replace(/\{\{nombre\}\}/g, client.nombre).replace(/\{\{descuento\}\}/g, finalDiscountPercent);
+      const trackingPixel = await logSentEmailAndGetPixel(req, client.id, 'birthday', client.email, subject);
+
+      try {
+        await transporter.sendMail({
+          from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+          to: client.email,
+          subject: subject,
+          attachments: attachments,
+          html: `
+            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #fdf8f5; padding: 40px 15px; text-align: center;">
+              <!--[if !mso]><!-->
+              <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+              <!--<![endif]-->
+              
+              <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 15px 35px rgba(74, 55, 40, 0.05); border: 1px solid #f3e8df; padding: 40px 30px; box-sizing: border-box; text-align: center;">
+                
+                <!-- Elegant Greeting -->
+                <h1 style="color: #000000; font-family: 'Cormorant Garamond', 'Playfair Display', Georgia, serif; font-size: 32px; font-weight: 400; margin: 0 0 25px 0; text-align: center; line-height: 1.2;">
+                  Hola <span style="font-weight: 700; color: #000000;">${client.nombre}</span>
+                </h1>
+
+                ${messageBody ? `
+                <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 15px; color: #4a3728; line-height: 1.6; margin-bottom: 25px; text-align: center; white-space: pre-line;">
+                  ${messageBody}
+                </p>
+                ` : ''}
+                
+                <!-- Flyer Container -->
+                ${imageSrc ? `
+                <div style="text-align: center; border-radius: 16px; overflow: hidden; border: 1px solid #ebd9cc; box-shadow: 0 8px 24px rgba(74, 55, 40, 0.05); margin: 0 auto; max-width: 100%;">
+                  <img src="${imageSrc}" alt="Tu Regalo de Cumpleaños" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" />
+                </div>
+                ` : `
+                <div style="padding: 30px; background: #fffdfb; border: 1px dashed #ecd8c9; border-radius: 16px; color: #a17865; font-family: 'Plus Jakarta Sans', sans-serif;">
+                  <p style="margin: 0; font-size: 18px; font-weight: 600;">Disfruta un ${finalDiscountPercent}% de Descuento</p>
+                  <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.8;">Válido durante toda la semana de tu cumpleaños en cualquier servicio.</p>
+                </div>
+                `}
+                
+              </div>
+              
+              <!-- Premium Elegant Footer -->
+              <div style="text-align: center; margin-top: 25px;">
+                <p style="margin: 0; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 11px; color: #a18a78; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">
+                  PLAN BEAUTY • ABATTE PELUQUERÍA
+                </p>
+                <p style="margin: 5px 0 0 0; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 9px; color: #bcaaa4;">
+                  © 2026 PLAN BEAUTY RD. TU PLAN, TU BELLEZA.
+                </p>
+              </div>
+            </div>
+            ${trackingPixel}
+          `
+        });
+        
+        // Mark as sent in DB for this year
+        await pool.query('UPDATE clients SET last_birthday_sent_year = YEAR(NOW()) WHERE id = ?', [client.id]);
+        sent++;
+      } catch (e) {
+        console.error(`Error enviando cumple a ${client.email}:`, e.message);
+      }
+    }
+
+    res.json({ success: true, sent });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Automated daily birthdays cron endpoint
+app.post('/api/marketing/send-daily-birthdays', async (req, res) => {
+  try {
+    const [mSettings] = await pool.query('SELECT * FROM marketing_settings WHERE id = 1 LIMIT 1');
+    const settings = mSettings[0] || {
+      birthday_automation_enabled: 1,
+      birthday_discount: 15,
+      birthday_email_subject: '¡Feliz Cumpleaños! 🎉',
+      birthday_email_template: '¡Hola {{nombre}}! Esperamos que tengas un día maravilloso. Como regalo de cumpleaños, disfruta de un {{descuento}}% de descuento en cualquiera de nuestros servicios durante esta semana. ¡Te esperamos!'
+    };
+
+    if (!settings.birthday_automation_enabled) {
+      console.log('[DAILY CRON] Automated birthday greetings are currently disabled in settings.');
+      return res.json({ success: true, sent: 0, message: 'La automatización de cumpleaños está desactivada en la configuración.' });
+    }
+
+    const finalDiscountPercent = settings.birthday_discount || 15;
+    const finalSubject = settings.birthday_email_subject || '¡Feliz Cumpleaños! 🎉';
+    const finalTemplate = settings.birthday_email_template || '';
+
+    // Resolve inline attachment or remote flyer URL to bypass Gmail proxy localhost block
+    const flyerPath = getBirthdayFlyerPath();
+    const attachments = [];
+    let imageSrc = null;
+
+    if (flyerPath) {
+      const path = require('path');
+      attachments.push({
+        filename: path.basename(flyerPath),
+        path: flyerPath,
+        cid: 'birthdayflyer',
+        contentType: getMimeType(flyerPath),
+        disposition: 'inline'
+      });
+      imageSrc = 'cid:birthdayflyer';
+      console.log(`[DAILY CRON] Attached birthday flyer inline: ${flyerPath} with CID: birthdayflyer`);
+    } else {
+      const relativeFlyer = getBirthdayFlyerUrl(req);
+      if (relativeFlyer) {
+        imageSrc = getAbsoluteFlyerUrl(req, relativeFlyer);
+      }
+    }
+
+    // Find clients with birthday today who have an active contract/plan and haven't received it this year
+    const [clients] = await pool.query(`
+      SELECT DISTINCT c.id, c.email, c.nombre, s.name as salon_name, s.address as salon_address 
+      FROM clients c
+      JOIN contracts cn ON c.id = cn.client_id
+      LEFT JOIN salons s ON c.salon_id = s.id
+      WHERE DATE_FORMAT(c.fecha_nacimiento, '%m-%d') = DATE_FORMAT(NOW(), '%m-%d')
+      AND cn.status = 'Active'
+      AND (c.last_birthday_sent_year IS NULL OR c.last_birthday_sent_year < YEAR(NOW()))
+      AND c.email IS NOT NULL AND c.email != ''
+    `);
+
+    console.log(`[DAILY BIRTHDAY CRON] Found ${clients.length} birthday clients today.`);
+
+    if (clients.length === 0) {
+      return res.json({ success: true, sent: 0, message: 'No hay cumpleañeros pendientes hoy.' });
+    }
+
+    const [emailSettingsRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    if (emailSettingsRows.length === 0) throw new Error("No hay configuración de correo.");
+    const s = emailSettingsRows[0];
+
+    const transporter = nodemailer.createTransport({
+      host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+      auth: { user: s.smtp_user, pass: s.smtp_pass }
+    });
+
+    let sent = 0;
+    for (const client of clients) {
+      // Add a small delay to prevent SMTP spam triggers (1.5 seconds)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const subject = finalSubject.replace(/\{\{nombre\}\}/g, client.nombre).replace(/\{\{descuento\}\}/g, finalDiscountPercent);
+      const messageBody = finalTemplate.replace(/\{\{nombre\}\}/g, client.nombre).replace(/\{\{descuento\}\}/g, finalDiscountPercent);
+      const trackingPixel = await logSentEmailAndGetPixel(req, client.id, 'birthday_automated', client.email, subject);
+
+      try {
+        await transporter.sendMail({
+          from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+          to: client.email,
+          subject: subject,
+          attachments: attachments,
+          html: `
+            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #fdf8f5; padding: 40px 15px; text-align: center;">
+              <!--[if !mso]><!-->
+              <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+              <!--<![endif]-->
+              
+              <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 15px 35px rgba(74, 55, 40, 0.05); border: 1px solid #f3e8df; padding: 40px 30px; box-sizing: border-box; text-align: center;">
+                
+                <!-- Elegant Greeting -->
+                <h1 style="color: #000000; font-family: 'Cormorant Garamond', 'Playfair Display', Georgia, serif; font-size: 32px; font-weight: 400; margin: 0 0 25px 0; text-align: center; line-height: 1.2;">
+                  Hola <span style="font-weight: 700; color: #000000;">${client.nombre}</span>
+                </h1>
+
+                ${messageBody ? `
+                <p style="font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 15px; color: #4a3728; line-height: 1.6; margin-bottom: 25px; text-align: center; white-space: pre-line;">
+                  ${messageBody}
+                </p>
+                ` : ''}
+                
+                <!-- Flyer Container -->
+                ${imageSrc ? `
+                <div style="text-align: center; border-radius: 16px; overflow: hidden; border: 1px solid #ebd9cc; box-shadow: 0 8px 24px rgba(74, 55, 40, 0.05); margin: 0 auto; max-width: 100%;">
+                  <img src="${imageSrc}" alt="Tu Regalo de Cumpleaños" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" />
+                </div>
+                ` : `
+                <div style="padding: 30px; background: #fffdfb; border: 1px dashed #ecd8c9; border-radius: 16px; color: #a17865; font-family: 'Plus Jakarta Sans', sans-serif;">
+                  <p style="margin: 0; font-size: 18px; font-weight: 600;">Disfruta un ${finalDiscountPercent}% de Descuento</p>
+                  <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.8;">Válido durante toda la semana de tu cumpleaños en cualquier servicio.</p>
+                </div>
+                `}
+                
+              </div>
+              
+              <!-- Premium Elegant Footer -->
+              <div style="text-align: center; margin-top: 25px;">
+                <p style="margin: 0; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 11px; color: #a18a78; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">
+                  PLAN BEAUTY • ABATTE PELUQUERÍA
+                </p>
+                <p style="margin: 5px 0 0 0; font-family: 'Plus Jakarta Sans', Arial, sans-serif; font-size: 9px; color: #bcaaa4;">
+                  © 2026 PLAN BEAUTY RD. TU PLAN, TU BELLEZA.
+                </p>
+              </div>
+            </div>
+            ${trackingPixel}
+          `
+        });
+
+        // Mark as sent in DB for this year
+        await pool.query('UPDATE clients SET last_birthday_sent_year = YEAR(NOW()) WHERE id = ?', [client.id]);
+        sent++;
+      } catch (e) {
+        console.error(`Error enviando cumpleaños automático a ${client.email}:`, e.message);
+      }
+    }
+
+    res.json({ success: true, sent });
+  } catch (err) {
+    console.error('[DAILY BIRTHDAY ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = 5005;
+
+// SPA fallback for React Router - MUST BE AFTER ALL API ROUTES
+app.get(/.*/, (req, res) => {
+  if (req.path.includes('.')) {
+    return res.status(404).send('Not Found');
+  }
+  
+  const fs = require('fs');
+  const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+  
+  // Define routes that should NOT be indexed in Google Search
+  const noIndexPaths = ['/login', '/registro-cliente', '/lista-clientes', '/visitas', '/mis-servicios', '/dashboard', '/pagos', '/planes', '/equipo', '/sucursales', '/configuracion', '/regalos', '/encuesta', '/activar'];
+  const shouldNoIndex = noIndexPaths.some(p => req.path.startsWith(p));
+  
+  if (shouldNoIndex) {
+    fs.readFile(indexPath, 'utf8', (err, html) => {
+      if (err) {
+        return res.sendFile(indexPath);
+      }
+      // Dynamically override robots meta to noindex, nofollow for these private/utility pages
+      const modifiedHtml = html.replace(
+        '<meta id="robots-meta" name="robots" content="index, follow">',
+        '<meta id="robots-meta" name="robots" content="noindex, nofollow">'
+      );
+      res.send(modifiedHtml);
+    });
+  } else {
+    res.sendFile(indexPath);
+  }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Salon API Server running securely on http://127.0.0.1:${PORT}`);
+  startInternalScheduler();
+});

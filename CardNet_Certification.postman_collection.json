@@ -1,0 +1,105 @@
+{
+	"info": {
+		"_postman_id": "c6a2d7b4-8e3a-4f1d-b8e1-f6a5b2c3d4e5",
+		"name": "SalonPro CardNet Certification",
+		"description": "Colección para pruebas de certificación con CardNet (Éxito y Código 51)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Disparar Ciclo de Cobro (Cron)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{BASE_URL}}/api/cron/process-subscriptions",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"cron",
+						"process-subscriptions"
+					]
+				},
+				"description": "Este endpoint busca todos los contratos que deben cobrarse hoy y realiza los intentos de pago. Úsalo para probar el flujo completo."
+			},
+			"response": []
+		},
+		{
+			"name": "2. Consultar Historial de Pagos",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{BASE_URL}}/api/payments",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"payments"
+					]
+				},
+				"description": "Usa esto para verificar si el pago se registró como 'Completado' o 'Fallido' y ver el código de respuesta."
+			},
+			"response": []
+		},
+		{
+			"name": "3. Forzar Contrato a Reintento (Simular Fallo)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"clientId\": \"REEMPLAZAR_CON_ID_CLIENTE\"\n}"
+				},
+				"url": {
+					"raw": "{{BASE_URL}}/api/test/force-retry",
+					"host": [
+						"{{BASE_URL}}"
+					],
+					"path": [
+						"api",
+						"test",
+						"force-retry"
+					]
+				},
+				"description": "Este es un endpoint de utilidad para poner un contrato en estado 'Pending_Retry' manualmente."
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_URL",
+			"value": "http://2.24.86.39:5005",
+			"type": "string"
+		}
+	]
+}
