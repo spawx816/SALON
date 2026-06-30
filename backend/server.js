@@ -2952,7 +2952,9 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
           results.successful++;
           results.logs.push(`[OK] ${contract.nombre} - ${contract.plan_title}`);
         } else {
-          throw new Error(purchaseResult.ResponseMessage || "Declinada");
+          const declineError = new Error(purchaseResult.ResponseMessage || "Declinada");
+          declineError.isDecline = true;
+          throw declineError;
         }
       } catch (err) {
         // Failure Path
@@ -2961,14 +2963,16 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
           (typeof err.response?.data === 'string' ? err.response.data : JSON.stringify(err.response?.data || ''))
         ).toLowerCase();
 
-        const isSystemError = !err.response || 
+        const isSystemError = !err.isDecline && (
+                              !err.response || 
                               [429, 500, 502, 503, 504].includes(err.response?.status) || 
                               err.code === 'ECONNABORTED' || 
                               err.code === 'ETIMEDOUT' || 
                               errorString.includes('timeout') ||
                               errorString.includes('network') ||
                               errorString.includes('unconditional drop overload') ||
-                              errorString.includes('service unavailable');
+                              errorString.includes('service unavailable')
+        );
 
         if (isSystemError) {
           const newRetryCount = contract.retry_count + 1;

@@ -276,7 +276,9 @@ const Dashboard = () => {
                   </p>
                 </div>
                 <div className="visit-meta" style={{ textAlign: 'right' }}>
-                  <p className="visit-date" style={{ fontWeight: 800, fontSize: '0.8rem', color: '#09090b' }}>{new Date(visit.visited_at).toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit'})}</p>
+                  <p className="visit-date" style={{ fontWeight: 800, fontSize: '0.8rem', color: '#09090b' }}>
+                    {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit'})}
+                  </p>
                   <p className="visit-status" style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{visit.salon_name || 'Central'}</p>
                 </div>
               </div>
@@ -455,7 +457,7 @@ const Dashboard = () => {
 
                       <div className="visit-time" style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.35rem' }}>
                         <span style={{ display: 'inline-block', padding: '0.25rem 0.6rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}>
-                          {new Date(visit.visited_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                         </span>
                         <span style={{ fontSize: '0.7rem', color: '#8b5cf6', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                           {visit.salon_name || 'SUCURSAL'}
