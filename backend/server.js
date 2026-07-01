@@ -2866,7 +2866,7 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
       JOIN clients cl ON c.client_id = cl.id
       JOIN plans p ON c.plan_id = p.id
       WHERE (c.status = 'Active' AND c.next_billing_date <= NOW())
-         OR (c.status = 'Pending_Retry' AND c.next_retry_date <= NOW() AND c.retry_count < 5)
+         OR (c.status = 'Pending_Retry' AND c.next_retry_date <= NOW() AND c.retry_count < 90)
     `);
 
     console.log(`[CRON] Processing ${dueContracts.length} contracts for billing/retry...`);
@@ -2976,35 +2976,35 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
 
         if (isSystemError) {
           const newRetryCount = contract.retry_count + 1;
-          
-          // En producción, reintento en 2 horas; en pruebas en 2 minutos
-          const intervalNum = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 2 : 2;
-          const intervalUnit = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 'HOUR' : 'MINUTE';
-          
           let newStatus = 'Pending_Retry';
-          if (newRetryCount >= 5) {
+          if (newRetryCount >= 90) {
             newStatus = 'Suspended';
           }
 
-          console.warn(`[CRON] CardNet System Error charging ${contract.nombre} (Plan: ${contract.plan_title}) - Intento ${newRetryCount}/5: ${err.message}.`);
+          console.warn(`[CRON] CardNet System Error charging ${contract.nombre} (Plan: ${contract.plan_title}) - Intento ${newRetryCount}/90: ${err.message}.`);
+
+          const isProductionEnv = CARDNET_CONFIG.ENV === 'PRODUCTION';
+          const nextRetrySql = isProductionEnv
+            ? `CONCAT(DATE(DATE_ADD(NOW(), INTERVAL 1 DAY)), ' 17:00:00')`
+            : `DATE_ADD(NOW(), INTERVAL 2 MINUTE)`;
 
           // Update contract with new status, increment retry count and schedule next attempt
           await pool.query(
-            `UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = DATE_ADD(NOW(), INTERVAL ${intervalNum} ${intervalUnit}) WHERE id = ?`,
+            `UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ${nextRetrySql} WHERE id = ?`,
             [newStatus, newRetryCount, contract.id]
           );
 
           // Si el contrato se suspende por exceder reintentos, desactivamos la cuenta del cliente
-          if (newRetryCount >= 5) {
+          if (newRetryCount >= 90) {
             await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ?', [contract.client_id]);
-            console.log(`[CRON] Contrato ${contract.id} de ${contract.nombre} SUSPENDIDO por 5 errores de conexión consecutivos. Cliente desactivado.`);
+            console.log(`[CRON] Contrato ${contract.id} de ${contract.nombre} SUSPENDIDO por 90 errores de conexión consecutivos. Cliente desactivado.`);
           }
 
           // Registrar el log del fallo de conexión
-          const paymentStatus = newRetryCount >= 5 ? 'Suspendido' : `Error_Conexion - Intento ${newRetryCount}`;
-          const paymentDescription = newRetryCount >= 5 
-            ? `Contrato Suspendido tras 5 Errores de Conexión CardNet` 
-            : `Error de Conexión CardNet (Reintento automático ${newRetryCount}/5 programado)`;
+          const paymentStatus = newRetryCount >= 90 ? 'Suspendido' : `Error_Conexion - Intento ${newRetryCount}`;
+          const paymentDescription = newRetryCount >= 90 
+            ? `Contrato Suspendido tras 90 Errores de Conexión CardNet` 
+            : `Error de Conexión CardNet (Reintento automático ${newRetryCount}/90 programado)`;
 
           await pool.query(
             'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -3013,22 +3013,21 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
         } else {
           // Real decline (e.g. Card rejected, insufficient funds, etc.)
           const newRetryCount = contract.retry_count + 1;
-          const nextRetry = new Date();
-          if (CARDNET_CONFIG.ENV === 'PRODUCTION') {
-            nextRetry.setDate(nextRetry.getDate() + 2);
-          } else {
-            // En modo TEST, reintentamos en 2 minutos para facilitar pruebas en tiempo real
-            nextRetry.setMinutes(nextRetry.getMinutes() + 2);
-          }
-          
           let newStatus = 'Pending_Retry';
-          if (newRetryCount >= 5) {
+          if (newRetryCount >= 90) {
             newStatus = 'Suspended';
           }
 
+          console.warn(`[CRON] CardNet Real Decline charging ${contract.nombre} (Plan: ${contract.plan_title}) - Intento ${newRetryCount}/90: ${err.message}.`);
+
+          const isProductionEnv = CARDNET_CONFIG.ENV === 'PRODUCTION';
+          const nextRetrySql = isProductionEnv
+            ? `CONCAT(DATE(DATE_ADD(NOW(), INTERVAL 1 DAY)), ' 17:00:00')`
+            : `DATE_ADD(NOW(), INTERVAL 2 MINUTE)`;
+
           await pool.query(
-            'UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ? WHERE id = ?',
-            [newStatus, newRetryCount, nextRetry, contract.id]
+            `UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ${nextRetrySql} WHERE id = ?`,
+            [newStatus, newRetryCount, contract.id]
           );
 
           // DESACTIVAR AL CLIENTE POR PAGO FALLIDO REAL
@@ -3040,8 +3039,8 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
             [`PAY-FAIL-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, contract.effective_price, 'CardNet_Auto', `Fallido - Intento ${newRetryCount}`, `Intento Recurrente Fallido: ${contract.plan_title} (Declinado)`, JSON.stringify(err.response?.data || { error: err.message })]
           );
 
-          // NOTIFICAR AL CLIENTE POR EMAIL
-          if (contract.email) {
+          // NOTIFICAR AL CLIENTE POR EMAIL (solo en el primer intento para evitar spam diario)
+          if (contract.email && newRetryCount === 1) {
             sendPaymentFailedEmail(contract.client_id, contract.nombre, contract.email, contract.effective_price, err.message);
           }
         }
