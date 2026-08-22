@@ -40,6 +40,8 @@ const VisitRecorder = () => {
 
   // Modals & Client Search for Ticket Generation
   const [showNewTicketModal, setShowNewTicketModal] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printableTicketData, setPrintableTicketData] = useState(null);
   const [allClients, setAllClients] = useState([]);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [selectedClientForTicket, setSelectedClientForTicket] = useState(null);
@@ -141,12 +143,23 @@ const VisitRecorder = () => {
       setSelectedClientForTicket(null);
       await fetchPendingTickets();
 
+      // Trigger Physical Ticket Print Layout
+      setPrintableTicketData({
+        ticketNumber: res.ticketNumber,
+        salonName: res.salonName || 'Sucursal San Vicente de Paúl',
+        clientName: finalName,
+        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
+      });
+      setShowPrintModal(true);
+
       // Automatically open the newly created ticket
       const newTicketObj = {
         id: res.id,
         ticket_number: res.ticketNumber,
+        salon_name: res.salonName || 'Sucursal San Vicente de Paúl',
         client_id: clientId,
         client_name: finalName,
+        visited_at: new Date().toISOString(),
         servicios: [],
         status: 'Pendiente'
       };
@@ -466,23 +479,23 @@ const VisitRecorder = () => {
                     }}
                     className="hover-lift"
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem', alignItems: 'center' }}>
                       <span style={{ fontWeight: 800, fontSize: '0.85rem', color: '#be185d' }}>
-                        {t.ticket_number || `#${t.id.slice(-4)}`}
+                        🎫 {t.ticket_number || `#${t.id.slice(-4)}`}
                       </span>
-                      <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
-                        En Proceso
+                      <span style={{ fontSize: '0.7rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '12px', fontWeight: 800 }}>
+                        PENDIENTE DE FACTURAR
                       </span>
                     </div>
-                    <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
-                      {t.client_name}
+                    <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
+                      👤 {t.client_name}
                     </h4>
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                      {Array.isArray(t.servicios) ? t.servicios.join(', ') : 'Servicios generales'}
+                    <p style={{ margin: '0 0 0.35rem', fontSize: '0.75rem', color: '#ec4899', fontWeight: 700 }}>
+                      📍 {t.salon_name || 'Sucursal San Vicente de Paúl'}
                     </p>
-                    <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#94a3b8' }}>
-                      <span>{new Date(t.visited_at).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}</span>
-                      <ChevronRight size={16} style={{ color: '#ec4899' }} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#64748b', borderTop: '1px dashed #e2e8f0', paddingTop: '0.4rem', marginTop: '0.4rem' }}>
+                      <span>🕒 {new Date(t.visited_at).toLocaleDateString('es-DO')} {new Date(t.visited_at).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <ChevronRight size={16} style={{ color: '#be185d' }} />
                     </div>
                   </div>
                 ))}
@@ -955,6 +968,59 @@ const VisitRecorder = () => {
                 style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#10b981', color: '#ffffff', fontWeight: 800 }}
               >
                 Confirmar Consumo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO (HOMOLOGADO AL SALÓN) */}
+      {showPrintModal && printableTicketData && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '420px', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ border: '2px dashed #ec4899', padding: '1.25rem', borderRadius: '12px', background: '#fffdfd', textAlign: 'center', marginBottom: '1.25rem' }}>
+              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#be185d', letterSpacing: '-0.5px' }}>
+                PLAN BEAUTY <span>SALON PRO</span>
+              </h2>
+              <p style={{ margin: '0.2rem 0 0.75rem', fontSize: '0.75rem', fontWeight: 700, color: '#ec4899', textTransform: 'uppercase' }}>
+                📍 {printableTicketData.salonName}
+              </p>
+
+              <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'left', fontSize: '0.85rem' }}>
+                <p style={{ margin: '0 0 0.25rem' }}><strong>🎫 Secuencia Ticket:</strong> <span style={{ color: '#be185d', fontWeight: 800 }}>{printableTicketData.ticketNumber}</span></p>
+                <p style={{ margin: '0 0 0.25rem' }}><strong>👤 Cliente:</strong> {printableTicketData.clientName}</p>
+                <p style={{ margin: '0 0 0.25rem' }}><strong>🕒 Fecha y Hora:</strong> {printableTicketData.createdAt}</p>
+                <p style={{ margin: 0, color: '#92400e', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, display: 'inline-block', marginTop: '0.25rem' }}>
+                  ⏳ Estado: Permanece en Tickets Pendientes hasta facturación
+                </p>
+              </div>
+
+              <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b', textAlign: 'left' }}>
+                <strong style={{ display: 'block', marginBottom: '0.25rem', color: '#334155' }}>📋 Casillas de Servicios (Para Estilistas / Lavado):</strong>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.7rem' }}>
+                  <span>[ ] Lavado y Secado</span>
+                  <span>[ ] Corte de Puntas</span>
+                  <span>[ ] Tinte Completo</span>
+                  <span>[ ] Penetratti</span>
+                  <span>[ ] Manicura / Pedicura</span>
+                  <span>[ ] Peinado / Otros</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                onClick={() => setShowPrintModal(false)}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={() => window.print()}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+              >
+                <Printer size={16} />
+                <span>Imprimir Ticket</span>
               </button>
             </div>
           </div>

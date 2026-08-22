@@ -1104,10 +1104,14 @@ app.post('/api/visits/ticket', async (req, res) => {
     const { clientId, clientName, servicios, empleadoPeluquera, empleadoLavaPelo, empleadoManicurista, salon_id } = req.body;
     const sId = salon_id || 1;
 
+    // Get branch name
+    const [salonRows] = await pool.query("SELECT name FROM salons WHERE id = ?", [sId]);
+    const salonName = salonRows[0]?.name || 'Sucursal San Vicente de Paúl';
+
     // Generate sequence ticket number for branch
     const [countRows] = await pool.query("SELECT COUNT(*) as cnt FROM visits WHERE salon_id = ?", [sId]);
     const seqNum = (countRows[0].cnt + 1).toString().padStart(4, '0');
-    const ticketNumber = `TICK-${sId}-${seqNum}`;
+    const ticketNumber = `SD-${seqNum}`;
 
     await pool.query(
       `INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, status, ticket_number, visited_at)
@@ -1115,7 +1119,7 @@ app.post('/api/visits/ticket', async (req, res) => {
       [id, clientId || 'INVITADO', clientName || 'Cliente General', JSON.stringify(servicios || []), empleadoPeluquera || 'N/A', empleadoLavaPelo || 'N/A', empleadoManicurista || 'N/A', sId, ticketNumber]
     );
 
-    res.json({ id, ticketNumber, success: true });
+    res.json({ id, ticketNumber, salonName, clientName: clientName || 'Cliente General', createdAt: new Date().toISOString(), success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
