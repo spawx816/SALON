@@ -1,32 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Percent, DollarSign, Calendar, User, Filter, CheckCircle2, Clock, 
-  CreditCard, Search, ArrowRight, ShieldCheck, Download, Plus, FileText, CheckSquare, Square
+  Search, ShieldCheck, Plus, FileText, Tag, Sparkles
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
 const CommissionManagement = () => {
   const [commissions, setCommissions] = useState([]);
-  const [metrics, setMetrics] = useState({ totalGenerado: 0, totalPendiente: 0, totalPagado: 0, count: 0 });
+  const [metrics, setMetrics] = useState({ totalGenerado: 0, count: 0 });
   const [employees, setEmployees] = useState([]);
-  const [payouts, setPayouts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState('pendientes'); // 'pendientes' | 'liquidaciones' | 'reglas'
+  const [activeTab, setActiveTab] = useState('registro'); // 'registro' | 'reglas'
 
   // Filters
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState('');
-  const [statusFilter, setStatusFilter] = useState('Todos');
   const [serviceSearch, setServiceSearch] = useState('');
-
-  // Selection for Payout
-  const [selectedCommissions, setSelectedCommissions] = useState([]);
-  const [showPayoutModal, setShowPayoutModal] = useState(false);
-  const [payoutMethod, setPayoutMethod] = useState('Efectivo');
-  const [payoutNotes, setPayoutNotes] = useState('');
 
   // Rules Config State
   const [rules, setRules] = useState([]);
@@ -38,9 +30,8 @@ const CommissionManagement = () => {
   useEffect(() => {
     loadEmployees();
     loadCommissions();
-    loadPayouts();
     loadRules();
-  }, [startDate, endDate, selectedEmployee, statusFilter, serviceSearch]);
+  }, [startDate, endDate, selectedEmployee, serviceSearch]);
 
   const loadEmployees = async () => {
     try {
@@ -58,25 +49,15 @@ const CommissionManagement = () => {
       if (startDate) params.start_date = startDate;
       if (endDate) params.end_date = endDate;
       if (selectedEmployee) params.employee_id = selectedEmployee;
-      if (statusFilter !== 'Todos') params.status = statusFilter;
       if (serviceSearch) params.service_name = serviceSearch;
 
       const res = await dataService.getCommissions(params);
       setCommissions(res.commissions || []);
-      setMetrics(res.metrics || { totalGenerado: 0, totalPendiente: 0, totalPagado: 0, count: 0 });
+      setMetrics(res.metrics || { totalGenerado: 0, count: 0 });
     } catch (e) {
       console.error('Error cargando comisiones:', e);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadPayouts = async () => {
-    try {
-      const data = await dataService.getCommissionPayouts();
-      setPayouts(data || []);
-    } catch (e) {
-      console.error('Error cargando historial de liquidaciones:', e);
     }
   };
 
@@ -88,66 +69,6 @@ const CommissionManagement = () => {
         setRules(data || []);
       }
     } catch (e) {}
-  };
-
-  const toggleSelectCommission = (id) => {
-    if (selectedCommissions.includes(id)) {
-      setSelectedCommissions(selectedCommissions.filter(item => item !== id));
-    } else {
-      setSelectedCommissions([...selectedCommissions, id]);
-    }
-  };
-
-  const toggleSelectAll = () => {
-    const pendingIds = commissions.filter(c => c.status === 'Pendiente').map(c => c.id);
-    if (selectedCommissions.length === pendingIds.length && pendingIds.length > 0) {
-      setSelectedCommissions([]);
-    } else {
-      setSelectedCommissions(pendingIds);
-    }
-  };
-
-  const handleProcessPayout = async (e) => {
-    e.preventDefault();
-    if (selectedCommissions.length === 0) {
-      alert('Por favor selecciona al menos una comisión pendiente.');
-      return;
-    }
-
-    // Identify target employee
-    const selectedItems = commissions.filter(c => selectedCommissions.includes(c.id));
-    const targetEmpId = selectedItems[0].employee_id;
-    const targetEmpName = selectedItems[0].employee_name;
-
-    // Verify all selected items belong to the same employee
-    const multiEmp = selectedItems.some(c => c.employee_id !== targetEmpId);
-    if (multiEmp) {
-      alert('Para procesar un pago de comisión, todas las líneas seleccionadas deben pertenecer al mismo colaborador.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await dataService.processCommissionPayout({
-        employee_id: targetEmpId,
-        employee_name: targetEmpName,
-        commission_ids: selectedCommissions,
-        metodo_pago: payoutMethod,
-        notas: payoutNotes,
-        usuario_liquidador: 'Administrador'
-      });
-
-      alert(res.message || '✅ Liquidación registrada exitosamente.');
-      setShowPayoutModal(false);
-      setSelectedCommissions([]);
-      setPayoutNotes('');
-      await loadCommissions();
-      await loadPayouts();
-    } catch (err) {
-      alert('Error procesando liquidación: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleSaveRule = async (e) => {
@@ -170,7 +91,7 @@ const CommissionManagement = () => {
         tipo_comision: ruleType,
         comision_valor: val
       });
-      alert(res.message || '✅ Regla guardada exitosamente.');
+      alert(res.message || '✅ Regla de comisión guardada exitosamente.');
       setRuleValue('');
       await loadRules();
     } catch (e) {
@@ -180,9 +101,8 @@ const CommissionManagement = () => {
     }
   };
 
-  // Selected totals for Payout modal
-  const selectedItemsList = commissions.filter(c => selectedCommissions.includes(c.id));
-  const selectedTotalAmount = selectedItemsList.reduce((sum, item) => sum + Number(item.monto_comision), 0);
+  // Unique employee count with commissions
+  const uniqueEmpsCount = new Set(commissions.map(c => c.employee_id)).size;
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem' }}>
@@ -191,65 +111,49 @@ const CommissionManagement = () => {
       <div style={{ background: '#0f172a', color: '#ffffff', padding: '1.5rem 2rem', borderRadius: '20px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 10px 25px -5px rgba(15,23,42,0.3)' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.25rem' }}>
-            <Percent size={24} style={{ color: '#be185d' }} />
+            <Percent size={24} style={{ color: '#ec4899' }} />
             <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.5px' }}>
-              Módulo de Comisiones y Liquidación a Colaboradores
+              Módulo de Comisiones por Colaborador
             </h1>
           </div>
           <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
-            Cálculo automático en facturación POS, control por colaborador y registro de pagos de nómina.
+            Cálculo automático de comisiones por servicio realizado al momento de facturar en POS.
           </p>
         </div>
-
-        {selectedCommissions.length > 0 && (
-          <button
-            onClick={() => setShowPayoutModal(true)}
-            style={{
-              background: '#166534', color: '#ffffff', border: 'none', padding: '0.75rem 1.5rem',
-              borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(22,101,52,0.3)'
-            }}
-            className="hover-lift"
-          >
-            <DollarSign size={18} />
-            <span>Liquidación Seleccionada (RD$ {selectedTotalAmount.toFixed(2)})</span>
-          </button>
-        )}
       </div>
 
       {/* METRICS SUMMARY CARDS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem' }}>
           <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>💰 TOTAL COMISIONES GENERADAS</span>
-          <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a', marginTop: '0.25rem' }}>
+          <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#166534', marginTop: '0.25rem' }}>
             RD$ {metrics.totalGenerado.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
           </div>
-          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{metrics.count} registros evaluados</span>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Generadas automáticamente por POS</span>
         </div>
 
-        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '16px', padding: '1.25rem' }}>
-          <span style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 800, textTransform: 'uppercase' }}>🟡 PENDIENTE DE LIQUIDACIÓN</span>
-          <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#d97706', marginTop: '0.25rem' }}>
-            RD$ {metrics.totalPendiente.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem' }}>
+          <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>👤 COLABORADORES CON COMISIÓN</span>
+          <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', marginTop: '0.25rem' }}>
+            {uniqueEmpsCount} Colaboradores
           </div>
-          <span style={{ fontSize: '0.75rem', color: '#b45309' }}>Elegible para pago de nómina</span>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Con servicios realizados en el período</span>
         </div>
 
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '16px', padding: '1.25rem' }}>
-          <span style={{ fontSize: '0.75rem', color: '#15803d', fontWeight: 800, textTransform: 'uppercase' }}>🟢 COMISIONES LIQUIDADAS (PAGADAS)</span>
-          <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#166534', marginTop: '0.25rem' }}>
-            RD$ {metrics.totalPagado.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem' }}>
+          <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>📋 SERVICIOS REGISTRADOS</span>
+          <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#be185d', marginTop: '0.25rem' }}>
+            {metrics.count} Servicios
           </div>
-          <span style={{ fontSize: '0.75rem', color: '#166534' }}>Pagadas con recibo emitido</span>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Líneas de servicio facturadas</span>
         </div>
       </div>
 
       {/* NAVIGATION TABS */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', background: '#e2e8f0', padding: '4px', borderRadius: '12px', width: 'fit-content' }}>
         {[
-          { id: 'pendientes', label: '📋 Registro de Comisiones' },
-          { id: 'liquidaciones', label: '🟢 Historial de Liquidaciones / Pagos' },
-          { id: 'reglas', label: '⚙️ Reglas Específicas por Empleado' }
+          { id: 'registro', label: '📋 Registro de Comisiones Generadas' },
+          { id: 'reglas', label: '⚙️ Configuración de Reglas por Empleado' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -272,7 +176,7 @@ const CommissionManagement = () => {
       </div>
 
       {/* TAB 1: REGISTRO Y FILTROS DE COMISIONES */}
-      {activeTab === 'pendientes' && (
+      {activeTab === 'registro' && (
         <div>
           {/* FILTERS TOOLBAR */}
           <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
@@ -313,19 +217,6 @@ const CommissionManagement = () => {
               </select>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Estado:</span>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                style={{ padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
-              >
-                <option value="Todos">Todos</option>
-                <option value="Pendiente">🟡 Pendientes</option>
-                <option value="Pagado">🟢 Liquidadas / Pagadas</option>
-              </select>
-            </div>
-
             <div style={{ flex: 1, minWidth: '200px' }}>
               <input
                 type="text"
@@ -351,33 +242,18 @@ const CommissionManagement = () => {
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>
-                    <th style={{ padding: '0.75rem 1rem', width: '40px' }}>
-                      <button onClick={toggleSelectAll} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
-                        {selectedCommissions.length > 0 ? <CheckSquare size={18} style={{ color: '#be185d' }} /> : <Square size={18} style={{ color: '#94a3b8' }} />}
-                      </button>
-                    </th>
                     <th style={{ padding: '0.75rem 1rem' }}>Ticket</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>Fecha</th>
+                    <th style={{ padding: '0.75rem 1rem' }}>Fecha y Hora</th>
                     <th style={{ padding: '0.75rem 1rem' }}>Colaborador</th>
                     <th style={{ padding: '0.75rem 1rem' }}>Servicio Realizado</th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Monto Base</th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Regla Aplicada</th>
                     <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Comisión Ganada</th>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Estado</th>
                   </tr>
                 </thead>
                 <tbody>
                   {commissions.map((c) => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9', background: selectedCommissions.includes(c.id) ? '#fdf2f8' : 'transparent' }}>
-                      <td style={{ padding: '0.75rem 1rem' }}>
-                        {c.status === 'Pendiente' ? (
-                          <button onClick={() => toggleSelectCommission(c.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
-                            {selectedCommissions.includes(c.id) ? <CheckSquare size={18} style={{ color: '#be185d' }} /> : <Square size={18} style={{ color: '#cbd5e1' }} />}
-                          </button>
-                        ) : (
-                          <CheckCircle2 size={16} style={{ color: '#16a34a' }} />
-                        )}
-                      </td>
+                    <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                       <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#0f172a' }}>
                         {c.ticket_number || `TK-${c.visit_id}`}
                       </td>
@@ -401,16 +277,6 @@ const CommissionManagement = () => {
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#15803d', fontSize: '0.95rem' }}>
                         RD$ {Number(c.monto_comision).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                       </td>
-                      <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '3px 10px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: 800,
-                          background: c.status === 'Pendiente' ? '#fffbeb' : '#dcfce7',
-                          color: c.status === 'Pendiente' ? '#b45309' : '#15803d',
-                          border: `1px solid ${c.status === 'Pendiente' ? '#fde68a' : '#86efac'}`
-                        }}>
-                          {c.status === 'Pendiente' ? '🟡 PENDIENTE' : '🟢 PAGADO'}
-                        </span>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -420,64 +286,14 @@ const CommissionManagement = () => {
         </div>
       )}
 
-      {/* TAB 2: HISTORIAL DE LIQUIDACIONES / PAGOS EMITIDOS */}
-      {activeTab === 'liquidaciones' && (
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
-          <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
-            🟢 Historial de Recibos y Liquidaciones de Nómina
-          </h3>
-
-          {payouts.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
-              No se han realizado liquidaciones de comisiones todavía.
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>
-                  <th style={{ padding: '0.75rem 1rem' }}>No. Recibo</th>
-                  <th style={{ padding: '0.75rem 1rem' }}>Fecha de Pago</th>
-                  <th style={{ padding: '0.75rem 1rem' }}>Colaborador Beneficiario</th>
-                  <th style={{ padding: '0.75rem 1rem' }}>Servicios Liquidados</th>
-                  <th style={{ padding: '0.75rem 1rem' }}>Método de Pago</th>
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Monto Total Pagado</th>
-                  <th style={{ padding: '0.75rem 1rem' }}>Emitido Por</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payouts.map(p => (
-                  <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#0f172a' }}>{p.payout_number}</td>
-                    <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>
-                      {new Date(p.created_at).toLocaleDateString('es-DO')} {new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#be185d' }}>👤 {p.employee_name}</td>
-                    <td style={{ padding: '0.75rem 1rem', color: '#475569', fontWeight: 700 }}>{p.total_items} ítems de comisión</td>
-                    <td style={{ padding: '0.75rem 1rem' }}>
-                      <span style={{ background: '#f1f5f9', color: '#334155', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
-                        {p.metodo_pago}
-                      </span>
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#166534', fontSize: '1rem' }}>
-                      RD$ {Number(p.monto_total).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.78rem' }}>{p.usuario_liquidador || 'Admin'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* TAB 3: REGLAS ESPECÍFICAS DE COMISIÓN */}
+      {/* TAB 2: REGLAS ESPECÍFICAS DE COMISIÓN */}
       {activeTab === 'reglas' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '1.5rem' }}>
           
           {/* FORM: AGREGAR / ACTUALIZAR REGLA */}
           <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem' }}>
             <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
-              ⚙️ Asignar Comisión Específica
+              ⚙️ Asignar Comisión Específica por Empleado
             </h3>
 
             <form onSubmit={handleSaveRule}>
@@ -586,76 +402,6 @@ const CommissionManagement = () => {
             )}
           </div>
 
-        </div>
-      )}
-
-      {/* MODAL PROCESAR LIQUIDACIÓN DE COMISIÓN */}
-      {showPayoutModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '480px', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-              <DollarSign size={38} style={{ color: '#166534', marginBottom: '0.4rem' }} />
-              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
-                Liquidación de Comisiones
-              </h3>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                Se liquidarán <strong>{selectedCommissions.length} ítems</strong> de comisión para {selectedItemsList[0]?.employee_name}
-              </p>
-            </div>
-
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '1rem', borderRadius: '12px', textAlign: 'center', marginBottom: '1.25rem' }}>
-              <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 800, textTransform: 'uppercase' }}>MONTO TOTAL A PAGAR EN NÓMINA:</span>
-              <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#15803d', marginTop: '0.2rem' }}>
-                RD$ {selectedTotalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>
-                Método de Pago Empleado:
-              </label>
-              <select
-                value={payoutMethod}
-                onChange={(e) => setPayoutMethod(e.target.value)}
-                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800 }}
-              >
-                <option value="Efectivo">💵 Efectivo</option>
-                <option value="Transferencia">🏦 Transferencia Bancaria</option>
-                <option value="Cheque">📜 Cheque de Nómina</option>
-              </select>
-            </div>
-
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                Notas / Referencia de Pago:
-              </label>
-              <textarea
-                rows={2}
-                placeholder="Ej: Pago quincenal de comisiones, transferencia ref #98341..."
-                value={payoutNotes}
-                onChange={(e) => setPayoutNotes(e.target.value)}
-                style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button
-                type="button"
-                onClick={() => setShowPayoutModal(false)}
-                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, cursor: 'pointer', color: '#475569' }}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleProcessPayout}
-                disabled={loading}
-                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#166534', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}
-              >
-                Confirmar Pago y Emitir Recibo
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
