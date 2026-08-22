@@ -345,6 +345,16 @@ export const dataService = {
     }
   },
 
+  getCommissionRules: async () => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/rules`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      return [];
+    }
+  },
+
   bulkImportServices: async (items) => {
     try {
       const res = await fetch(`${API_URL}/services/bulk-import`, {

@@ -63,11 +63,8 @@ const CommissionManagement = () => {
 
   const loadRules = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:5005/api/commissions/rules');
-      if (res.ok) {
-        const data = await res.json();
-        setRules(data || []);
-      }
+      const data = await dataService.getCommissionRules();
+      setRules(data || []);
     } catch (e) {}
   };
 
