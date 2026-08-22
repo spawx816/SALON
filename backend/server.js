@@ -41,6 +41,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// === ANTI-CSRF VALIDATION MIDDLEWARE FOR REST APIs ===
+app.use((req, res, next) => {
+  const isStateModifying = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method);
+  if (isStateModifying && !req.path.startsWith('/api/cardnet')) {
+    const origin = req.headers.origin || req.headers.referer;
+    if (process.env.NODE_ENV === 'production' && origin) {
+      const matchesOrigin = allowedOrigins.some(o => origin.startsWith(o));
+      if (!matchesOrigin) {
+        return res.status(403).json({ error: 'Solicitud bloqueada por verificación de seguridad Anti-CSRF.' });
+      }
+    }
+  }
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
