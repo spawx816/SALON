@@ -857,5 +857,158 @@ export const dataService = {
       return res.ok ? await res.json() : null;
     } catch { return null; }
   },
+
+  saveAttendancePunch: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/punch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  getAttendanceLogs: async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.startDate) params.append('startDate', filters.startDate);
+      if (filters.endDate) params.append('endDate', filters.endDate);
+      if (filters.employeeId) params.append('employeeId', filters.employeeId);
+      if (filters.salonId) params.append('salonId', filters.salonId);
+      if (filters.status) params.append('status', filters.status);
+      if (filters.type) params.append('type', filters.type);
+      
+      const res = await fetch(`${API_URL}/attendance/history?${params.toString()}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  },
+
+  verifyUserPassword: async (id, password) => {
+    try {
+      const res = await fetch(`${API_URL}/users/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, password })
+      });
+      return res.ok ? await res.json() : { success: false };
+    } catch {
+      return { success: false };
+    }
+  },
+
+  getScheduleOverrides: async () => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/schedule-overrides`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  },
+
+  saveScheduleOverride: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/schedule-override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return res.ok ? await res.json() : { success: false, error: 'Network error' };
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  saveScheduleSwap: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/schedule-swap`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return res.ok ? await res.json() : { success: false, error: 'Network error' };
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  deleteScheduleOverride: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/schedule-override/${id}`, {
+        method: 'DELETE'
+      });
+      return res.ok ? await res.json() : { success: false, error: 'Network error' };
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  getAttendancePending: async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.startDate) params.append('startDate', filters.startDate);
+      if (filters.endDate) params.append('endDate', filters.endDate);
+      if (filters.employeeId) params.append('employeeId', filters.employeeId);
+      if (filters.salonId) params.append('salonId', filters.salonId);
+      
+      const res = await fetch(`${API_URL}/attendance/pending?${params.toString()}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  },
+
+  getAttendanceToday: async () => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/today`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error(e);
+      return [];
+    }
+  },
+
+  adjustAttendance: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) return await res.json();
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || `HTTP error ${res.status}` };
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  notifyPendingAttendance: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/attendance/notify-pending`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) return await res.json();
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || `HTTP error ${res.status}` };
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
 };
 

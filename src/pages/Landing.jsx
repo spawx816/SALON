@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../context/LanguageContext';
+import { Link } from 'react-router-dom';
 import { 
   User, Lock, Mail, CreditCard, ShieldCheck, CalendarDays, 
   CheckCircle, CheckCircle2, Camera, Share2, MessageCircle, MapPin, Phone, Eye, EyeOff, Sparkles, X
@@ -8,11 +9,11 @@ import {
 import './Landing.css';
 import { formatCedula, validateName, cleanPhone, isValidCedula } from '../utils/formUtils';
 
-const Landing = () => {
+const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const { login } = useAuth();
   const { t } = useTranslation();
   
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(initialIsLogin);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nombre, setNombre] = useState('');
@@ -26,7 +27,12 @@ const Landing = () => {
   
   const [regStep, setRegStep] = useState(1);
   const [salons, setSalons] = useState([]);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(initialAuthModal);
+
+  useEffect(() => {
+    setIsLogin(initialIsLogin);
+    setIsAuthModalOpen(initialAuthModal);
+  }, [initialIsLogin, initialAuthModal]);
   const [telefono, setTelefono] = useState('');
   const [salonId, setSalonId] = useState('');
   const [calle, setCalle] = useState('');
@@ -205,14 +211,14 @@ const Landing = () => {
         <div className="container">
           <nav className="landing-nav">
             <div className="logo">
-              <a href="#inicio">PLAN<span>BEAUTY</span>RD</a>
+              <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
               <p>TU PLAN, TU BELLEZA</p>
             </div>
             <ul className="nav-links">
-              <li><a href="#inicio">Inicio</a></li>
-              <li><a href="#plan">Plan</a></li>
-              <li><a href="#como-funciona">¿Cómo funciona?</a></li>
-              <li><a href="#sucursales">Sucursales</a></li>
+              <li><Link to="/">Inicio</Link></li>
+              <li><Link to="/plan-de-belleza">Plan</Link></li>
+              <li><Link to="/como-funciona">¿Cómo funciona?</Link></li>
+              <li><Link to="/salones">Sucursales</Link></li>
             </ul>
             <button onClick={() => { setIsLogin(true); setIsAuthModalOpen(true); }} className="login-btn-nav">
               <User size={18} />
@@ -535,7 +541,7 @@ const Landing = () => {
             </div>
             <div className="pricing-action">
               <p>TODO LO QUE NECESITAS</p>
-              <div className="price-tag">RD$1,950<span>/ MES</span></div>
+              <div className="price-tag" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '0.25rem' }}>RD$1,950<span style={{ fontSize: '1rem', color: '#999', fontWeight: 600 }}>/ MES</span></div>
               <button onClick={() => { setIsLogin(false); setIsAuthModalOpen(true); }} className="landing-btn btn-accent">QUIERO MI PLAN</button>
               <p className="price-footer"><Lock size={12} /> Pagos seguros y automáticos</p>
             </div>
@@ -552,13 +558,20 @@ const Landing = () => {
               <MapPin className="pin-icon" />
               <div>
                 <h4>ABATTE PELUQUERÍA SAN VICENTE</h4>
-                <p>Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F</p>
+                <p>Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F, Santo Domingo Este</p>
+              </div>
+            </div>
+            <div className="branch-card">
+              <MapPin className="pin-icon" />
+              <div>
+                <h4>ABATTE PELUQUERÍA SIRENA VILLA MELLA</h4>
+                <p>Av. Hermanas Mirabal, Villa Mella, dentro del Multicentro La Sirena, Santo Domingo Norte</p>
               </div>
             </div>
             <div className="branch-card">
               <Phone className="pin-icon" />
               <div>
-                <h4>CONTACTO</h4>
+                <h4>CONTACTO GENERAL</h4>
                 <p>(809) 561-5000</p>
               </div>
             </div>
@@ -574,7 +587,7 @@ const Landing = () => {
         <div className="container footer-grid">
           <div className="footer-brand">
             <div className="logo">
-              <a href="#">PLAN<span>BEAUTY</span>RD</a>
+              <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
             </div>
             <p>Belleza, confianza y profesionalismo en cada servicio.</p>
             <div className="social">
@@ -584,8 +597,11 @@ const Landing = () => {
           <div className="footer-links-col">
             <h4>LEGAL</h4>
             <ul>
-              <li><a href="#">Términos y condiciones</a></li>
-              <li><a href="#">Privacidad</a></li>
+              <li><Link to="/terminos-y-condiciones">Términos y condiciones</Link></li>
+              <li><Link to="/politica-de-privacidad">Privacidad</Link></li>
+              <li><Link to="/cancelacion-y-reembolsos">Cancelaciones y Reembolsos</Link></li>
+              <li><Link to="/preguntas-frecuentes">Preguntas Frecuentes</Link></li>
+              <li><Link to="/contacto">Contacto</Link></li>
             </ul>
           </div>
           <div className="footer-contact">

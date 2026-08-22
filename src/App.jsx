@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
-  Sparkles, Star, UserPlus
+  Sparkles, Star, UserPlus, Clock, Phone
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -34,9 +34,74 @@ import SettingsModule from './components/admin/SettingsModule';
 import AdminGiftCards from './components/admin/AdminGiftCards';
 import AdminSurveys from './components/surveys/AdminSurveys';
 import GiftCardValidator from './components/admin/GiftCardValidator';
+import AttendanceKiosk from './pages/AttendanceKiosk';
+import AttendanceLogs from './components/admin/AttendanceLogs';
 
 import './index.css';
 import Landing from './pages/Landing';
+import PlanBelleza from './pages/PlanBelleza';
+import ComoFunciona from './pages/ComoFunciona';
+import Beneficios from './pages/Beneficios';
+import Salones from './pages/Salones';
+import SalonDetalle from './pages/SalonDetalle';
+import PreguntasFrecuentes from './pages/PreguntasFrecuentes';
+import Contacto from './pages/Contacto';
+import Legal from './pages/Legal';
+
+// Public header and footer layouts for marketing pages (when not logged in)
+const PublicHeader = () => (
+  <header className="landing-header">
+    <div className="container">
+      <nav className="landing-nav">
+        <div className="logo">
+          <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
+          <p>TU PLAN, TU BELLEZA</p>
+        </div>
+        <ul className="nav-links">
+          <li><Link to="/">Inicio</Link></li>
+          <li><Link to="/plan-de-belleza">Plan</Link></li>
+          <li><Link to="/como-funciona">¿Cómo funciona?</Link></li>
+          <li><Link to="/salones">Sucursales</Link></li>
+        </ul>
+        <Link to="/login" className="login-btn-nav" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <User size={18} />
+          <span>INICIAR SESIÓN</span>
+        </Link>
+      </nav>
+    </div>
+  </header>
+);
+
+const PublicFooter = () => (
+  <footer className="landing-footer" style={{ marginTop: 'auto' }}>
+    <div className="container footer-grid">
+      <div className="footer-brand">
+        <div className="logo">
+          <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
+        </div>
+        <p>Belleza, confianza y profesionalismo en cada servicio.</p>
+      </div>
+      <div className="footer-links-col">
+        <h4>LEGAL</h4>
+        <ul>
+          <li><Link to="/terminos-y-condiciones">Términos y condiciones</Link></li>
+          <li><Link to="/politica-de-privacidad">Privacidad</Link></li>
+          <li><Link to="/cancelacion-y-reembolsos">Cancelaciones y Reembolsos</Link></li>
+          <li><Link to="/preguntas-frecuentes">Preguntas Frecuentes</Link></li>
+          <li><Link to="/contacto">Contacto</Link></li>
+        </ul>
+      </div>
+      <div className="footer-contact">
+        <h4>CONTACTO</h4>
+        <p><MapPin size={14} /> Santo Domingo Este, RD</p>
+        <p><Phone size={14} /> (809) 561-5000</p>
+      </div>
+    </div>
+    <div className="footer-bottom">
+      <p>&copy; 2026 PlanBeautyRD. Todos los derechos reservados.</p>
+    </div>
+  </footer>
+);
 
 const SidebarLink = ({ to, icon: Icon, label, active, onClick }) => (
   <Link to={to} onClick={onClick} className={`nav-link ${active ? 'active' : ''}`}>
@@ -53,13 +118,19 @@ const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Public routes allowed without login
-  const isPublicRoute = location.pathname === '/encuesta' || location.pathname === '/activar';
+  const publicIndexablePaths = [
+    '/', '/plan-de-belleza', '/como-funciona', '/beneficios', 
+    '/salones', '/preguntas-frecuentes', '/contacto', 
+    '/terminos-y-condiciones', '/politica-de-privacidad', 
+    '/cancelacion-y-reembolsos', '/regalar'
+  ];
+  
+  const isPublicRoute = publicIndexablePaths.some(p => location.pathname === p || (p === '/salones' && location.pathname.startsWith('/salones/'))) ||
+    location.pathname === '/login' || location.pathname === '/registro' || location.pathname === '/encuesta' || location.pathname === '/activar' || location.pathname === '/asistencia';
 
   const handleLogout = () => {
     logout();
     setIsMobileMenuOpen(false);
-    // Forzamos un refresco completo para limpiar el estado de React y evitar pantallas en blanco
     window.location.href = '/';
   };
 
@@ -72,18 +143,71 @@ const AppContent = () => {
     
     const robotsMeta = document.getElementById('robots-meta');
     if (robotsMeta) {
-      // Define routes that should NOT be indexed
-      const privateRoutes = ['/registro-cliente', '/lista-clientes', '/visitas', '/mis-servicios', '/dashboard', '/pagos', '/planes', '/equipo', '/sucursales', '/configuracion', '/regalos', '/encuesta'];
-      const isNoIndex = privateRoutes.some(route => location.pathname.startsWith(route)) || (!isPublicRoute && !user);
-      
-      robotsMeta.setAttribute('content', isNoIndex ? 'noindex, nofollow' : 'index, follow');
+      const isIndexable = publicIndexablePaths.some(p => location.pathname === p || (p === '/salones' && location.pathname.startsWith('/salones/')));
+      robotsMeta.setAttribute('content', isIndexable ? 'index, follow' : 'noindex, nofollow');
     }
-  }, [location.pathname, user, isPublicRoute]);
+  }, [location.pathname, user]);
 
-  if (!user && !isPublicRoute) return <Landing />;
+  if (!user) {
+    if (location.pathname === '/asistencia') {
+      return (
+        <Routes>
+          <Route path="/asistencia" element={<AttendanceKiosk />} />
+        </Routes>
+      );
+    }
+    
+    if (location.pathname === '/login') {
+      return <Landing initialIsLogin={true} initialAuthModal={true} />;
+    }
+    if (location.pathname === '/registro') {
+      return <Landing initialIsLogin={false} initialAuthModal={true} />;
+    }
+
+    const isMarketingRoute = [
+      '/plan-de-belleza', '/como-funciona', '/beneficios', 
+      '/salones', '/preguntas-frecuentes', '/contacto', 
+      '/terminos-y-condiciones', '/politica-de-privacidad', 
+      '/cancelacion-y-reembolsos'
+    ].some(p => location.pathname === p || location.pathname.startsWith('/salones/'));
+
+    if (isMarketingRoute) {
+      return (
+        <div className="landing-page" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+          <PublicHeader />
+          <main style={{ flex: 1 }}>
+            <Routes>
+              <Route path="/plan-de-belleza" element={<PlanBelleza />} />
+              <Route path="/como-funciona" element={<ComoFunciona />} />
+              <Route path="/beneficios" element={<Beneficios />} />
+              <Route path="/salones" element={<Salones />} />
+              <Route path="/salones/:slug" element={<SalonDetalle />} />
+              <Route path="/preguntas-frecuentes" element={<PreguntasFrecuentes />} />
+              <Route path="/contacto" element={<Contacto />} />
+              <Route path="/terminos-y-condiciones" element={<Legal page="terms" />} />
+              <Route path="/politica-de-privacidad" element={<Legal page="privacy" />} />
+              <Route path="/cancelacion-y-reembolsos" element={<Legal page="refunds" />} />
+            </Routes>
+          </main>
+          <PublicFooter />
+        </div>
+      );
+    }
+
+    // Default to Landing for "/" and any other route when logged out
+    return <Landing initialIsLogin={true} initialAuthModal={false} />;
+  }
+
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
 
+  if (location.pathname === '/asistencia') {
+    return (
+      <Routes>
+        <Route path="/asistencia" element={<AttendanceKiosk />} />
+      </Routes>
+    );
+  }
 
   return (
     <div className={`canvas-layout ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}>
@@ -112,7 +236,7 @@ const AppContent = () => {
           <div className="user-avatar">{(user?.nombre || user?.name || 'U').charAt(0)}</div>
           <div className="user-info">
             <p className="user-name">{user?.nombre || user?.name || 'Usuario'}</p>
-            <p className="user-role">{user?.role || 'Visitante'}</p>
+            <p className="user-role">{user?.role_name || user?.role || 'Visitante'}</p>
           </div>
         </div>
 
@@ -167,16 +291,47 @@ const AppContent = () => {
             </>
           )}
 
-          {isAdmin && (
+          {(isAdmin || 
+            user?.permissions?.manage_attendance || 
+            user?.permissions?.manage_staff || 
+            user?.permissions?.manage_plans || 
+            user?.permissions?.process_payments || 
+            user?.permissions?.view_analytics || 
+            user?.role_name?.toLowerCase()?.includes('recep')) && (
             <>
               <p className="nav-group-title">{t('menu.admin')}</p>
-              <SidebarLink to="/equipo" icon={Users} label="Equipo" active={location.pathname === '/equipo'} onClick={closeMobileMenu} />
-              <SidebarLink to="/sucursales" icon={MapPin} label="Sucursales" active={location.pathname === '/sucursales'} onClick={closeMobileMenu} />
-              <SidebarLink to="/planes" icon={PieChart} label={t('menu.plans')} active={location.pathname === '/planes'} onClick={closeMobileMenu} />
-              <SidebarLink to="/pagos" icon={CreditCard} label={t('menu.payments')} active={location.pathname === '/pagos'} onClick={closeMobileMenu} />
-              <SidebarLink to="/marketing" icon={Mail} label={t('menu.marketing')} active={location.pathname === '/marketing'} onClick={closeMobileMenu} />
-              <SidebarLink to="/analitica" icon={TrendingUp} label={t('menu.analytics')} active={location.pathname === '/analitica'} onClick={closeMobileMenu} />
-              <SidebarLink to="/configuracion" icon={Settings} label="Configuración" active={location.pathname === '/configuracion'} onClick={closeMobileMenu} />
+              
+              {(isAdmin || user?.permissions?.manage_staff) && (
+                <SidebarLink to="/equipo" icon={Users} label="Equipo" active={location.pathname === '/equipo'} onClick={closeMobileMenu} />
+              )}
+              
+              {(isAdmin || user?.permissions?.manage_attendance || user?.role_name?.toLowerCase()?.includes('recep')) && (
+                <SidebarLink to="/admin/asistencia" icon={Clock} label="Control Asistencia" active={location.pathname === '/admin/asistencia'} onClick={closeMobileMenu} />
+              )}
+              
+              {isAdmin && (
+                <SidebarLink to="/sucursales" icon={MapPin} label="Sucursales" active={location.pathname === '/sucursales'} onClick={closeMobileMenu} />
+              )}
+              
+              {(isAdmin || user?.permissions?.manage_plans) && (
+                <SidebarLink to="/planes" icon={PieChart} label={t('menu.plans')} active={location.pathname === '/planes'} onClick={closeMobileMenu} />
+              )}
+              
+              {(isAdmin || user?.permissions?.process_payments) && (
+                <SidebarLink to="/pagos" icon={CreditCard} label={t('menu.payments')} active={location.pathname === '/pagos'} onClick={closeMobileMenu} />
+              )}
+              
+              {isAdmin && (
+                <SidebarLink to="/marketing" icon={Mail} label={t('menu.marketing')} active={location.pathname === '/marketing'} onClick={closeMobileMenu} />
+              )}
+              
+              {(isAdmin || user?.permissions?.view_analytics) && (
+                <SidebarLink to="/analitica" icon={TrendingUp} label={t('menu.analytics')} active={location.pathname === '/analitica'} onClick={closeMobileMenu} />
+              )}
+              
+              {isAdmin && (
+                <SidebarLink to="/configuracion" icon={Settings} label="Configuración" active={location.pathname === '/configuracion'} onClick={closeMobileMenu} />
+              )}
             </>
           )}
         </nav>
@@ -264,7 +419,19 @@ const AppContent = () => {
                 <Route path="/analitica" element={isAdmin ? <ServiceAnalytics /> : <Navigate to="/" />} />
                 <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />
                 <Route path="/contratos" element={isClient ? <Navigate to="/" /> : <DigitalContract />} />
+                <Route path="/admin/asistencia" element={(isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />} />
                 <Route path="/test-cardnet" element={<CardNetTest />} />
+                {/* Public marketing pages inside logged-in dashboard wrapper */}
+                <Route path="/plan-de-belleza" element={<PlanBelleza />} />
+                <Route path="/como-funciona" element={<ComoFunciona />} />
+                <Route path="/beneficios" element={<Beneficios />} />
+                <Route path="/salones" element={<Salones />} />
+                <Route path="/salones/:slug" element={<SalonDetalle />} />
+                <Route path="/preguntas-frecuentes" element={<PreguntasFrecuentes />} />
+                <Route path="/contacto" element={<Contacto />} />
+                <Route path="/terminos-y-condiciones" element={<Legal page="terms" />} />
+                <Route path="/politica-de-privacidad" element={<Legal page="privacy" />} />
+                <Route path="/cancelacion-y-reembolsos" element={<Legal page="refunds" />} />
               </Routes>
             </motion.div>
           </AnimatePresence>

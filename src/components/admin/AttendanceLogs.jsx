@@ -90,8 +90,18 @@ const AttendanceLogs = () => {
   const formatDRDate = (dateStr) => {
     if (!dateStr) return '';
     try {
-      // Parse YYYY-MM-DD as UTC noon to avoid any timezone boundary issues
-      const parts = dateStr.split('T')[0].split('-');
+      // If it contains a time portion (T or :), parse it fully using America/Santo_Domingo timezone
+      if (dateStr.includes('T') || dateStr.includes(':')) {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('es-DO', {
+          timeZone: 'America/Santo_Domingo',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+      }
+      // Parse YYYY-MM-DD as UTC noon to avoid any timezone boundary issues for date-only strings
+      const parts = dateStr.split('-');
       if (parts.length !== 3) return dateStr;
       const utcDate = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 16, 0, 0)); // 4pm UTC = noon DR (UTC-4)
       return utcDate.toLocaleDateString('es-DO', {
@@ -450,8 +460,14 @@ const AttendanceLogs = () => {
         .filter(log => log.type === 'Check-Out')
         .reduce((sum, log) => sum + (log.extra_minutes || 0), 0);
 
-      // Ausencias
-      const absencesCount = empLogs.filter(log => log.type === 'Ausencia').length;
+      // Ausencias (solo contar fechas donde el empleado no haya laborado)
+      const absentDates = new Set(
+        empLogs
+          .filter(log => log.type === 'Ausencia')
+          .map(log => new Date(log.timestamp).toISOString().split('T')[0])
+      );
+      const absencesCount = [...absentDates].filter(d => !presentDates.has(d)).length;
+
 
       // Tasa Puntualidad
       const totalCheckins = empLogs.filter(log => log.type === 'Check-In').length;
@@ -2434,8 +2450,14 @@ const AttendanceLogs = () => {
             .filter(log => log.type === 'Check-Out')
             .reduce((sum, log) => sum + (log.extra_minutes || 0), 0);
 
-          // Ausencias
-          const absencesCount = empLogs.filter(log => log.type === 'Ausencia').length;
+          // Ausencias (solo contar fechas donde el empleado no haya laborado)
+          const absentDates = new Set(
+            empLogs
+              .filter(log => log.type === 'Ausencia')
+              .map(log => new Date(log.timestamp).toISOString().split('T')[0])
+          );
+          const absencesCount = [...absentDates].filter(d => !presentDates.has(d)).length;
+
 
           // Tasa Puntualidad
           const totalCheckins = empLogs.filter(log => log.type === 'Check-In').length;

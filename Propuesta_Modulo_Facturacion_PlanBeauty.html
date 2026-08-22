@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Propuesta Ajustada con Feeback - Módulo de Facturación Plan Beauty</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #ec4899;
+      --primary-dark: #be185d;
+      --secondary: #8b5cf6;
+      --dark: #0f172a;
+      --light: #f8fafc;
+      --text: #334155;
+      --text-muted: #64748b;
+      --border: #cbd5e1;
+      --card-bg: #ffffff;
+      --accent-bg: #f8fafc;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background-color: #f1f5f9;
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 1050px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+      padding: 55px;
+    }
+
+    /* HEADER */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 25px;
+      margin-bottom: 35px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand-logo {
+      width: 52px;
+      height: 52px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 24px;
+      box-shadow: 0 4px 14px rgba(236, 72, 153, 0.3);
+    }
+
+    .brand-title h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--dark);
+      letter-spacing: -0.5px;
+    }
+
+    .brand-title span {
+      color: var(--primary);
+    }
+
+    .brand-title p {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .doc-badge {
+      background-color: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #15803d;
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    /* TYPOGRAPHY */
+    h2.section-header {
+      font-size: 19px;
+      color: var(--dark);
+      margin-top: 35px;
+      margin-bottom: 16px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h3 {
+      font-size: 15.5px;
+      color: var(--primary-dark);
+      margin-top: 18px;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    p, li {
+      font-size: 14px;
+      color: #334155;
+      margin-bottom: 8px;
+    }
+
+    ul, ol {
+      margin-left: 22px;
+      margin-bottom: 14px;
+    }
+
+    li {
+      margin-bottom: 5px;
+    }
+
+    /* MODULE BOX */
+    .module-box {
+      background-color: var(--accent-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      margin-bottom: 22px;
+    }
+
+    /* FLOW DIAGRAM STYLES */
+    .flow-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 18px 0;
+      padding: 16px;
+      background: white;
+      border-radius: 12px;
+      border: 1px dashed #cbd5e1;
+    }
+
+    .flow-step {
+      flex: 1;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 6px;
+      text-align: center;
+    }
+
+    .flow-step-icon {
+      font-size: 20px;
+      margin-bottom: 2px;
+    }
+
+    .flow-step-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--dark);
+    }
+
+    .flow-step-desc {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .flow-arrow {
+      color: var(--primary);
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    /* WIREFRAME MOCKUP STYLES */
+    .mockup-window {
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+      margin: 18px 0;
+      color: white;
+    }
+
+    .mockup-header {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .mockup-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+
+    .mockup-body {
+      display: grid;
+      grid-template-columns: 2.5fr 3.8fr 3fr;
+      gap: 10px;
+    }
+
+    .mockup-col {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .mockup-col-title {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 4px;
+    }
+
+    .mockup-item-btn {
+      background: #334155;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      padding: 5px 7px;
+      font-size: 10.5px;
+      color: white;
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .mockup-btn-primary {
+      background: var(--primary);
+      color: white;
+      font-weight: 700;
+      text-align: center;
+      padding: 7px;
+      border-radius: 6px;
+      font-size: 11px;
+      margin-top: 8px;
+    }
+
+    /* BADGES */
+    .tag {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-size: 11.5px;
+      font-weight: 600;
+      margin-right: 4px;
+      margin-bottom: 4px;
+    }
+    .tag-service { background: #e0e7ff; color: #3730a3; }
+    .tag-feedback { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-weight: bold; }
+
+    /* TABLE */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 9px 12px;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+
+    th {
+      background-color: #f1f5f9;
+      color: var(--dark);
+      font-weight: 700;
+    }
+
+    .alert-box {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 13.5px;
+      line-height: 1.5;
+    }
+
+    .alert-important {
+      background-color: #fff1f2;
+      border-left: 5px solid #f43f5e;
+      color: #9f1239;
+    }
+
+    .alert-success {
+      background-color: #f0fdf4;
+      border-left: 5px solid #22c55e;
+      color: #15803d;
+    }
+
+    .alert-quote {
+      background-color: #fefce8;
+      border-left: 5px solid #eab308;
+      color: #713f12;
+      font-style: italic;
+    }
+
+    /* ACTION BAR */
+    .print-actions {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      display: flex;
+      gap: 12px;
+      z-index: 1000;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      border-radius: 30px;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(236, 72, 153, 0.4);
+    }
+
+    /* OPTIMIZED PRINT RULES */
+    @page {
+      size: A4;
+      margin: 12mm 15mm 12mm 15mm;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .container {
+        box-shadow: none !important;
+        padding: 10px 0 !important;
+        max-width: 100% !important;
+        border-radius: 0 !important;
+      }
+      .print-actions {
+        display: none !important;
+      }
+      .module-box, .mockup-window, .flow-container, table, .alert-box {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      h2.section-header {
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="print-actions">
+    <button class="btn btn-primary" onclick="window.print()">
+      🖨️ Imprimir / Descargar PDF Ajustado
+    </button>
+  </div>
+
+  <div class="container">
+    
+    <!-- HEADER -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-logo">PB</div>
+        <div class="brand-title">
+          <h1>PLAN<span>BEAUTY</span>RD</h1>
+          <p>Especificación de Requerimientos & Propuesta Ajustada</p>
+        </div>
+      </div>
+      <div class="doc-badge">✅ Actualizado con Feedback del Cliente</div>
+    </header>
+
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 14px 18px; border-radius: 10px; margin-bottom: 25px; font-size: 13.5px;">
+      <strong>✅ Documento Ajustado con tus Comentarios:</strong> Esta versión incorpora el flujo mejorado basado en <strong>Tickets Pendientes (Ventas en Proceso)</strong>, validación OTP por correo para consumos de empleados y Plan Beauty, Gift Cards, devuelta automática y reglas de precios/comisiones.
+    </div>
+
+    <!-- DIAGRAMA OPERATIVO ACTUALIZADO -->
+    <h2 class="section-header">🔄 Flujo Principal Ininterrumpido (Ticket Pendiente & POS)</h2>
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="flow-step-icon">🔓</div>
+        <div class="flow-step-title">1. Caja Abierta</div>
+        <div class="flow-step-desc">1 Sola vez por jornada</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">🎟️</div>
+        <div class="flow-step-title">2. Generar Ticket</div>
+        <div class="flow-step-desc">Cliente, Imprimir & Pasa a Pendiente</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step" style="background: #fdf2f8; border-color: #fbcfe8;">
+        <div class="flow-step-icon">💾</div>
+        <div class="flow-step-title">3. Venta en Proceso</div>
+        <div class="flow-step-desc">Auto-guardado al volver atrás</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">💳</div>
+        <div class="flow-step-title">4. Facturación & Cobro</div>
+        <div class="flow-step-desc">Devuelta, OTP Email, Gift Card</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">🔒</div>
+        <div class="flow-step-title">5. Cierre de Turno</div>
+        <div class="flow-step-desc">Arqueo y Faltante/Sobrante</div>
+      </div>
+    </div>
+
+    <!-- MÓDULO PUNTOS ADICIONALES: TICKET COMO FACTURA EN CONSTRUCCIÓN -->
+    <div class="module-box" style="background-color: #fff5f5; border-color: #fed7d7;">
+      <h2 class="section-header" style="border-color: #e53e3e; color: #9b2c2c;">⭐ Concepto Clave: Ticket como "Factura en Construcción"</h2>
+      <div class="alert-box alert-success">
+        <strong>💡 Flujo Optimizado:</strong> Mientras un ticket no haya sido cobrado, toda la información (servicios agregados, estilistas asignadas, cantidades, descuentos autorizados y observaciones) se guarda automáticamente sobre ese ticket.
+      </div>
+      <ul>
+        <li><strong>Botón "Volver Atrás":</strong> Si el cajero está atendiendo una venta y necesita salir de la pantalla, hace clic en "Volver atrás", el sistema **guarda automáticamente el estado actual** y regresa a la cola de <em>Tickets Pendientes</em>.</li>
+        <li><strong>Sin necesidad de módulo de facturas suspendidas:</strong> El ticket permanece en la lista exactamente con la última actualización realizada.</li>
+        <li><strong>Recuperación Inmediata:</strong> Al hacer clic de nuevo sobre el ticket pendiente, se abre con todos sus ítems intactos para completar el cobro sin perder ningún dato.</li>
+        <li><strong>Eliminación Automática:</strong> Una vez cobrado y finalizado, el ticket se retira automáticamente de la lista de Tickets Pendientes.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 1: PANTALLA POS -->
+    <div class="module-box">
+      <h2 class="section-header">1. Pantalla Principal de Facturación POS</h2>
+      
+      <h3>Primera Sección: Tickets Pendientes & Expansión de Cliente</h3>
+      <ul>
+        <li><strong>Inicio desde Tickets Pendientes:</strong> El flujo de facturación inicie siempre mostrando la cola de Tickets Pendientes de la sucursal.</li>
+        <li><strong>Búsqueda al Crear Ticket:</strong> La búsqueda del cliente forma parte del proceso de generación del ticket.</li>
+        <li><strong>Detección Nativa de Plan Beauty:</strong> Si el ticket fue creado para un socio Plan Beauty, al abrir el ticket para facturar, el sistema ya conoce la membresía y muestra automáticamente sus lavados/beneficios disponibles sin realizar búsquedas adicionales.</li>
+        <li><strong>Expansión Dinámica de Columna:</strong> Al seleccionar un ticket pendiente para facturar, el listado de tickets se oculta temporalmente y la primera columna se expande mostrando la información del cliente. Al terminar la factura, el ticket se retira y la columna vuelve al listado de Tickets Pendientes.</li>
+        <li><strong>Simplificación:</strong> Se elimina la consulta de historial completo en esta pantalla (si se requiere, se consulta en el módulo de Clientes).</li>
+      </ul>
+
+      <h3>Segunda Sección: Servicios & Control Estricto de Precios</h3>
+      <ul>
+        <li>Buscador predictivo de catálogo y accesos rápidos **Top 7 más solicitados**.</li>
+        <li>Selección del empleado/estilista responsable por cada renglón de servicio.</li>
+        <li><span class="tag tag-feedback">Ajuste de Precios:</span> El cajero **podrá aumentar el precio** de un servicio si el trabajo lo requiere.</li>
+        <li><span class="tag tag-feedback">Protección de Precio Base:</span> **NO podrá disminuir el precio** por debajo del valor configurado en el sistema.</li>
+        <li><span class="tag tag-feedback">Autorización Administrativa:</span> Cualquier reducción de precio o descuento **deberá ser autorizada por un administrador** (excepto promociones vigentes configuradas).</li>
+      </ul>
+
+      <h3>Tercera Sección: Cobro & Devuelta Automática</h3>
+      <ul>
+        <li>Cálculo de Subtotal, Descuentos autorizados e Impuestos (ITBIS).</li>
+        <li><span class="tag tag-feedback">Cálculo de Devuelta/Cambio:</span> El sistema **calcula automáticamente la devuelta** en tiempo real conforme el cajero escribe el monto recibido en efectivo.</li>
+        <li>Finalización de factura, proformas e impresión térmica/PDF.</li>
+      </ul>
+
+      <!-- MOCKUP POS CON MODO EXPANDIDO -->
+      <div class="mockup-window">
+        <div class="mockup-header">
+          <div class="mockup-dot dot-red"></div>
+          <div class="mockup-dot dot-yellow"></div>
+          <div class="mockup-dot dot-green"></div>
+          <span style="font-size: 10.5px; color: #94a3b8; margin-left: 10px;">Vista Previa POS - Ticket Seleccionado (Columna Expandida)</span>
+        </div>
+        <div class="mockup-body">
+          <div class="mockup-col" style="background: #0f172a; border: 1px solid #ec4899;">
+            <div class="mockup-col-title" style="color: #ec4899;">1. Ticket #SD-0482 (María R.)</div>
+            <div style="font-size: 10px; color: #cbd5e1;">Cliente: María Rodríguez</div>
+            <div style="font-size: 9px; color: #94a3b8;">Sucursal: San Vicente de Paúl</div>
+            <div style="margin-top: 4px; background: #065f46; color: #34d399; font-size: 8.5px; padding: 2px; text-align: center; border-radius: 4px;">✨ Plan Beauty Gold (2 Lavados)</div>
+            <div style="margin-top: 8px; background: #334155; padding: 4px; border-radius: 4px; text-align: center; font-size: 8.5px; color: #f472b6;">⬅️ Volver Atrás (Guarda Borrador)</div>
+          </div>
+          <div class="mockup-col">
+            <div class="mockup-col-title">2. Servicios (Precio Editable)</div>
+            <div class="mockup-item-btn"><span>Lavado & Secado</span> <span>RD$ 800</span></div>
+            <div style="font-size: 8px; color: #94a3b8; margin-bottom: 3px;">Estilista: Ana Gómez</div>
+            <div class="mockup-item-btn"><span>Tinte Completo (Aumentado)</span> <span>RD$ 1,800 ⬆️</span></div>
+            <div style="font-size: 8px; color: #94a3b8;">Estilista: Carla Martínez</div>
+          </div>
+          <div class="mockup-col">
+            <div class="mockup-col-title">3. Cobro & Cambio</div>
+            <div style="font-size: 9.5px; display: flex; justify-content: space-between;"><span>Total a Pagar:</span> <span style="color: #34d399; font-weight: bold;">RD$ 2,600</span></div>
+            <div style="font-size: 9.5px; display: flex; justify-content: space-between; margin-top: 4px;"><span>Efectivo Recibido:</span> <span>RD$ 3,000</span></div>
+            <div style="font-size: 10px; font-weight: bold; color: #f59e0b; display: flex; justify-content: space-between; margin-top: 4px; border-top: 1px solid #475569; padding-top: 4px;">
+              <span>DEVUELTA / CAMBIO:</span> <span>RD$ 400</span>
+            </div>
+            <div class="mockup-btn-primary">💳 FINALIZAR FACTURA</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MÓDULO 2 & SEGURIDAD -->
+    <div class="module-box">
+      <h2 class="section-header">2. Métodos de Pago & Seguridad OTP por Correo</h2>
+      <p>Modalidades de cobro habilitadas en el módulo:</p>
+      <ul>
+        <li><strong>Efectivo:</strong> Con cálculo de cambio en tiempo real.</li>
+        <li><strong>Tarjeta & Transferencia:</strong> Con registro de referencia.</li>
+        <li><strong>Pago Mixto:</strong> Combinación flexible de métodos.</li>
+        <li><span class="tag tag-feedback">Gift Card:</span> Pago total o parcial utilizando Gift Cards registradas, con consulta de balance y combinación en pago mixto.</li>
+        <li><span class="tag tag-feedback">Plan Beauty (Con OTP):</span> Al facturar mediante beneficio de Plan Beauty, el sistema **envía un código de seguridad al correo electrónico del cliente** para confirmar la operación.</li>
+        <li><span class="tag tag-feedback">Consumo de Empleado (Con OTP & Hora):</span> Al registrar consumo/crédito de colaborador, el sistema guarda la **hora exacta**, envía un **código de seguridad al correo registrado del empleado** para su aprobación y lo almacena para deducción en nómina.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 4: TICKET FÍSICO DIGITAL -->
+    <div class="module-box">
+      <h2 class="section-header">4. Generación e Impresión del Ticket de Servicios</h2>
+      <div class="alert-box alert-success">
+        <strong>📄 Formato Homologado al Físico:</strong> El ticket se imprimirá en el mismo formato físico utilizado en el salón. Si el cliente recibe varios procesos, las empleadas podrán anotar o seleccionar los precios en las casillas correspondientes.
+      </div>
+      <ul>
+        <li><strong>Generación Rápida:</strong> Permite ingresar el nombre del cliente directamente si no está registrado previamente para llenar la casilla del ticket.</li>
+        <li><strong>Campos en Ticket:</strong> Secuencia automática por sucursal, sucursal, Nombre del cliente, Atendiente (Estilista), Encargada de lavado, Fecha y hora de generación, Servicios seleccionados (25+ casillas) y Observaciones.</li>
+        <li><strong>Permanencia en Cola:</strong> Al generarse, el ticket se imprime físicamente para el área de trabajo y pasa inmediatamente a la cola de <em>Tickets Pendientes</em>.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 5: CAJA ÚNICA POR JORNADA -->
+    <div class="module-box">
+      <h2 class="section-header">5. Apertura Obligatoria de Caja (Regla de Jornada Única)</h2>
+      <div class="alert-box alert-important">
+        <strong>🔒 Regla de Caja Única:</strong> La caja **solamente se abre una vez** durante una misma jornada. Permanecerá abierta hasta que sea cerrada manualmente. El sistema **no solicitará abrir una nueva caja** mientras exista una caja abierta activa.
+      </div>
+      <p>Cada apertura registrará:</p>
+      <ul>
+        <li>Numeración / Secuencia única de caja.</li>
+        <li>Nombre del empleado responsable.</li>
+        <li>Fecha y hora exacta de apertura.</li>
+        <li>Monto inicial (fondo de caja).</li>
+        <li>Sucursal y Estado de la caja (Abierta / Cerrada).</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 8: CATÁLOGO & CARGA MASIVA -->
+    <div class="module-box">
+      <h2 class="section-header">8. Gestión de Ítems & Carga Masiva</h2>
+      <ul>
+        <li>Gestión de productos y servicios con precio base, comisión asociable, ITBIS y categoría.</li>
+        <li><span class="tag tag-feedback">Carga Masiva:</span> Se incluye la **importación masiva de ítems** desde plantillas Excel / CSV para agilizar la actualización del catálogo.</li>
+        <li><strong>Protección de Histórico:</strong> La modificación de precios futuros no altera facturas emitidas previamente.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 10 & 11: COMISIONES -->
+    <div class="module-box">
+      <h2 class="section-header">10 y 11. Comisiones de Colaboradores & Consulta en Recepción</h2>
+      <ul>
+        <li>Cálculo automático de comisiones por línea de servicio para cada estilista al facturar.</li>
+        <li>Esquemas configurables (porcentaje fijo, monto fijo, por servicio, por grupo de empleadas).</li>
+        <li><span class="tag tag-feedback">Visualización en Recepción:</span> El personal de recepción podrá **consultar las comisiones de todos los empleados** por rangos de fecha para fines informativos y de consulta operativa.</li>
+        <li><span class="tag tag-feedback">Aclaración de Nómina:</span> Se **elimina la función de liquidación de pago de comisiones** de este módulo, ya que el pago de comisiones se procesará formalmente en el módulo de Nómina posterior.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 17: ANALÍTICA Y REPORTES -->
+    <div class="module-box">
+      <h2 class="section-header">17. Módulo de Analítica y Reportería Centralizada</h2>
+      <div class="alert-box alert-success">
+        <strong>📊 Centralización en Analítica:</strong> Toda la reportería financiera, de arqueos, comisiones y consumos estará concentrada de forma organizada dentro del **Módulo de Analítica**.
+      </div>
+      <ul>
+        <li>Ventas por fecha, sucursal, empleado y servicio.</li>
+        <li>Ventas por método de pago (Efectivo, Tarjeta, Transferencia, Gift Card, Plan Beauty, Nómina).</li>
+        <li>Historial de arqueos de caja (esperado vs. declarado, faltante/sobrante).</li>
+        <li>Reporte de comisiones generadas por rango de fecha.</li>
+        <li>Reporte de consumos de empleados con hora exacta para retención en nómina.</li>
+        <li>Ranking de servicios más solicitados (Top demanda).</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 15: MATRIZ DE ROLES -->
+    <div class="module-box">
+      <h2 class="section-header">15. Permisos por Rol (Recepción vs. Administración)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Funcionalidad</th>
+            <th>Recepción</th>
+            <th>Administración</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Generar Tickets & Iniciar Factura desde Pendientes</td>
+            <td>✅ Sí</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Aumentar precio de servicio en factura</td>
+            <td>✅ Sí</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Disminuir precio o aplicar descuento manual</td>
+            <td>❌ Requiere Clave Admin</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Cobrar (Efectivo, Tarjeta, Gift Card, Plan, Nómina con OTP)</td>
+            <td>✅ Sí</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Visualizar comisiones por fecha de todos los empleados</td>
+            <td>✅ Sí</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Carga masiva de ítems y cambio de precios catálogo</td>
+            <td>❌ No</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Ver Módulo de Analítica y Reportes Financieros</td>
+            <td>❌ No</td>
+            <td>✅ Sí</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- FOOTER -->
+    <footer style="margin-top: 50px; border-top: 2px solid var(--border); padding-top: 25px; text-align: center; color: var(--text-muted); font-size: 13px;">
+      Propuesta Ajustada con Feedback del Cliente para Plan Beauty (PlanBeautyRD) &copy; 2026. Todos los derechos reservados.
+    </footer>
+
+  </div>
+
+</body>
+</html>

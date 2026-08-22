@@ -8,8 +8,21 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
+import { useNavigate } from 'react-router-dom';
+
+const format12h = (timeStr) => {
+  if (!timeStr) return '';
+  const parts = timeStr.split(':');
+  let hours = parseInt(parts[0], 10);
+  const minutes = parts[1] ? parts[1].padStart(2, '0') : '00';
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  return `${hours}:${minutes} ${ampm}`;
+};
 
 const RoleManagement = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('users');
   const [roles, setRoles] = useState([]);
   const [users, setUsers] = useState([]);
@@ -17,15 +30,30 @@ const RoleManagement = () => {
   const [salons, setSalons] = useState([]);
   
   // States for New User
-  const [newUser, setNewUser] = useState({ nombre: '', email: '', password: '', role_id: '', salon_id: '' });
+  const [newUser, setNewUser] = useState({ 
+    nombre: '', email: '', password: '', role_id: '', salon_id: '', profile_photo: null,
+    hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
+  });
   const [editingUser, setEditingUser] = useState(null);
   
-  // States for RRHH
   const [newStaff, setNewStaff] = useState({ 
-    nombre: '', cedula: '', contacto: '', posicion: '', 
-    direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0] 
+    nombre: '', cedula: '', contacto: '', posicion: '', email: '',
+    direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
+    profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
   });
   const [editingStaff, setEditingStaff] = useState(null);
+  const [selectedStaffDetail, setSelectedStaffDetail] = useState(null);
+
+  const [scheduleMode, setScheduleMode] = useState('general'); // 'general' o 'daily'
+  const [dailySchedules, setDailySchedules] = useState({
+    Lunes: { active: false, entrada: '08:00', salida: '18:00' },
+    Martes: { active: false, entrada: '08:00', salida: '18:00' },
+    Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
+    Jueves: { active: false, entrada: '08:00', salida: '18:00' },
+    Viernes: { active: false, entrada: '08:00', salida: '18:00' },
+    Sábado: { active: false, entrada: '08:00', salida: '18:00' },
+    Domingo: { active: false, entrada: '08:00', salida: '18:00' }
+  });
 
   // States for Role Editing
   const [editingRole, setEditingRole] = useState(null);
@@ -66,8 +94,47 @@ const RoleManagement = () => {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    await dataService.saveUser(editingUser ? { ...newUser, id: editingUser.id } : newUser);
-    setNewUser({ nombre: '', email: '', password: '', role_id: roles[0]?.id || '' });
+    let processedUser = { ...newUser };
+    if (scheduleMode === 'daily') {
+      const scheduleJSON = {};
+      let firstActiveDayEntrada = '';
+      let firstActiveDaySalida = '';
+      Object.keys(dailySchedules).forEach(day => {
+        if (dailySchedules[day].active) {
+          scheduleJSON[day] = {
+            entrada: dailySchedules[day].entrada,
+            salida: dailySchedules[day].salida
+          };
+          if (!firstActiveDayEntrada) {
+            firstActiveDayEntrada = dailySchedules[day].entrada;
+            firstActiveDaySalida = dailySchedules[day].salida;
+          }
+        }
+      });
+      processedUser.dias_laborables = JSON.stringify(scheduleJSON);
+      processedUser.hora_entrada = firstActiveDayEntrada || '08:00';
+      processedUser.hora_salida = firstActiveDaySalida || '18:00';
+    } else {
+      const activeDays = Object.keys(dailySchedules).filter(day => dailySchedules[day].active);
+      const sortedDays = daysOfWeek.filter(d => activeDays.includes(d));
+      processedUser.dias_laborables = sortedDays.join(',');
+    }
+
+    await dataService.saveUser(editingUser ? { ...processedUser, id: editingUser.id } : processedUser);
+    setNewUser({ 
+      nombre: '', email: '', password: '', role_id: roles[0]?.id || '', salon_id: '', profile_photo: null,
+      hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
+    });
+    setDailySchedules({
+      Lunes: { active: false, entrada: '08:00', salida: '18:00' },
+      Martes: { active: false, entrada: '08:00', salida: '18:00' },
+      Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
+      Jueves: { active: false, entrada: '08:00', salida: '18:00' },
+      Viernes: { active: false, entrada: '08:00', salida: '18:00' },
+      Sábado: { active: false, entrada: '08:00', salida: '18:00' },
+      Domingo: { active: false, entrada: '08:00', salida: '18:00' }
+    });
+    setScheduleMode('general');
     setEditingUser(null);
     loadData();
     alert(editingUser ? 'Usuario actualizado correctamente' : 'Usuario creado correctamente');
@@ -75,15 +142,52 @@ const RoleManagement = () => {
 
   const handleSaveStaff = async (e) => {
     e.preventDefault();
-    if (editingStaff) {
-      await dataService.updateStaffRecord(editingStaff.id, newStaff);
+    let processedStaff = { ...newStaff };
+    if (scheduleMode === 'daily') {
+      const scheduleJSON = {};
+      let firstActiveDayEntrada = '';
+      let firstActiveDaySalida = '';
+      Object.keys(dailySchedules).forEach(day => {
+        if (dailySchedules[day].active) {
+          scheduleJSON[day] = {
+            entrada: dailySchedules[day].entrada,
+            salida: dailySchedules[day].salida
+          };
+          if (!firstActiveDayEntrada) {
+            firstActiveDayEntrada = dailySchedules[day].entrada;
+            firstActiveDaySalida = dailySchedules[day].salida;
+          }
+        }
+      });
+      processedStaff.dias_laborables = JSON.stringify(scheduleJSON);
+      processedStaff.hora_entrada = firstActiveDayEntrada || '08:00';
+      processedStaff.hora_salida = firstActiveDaySalida || '18:00';
     } else {
-      await dataService.saveStaffRecord(newStaff);
+      const activeDays = Object.keys(dailySchedules).filter(day => dailySchedules[day].active);
+      const sortedDays = daysOfWeek.filter(d => activeDays.includes(d));
+      processedStaff.dias_laborables = sortedDays.join(',');
+    }
+
+    if (editingStaff) {
+      await dataService.updateStaffRecord(editingStaff.id, processedStaff);
+    } else {
+      await dataService.saveStaffRecord(processedStaff);
     }
     setNewStaff({ 
-      nombre: '', cedula: '', contacto: '', posicion: '', 
-      direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0] 
+      nombre: '', cedula: '', contacto: '', posicion: '', email: '',
+      direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
+      profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
     });
+    setDailySchedules({
+      Lunes: { active: false, entrada: '08:00', salida: '18:00' },
+      Martes: { active: false, entrada: '08:00', salida: '18:00' },
+      Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
+      Jueves: { active: false, entrada: '08:00', salida: '18:00' },
+      Viernes: { active: false, entrada: '08:00', salida: '18:00' },
+      Sábado: { active: false, entrada: '08:00', salida: '18:00' },
+      Domingo: { active: false, entrada: '08:00', salida: '18:00' }
+    });
+    setScheduleMode('general');
     setEditingStaff(null);
     loadData();
     alert('Personal registrado/actualizado correctamente');
@@ -91,17 +195,63 @@ const RoleManagement = () => {
 
   const startEditStaff = (member) => {
     setEditingStaff(member);
+    
+    let dailyObj = {
+      Lunes: { active: false, entrada: '08:00', salida: '18:00' },
+      Martes: { active: false, entrada: '08:00', salida: '18:00' },
+      Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
+      Jueves: { active: false, entrada: '08:00', salida: '18:00' },
+      Viernes: { active: false, entrada: '08:00', salida: '18:00' },
+      Sábado: { active: false, entrada: '08:00', salida: '18:00' },
+      Domingo: { active: false, entrada: '08:00', salida: '18:00' }
+    };
+    let isDaily = false;
+
+    if (member.dias_laborables && member.dias_laborables.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(member.dias_laborables);
+        isDaily = true;
+        Object.keys(parsed).forEach(day => {
+          if (parsed[day]) {
+            dailyObj[day] = {
+              active: true,
+              entrada: parsed[day].entrada || '08:00',
+              salida: parsed[day].salida || '18:00'
+            };
+          }
+        });
+      } catch (e) {}
+    } else {
+      const activeDays = member.dias_laborables ? member.dias_laborables.split(',') : [];
+      activeDays.forEach(day => {
+        if (dailyObj[day]) {
+          dailyObj[day].active = true;
+          dailyObj[day].entrada = member.hora_entrada || '08:00';
+          dailyObj[day].salida = member.hora_salida || '18:00';
+        }
+      });
+    }
+
+    setDailySchedules(dailyObj);
+    setScheduleMode(isDaily ? 'daily' : 'general');
+
     setNewStaff({
       nombre: member.nombre,
       cedula: member.cedula,
       contacto: member.contacto,
       posicion: member.posicion,
+      email: member.email || '',
       direccion: member.direccion,
       localidad: member.localidad,
       salon_id: member.salon_id || '',
       fecha_entrada: member.fecha_entrada ? new Date(member.fecha_entrada).toISOString().split('T')[0] : '',
       fecha_salida: member.fecha_salida ? new Date(member.fecha_salida).toISOString().split('T')[0] : '',
-      status: member.status
+      status: member.status,
+      profile_photo: member.profile_photo || null,
+      hora_entrada: member.hora_entrada || '',
+      hora_salida: member.hora_salida || '',
+      dias_laborables: member.dias_laborables || '',
+      tolerancia_minutos: member.tolerancia_minutos !== undefined && member.tolerancia_minutos !== null ? member.tolerancia_minutos : 15
     });
   };
 
@@ -142,7 +292,7 @@ const RoleManagement = () => {
         ? `${exitDate.getFullYear()}-${String(exitDate.getMonth() + 1).padStart(2, '0')}-${String(exitDate.getDate()).padStart(2, '0')}`
         : 'N/A';
 
-      const sucursalName = salons.find(s => s.id === member.salon_id)?.name || member.localidad || 'Global / Sin asignar';
+      const sucursalName = salons.find(s => String(s.id) === String(member.salon_id))?.name || member.localidad || 'Global / Sin asignar';
 
       return [
         member.id,
@@ -175,12 +325,57 @@ const RoleManagement = () => {
 
   const startEditUser = (user) => {
     setEditingUser(user);
+    
+    let dailyObj = {
+      Lunes: { active: false, entrada: '08:00', salida: '18:00' },
+      Martes: { active: false, entrada: '08:00', salida: '18:00' },
+      Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
+      Jueves: { active: false, entrada: '08:00', salida: '18:00' },
+      Viernes: { active: false, entrada: '08:00', salida: '18:00' },
+      Sábado: { active: false, entrada: '08:00', salida: '18:00' },
+      Domingo: { active: false, entrada: '08:00', salida: '18:00' }
+    };
+    let isDaily = false;
+
+    if (user.dias_laborables && user.dias_laborables.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(user.dias_laborables);
+        isDaily = true;
+        Object.keys(parsed).forEach(day => {
+          if (parsed[day]) {
+            dailyObj[day] = {
+              active: true,
+              entrada: parsed[day].entrada || '08:00',
+              salida: parsed[day].salida || '18:00'
+            };
+          }
+        });
+      } catch (e) {}
+    } else {
+      const activeDays = user.dias_laborables ? user.dias_laborables.split(',') : [];
+      activeDays.forEach(day => {
+        if (dailyObj[day]) {
+          dailyObj[day].active = true;
+          dailyObj[day].entrada = user.hora_entrada || '08:00';
+          dailyObj[day].salida = user.hora_salida || '18:00';
+        }
+      });
+    }
+
+    setDailySchedules(dailyObj);
+    setScheduleMode(isDaily ? 'daily' : 'general');
+
     setNewUser({ 
       nombre: user.nombre, 
       email: user.email, 
       password: '', // Password stays empty for edit unless user wants to change it
       role_id: user.role_id,
-      salon_id: user.salon_id || ''
+      salon_id: user.salon_id || '',
+      profile_photo: user.profile_photo || null,
+      hora_entrada: user.hora_entrada || '',
+      hora_salida: user.hora_salida || '',
+      dias_laborables: user.dias_laborables || '',
+      tolerancia_minutos: user.tolerancia_minutos !== undefined && user.tolerancia_minutos !== null ? user.tolerancia_minutos : 15
     });
   };
 
@@ -211,7 +406,8 @@ const RoleManagement = () => {
     manage_clients: 'Gestionar Base de Datos de Clientes',
     record_visits: 'Registrar Visitas y Servicios',
     process_payments: 'Procesar Cobros y Facturación',
-    manage_surveys: 'Gestionar Encuestas'
+    manage_surveys: 'Gestionar Encuestas',
+    manage_attendance: 'Gestionar Control de Asistencia'
   };
 
   const filteredStaff = staff.filter(member => {
@@ -221,6 +417,207 @@ const RoleManagement = () => {
     if (filterStatus && member.status !== filterStatus) return false;
     return true;
   });
+
+  const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+  const activeDays = newUser.dias_laborables ? newUser.dias_laborables.split(',') : [];
+
+  const handleDayToggle = (day) => {
+    let updated;
+    if (activeDays.includes(day)) {
+      updated = activeDays.filter(d => d !== day);
+    } else {
+      updated = [...activeDays, day];
+    }
+    const sorted = daysOfWeek.filter(d => updated.includes(d));
+    setNewUser(prev => ({ ...prev, dias_laborables: sorted.join(',') }));
+  };
+
+  const renderScheduleConfig = (target, setTarget) => {
+    return (
+      <div style={{ marginTop: '1.25rem', borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', margin: 0 }}>
+            Configuración de Horario Laboral
+          </label>
+          
+          {/* Mode Selector */}
+          <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.2rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <button
+              type="button"
+              onClick={() => setScheduleMode('general')}
+              style={{
+                padding: '0.3rem 0.6rem',
+                borderRadius: '6px',
+                fontSize: '0.7rem',
+                fontWeight: 750,
+                cursor: 'pointer',
+                border: 'none',
+                background: scheduleMode === 'general' ? 'white' : 'transparent',
+                color: scheduleMode === 'general' ? '#09090b' : '#64748b',
+                boxShadow: scheduleMode === 'general' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              Fijo Semanal
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleMode('daily')}
+              style={{
+                padding: '0.3rem 0.6rem',
+                borderRadius: '6px',
+                fontSize: '0.7rem',
+                fontWeight: 750,
+                cursor: 'pointer',
+                border: 'none',
+                background: scheduleMode === 'daily' ? 'white' : 'transparent',
+                color: scheduleMode === 'daily' ? '#09090b' : '#64748b',
+                boxShadow: scheduleMode === 'daily' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              Variable por Día
+            </button>
+          </div>
+        </div>
+
+        {/* Tolerancia - General to both modes */}
+        <div style={{ marginBottom: '1rem', width: '150px' }}>
+          <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>
+            Tolerancia (min)
+          </label>
+          <input 
+            type="number" 
+            className="input-field" 
+            min="0"
+            max="120"
+            value={target.tolerancia_minutos !== undefined ? target.tolerancia_minutos : 15} 
+            onChange={e => setTarget(prev => ({ ...prev, tolerancia_minutos: parseInt(e.target.value) || 0 }))}
+            style={{ height: '38px', borderRadius: '8px', fontSize: '0.8rem', padding: '0 0.5rem', width: '100%' }}
+          />
+        </div>
+
+        {scheduleMode === 'general' ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Hora Entrada</label>
+                <input 
+                  type="time" 
+                  className="input-field" 
+                  value={target.hora_entrada || ''} 
+                  onChange={e => setTarget(prev => ({ ...prev, hora_entrada: e.target.value }))}
+                  style={{ height: '38px', borderRadius: '8px', fontSize: '0.8rem', padding: '0 0.5rem', width: '100%' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>Hora Salida</label>
+                <input 
+                  type="time" 
+                  className="input-field" 
+                  value={target.hora_salida || ''} 
+                  onChange={e => setTarget(prev => ({ ...prev, hora_salida: e.target.value }))}
+                  style={{ height: '38px', borderRadius: '8px', fontSize: '0.8rem', padding: '0 0.5rem', width: '100%' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', marginBottom: '0.5rem' }}>Días Laborables</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {daysOfWeek.map(day => {
+                  const active = dailySchedules[day]?.active;
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => {
+                        setDailySchedules(prev => ({
+                          ...prev,
+                          [day]: { ...prev[day], active: !prev[day].active }
+                        }));
+                      }}
+                      style={{
+                        padding: '0.35rem 0.65rem',
+                        borderRadius: '8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        border: '1px solid',
+                        borderColor: active ? '#10b981' : '#e2e8f0',
+                        background: active ? '#f0fdf4' : 'white',
+                        color: active ? '#15803d' : '#64748b',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650, marginBottom: '0.25rem', display: 'block' }}>
+              Define el horario específico para cada día de trabajo:
+            </span>
+            {daysOfWeek.map(day => {
+              const dayConfig = dailySchedules[day] || { active: false, entrada: '08:00', salida: '18:00' };
+              return (
+                <div key={day} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.5rem 0.75rem', background: dayConfig.active ? 'white' : 'transparent', border: dayConfig.active ? '1px solid #e2e8f0' : '1px solid transparent', borderRadius: '8px', transition: 'all 0.15s ease' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0, cursor: 'pointer', flex: 1 }}>
+                    <input
+                      type="checkbox"
+                      checked={dayConfig.active}
+                      onChange={(e) => {
+                        setDailySchedules(prev => ({
+                          ...prev,
+                          [day]: { ...prev[day], active: e.target.checked }
+                        }));
+                      }}
+                      style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#10b981' }}
+                    />
+                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: dayConfig.active ? '#09090b' : '#94a3b8' }}>
+                      {day}
+                    </span>
+                  </label>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: dayConfig.active ? 1 : 0.5 }}>
+                    <input
+                      type="time"
+                      disabled={!dayConfig.active}
+                      value={dayConfig.entrada}
+                      onChange={(e) => {
+                        setDailySchedules(prev => ({
+                          ...prev,
+                          [day]: { ...prev[day], entrada: e.target.value }
+                        }));
+                      }}
+                      style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: '6px', outline: 'none', background: dayConfig.active ? 'white' : '#f1f5f9' }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>a</span>
+                    <input
+                      type="time"
+                      disabled={!dayConfig.active}
+                      value={dayConfig.salida}
+                      onChange={(e) => {
+                        setDailySchedules(prev => ({
+                          ...prev,
+                          [day]: { ...prev[day], salida: e.target.value }
+                        }));
+                      }}
+                      style={{ padding: '0.3rem 0.5rem', fontSize: '0.8rem', border: '1px solid #cbd5e1', borderRadius: '6px', outline: 'none', background: dayConfig.active ? 'white' : '#f1f5f9' }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
@@ -400,6 +797,45 @@ const RoleManagement = () => {
                   * Los usuarios con acceso global podrán visualizar reportes y administrar contratos de todas las sucursales del salón.
                 </p>
               </div>
+
+              {editingUser && (
+                <>
+                  <div className="input-group" style={{ marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.75rem', display: 'block' }}>Foto de Perfil (Asistencia / Poncheo)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+                      <div style={{ width: '70px', height: '70px', borderRadius: '12px', border: '1px dashed #cbd5e1', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
+                        {newUser.profile_photo ? (
+                          <img src={newUser.profile_photo} alt="Foto de perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <User size={28} color="#94a3b8" />
+                        )}
+                      </div>
+                      <div>
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          id="profile-photo-upload" 
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setNewUser(prev => ({ ...prev, profile_photo: reader.result }));
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                        <label htmlFor="profile-photo-upload" className="btn-secondary" style={{ padding: '0.45rem 0.9rem', fontSize: '0.75rem', borderRadius: '8px', cursor: 'pointer', display: 'inline-block', fontWeight: 700, border: '1px solid #e2e8f0' }}>
+                          {newUser.profile_photo ? 'Cambiar Foto' : 'Subir Foto'}
+                        </label>
+                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.25rem', margin: 0 }}>PNG, JPG o JPEG de máx. 5MB</p>
+                      </div>
+                    </div>
+                  </div>
+                  {renderScheduleConfig(newUser, setNewUser)}
+                </>
+              )}
               
               <button 
                 type="submit" 
@@ -474,9 +910,14 @@ const RoleManagement = () => {
                       justifyContent: 'center', 
                       fontWeight: 800,
                       fontSize: '1.1rem',
-                      boxShadow: '0 4px 10px rgba(9, 9, 11, 0.15)'
+                      boxShadow: '0 4px 10px rgba(9, 9, 11, 0.15)',
+                      overflow: 'hidden'
                     }}>
-                      {u.nombre.charAt(0).toUpperCase()}
+                      {u.profile_photo ? (
+                        <img src={u.profile_photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        u.nombre.charAt(0).toUpperCase()
+                      )}
                     </div>
                     <div>
                       <p style={{ fontWeight: 800, fontSize: '1.05rem', color: '#09090b', margin: 0 }}>{u.nombre}</p>
@@ -494,7 +935,7 @@ const RoleManagement = () => {
                             border: '1px solid rgba(71, 85, 105, 0.1)',
                             fontSize: '0.75rem'
                           }}>
-                            📍 {salons.find(s => s.id === u.salon_id)?.name || 'Sucursal'}
+                            📍 {salons.find(s => String(s.id) === String(u.salon_id))?.name || 'Sucursal'}
                           </span>
                         ) : (
                           <span style={{ 
@@ -603,6 +1044,14 @@ const RoleManagement = () => {
                     </div>
                   </div>
                   <div className="input-group">
+                    <label>Email de Notificaciones</label>
+                    <input 
+                      type="email" className="input-field"
+                      placeholder="ejemplo@abatte.com"
+                      value={newStaff.email || ''} onChange={e => setNewStaff({...newStaff, email: e.target.value})}
+                    />
+                  </div>
+                  <div className="input-group">
                     <label>Posición / Cargo</label>
                     <select 
                       className="input-field" 
@@ -629,7 +1078,7 @@ const RoleManagement = () => {
                     <select 
                       className="input-field" 
                       value={newStaff.salon_id} 
-                      onChange={e => setNewStaff({...newStaff, salon_id: e.target.value, localidad: salons.find(s => s.id === e.target.value)?.name || ''})}
+                      onChange={e => setNewStaff({...newStaff, salon_id: e.target.value, localidad: salons.find(s => String(s.id) === String(e.target.value))?.name || ''})}
                       required
                     >
                       <option value="">Selecciona una localidad...</option>
@@ -668,7 +1117,44 @@ const RoleManagement = () => {
                     </div>
                   )}
 
-                  <button type="submit" className="btn-primary" style={{ marginTop: '1rem' }}>
+                  {/* Foto de perfil para asistencia */}
+                  <div className="input-group" style={{ marginTop: '1rem', borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.75rem', display: 'block' }}>Foto de Perfil (Asistencia / Poncheo)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+                      <div style={{ width: '60px', height: '60px', borderRadius: '12px', border: '1px dashed #cbd5e1', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
+                        {newStaff.profile_photo ? (
+                          <img src={newStaff.profile_photo} alt="Foto de perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <User size={24} color="#94a3b8" />
+                        )}
+                      </div>
+                      <div>
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          id="staff-photo-upload" 
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setNewStaff(prev => ({ ...prev, profile_photo: reader.result }));
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                        <label htmlFor="staff-photo-upload" className="btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem', borderRadius: '8px', cursor: 'pointer', display: 'inline-block', fontWeight: 700, border: '1px solid #e2e8f0' }}>
+                          {newStaff.profile_photo ? 'Cambiar Foto' : 'Subir Foto'}
+                        </label>
+                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.25rem', margin: 0 }}>PNG, JPG o JPEG de máx. 5MB</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {renderScheduleConfig(newStaff, setNewStaff)}
+
+                  <button type="submit" className="btn-primary" style={{ marginTop: '1.5rem' }}>
                     {editingStaff ? 'Guardar Cambios' : 'Registrar en RRHH'}
                   </button>
                 </form>
@@ -679,7 +1165,21 @@ const RoleManagement = () => {
           {/* Header Controls */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <button 
-              onClick={() => { setShowStaffForm(true); setEditingStaff(null); setNewStaff({ nombre: '', cedula: '', contacto: '', posicion: '', direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0] }); }}
+              onClick={() => {
+                setShowStaffForm(true);
+                setEditingStaff(null);
+                setScheduleMode('general');
+                setDailySchedules({
+                  Lunes: { active: false, entrada: '08:00', salida: '18:00' },
+                  Martes: { active: false, entrada: '08:00', salida: '18:00' },
+                  Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
+                  Jueves: { active: false, entrada: '08:00', salida: '18:00' },
+                  Viernes: { active: false, entrada: '08:00', salida: '18:00' },
+                  Sábado: { active: false, entrada: '08:00', salida: '18:00' },
+                  Domingo: { active: false, entrada: '08:00', salida: '18:00' }
+                });
+                setNewStaff({ nombre: '', cedula: '', contacto: '', posicion: '', email: '', direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0], profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15 });
+              }}
               className="btn-primary"
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.875rem 1.5rem', borderRadius: '12px' }}
             >
@@ -828,8 +1328,12 @@ const RoleManagement = () => {
               <div key={member.id} style={{ display: 'flex', alignItems: 'center', padding: '1.5rem', borderBottom: '1px solid #f1f5f9', background: 'white', flexWrap: 'wrap', gap: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: '2 1 300px' }}>
                   <div style={{ position: 'relative' }}>
-                    <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#09090b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 800 }}>
-                      {member.nombre.charAt(0)}
+                    <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#09090b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 800, overflow: 'hidden' }}>
+                      {member.profile_photo ? (
+                        <img src={member.profile_photo} alt={member.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        member.nombre.charAt(0).toUpperCase()
+                      )}
                     </div>
                     {member.status === 'Activo' && (
                       <div style={{ position: 'absolute', bottom: 2, right: 2, width: '12px', height: '12px', background: '#22c55e', borderRadius: '50%', border: '2px solid white' }}></div>
@@ -839,7 +1343,7 @@ const RoleManagement = () => {
                     <p style={{ fontWeight: 800, fontSize: '1.1rem', color: '#09090b' }}>{member.nombre}</p>
                     <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.2rem', fontWeight: 600 }}>{member.posicion}</p>
                     <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <MapPin size={12} /> {salons.find(s => s.id === member.salon_id)?.name || member.localidad || 'Todas las localidades'}
+                      <MapPin size={12} /> {salons.find(s => String(s.id) === String(member.salon_id))?.name || member.localidad || 'Todas las localidades'}
                     </p>
                   </div>
                 </div>
@@ -865,7 +1369,12 @@ const RoleManagement = () => {
                   <button onClick={() => { setShowStaffForm(true); startEditStaff(member); }} className="btn-secondary" style={{ padding: '0.6rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0' }}>
                     <Edit2 size={16} color="#64748b" />
                   </button>
-                  <button className="btn-secondary" style={{ padding: '0.6rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0' }}>
+                  <button 
+                    onClick={() => setSelectedStaffDetail(member)}
+                    className="btn-secondary" 
+                    style={{ padding: '0.6rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0' }}
+                    title="Ver Información"
+                  >
                     <Eye size={16} color="#64748b" />
                   </button>
                 </div>
@@ -963,6 +1472,166 @@ const RoleManagement = () => {
                 </button>
               </form>
            </div>
+        </div>
+      )}
+      {/* Modal - View Staff Profile details */}
+      {selectedStaffDetail && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(9, 9, 11, 0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'white', borderRadius: '24px', width: '90%', maxWidth: '520px', border: '1px solid #e2e8f0', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.75rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.3px' }}>Ficha de Información del Empleado</h3>
+              <button
+                onClick={() => setSelectedStaffDetail(null)}
+                style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8', fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', maxHeight: '80vh', overflowY: 'auto' }} className="hide-scrollbar">
+              
+              {/* Header profile info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '1.5rem' }}>
+                <div style={{ width: '70px', height: '70px', borderRadius: '50%', background: '#09090b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 800, flexShrink: 0, overflow: 'hidden' }}>
+                  {selectedStaffDetail.profile_photo ? (
+                    <img src={selectedStaffDetail.profile_photo} alt={selectedStaffDetail.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    selectedStaffDetail.nombre.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 900, color: '#09090b' }}>{selectedStaffDetail.nombre}</h4>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.9rem', color: '#64748b', fontWeight: 700 }}>{selectedStaffDetail.posicion}</p>
+                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <span style={{ padding: '0.25rem 0.75rem', background: selectedStaffDetail.status === 'Activo' ? '#dcfce7' : (selectedStaffDetail.status === 'Licencia' ? '#fef3c7' : '#fee2e2'), color: selectedStaffDetail.status === 'Activo' ? '#16a34a' : (selectedStaffDetail.status === 'Licencia' ? '#d97706' : '#ef4444'), borderRadius: '100px', fontSize: '0.72rem', fontWeight: 800 }}>
+                      {selectedStaffDetail.status === 'Inactivo' ? 'Baja / Renuncia' : selectedStaffDetail.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Informative Grid sections */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                
+                {/* 1. Datos Generales */}
+                <div>
+                  <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', fontWeight: 850, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Datos Generales</h5>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px' }}>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>CÉDULA / ID</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>{selectedStaffDetail.cedula || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>FECHA INGRESO</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>
+                        {selectedStaffDetail.fecha_entrada ? new Date(selectedStaffDetail.fecha_entrada).toLocaleDateString() : 'N/A'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>SUCURSAL</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>
+                        {salons.find(s => String(s.id) === String(selectedStaffDetail.salon_id))?.name || selectedStaffDetail.localidad || 'Todas las localidades'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>DIRECCIÓN</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#09090b', wordBreak: 'break-word' }}>{selectedStaffDetail.direccion || 'N/A'}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Contacto */}
+                <div>
+                  <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', fontWeight: 850, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contacto</h5>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{ background: 'white', padding: '0.4rem', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex' }}><Phone size={14} color="#64748b" /></span>
+                      <div>
+                        <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>CELULAR / TELÉFONO</span>
+                        <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>{selectedStaffDetail.contacto || 'N/A'}</strong>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{ background: 'white', padding: '0.4rem', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex' }}><Mail size={14} color="#64748b" /></span>
+                      <div>
+                        <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>CORREO ELECTRÓNICO</span>
+                        <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>{selectedStaffDetail.email || `${selectedStaffDetail.nombre.split(' ')[0].toLowerCase()}@abatte.com`}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Horarios y Jornada */}
+                <div>
+                  <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', fontWeight: 850, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Horario y Jornada</h5>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px' }}>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>HORARIO JORNADA</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>
+                        {selectedStaffDetail.hora_entrada && selectedStaffDetail.hora_salida ? (
+                          `${format12h(selectedStaffDetail.hora_entrada)} - ${format12h(selectedStaffDetail.hora_salida)}`
+                        ) : (
+                          'Sin horario asignado'
+                        )}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>MIN. TOLERANCIA</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#10b981' }}>
+                        {selectedStaffDetail.tolerancia_minutos !== null ? `${selectedStaffDetail.tolerancia_minutos} min` : '15 min'}
+                      </strong>
+                    </div>
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>DÍAS LABORABLES Y HORARIOS</span>
+                      <div style={{ marginTop: '0.4rem' }}>
+                        {(() => {
+                          const val = selectedStaffDetail.dias_laborables || '';
+                          if (val.trim().startsWith('{')) {
+                            try {
+                              const parsed = JSON.parse(val);
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', background: 'white', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                  {Object.keys(parsed).map(day => (
+                                    <div key={day} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                                      <span style={{ fontWeight: 750, color: '#475569' }}>{day}</span>
+                                      <span style={{ fontWeight: 800, color: '#10b981' }}>{parsed[day].entrada.slice(0, 5)} - {parsed[day].salida.slice(0, 5)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            } catch (e) {
+                              return <strong style={{ fontSize: '0.85rem', color: '#dc2626' }}>Error al procesar horario por día</strong>;
+                            }
+                          }
+                          return (
+                            <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>
+                              {val ? val.split(',').join(', ') : 'Ninguno asignado'}
+                            </strong>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Action Close */}
+              <div style={{ marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStaffDetail(null)}
+                  style={{ width: '100%', height: '48px', border: 'none', background: '#09090b', color: 'white', borderRadius: '50px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+                >
+                  Cerrar Ficha
+                </button>
+              </div>
+
+            </div>
+          </div>
         </div>
       )}
     </div>

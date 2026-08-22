@@ -1,18 +1,37 @@
 User-agent: *
 Allow: /
-Allow: /planes
-Allow: /regalar
-Allow: /sucursales
 
-# Disallow internal and private routes
-Disallow: /login
-Disallow: /clients
+# Allow public marketing pages
+Allow: /plan-de-belleza
+Allow: /como-funciona
+Allow: /beneficios
+Allow: /salones
+Allow: /preguntas-frecuentes
+Allow: /contacto
+Allow: /terminos-y-condiciones
+Allow: /politica-de-privacidad
+Allow: /cancelacion-y-reembolsos
+Allow: /regalar
+
+# Disallow internal APIs, dashboards and utility routes
+Disallow: /api/
+Disallow: /admin/
+Disallow: /panel/
+Disallow: /cuenta/
+Disallow: /mis-pagos/
+Disallow: /mis-citas/
+Disallow: /registro-cliente
+Disallow: /lista-clientes
+Disallow: /visitas
 Disallow: /mis-servicios
 Disallow: /dashboard
 Disallow: /pagos
 Disallow: /perfil
 Disallow: /configuracion
 Disallow: /activar
-Disallow: /encuesta
+Disallow: /planes
+Disallow: /sucursales
+Disallow: /equipo
+Disallow: /contratos
 
 Sitemap: https://planbeautyrd.com/sitemap.xml

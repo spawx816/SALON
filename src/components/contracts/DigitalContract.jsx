@@ -451,15 +451,49 @@ const DigitalContract = () => {
     }
   };
 
-  const handlePrint = (contract) => {
+  const handlePrint = async (contract) => {
     const printWindow = window.open('', '_blank');
-    const signatureDate = new Date(contract.signed_at || contract.created_at);
-    const dateStr = isNaN(signatureDate.getTime()) ? 'N/A' : signatureDate.toLocaleString();
-    
+    if (!printWindow) {
+      alert("Por favor, permite las ventanas emergentes para imprimir el contrato.");
+      return;
+    }
+
     printWindow.document.write(`
       <html>
         <head>
-          <title>Contrato Digital - ${contract.clientName}</title>
+          <title>Cargando Contrato...</title>
+          <style>
+            body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; color: #64748b; }
+            .loader { text-align: center; }
+          </style>
+        </head>
+        <body>
+          <div class="loader">
+            <h2>Cargando documento...</h2>
+            <p>Por favor espera un momento.</p>
+          </div>
+        </body>
+      </html>
+    `);
+
+    let fullContract = contract;
+    if (!contract.document_photo && !contract.selfie_photo) {
+      try {
+        const fetched = await dataService.getContractById(contract.id);
+        if (fetched) fullContract = fetched;
+      } catch (err) {
+        console.error("Error loading full contract for printing:", err);
+      }
+    }
+
+    const signatureDate = new Date(fullContract.signed_at || fullContract.created_at);
+    const dateStr = isNaN(signatureDate.getTime()) ? 'N/A' : signatureDate.toLocaleString();
+    
+    printWindow.document.open();
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Contrato Digital - ${fullContract.clientName}</title>
           <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
           <style>
             body { font-family: 'Plus Jakarta Sans', sans-serif; padding: 60px; color: #1e293b; line-height: 1.6; max-width: 800px; margin: 0 auto; }
@@ -501,20 +535,20 @@ const DigitalContract = () => {
           <div class="meta-grid">
             <div>
               <div class="section-title">CLIENTE</div>
-              <div class="data-value">${contract.clientName}</div>
-              <div style="font-size: 13px; color: #64748b; font-weight: 600;">ID: ${contract.clientCedula}</div>
+              <div class="data-value">${fullContract.clientName}</div>
+              <div style="font-size: 13px; color: #64748b; font-weight: 600;">ID: ${fullContract.clientCedula}</div>
             </div>
             <div>
               <div class="section-title">PLAN Y FECHA</div>
-              <div class="data-value">${contract.planTitle}</div>
+              <div class="data-value">${fullContract.planTitle}</div>
               <div style="font-size: 13px; color: #64748b; font-weight: 600;">Firmado: ${dateStr}</div>
             </div>
             <div style="grid-column: span 2; border-top: 1px solid #e2e8f0; padding-top: 15px;">
               <div class="section-title">EVIDENCIA DIGITAL</div>
               <div style="font-size: 12px; color: #475569;">
-                <strong>IP:</strong> ${contract.ip_address || 'N/A'} | 
-                <strong>DISP:</strong> <span title="${contract.device_agent || ''}">${parseUA(contract.device_agent)}</span>
-                ${contract.geolocation ? `| <strong>GPS:</strong> ${contract.geolocation}` : ''}
+                <strong>IP:</strong> ${fullContract.ip_address || 'N/A'} | 
+                <strong>DISP:</strong> <span title="${fullContract.device_agent || ''}">${parseUA(fullContract.device_agent)}</span>
+                ${fullContract.geolocation ? `| <strong>GPS:</strong> ${fullContract.geolocation}` : ''}
               </div>
             </div>
           </div>
@@ -522,7 +556,7 @@ const DigitalContract = () => {
           <div class="legal-text" style="text-align: justify; line-height: 1.5; font-size: 13px;">
             <p style="text-align: center; font-weight: 800; margin-bottom: 20px; font-size: 16px;">CONTRATO DE SUSCRIPCIÓN DE SERVICIOS DE BELLEZA</p>
             
-            <p>Entre los subscritos, La empresa: <strong>ETEREAS S. R. L.</strong>, debidamente constituida de conformidad con las leyes de la Republica Dominicana, con Registro Nacional del Contribuyente No. 1-31-91703-8, con su domicilio social en la Av. San Vicente De Paul esquina Calle Puerto Rico, Alma Rosa I, Plaza El Poder, Local 1F, Santo Domingo Este, Municipio De La De Provincia Santo Domingo, quien en lo que sigue del presente contrato se denominara, <strong>LA COMPAÑIA</strong>, y de la otra parte la Sra. <strong>${contract.clientName}</strong>, Dominicana, mayor de edad, portadora de la cedula de identidad y electoral No. <strong>${contract.clientCedula}</strong>, domiciliada y residente en la Calle <strong>${contract.address || '______________________________________'}</strong>, No. <strong>${contract.house_number || '_______'}</strong>, Sector <strong>${contract.sector || '________________________'}</strong>, de <strong>${contract.ciudad || 'Santo Domingo'}</strong>, quien en lo que sigue del presente contrato se denominara <strong>EL CLIENTE</strong>.</p>
+            <p>Entre los subscritos, La empresa: <strong>ETEREAS S. R. L.</strong>, debidamente constituida de conformidad con las leyes de la Republica Dominicana, con Registro Nacional del Contribuyente No. 1-31-91703-8, con su domicilio social en la Av. San Vicente De Paul esquina Calle Puerto Rico, Alma Rosa I, Plaza El Poder, Local 1F, Santo Domingo Este, Municipio De La De Provincia Santo Domingo, quien en lo que sigue del presente contrato se denominara, <strong>LA COMPAÑIA</strong>, y de la otra parte la Sra. <strong>${fullContract.clientName}</strong>, Dominicana, mayor de edad, portadora de la cedula de identidad y electoral No. <strong>${fullContract.clientCedula}</strong>, domiciliada y residente en la Calle <strong>${fullContract.address || '______________________________________'}</strong>, No. <strong>${fullContract.house_number || '_______'}</strong>, Sector <strong>${fullContract.sector || '________________________'}</strong>, de <strong>${fullContract.ciudad || 'Santo Domingo'}</strong>, quien en lo que sigue del presente contrato se denominara <strong>EL CLIENTE</strong>.</p>
 
             <p><strong>1.0 - Objeto del Contrato.</strong> Este Contrato contiene los términos y condiciones del Servicio de Belleza, consistente en Lavado y Secado de Pelo que será prestado por LA COMPAÑÍA AL CLIENTE.</p>
 
@@ -531,7 +565,7 @@ const DigitalContract = () => {
 
             <p><strong>1.2- Requisito para Contratar este Servicio:</strong> Es condición indispensable para poder adquirir y mantener el Servicio de Belleza bajo Suscripción, que El CLIENTE haya adquirido y suscrito contrato de lavado y secado de pelo, con LA COMPAÑIA.</p>
 
-            <p><strong>1.3- EL CLIENTE acepta y elije el plan:</strong> <strong>${contract.planTitle}</strong> como su Servicio de Belleza, el plan incluye los beneficios siguientes: <strong>${Array.isArray(contract.contract_services) ? contract.contract_services.join(', ') : (contract.services || 'Servicios según plan')}</strong></p>
+            <p><strong>1.3- EL CLIENTE acepta y elije el plan:</strong> <strong>${fullContract.planTitle}</strong> como su Servicio de Belleza, el plan incluye los beneficios siguientes: <strong>${Array.isArray(fullContract.contract_services) ? fullContract.contract_services.join(', ') : (fullContract.services || 'Servicios según plan')}</strong></p>
 
             <p><strong>1.4- El presente Contrato</strong> formará parte integral del plan de servicios que previamente haya elegido EL CLIENTE con LA COMPAÑÍA, según se describe a continuación:</p>
 
@@ -547,14 +581,14 @@ const DigitalContract = () => {
 
             <p><strong>3.4- La falta de pago</strong> produce por defecto la suspensión del servicio y su reactivación se producirá solo si EL CLIENTE ha realizado el pago total de todas las cuotas vencidas incluyendo la que corresponde al mes por adelantado. Ante el incumplimiento de pago LA COMPAÑÍA se reserva el derecho de cancelar el presente contrato bajo la más amplia reserva de acciones para garantizar el cumplimiento del presente contrato.</p>
 
-            <p><strong>3.5- El servicio deberá ser utilizado</strong> por EL CLIENTE bajo condiciones normales de uso conforme a la naturaleza del plan contratado; en consecuencia, LA COMPAÑÍA podrá establecer límites razonables en la frecuencia de utilización del servicio, incluyendo un máximo de un (1) servicio por día, así como suspender o restringir su acceso cuando el uso exceda dichas condiciones.</p>
+            <p><strong>3.5- El servicio deberá ser utilizado</strong> por EL CLIENTE bajo condiciones normales de uso conforme a la naturaleza del plan contratado; en consecuencia, LA COMPAÑÍA podrá establecer límites razonables en la frecuencia de utilización del servicio, incluyendo un maximum de un (1) servicio por día, así como suspender o restringir su acceso cuando el uso exceda dichas condiciones.</p>
 
             <p><strong>Obligaciones del CLIENTE: EL CLIENTE deberá:</strong><br/>
             EL CLIENTE estará obligado al pago del servicio elegido en el presente contrato, condición indispensable para tener la disponibilidad del servicio en nuestros centros de atención al cliente.<br/>
-            EL CLIENTE tendrá derecho, a hacer sin costo alguno en el plazo de un (1) mes, una cantidad máxima de <strong>${contract.max_services || '4 (cuatro)'}</strong> solicitudes de servicios en nuestros centros de atención al cliente según el plan contratado inicialmente. A partir de ahí, EL CLIENTE deberá pagar el valor adicional que LA COMPAÑÍA haya informado al momento de la solicitud efectuada por EL CLIENTE.<br/>
+            EL CLIENTE tendrá derecho, a hacer sin costo alguno en el plazo de un (1) mes, una cantidad máxima de <strong>${fullContract.max_services || '4 (cuatro)'}</strong> solicitudes de servicios en nuestros centros de atención al cliente según el plan contratado inicialmente. A partir de ahí, EL CLIENTE deberá pagar el valor adicional que LA COMPAÑÍA haya informado al momento de la solicitud efectuada por EL CLIENTE.<br/>
             EL CLIENTE podrá solicitar en cualquier momento el cambio a un plan superior. Dicho cambio será efectivo de inmediato, debiendo EL CLIENTE pagar la diferencia correspondiente al nuevo plan seleccionado al momento de la solicitud</p>
 
-            <p><strong>4- Precio del Servicio:</strong> EL CLIENTE acuerda pagar a LA COMPAÑÍA por el servicio prestado, una renta mensual de <strong>RD$ ${parseFloat(contract.contract_price || contract.price || contract.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> facturada por adelantado. Asimismo, EL CLIENTE acepta un cargo único de activación por renovación anual de <strong>RD$ 800.00</strong>, el cual será debitado automáticamente al cumplirse cada año de vigencia del contrato.</p>
+            <p><strong>4- Precio del Servicio:</strong> EL CLIENTE acuerda pagar a LA COMPAÑÍA por el servicio prestado, una renta mensual de <strong>RD$ ${parseFloat(fullContract.contract_price || fullContract.price || fullContract.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> facturada por adelantado. Asimismo, EL CLIENTE acepta un cargo único de activación por renovación anual de <strong>RD$ 800.00</strong>, el cual será debitado automáticamente al cumplirse cada año de vigencia del contrato.</p>
 
             <p><strong>4.1- Forma de Pago:</strong> EL CLIENTE es responsable de la inscripción de una tarjeta de crédito al momento de la contratación del servicio para realizar el debito del servicio de forma recurrente y automática.</p>
 
@@ -584,7 +618,7 @@ const DigitalContract = () => {
 
             <p><strong>5.3- Al momento de EL CLIENTE solicitar</strong> la cancelación del servicio LA COMPAÑÍA le estará notificando al cliente por escrito o por cualquier medio escrito o electrónico, en un plazo de Cinco (5) días, el valor que le será debitado de su tarjeta como ultimo pago.</p>
 
-            <p><strong>6- Las partes acuerdan</strong> que para todo lo no previsto en el presente contrato se remiten al derecho del consumidor y posteriormente al Derecho común. Hecho y firmados en dos originales uno para cada una de las partes. En Santo Domingo Este, Municipio de la Provincia de Santo Domingo a los <strong>${new Date(contract.signed_at || Date.now()).getDate()}</strong> días del mes de <strong>${new Intl.DateTimeFormat('es-DO', {month: 'long'}).format(new Date(contract.signed_at || Date.now()))}</strong> del año <strong>${new Date(contract.signed_at || Date.now()).getFullYear()}</strong></p>
+            <p><strong>6- Las partes acuerdan</strong> que para todo lo no previsto en el presente contrato se remiten al derecho del consumidor y posteriormente al Derecho común. Hecho y firmados en dos originales uno para cada una de las partes. En Santo Domingo Este, Municipio de la Provincia de Santo Domingo a los <strong>${new Date(fullContract.signed_at || Date.now()).getDate()}</strong> días del mes de <strong>${new Intl.DateTimeFormat('es-DO', {month: 'long'}).format(new Date(fullContract.signed_at || Date.now()))}</strong> del año <strong>${new Date(fullContract.signed_at || Date.now()).getFullYear()}</strong></p>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 50px; margin-top: 60px;">
@@ -596,43 +630,43 @@ const DigitalContract = () => {
             <div style="text-align: center;">
               <p style="font-weight: 800; font-size: 14px; margin-bottom: 0px;">Por EL CLIENTE</p>
               <div style="font-family: 'Dancing Script', cursive; font-size: 32px; height: 50px; display: flex; alignItems: center; justifyContent: center;">
-                ${(!contract.signature_hash || contract.signature_hash.includes('signed_') || contract.signature_hash.length > 30) ? contract.clientName : contract.signature_hash}
+                ${(!fullContract.signature_hash || fullContract.signature_hash.includes('signed_') || fullContract.signature_hash.length > 30) ? fullContract.clientName : fullContract.signature_hash}
               </div>
               <div style="border-top: 1px solid black; width: 200px; margin: 0 auto 10px;"></div>
-              <p style="font-size: 11px;">${contract.clientName}</p>
-              <p style="font-size: 11px;">Cédula: ${contract.clientCedula}</p>
+              <p style="font-size: 11px;">${fullContract.clientName}</p>
+              <p style="font-size: 11px;">Cédula: ${fullContract.clientCedula}</p>
             </div>
           </div>
 
-          ${(contract.document_photo || contract.selfie_photo) ? `
+          ${(fullContract.document_photo || fullContract.selfie_photo) ? `
             <div class="photo-annex">
               <div class="header" style="border-bottom: 1px solid #e2e8f0; margin-bottom: 20px;">
                 <h1>ANEXO DE SEGURIDAD Y BIOMETRÍA</h1>
                 <p>EVIDENCIA FOTOGRÁFICA DE IDENTIDAD</p>
               </div>
               <div class="photo-grid">
-                ${contract.document_photo ? `
+                ${fullContract.document_photo ? `
                   <div class="photo-item">
                     <span class="photo-label">Cédula / Documento de Identidad</span>
-                    <img src="${contract.document_photo}" />
+                    <img src="${fullContract.document_photo}" />
                   </div>
                 ` : ''}
-                ${contract.selfie_photo ? `
+                ${fullContract.selfie_photo ? `
                   <div class="photo-item">
                     <span class="photo-label">Selfie de Verificación</span>
-                    <img src="${contract.selfie_photo}" />
+                    <img src="${fullContract.selfie_photo}" />
                   </div>
                 ` : ''}
               </div>
               <div style="margin-top: 30px; font-size: 11px; color: #64748b; text-align: center;">
-                Este anexo forma parte integral del contrato firmado digitalmente bajo el ID: ${contract.id}
+                Este anexo forma parte integral del contrato firmado digitalmente bajo el ID: ${fullContract.id}
               </div>
             </div>
           ` : ''}
 
           <div class="footer">
             Este es un documento firmado digitalmente bajo la Ley No. 126-02 sobre Comercio Electrónico, Documentos y Firmas Digitales en la República Dominicana.
-            <br/>Hash de Seguridad: ${contract.signature_hash?.substring(0, 8)}-${contract.id}
+            <br/>Hash de Seguridad: ${fullContract.signature_hash?.substring(0, 8)}-${fullContract.id}
           </div>
         </body>
       </html>
@@ -640,7 +674,7 @@ const DigitalContract = () => {
     printWindow.document.close();
     setTimeout(() => {
         printWindow.print();
-    }, 500);
+    }, 1500);
   };
 
   return (

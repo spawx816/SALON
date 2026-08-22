@@ -190,56 +190,74 @@ const ServiceAnalytics = () => {
           </div>
         );
 
-      case 'payments':
+      case 'payments': {
+        const totalPaymentSum = (reports.paymentBreakdown || []).reduce((acc, curr) => acc + Number(curr.total || 0), 0);
         return (
           <div className="report-view">
-            <h3 style={{ marginBottom: '1.5rem', fontWeight: 800 }}>Desglose de Pagos por Método</h3>
+            <h3 style={{ marginBottom: '1.5rem', fontWeight: 800 }}>Desglose de Pagos por Método ({startDate} al {endDate})</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {reports.paymentBreakdown.map((pay, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', background: 'var(--bg-canvas)', borderRadius: '16px', border: '1px solid var(--border-subtle)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <div style={{ background: 'var(--text-primary)', color: 'white', padding: '0.75rem', borderRadius: '12px' }}>
-                      {pay.method.toLowerCase().includes('tarjeta') ? <CreditCard size={20} /> : <DollarSign size={20} />}
-                    </div>
-                    <div>
-                      <p style={{ margin: 0, fontWeight: 800, fontSize: '1rem' }}>{pay.method}</p>
-                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{pay.count} transacciones aprobadas</p>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ margin: 0, fontWeight: 900, fontSize: '1.25rem' }}>RD$ {Number(pay.total).toLocaleString()}</p>
-                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#10b981', fontWeight: 800 }}>{((pay.total / reports.paymentBreakdown.reduce((acc, curr) => acc + Number(curr.total), 0)) * 100).toFixed(1)}% del total</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 'frequency':
-        return (
-          <div className="report-view">
-            <h3 style={{ marginBottom: '1.5rem', fontWeight: 800 }}>Frecuencia de Visitas</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {reports.visitFrequency.map((freq, idx) => {
-                const totalClients = reports.visitFrequency.reduce((acc, curr) => acc + curr.client_count, 0);
-                const percent = (freq.client_count / totalClients) * 100;
-                return (
-                  <div key={idx} style={{ position: 'relative', padding: '1.25rem', borderRadius: '12px', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
-                    <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', background: '#f59e0b', opacity: 0.1, width: `${percent}%` }}></div>
-                    <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700 }}>Clientes con {freq.visit_count} {freq.visit_count === 1 ? 'visita' : 'visitas'}</span>
+              {reports.paymentBreakdown && reports.paymentBreakdown.length > 0 ? (
+                reports.paymentBreakdown.map((pay, idx) => {
+                  const percent = totalPaymentSum > 0 ? ((Number(pay.total || 0) / totalPaymentSum) * 100).toFixed(1) : '0.0';
+                  return (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', background: 'var(--bg-canvas)', borderRadius: '16px', border: '1px solid var(--border-subtle)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <div style={{ background: 'var(--text-primary)', color: 'white', padding: '0.75rem', borderRadius: '12px' }}>
+                          {pay.method && pay.method.toLowerCase().includes('tarjeta') ? <CreditCard size={20} /> : <DollarSign size={20} />}
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 800, fontSize: '1rem' }}>{pay.method}</p>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{pay.count} transacciones aprobadas</p>
+                        </div>
+                      </div>
                       <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontWeight: 800, display: 'block' }}>{freq.client_count} Clientes</span>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 800 }}>{percent.toFixed(1)}% de la base</span>
+                        <p style={{ margin: 0, fontWeight: 900, fontSize: '1.25rem' }}>RD$ {Number(pay.total || 0).toLocaleString()}</p>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#10b981', fontWeight: 800 }}>{percent}% del total</p>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              ) : (
+                <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-canvas)', borderRadius: '16px' }}>
+                  No hay pagos registrados para este periodo y sucursal seleccionada.
+                </div>
+              )}
             </div>
           </div>
         );
+      }
+
+      case 'frequency': {
+        const totalClients = (reports.visitFrequency || []).reduce((acc, curr) => acc + curr.client_count, 0);
+        return (
+          <div className="report-view">
+            <h3 style={{ marginBottom: '1.5rem', fontWeight: 800 }}>Frecuencia de Visitas ({startDate} al {endDate})</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {reports.visitFrequency && reports.visitFrequency.length > 0 ? (
+                reports.visitFrequency.map((freq, idx) => {
+                  const percent = totalClients > 0 ? (freq.client_count / totalClients) * 100 : 0;
+                  return (
+                    <div key={idx} style={{ position: 'relative', padding: '1.25rem', borderRadius: '12px', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+                      <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', background: '#f59e0b', opacity: 0.1, width: `${percent}%` }}></div>
+                      <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700 }}>Clientes con {freq.visit_count} {freq.visit_count === 1 ? 'visita' : 'visitas'}</span>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontWeight: 800, display: 'block' }}>{freq.client_count} Clientes</span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 800 }}>{percent.toFixed(1)}% de la base</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--bg-canvas)', borderRadius: '16px' }}>
+                  No hay visitas registradas para este periodo y sucursal seleccionada.
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
 
       case 'cash':
         return (

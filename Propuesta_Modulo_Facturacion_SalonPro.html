@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Propuesta Ejecutiva Completa - Módulo de Facturación Plan Beauty</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #ec4899;
+      --primary-dark: #be185d;
+      --secondary: #8b5cf6;
+      --dark: #0f172a;
+      --light: #f8fafc;
+      --text: #334155;
+      --text-muted: #64748b;
+      --border: #cbd5e1;
+      --card-bg: #ffffff;
+      --accent-bg: #f8fafc;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      color: var(--text);
+      background-color: #f1f5f9;
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border-radius: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+      padding: 50px;
+    }
+
+    /* HEADER */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 25px;
+      margin-bottom: 35px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand-logo {
+      width: 52px;
+      height: 52px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 24px;
+      box-shadow: 0 4px 14px rgba(236, 72, 153, 0.3);
+    }
+
+    .brand-title h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--dark);
+      letter-spacing: -0.5px;
+    }
+
+    .brand-title span {
+      color: var(--primary);
+    }
+
+    .brand-title p {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .doc-badge {
+      background-color: #fdf2f8;
+      border: 1px solid #fbcfe8;
+      color: var(--primary-dark);
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    /* TYPOGRAPHY */
+    h2.section-header {
+      font-size: 19px;
+      color: var(--dark);
+      margin-top: 35px;
+      margin-bottom: 16px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h3 {
+      font-size: 15.5px;
+      color: var(--primary-dark);
+      margin-top: 18px;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    p, li {
+      font-size: 14px;
+      color: #334155;
+      margin-bottom: 8px;
+    }
+
+    ul, ol {
+      margin-left: 22px;
+      margin-bottom: 14px;
+    }
+
+    li {
+      margin-bottom: 5px;
+    }
+
+    /* MODULE BOX */
+    .module-box {
+      background-color: var(--accent-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      margin-bottom: 22px;
+    }
+
+    /* FLOW DIAGRAM STYLES */
+    .flow-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin: 18px 0;
+      padding: 16px;
+      background: white;
+      border-radius: 12px;
+      border: 1px dashed #cbd5e1;
+    }
+
+    .flow-step {
+      flex: 1;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 6px;
+      text-align: center;
+    }
+
+    .flow-step-icon {
+      font-size: 20px;
+      margin-bottom: 2px;
+    }
+
+    .flow-step-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--dark);
+    }
+
+    .flow-step-desc {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .flow-arrow {
+      color: var(--primary);
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    /* WIREFRAME MOCKUP STYLES */
+    .mockup-window {
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+      margin: 18px 0;
+      color: white;
+    }
+
+    .mockup-header {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .mockup-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+
+    .mockup-body {
+      display: grid;
+      grid-template-columns: 2.2fr 4fr 3fr;
+      gap: 10px;
+    }
+
+    .mockup-col {
+      background: #1e293b;
+      border-radius: 8px;
+      padding: 10px;
+    }
+
+    .mockup-col-title {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 4px;
+    }
+
+    .mockup-item-btn {
+      background: #334155;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      padding: 5px 7px;
+      font-size: 10.5px;
+      color: white;
+      margin-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .mockup-btn-primary {
+      background: var(--primary);
+      color: white;
+      font-weight: 700;
+      text-align: center;
+      padding: 7px;
+      border-radius: 6px;
+      font-size: 11px;
+      margin-top: 8px;
+    }
+
+    /* BADGES */
+    .tag {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-size: 11.5px;
+      font-weight: 600;
+      margin-right: 4px;
+      margin-bottom: 4px;
+    }
+    .tag-service { background: #e0e7ff; color: #3730a3; }
+
+    /* TABLE */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 13px;
+    }
+
+    th, td {
+      padding: 9px 12px;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+
+    th {
+      background-color: #f1f5f9;
+      color: var(--dark);
+      font-weight: 700;
+    }
+
+    .alert-box {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 13.5px;
+      line-height: 1.5;
+    }
+
+    .alert-important {
+      background-color: #fff1f2;
+      border-left: 5px solid #f43f5e;
+      color: #9f1239;
+    }
+
+    .alert-quote {
+      background-color: #fefce8;
+      border-left: 5px solid #eab308;
+      color: #713f12;
+      font-style: italic;
+    }
+
+    /* ACTION BAR */
+    .print-actions {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      display: flex;
+      gap: 12px;
+      z-index: 1000;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 28px;
+      border-radius: 30px;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(236, 72, 153, 0.4);
+    }
+
+    /* OPTIMIZED PRINT RULES TO PREVENT CUTOFFS */
+    @page {
+      size: A4;
+      margin: 12mm 15mm 12mm 15mm;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .container {
+        box-shadow: none !important;
+        padding: 10px 0 !important;
+        max-width: 100% !important;
+        border-radius: 0 !important;
+      }
+      .print-actions {
+        display: none !important;
+      }
+      .module-box, .mockup-window, .flow-container, table, .alert-box {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      h2.section-header {
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="print-actions">
+    <button class="btn btn-primary" onclick="window.print()">
+      🖨️ Imprimir / Descargar PDF en Plan Beauty
+    </button>
+  </div>
+
+  <div class="container">
+    
+    <!-- HEADER -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-logo">PB</div>
+        <div class="brand-title">
+          <h1>PLAN<span>BEAUTY</span>RD</h1>
+          <p>Especificación de Requerimientos & Propuesta de Desarrollo</p>
+        </div>
+      </div>
+      <div class="doc-badge">Especificación 100% Exhaustiva</div>
+    </header>
+
+    <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 14px 18px; border-radius: 10px; margin-bottom: 25px; font-size: 13.5px;">
+      <strong>📌 Documento Oficial de Desarrollo:</strong> A continuación se desglosan en detalle los <strong>18 módulos funcionales</strong> del nuevo Módulo de Facturación Integrado para <strong>Plan Beauty (PlanBeautyRD)</strong>, incluyendo reglas de negocio, flujos y especificaciones operativas.
+    </div>
+
+    <!-- DIAGRAMA OPERATIVO -->
+    <div class="flow-container">
+      <div class="flow-step">
+        <div class="flow-step-icon">🔓</div>
+        <div class="flow-step-title">1. Apertura Caja</div>
+        <div class="flow-step-desc">Fondo Inicial Obligatorio</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">📋</div>
+        <div class="flow-step-title">2. Ticket Servicio</div>
+        <div class="flow-step-desc">Checkboxes 25+ Servicios</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">🖥️</div>
+        <div class="flow-step-title">3. Facturación POS</div>
+        <div class="flow-step-desc">Cliente, Top 7 y Multiempleado</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">💳</div>
+        <div class="flow-step-title">4. Forma de Pago</div>
+        <div class="flow-step-desc">Efectivo, Tarjeta, Plan, Nómina</div>
+      </div>
+      <div class="flow-arrow">➔</div>
+      <div class="flow-step">
+        <div class="flow-step-icon">🔒</div>
+        <div class="flow-step-title">5. Cierre & Arqueo</div>
+        <div class="flow-step-desc">Cuadre y Faltante/Sobrante</div>
+      </div>
+    </div>
+
+    <!-- MÓDULO 1 -->
+    <div class="module-box">
+      <h2 class="section-header">1. Pantalla Principal de Facturación POS</h2>
+      <p>La pantalla principal estará dividida en tres secciones interactivas:</p>
+      
+      <h3>Primera Sección: Cliente</h3>
+      <ul>
+        <li>Buscar clientes por nombre, teléfono o cédula de identidad.</li>
+        <li>Seleccionar al cliente que recibirá el servicio.</li>
+        <li>Consultar si el cliente pertenece al Plan Beauty (verificación automática).</li>
+        <li>Mostrar información disponible del cliente: beneficios, lavados disponibles, descuentos o saldo pendiente.</li>
+        <li>Permitir consultar el historial completo de atenciones del cliente.</li>
+        <li>Incluir un botón directo para generar e imprimir el ticket de servicios.</li>
+      </ul>
+
+      <h3>Segunda Sección: Servicios</h3>
+      <ul>
+        <li>Buscador predictivo para localizar servicios disponibles en el catálogo.</li>
+        <li>Mostrar automáticamente accesos rápidos con los 7 servicios más solicitados del salón.</li>
+        <li>Agregar un servicio a la factura con solo seleccionarlo.</li>
+        <li>Mostrar los servicios agregados en una lista interactiva.</li>
+        <li>Permitir seleccionar el empleado/estilista específico que realizó cada servicio individual.</li>
+        <li>Modificar la cantidad del servicio directamente en la línea.</li>
+        <li>Aplicar descuentos por servicio.</li>
+        <li>Eliminar servicios agregados antes de finalizar la factura.</li>
+        <li>Agregar observaciones o notas explicativas a la factura.</li>
+      </ul>
+
+      <h3>Tercera Sección: Cobro</h3>
+      <ul>
+        <li>Mostrar subtotal de servicios.</li>
+        <li>Mostrar descuentos aplicados acumulados.</li>
+        <li>Mostrar impuestos (ITBIS), en caso de que correspondan.</li>
+        <li>Mostrar el monto total neto a pagar.</li>
+        <li>Permitir seleccionar el método de pago (único o mixto).</li>
+        <li>Finalizar la factura con guardado automático.</li>
+        <li>Generar cotización o proforma.</li>
+        <li>Imprimir o reimprimir la factura en formato ticket térmico o PDF.</li>
+      </ul>
+
+      <!-- MOCKUP POS -->
+      <div class="mockup-window">
+        <div class="mockup-header">
+          <div class="mockup-dot dot-red"></div>
+          <div class="mockup-dot dot-yellow"></div>
+          <div class="mockup-dot dot-green"></div>
+          <span style="font-size: 10.5px; color: #94a3b8; margin-left: 10px;">Vista Previa de Interfaz POS - Plan Beauty Terminal</span>
+        </div>
+        <div class="mockup-body">
+          <div class="mockup-col">
+            <div class="mockup-col-title">1. Cliente</div>
+            <div style="font-size: 9.5px; color: #cbd5e1;">🔍 Buscar: María Rodríguez</div>
+            <div style="margin-top: 5px; background: #065f46; color: #34d399; font-size: 8.5px; padding: 3px; text-align: center; border-radius: 4px;">✨ Plan Beauty Activo (3 Lavados)</div>
+            <div style="margin-top: 8px; background: #8b5cf6; color: white; padding: 3px; border-radius: 4px; text-align: center; font-size: 8.5px;">🎟️ Ticket Servicio</div>
+          </div>
+          <div class="mockup-col">
+            <div class="mockup-col-title">2. Servicios (Top 7)</div>
+            <div class="mockup-item-btn"><span>Lavado & Secado</span> <span>RD$ 800</span></div>
+            <div style="font-size: 8px; color: #94a3b8; margin-bottom: 3px;">Estilista: Ana Gómez</div>
+            <div class="mockup-item-btn"><span>Penetratti</span> <span>RD$ 600</span></div>
+            <div style="font-size: 8px; color: #94a3b8;">Estilista: Carla Martínez</div>
+          </div>
+          <div class="mockup-col">
+            <div class="mockup-col-title">3. Cobro</div>
+            <div style="font-size: 9.5px; display: flex; justify-content: space-between;"><span>Subtotal:</span> <span>RD$ 1,400</span></div>
+            <div style="font-size: 9.5px; display: flex; justify-content: space-between; color: #34d399;"><span>TOTAL:</span> <span>RD$ 1,100</span></div>
+            <div class="mockup-btn-primary">💳 FINALIZAR FACTURA</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MÓDULO 2 -->
+    <div class="module-box">
+      <h2 class="section-header">2. Métodos de Pago Integrados</h2>
+      <p>El sistema permitirá registrar pagos mediante:</p>
+      <ul>
+        <li>Efectivo.</li>
+        <li>Tarjeta (Débito/Crédito).</li>
+        <li>Transferencia bancaria.</li>
+        <li>Pago mixto (combinación de dos o más métodos).</li>
+        <li>Plan Beauty.</li>
+        <li>Consumo o crédito para empleados.</li>
+      </ul>
+      <div class="alert-box alert-important">
+        <strong>📌 Regla de Consumos de Empleados:</strong> Cuando el pago sea registrado como consumo de empleado, deberá guardarse en un apartado separado de <em>Descuentos de Nómina</em> para posteriormente realizar el descuento correspondiente por nómina de forma automatizada sin duplicidades.
+      </div>
+    </div>
+
+    <!-- MÓDULO 3 -->
+    <div class="module-box">
+      <h2 class="section-header">3. Módulo Plan Beauty</h2>
+      <ul>
+        <li>Identificar si el cliente seleccionado tiene un Plan Beauty activo.</li>
+        <li>Mostrar la cantidad de servicios o lavados disponibles.</li>
+        <li>Permitir consumir un lavado o beneficio al momento de facturar.</li>
+        <li>Descontar automáticamente el servicio utilizado del balance del plan del cliente.</li>
+        <li>Registrar el historial detallado de consumos del cliente.</li>
+        <li>Permitir facturar normalmente cuando el cliente no desee utilizar su beneficio en la visita.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 4 -->
+    <div class="module-box">
+      <h2 class="section-header">4. Generación de Ticket de Servicios</h2>
+      <p>Se incluirá un botón para generar un ticket digital similar al formulario físico utilizado actualmente.</p>
+      
+      <h3>Servicios Seleccionables (Formulario Físico Digitalizado):</h3>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px;">
+        <span class="tag tag-service">Lavado y secado con líneas</span>
+        <span class="tag tag-service">Lavado y secado</span>
+        <span class="tag tag-service">Corte</span>
+        <span class="tag tag-service">Corte de punta</span>
+        <span class="tag tag-service">Tinte</span>
+        <span class="tag tag-service">Retoque de tinte</span>
+        <span class="tag tag-service">Light o rayitos</span>
+        <span class="tag tag-service">Cellophane</span>
+        <span class="tag tag-service">Texturizado</span>
+        <span class="tag tag-service">Retoque de texturizado</span>
+        <span class="tag tag-service">Aplicación de producto de terminación</span>
+        <span class="tag tag-service">Tratamiento</span>
+        <span class="tag tag-service">Plancha</span>
+        <span class="tag tag-service">Penetratti</span>
+        <span class="tag tag-service">Mascarilla</span>
+        <span class="tag tag-service">Peinado</span>
+        <span class="tag tag-service">Gotitas</span>
+        <span class="tag tag-service">Maquillaje</span>
+        <span class="tag tag-service">Depilación de bigote</span>
+        <span class="tag tag-service">Depilación de cejas</span>
+        <span class="tag tag-service">Depilación de axilas</span>
+        <span class="tag tag-service">Depilación del área de bikini</span>
+        <span class="tag tag-service">Manicure</span>
+        <span class="tag tag-service">Pedicure</span>
+        <span class="tag tag-service">Uñas acrílicas</span>
+        <span class="tag tag-service">Otros servicios registrados</span>
+      </div>
+
+      <h3>Campos Visibles en el Ticket:</h3>
+      <ul>
+        <li>Cliente.</li>
+        <li>Empleado que atendió al cliente.</li>
+        <li>Empleado que realizó el lavado.</li>
+        <li>Método de pago previsto.</li>
+        <li>Fecha y hora.</li>
+        <li>Número correlativo del ticket.</li>
+        <li>Servicios seleccionados.</li>
+        <li>Espacio para observaciones, cuando corresponda.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 5 -->
+    <div class="module-box">
+      <h2 class="section-header">5. Apertura Obligatoria de Caja</h2>
+      <div class="alert-box alert-quote">
+        "Antes de realizar cualquier factura, el empleado deberá abrir obligatoriamente una caja. Mientras no exista una caja abierta, el sistema no permitirá realizar cobros ni finalizar facturas. Porque aparentemente hasta el dinero necesita supervisión adulta."
+      </div>
+      <p>La apertura deberá registrar:</p>
+      <ul>
+        <li>Empleado responsable que realiza la apertura.</li>
+        <li>Fecha y hora de apertura.</li>
+        <li>Monto inicial disponible en caja (fondo de caja).</li>
+        <li>Sucursal o área correspondiente.</li>
+        <li>Estado de la caja: abierta o cerrada.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 6 -->
+    <div class="module-box">
+      <h2 class="section-header">6. Movimientos de Caja en Tiempo Real</h2>
+      <p>Cada cobro realizado por el empleado se registrará automáticamente en su caja abierta, separando los ingresos por:</p>
+      <ul>
+        <li>Efectivo, Tarjeta, Transferencia, Plan Beauty, Pago mixto, Consumo de empleados y Otros métodos habilitados.</li>
+      </ul>
+      <p><strong>Movimientos Manuales Registrables:</strong> Gastos imprevistos, Retiros de efectivo, Entradas adicionales de dinero, Observaciones del movimiento, Usuario que realizó el registro, Fecha y hora del movimiento.</p>
+    </div>
+
+    <!-- MÓDULO 7 -->
+    <div class="module-box">
+      <h2 class="section-header">7. Cierre y Arqueo de Caja</h2>
+      <p>Al finalizar la jornada, el empleado podrá cerrar su caja. Antes de cerrarla, el sistema mostrará:</p>
+      <ul>
+        <li>Total cobrado en efectivo, tarjeta, transferencia, Plan Beauty, consumos de empleados, pagos mixtos, monto total facturado, total de gastos y total esperado en caja.</li>
+      </ul>
+      <p><strong>Para completar el cierre, el empleado introducirá:</strong> Dinero contado físicamente en caja, Gastos realizados durante el turno y Observaciones del cierre.</p>
+      <p><strong>El sistema calculará automáticamente:</strong> Monto esperado, Monto declarado y Diferencia de caja (Sobrante o faltante). Tras cerrar la caja, no se podrán agregar nuevas facturas ni movimientos a ese turno.</p>
+    </div>
+
+    <!-- MÓDULO 8 -->
+    <div class="module-box">
+      <h2 class="section-header">8. Gestión de Ítems y Servicios</h2>
+      <p>Se creará un apartado para administrar los ítems utilizados en facturación. Cada ítem permitirá registrar:</p>
+      <ul>
+        <li>Nombre del servicio, Descripción, Categoría, Precio, Estado activo o inactivo, Si genera comisión, Tipo de comisión aplicable, Impuesto (ITBIS si aplica), Orden de visualización e Imagen o icono.</li>
+        <li>Acciones: Creación, Edición, Actualización de precio, Activación/Desactivación y Eliminación (únicamente cuando no afecte registros históricos).</li>
+        <li><strong>Protección de Histórico:</strong> Los cambios de precio jamás modificarán las facturas realizadas anteriormente.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 9 -->
+    <div class="module-box">
+      <h2 class="section-header">9. Empleados por Servicio (Multiempleado)</h2>
+      <ul>
+        <li>En cada servicio agregado a una factura deberá seleccionarse el empleado que realizó el trabajo.</li>
+        <li>Guardado en BD: Servicio realizado, Empleado responsable, Precio, Cantidad, Descuento aplicado, Comisión generada, Fecha y Número de factura.</li>
+        <li>Una misma factura podrá incluir varios servicios realizados por empleados diferentes.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 10 -->
+    <div class="module-box">
+      <h2 class="section-header">10. Módulo de Comisiones</h2>
+      <ul>
+        <li>Configurar comisiones por servicio y por empleado.</li>
+        <li>Asignar una comisión específica a un empleado.</li>
+        <li>Aplicar esquemas generales de comisión y seleccionar qué empleados pertenecen a cada esquema.</li>
+        <li>Calcular automáticamente la comisión al momento de facturar.</li>
+        <li>Consultar las comisiones por rango de fechas, por empleado y por servicio.</li>
+        <li>Visualizar comisiones pendientes y pagadas.</li>
+        <li>Registrar el pago o liquidación de una comisión.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 11 -->
+    <div class="module-box">
+      <h2 class="section-header">11. Esquemas de Comisiones Personalizados</h2>
+      <p>Tipos de esquema soportados: Porcentaje fijo por servicio, Monto fijo por servicio, Comisión diferente según el servicio, Comisión personalizada por empleado, Comisión general para grupo de empleados y Comisión basada en rangos de venta.</p>
+      <ul>
+        <li>Cada esquema registrará: Nombre, Descripción, Tipo de comisión, Valor o porcentaje, Servicios incluidos, Empleados incluidos, Fecha de vigencia y Estado activo/inactivo.</li>
+        <li>En caso de que un empleado tenga una comisión específica, se definirá si esta reemplaza la comisión general.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 12 -->
+    <div class="module-box">
+      <h2 class="section-header">12. Descuentos y Consumos de Empleados</h2>
+      <p>Apartado separado para registrar productos/servicios consumidos por empleados:</p>
+      <ul>
+        <li>Guardar: Empleado, Servicio/producto consumido, Monto, Fecha, Factura relacionada, Estado del descuento, Periodo de nómina y Observaciones.</li>
+        <li>Permitirá: Consultar consumos pendientes, marcar descuentos como aplicados, filtrar por empleado y fecha, obtener el total a descontar por nómina, evitar que un consumo se descuente dos veces y generar reporte para nómina.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 13 -->
+    <div class="module-box">
+      <h2 class="section-header">13. Descuentos en Facturación y Autorización</h2>
+      <ul>
+        <li>Aplicación por servicio o a la factura completa.</li>
+        <li>Modalidades: Porcentaje, Monto fijo, Cumpleaños, Promociones o Autorización administrativa.</li>
+        <li>Según configuración, ciertos descuentos requerirán permisos especiales.</li>
+        <li>Auditoría: Monto original, Descuento aplicado, Usuario que autorizó, Motivo y Monto final cobrado.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 14 -->
+    <div class="module-box">
+      <h2 class="section-header">14. Accesos Rápidos Inteligentes (Top 7)</h2>
+      <ul>
+        <li>Muestra automáticamente los 7 servicios más utilizados calculados según el historial real de facturación.</li>
+        <li>Se actualizan automáticamente en tiempo real.</li>
+        <li>Permiten agregar el servicio con un solo clic respetando únicamente servicios activos.</li>
+        <li>Pueden configurarse manualmente desde administración si se requiere.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 15 -->
+    <div class="module-box">
+      <h2 class="section-header">15. Permisos por Rol (Recepción vs. Administración)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Funcionalidad</th>
+            <th>Recepción</th>
+            <th>Administración</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Buscar clientes, seleccionar servicios y empleados</td>
+            <td>✅ Sí</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Generar tickets, cobrar e imprimir facturas</td>
+            <td>✅ Sí</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Abrir y cerrar su propia caja y consultar movimientos de turno</td>
+            <td>✅ Sí</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Crear/editar servicios y modificar precios</td>
+            <td>❌ No</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Configurar comisiones y crear esquemas</td>
+            <td>❌ No</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Consultar todas las cajas y revisar diferencias</td>
+            <td>❌ No</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Gestionar descuentos de empleados para nómina</td>
+            <td>❌ No</td>
+            <td>✅ Sí</td>
+          </tr>
+          <tr>
+            <td>Autorizar descuentos especiales, ver reportes y anular operaciones</td>
+            <td>❌ No</td>
+            <td>✅ Sí</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- MÓDULO 16 -->
+    <div class="module-box">
+      <h2 class="section-header">16. Historial y Control de Operaciones</h2>
+      <ul>
+        <li>El sistema conservará historial inmutable de: Facturas, Tickets, Aperturas de caja, Cierres de caja, Gastos, Descuentos, Consumos de empleados, Comisiones, Cambios de precios y Usuarios que realizaron cada operación.</li>
+        <li>No se eliminarán registros financieros importantes; en su lugar se utilizarán estados como <em>anulado, cancelado o inactivo</em>.</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 17 -->
+    <div class="module-box">
+      <h2 class="section-header">17. Módulo de Reportes Básicos</h2>
+      <p>Permitirá consultar como mínimo:</p>
+      <ul>
+        <li>Ventas por fecha.</li>
+        <li>Ventas por empleado.</li>
+        <li>Ventas por servicio.</li>
+        <li>Ventas por método de pago.</li>
+        <li>Facturas emitidas.</li>
+        <li>Cajas abiertas y cerradas.</li>
+        <li>Cuadres de caja (diferencias faltante/sobrante).</li>
+        <li>Gastos registrados.</li>
+        <li>Comisiones generadas, pagadas y pendientes.</li>
+        <li>Consumos de empleados y descuentos pendientes por nómina.</li>
+        <li>Servicios más solicitados (Ranking).</li>
+      </ul>
+    </div>
+
+    <!-- MÓDULO 18 -->
+    <div class="module-box">
+      <h2 class="section-header">18. Pruebas y Entrega</h2>
+      <ul>
+        <li>Integración nativa con el sistema **Plan Beauty (PlanBeautyRD)**.</li>
+        <li>Creación o modificación de las tablas de base de datos necesarias.</li>
+        <li>Validaciones de seguridad en endpoints y vistas.</li>
+        <li>Pruebas de facturación, apertura/cierre de caja, comisiones, descuentos de empleados e impresión de tickets.</li>
+        <li>Corrección de errores encontrados durante las pruebas.</li>
+        <li>Puesta en funcionamiento y validación final junto al cliente.</li>
+      </ul>
+    </div>
+
+    <!-- FOOTER -->
+    <footer style="margin-top: 40px; border-top: 2px solid var(--border); padding-top: 20px; text-align: center; color: var(--text-muted); font-size: 12.5px;">
+      Documento Completo de Especificaciones para Plan Beauty (PlanBeautyRD) &copy; 2026. Todos los derechos reservados.
+    </footer>
+
+  </div>
+
+</body>
+</html>

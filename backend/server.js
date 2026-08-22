@@ -45,7 +45,8 @@ const CARDNET_CONFIG = {
   BASE_URL: process.env.CARDNET_BASE_URL,
   PUBLIC_KEY: process.env.CARDNET_PUBLIC_KEY,
   PRIVATE_KEY: process.env.CARDNET_PRIVATE_KEY,
-  ENV: process.env.CARDNET_ENV
+  ENV: process.env.CARDNET_ENV,
+  TIMEOUT: parseInt(process.env.CARDNET_TIMEOUT) || 30000
 };
 
 const getCardNetAuthHeaders = () => {
@@ -741,7 +742,7 @@ app.post('/api/contracts/:id/confirm-action', async (req, res) => {
                 PaymentProfileID: client.payment_profile_id,
                 PaymentProfileId: client.payment_profile_id 
               },
-              { headers: getCardNetAuthHeaders(), timeout: 10000 }
+              { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT }
             );
             console.log('[CARDNET DELETION] Tarjeta borrada de CardNet de forma segura.');
           } catch (cardnetErr) {
@@ -1927,7 +1928,7 @@ app.get('/api/clients/:id/payment-profile', async (req, res) => {
     const url = `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`;
     
     try {
-      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: 10000 });
+      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT });
       const customer = response.data.Response || response.data;
       const profiles = customer.PaymentProfiles || [];
       const profile = profiles.find(p => p.Enable === "1") || profiles[0];
@@ -1961,28 +1962,37 @@ app.get('/api/clients/:id/payment-profile', async (req, res) => {
 // === COMPREHENSIVE ANALYTICS REPORTS ===
 app.get('/api/reports/analytics', async (req, res) => {
   const { salon_id, start_date, end_date } = req.query;
-  const whereSalon = salon_id && salon_id !== 'all' ? `AND salon_id = ${parseInt(salon_id)}` : '';
-  const whereSalonPlain = salon_id && salon_id !== 'all' ? `WHERE salon_id = ${parseInt(salon_id)}` : '';
-  const whereSalonC = salon_id && salon_id !== 'all' ? `AND c.salon_id = ${parseInt(salon_id)}` : '';
+  const hasSalon = salon_id && salon_id !== 'all';
+  const salonVal = hasSalon ? parseInt(salon_id) : null;
+  const hasDate = Boolean(start_date && end_date);
 
-  let whereDate = '';
-  if (start_date && end_date) {
-    whereDate = `AND created_at BETWEEN '${start_date} 00:00:00' AND '${end_date} 23:59:59'`;
-  }
+  const whereDatePayments = hasDate ? `AND p.created_at BETWEEN '${start_date} 00:00:00' AND '${end_date} 23:59:59'` : '';
+  const whereSalonPayments = hasSalon ? `AND COALESCE(p.salon_id, c.salon_id) = ${salonVal}` : '';
 
   try {
     // 1. Daily Sales
     const [sales] = await pool.query(`
-      SELECT DATE(created_at) as date, SUM(amount) as total 
-      FROM payments 
-      WHERE status = 'Aprobado' ${whereSalon} ${whereDate}
-      GROUP BY DATE(created_at) 
-      ORDER BY date DESC ${whereDate ? '' : 'LIMIT 30'}
+      SELECT DATE(p.created_at) as date, SUM(p.amount) as total 
+      FROM payments p
+      LEFT JOIN clients c ON p.client_id = c.id
+      WHERE p.status = 'Aprobado' ${whereSalonPayments} ${whereDatePayments}
+      GROUP BY DATE(p.created_at) 
+      ORDER BY date DESC ${hasDate ? '' : 'LIMIT 30'}
     `);
 
     // 2. Client Status Summary
-    const [activeClients] = await pool.query(`SELECT COUNT(*) as count FROM contracts WHERE status = 'Active' ${whereSalon}`);
-    const [cancelledClients] = await pool.query(`SELECT COUNT(*) as count FROM contracts WHERE status = 'Cancelled' ${whereSalon}`);
+    const [activeClients] = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM contracts ct
+      LEFT JOIN clients c ON ct.client_id = c.id
+      WHERE ct.status = 'Active' ${hasSalon ? `AND COALESCE(ct.salon_id, c.salon_id) = ${salonVal}` : ''}
+    `);
+    const [cancelledClients] = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM contracts ct
+      LEFT JOIN clients c ON ct.client_id = c.id
+      WHERE ct.status = 'Cancelled' ${hasSalon ? `AND COALESCE(ct.salon_id, c.salon_id) = ${salonVal}` : ''}
+    `);
 
     // 3. Inactive Clients (> 15 days)
     const [inactive] = await pool.query(`
@@ -1990,27 +2000,31 @@ app.get('/api/reports/analytics', async (req, res) => {
       FROM clients cl
       JOIN contracts c ON cl.id = c.client_id
       LEFT JOIN visits v ON cl.id = v.client_id
-      WHERE c.status = 'Active' ${whereSalonC}
-      GROUP BY cl.id
+      WHERE c.status = 'Active' ${hasSalon ? `AND COALESCE(c.salon_id, cl.salon_id) = ${salonVal}` : ''}
+      GROUP BY cl.id, cl.nombre, cl.telefono
       HAVING last_visit < DATE_SUB(NOW(), INTERVAL 15 DAY) OR last_visit IS NULL
       ORDER BY last_visit ASC
     `);
 
     // 4. Payment Methods Breakdown
     const [payments] = await pool.query(`
-      SELECT method, SUM(amount) as total, COUNT(*) as count
-      FROM payments 
-      WHERE status = 'Aprobado' ${whereSalon} ${whereDate}
-      GROUP BY method
+      SELECT p.method, SUM(p.amount) as total, COUNT(*) as count
+      FROM payments p
+      LEFT JOIN clients c ON p.client_id = c.id
+      WHERE p.status = 'Aprobado' ${whereSalonPayments} ${whereDatePayments}
+      GROUP BY p.method
     `);
 
-    // 5. Visit Frequency
+    // 5. Visit Frequency (Filtered by Date Range and Salon)
     const [frequency] = await pool.query(`
       SELECT visit_count, COUNT(*) as client_count FROM (
-        SELECT client_id, COUNT(*) as visit_count 
-        FROM visits 
-        ${whereSalonPlain}
-        GROUP BY client_id
+        SELECT v.client_id, COUNT(*) as visit_count 
+        FROM visits v
+        LEFT JOIN clients c ON v.client_id = c.id
+        WHERE 1=1
+          ${hasSalon ? `AND COALESCE(v.salon_id, c.salon_id) = ${salonVal}` : ''}
+          ${hasDate ? `AND v.visited_at BETWEEN '${start_date} 00:00:00' AND '${end_date} 23:59:59'` : ''}
+        GROUP BY v.client_id
       ) as t
       GROUP BY visit_count
       ORDER BY visit_count ASC
@@ -2018,13 +2032,14 @@ app.get('/api/reports/analytics', async (req, res) => {
 
     // 6. Renewal Revenue
     const [renewalRevenue] = await pool.query(`
-      SELECT SUM(amount) as total
-      FROM payments
-      WHERE status = 'Aprobado' 
-        AND plan_id IS NOT NULL 
-        AND plan_id != 'gift_card'
-        ${whereSalon}
-        ${whereDate}
+      SELECT SUM(p.amount) as total
+      FROM payments p
+      LEFT JOIN clients c ON p.client_id = c.id
+      WHERE p.status = 'Aprobado' 
+        AND p.plan_id IS NOT NULL 
+        AND p.plan_id != 'gift_card'
+        ${whereSalonPayments}
+        ${whereDatePayments}
     `);
 
     // 7. Cash Payments
@@ -2035,27 +2050,27 @@ app.get('/api/reports/analytics', async (req, res) => {
       LEFT JOIN clients c ON p.client_id = c.id
       LEFT JOIN salons s ON COALESCE(p.salon_id, c.salon_id) = s.id
       WHERE p.status = 'Aprobado' AND (p.method = 'Efectivo/POS' OR p.method = 'Efectivo')
-      ${whereSalon.replace('salon_id', 'COALESCE(p.salon_id, c.salon_id)')}
-      ${whereDate.replace('created_at', 'p.created_at')}
+        ${whereSalonPayments}
+        ${whereDatePayments}
       ORDER BY p.created_at DESC
       LIMIT 100
     `);
 
     res.json({
       dailySales: sales,
-      renewalRevenue: renewalRevenue[0].total || 0,
+      renewalRevenue: renewalRevenue[0]?.total || 0,
       clientSummary: {
-        active: activeClients[0].count,
-        cancelled: cancelledClients[0].count
+        active: activeClients[0]?.count || 0,
+        cancelled: cancelledClients[0]?.count || 0
       },
       inactiveClients: inactive,
       paymentBreakdown: payments,
       visitFrequency: frequency,
       cashPayments: cashPayments
-
     });
 
   } catch (err) {
+    console.error('[ANALYTICS ERROR]:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2091,7 +2106,7 @@ app.get('/api/clients/:id/payment-profiles', async (req, res) => {
     const url = `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`;
     
     try {
-      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: 10000 });
+      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT });
       const customer = response.data.Response || response.data;
       res.json(customer.PaymentProfiles || []);
     } catch (error) {
@@ -2152,7 +2167,7 @@ app.put('/api/clients/:id/payment-method', async (req, res) => {
       const activateRes = await axios.post(
         `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/activate`,
         { Token: pwToken, ActivationCode: "" },
-        { headers: getCardNetAuthHeaders(), timeout: 10000 }
+        { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT }
       );
       
       const custData = activateRes.data.Response || activateRes.data;
@@ -2385,7 +2400,7 @@ app.post('/api/cardnet/customer/:customerId/activate', async (req, res) => {
     const response = await axios.post(
       `${CARDNET_CONFIG.BASE_URL}/api/Customer/${customerId}/activate`,
       { Token: token, ActivationCode: activationCode || "" },
-      { headers: getCardNetAuthHeaders() }
+      { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT }
     );
 
     const result = response.data.Response || response.data;
@@ -2668,7 +2683,7 @@ app.post('/api/contracts', async (req, res) => {
         const activateRes = await axios.post(
           `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/activate`,
           { Token: pwToken, ActivationCode: "" },
-          { headers: getCardNetAuthHeaders(), timeout: 10000 }
+          { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT }
         );
         
         const custData = activateRes.data.Response || activateRes.data;
@@ -2691,7 +2706,7 @@ app.post('/api/contracts', async (req, res) => {
         try {
           const customerRes = await axios.get(
             `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`,
-            { headers: getCardNetAuthHeaders(), timeout: 10000 }
+            { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT }
           );
           const fullCust = customerRes.data.Response || customerRes.data;
           const profiles = fullCust.PaymentProfiles || [];
@@ -2828,7 +2843,7 @@ app.post('/api/contracts', async (req, res) => {
           console.log(`[CARDNET CLEANUP] Eliminando perfil de pago fallido: ${paymentProfileId} para cliente: ${cardnetCustomerId}`);
           await axios.delete(
             `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/PaymentProfile/${paymentProfileId}`,
-            { headers: getCardNetAuthHeaders(), timeout: 10000 }
+            { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT }
           );
           console.log('[CARDNET CLEANUP] Perfil eliminado exitosamente.');
         } catch (delErr) {
@@ -3695,7 +3710,7 @@ app.post('/api/gifts/purchase', async (req, res) => {
           const activateRes = await axios.post(
             `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}/activate`,
             { Token: pwToken, ActivationCode: "" },
-            { headers: getCardNetAuthHeaders(), timeout: 10000 }
+            { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT }
           );
           
           const custData = activateRes.data.Response || activateRes.data;
@@ -5541,6 +5556,14 @@ app.post('/api/attendance/punch', async (req, res) => {
     
     const punchId = `PUNCH-${Date.now()}-${employeeId}`;
     
+    // Si es Check-In, eliminar cualquier registro previo de 'Ausencia' autogenerado hoy para este empleado
+    if (type === 'Check-In') {
+      await pool.query(
+        "DELETE FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Ausencia'",
+        [employeeId, todayDateStr]
+      );
+    }
+
     await pool.query(
       `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -5584,10 +5607,10 @@ app.get('/api/attendance/history', async (req, res) => {
 
     // 1. Fetch active staff and system users (excluding admins/clients) to know who should work
     const [staff] = await pool.query(
-      "SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id FROM staff_records WHERE status = 'Activo' OR status = 'Active'"
+      "SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, fecha_entrada FROM staff_records WHERE status = 'Activo' OR status = 'Active'"
     );
     const [users] = await pool.query(
-      "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name FROM users u LEFT JOIN roles r ON u.role_id = r.id"
+      "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name, u.created_at as fecha_entrada FROM users u LEFT JOIN roles r ON u.role_id = r.id"
     );
     const systemStaff = users.filter(u => {
       const role = (u.role_name || '').toLowerCase();
@@ -5658,6 +5681,14 @@ app.get('/api/attendance/history', async (req, res) => {
         }
 
         if (isWorkingDay) {
+          // No generar ausencias para fechas anteriores a la contratación del empleado
+          if (emp.fecha_entrada) {
+            const empHireDateStr = getDRDateString(new Date(emp.fecha_entrada));
+            if (dateStr < empHireDateStr) {
+              continue;
+            }
+          }
+
           const lookupKey = `${emp.id}:${dateStr}`;
           
           if (!punchSet.has(lookupKey)) {
