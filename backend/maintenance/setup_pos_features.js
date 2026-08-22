@@ -15,13 +15,15 @@ async function setupPOSFeatures() {
 
     const safeAddColumn = async (table, colName, colDef) => {
       try {
-        await conn.query(`ALTER TABLE \`${table}\` ADD COLUMN ${colName} ${colDef}`);
-        console.log(`✅ Columna agregada a ${table}: ${colName}`);
+        const cleanTable = table.replace(/[^a-zA-Z0-9_]/g, '');
+        const cleanCol = colName.replace(/[^a-zA-Z0-9_]/g, '');
+        await conn.query(`ALTER TABLE \`${cleanTable}\` ADD COLUMN \`${cleanCol}\` ${colDef}`);
+        console.log(`✅ Columna agregada a ${cleanTable}: ${cleanCol}`);
       } catch (e) {
         if (e.message.includes('Duplicate column')) {
           console.log(`ℹ️ Columna ya existente en ${table}: ${colName}`);
         } else {
-          console.error(`⚠️ Error en ${table}.${colName}:`, e.message);
+          console.error('⚠️ Error en migración de columna:', e.message);
         }
       }
     };
