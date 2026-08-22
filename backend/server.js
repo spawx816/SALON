@@ -1724,7 +1724,7 @@ app.post('/api/auth/send-employee-otp', async (req, res) => {
         html: `
           <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ec4899; border-radius: 12px; max-width: 500px;">
             <h2 style="color: #be185d;">Autorización de Consumo de Empleado</h2>
-            <p>Hola <strong>${employeeName || 'Colaborador'}</strong>,</p>
+            <p>Hola <strong>${escapeHtml(employeeName || 'Colaborador')}</strong>,</p>
             <p>Se ha registrado un consumo de servicios en salón a las <strong>${new Date().toLocaleTimeString('es-DO')}</strong>.</p>
             <p style="font-size: 24px; font-weight: bold; color: #ec4899; letter-spacing: 4px; text-align: center; background: #fdf2f8; padding: 10px; border-radius: 8px;">${code}</p>
             <p style="font-size: 12px; color: #64748b;">Si no realizaste esta solicitud, por favor comunícate con administración inmediatamente.</p>
