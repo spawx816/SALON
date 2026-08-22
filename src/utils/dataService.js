@@ -497,10 +497,11 @@ export const dataService = {
 
   getContractByClient: async (clientId) => {
     try {
-      const res = await fetch(`${API_URL}/contracts/client/${clientId}`);
+      if (!clientId) return [];
+      const res = await fetch(`${API_URL}/contracts/client/${encodeURIComponent(clientId)}`);
       if (res.ok) return await res.json();
-      return null;
-    } catch { return null; }
+      return [];
+    } catch { return []; }
   },
 
   getContractById: async (id) => {

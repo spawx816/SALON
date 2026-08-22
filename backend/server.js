@@ -2134,6 +2134,7 @@ app.post('/api/plans', async (req, res) => {
 app.get('/api/contracts/client/:clientId', async (req, res) => {
   try {
     const { clientId } = req.params;
+    const clean = clientId ? clientId.trim() : '';
     const [rows] = await pool.query(`
       SELECT 
         c.*, 
@@ -2141,13 +2142,14 @@ app.get('/api/contracts/client/:clientId', async (req, res) => {
         cl.cedula as clientCedula,
         cl.telefono as clientPhone,
         cl.email as clientEmail,
-        p.title as planTitle
+        COALESCE(p.title, 'Plan Beauty') as planTitle
       FROM contracts c
       JOIN clients cl ON c.client_id = cl.id
-      JOIN plans p ON c.plan_id = p.id
-      WHERE (c.client_id = ? OR cl.cedula = ? OR cl.nombre = ? OR cl.nombre LIKE ?)
+      LEFT JOIN plans p ON (c.plan_id = p.id OR CAST(c.plan_id AS CHAR) = CAST(p.id AS CHAR))
+      WHERE (c.client_id = ? OR cl.cedula = ? OR TRIM(cl.nombre) = ? OR cl.nombre LIKE ?)
+        AND (c.status = 'Active' OR c.status = 'Activo')
       ORDER BY c.signed_at DESC
-    `, [clientId, clientId, clientId, `%${clientId}%`]);
+    `, [clean, clean, clean, `%${clean}%`]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

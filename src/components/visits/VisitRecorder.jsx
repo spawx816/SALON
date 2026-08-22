@@ -209,12 +209,26 @@ const VisitRecorder = () => {
     let found = await dataService.getClientById(searchTarget).catch(() => null);
     if (!found) {
       const allC = await dataService.getClients().catch(() => []);
-      found = allC.find(c => (c.nombre || c.name || '').toLowerCase() === String(searchTarget).toLowerCase() || c.cedula === searchTarget);
+      const targetClean = String(searchTarget).trim().toLowerCase();
+      found = allC.find(c => (c.nombre || c.name || '').trim().toLowerCase() === targetClean || c.cedula === searchTarget);
     }
     if (found) setClientFound(found);
 
+    // Multi-stage contract lookup (searchTarget -> found.id -> found.cedula -> found.nombre)
+    let contractsFound = await dataService.getContractByClient(searchTarget) || [];
+    if ((!contractsFound || contractsFound.length === 0) && found) {
+      if (found.id && found.id !== searchTarget) {
+        contractsFound = await dataService.getContractByClient(found.id) || [];
+      }
+      if ((!contractsFound || contractsFound.length === 0) && found.cedula) {
+        contractsFound = await dataService.getContractByClient(found.cedula) || [];
+      }
+      if ((!contractsFound || contractsFound.length === 0) && found.nombre) {
+        contractsFound = await dataService.getContractByClient(found.nombre.trim()) || [];
+      }
+    }
+
     const pastVisits = await dataService.getVisitsByClient(searchTarget) || [];
-    const contractsFound = await dataService.getContractByClient(searchTarget) || [];
     const allPlans = await dataService.getPlans();
 
     const peel = (data) => {
