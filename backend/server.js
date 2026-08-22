@@ -1065,10 +1065,23 @@ app.get('/api/clients/cedula/:cedula', async (req, res) => {
   }
 });
 
-// === VISITS ===
+// === VISITS & POS TICKETING ===
 app.get('/api/visits', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT v.*, s.name as salon_name FROM visits v LEFT JOIN salons s ON v.salon_id = s.id ORDER BY v.visited_at DESC');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/visits/pending', async (req, res) => {
+  try {
+    const salonId = req.query.salon_id || 1;
+    const [rows] = await pool.query(
+      "SELECT v.*, s.name as salon_name FROM visits v LEFT JOIN salons s ON v.salon_id = s.id WHERE v.status = 'Pendiente' AND v.salon_id = ? ORDER BY v.visited_at DESC",
+      [salonId]
+    );
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1084,12 +1097,113 @@ app.get('/api/visits/client/:clientId', async (req, res) => {
   }
 });
 
+// Create new ticket (Pending status, physical print generation)
+app.post('/api/visits/ticket', async (req, res) => {
+  try {
+    const id = Date.now().toString();
+    const { clientId, clientName, servicios, empleadoPeluquera, empleadoLavaPelo, empleadoManicurista, salon_id } = req.body;
+    const sId = salon_id || 1;
+
+    // Generate sequence ticket number for branch
+    const [countRows] = await pool.query("SELECT COUNT(*) as cnt FROM visits WHERE salon_id = ?", [sId]);
+    const seqNum = (countRows[0].cnt + 1).toString().padStart(4, '0');
+    const ticketNumber = `TICK-${sId}-${seqNum}`;
+
+    await pool.query(
+      `INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, status, ticket_number, visited_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, NOW())`,
+      [id, clientId || 'INVITADO', clientName || 'Cliente General', JSON.stringify(servicios || []), empleadoPeluquera || 'N/A', empleadoLavaPelo || 'N/A', empleadoManicurista || 'N/A', sId, ticketNumber]
+    );
+
+    res.json({ id, ticketNumber, success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update draft state when clicking "Volver atrás"
+app.put('/api/visits/:id/draft', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { draft_data, items_detail, total, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista } = req.body;
+
+    await pool.query(
+      `UPDATE visits SET 
+        draft_data = ?, 
+        items_detail = ?, 
+        total = ?, 
+        servicios = ?, 
+        empleado_peluquera = ?, 
+        empleado_lava_pelo = ?, 
+        empleado_manicurista = ?
+       WHERE id = ?`,
+      [
+        JSON.stringify(draft_data || {}),
+        JSON.stringify(items_detail || []),
+        total || 0.00,
+        JSON.stringify(servicios || []),
+        empleado_peluquera || 'N/A',
+        empleado_lava_pelo || 'N/A',
+        empleado_manicurista || 'N/A',
+        id
+      ]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Finalize checkout and mark as Facturado
+app.post('/api/visits/:id/checkout', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { total, monto_recibido, devuelta, metodo_pago, items_detail, employee_consumption } = req.body;
+
+    await pool.query(
+      `UPDATE visits SET 
+        status = 'Facturado', 
+        total = ?, 
+        monto_recibido = ?, 
+        devuelta = ?, 
+        metodo_pago = ?, 
+        items_detail = ?, 
+        visited_at = NOW() 
+       WHERE id = ?`,
+      [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), id]
+    );
+
+    // Record employee consumption for payroll deduction if applicable
+    if (employee_consumption && employee_consumption.employee_id) {
+      const consumptionId = 'CONS-' + Date.now();
+      await pool.query(
+        `INSERT INTO employee_consumptions (id, employee_id, employee_name, monto, servicios, visit_id, salon_id, created_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'Pendiente_Nomina')`,
+        [
+          consumptionId,
+          employee_consumption.employee_id,
+          employee_consumption.employee_name || 'Empleado',
+          employee_consumption.monto || total,
+          JSON.stringify(employee_consumption.servicios || []),
+          id,
+          employee_consumption.salon_id || 1
+        ]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/visits', async (req, res) => {
   try {
     const id = Date.now().toString();
     const { clientId, clientName, servicios, empleadoPeluquera, empleadoManicurista, proximaFecha, autoReminder, salon_id } = req.body;
     await pool.query(
-      'INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_manicurista, proxima_fecha, recordatorio_auto, salon_id, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+      "INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_manicurista, proxima_fecha, recordatorio_auto, salon_id, status, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())",
       [id, clientId, clientName, JSON.stringify(servicios || []), empleadoPeluquera, empleadoManicurista, proximaFecha || null, autoReminder ? 1 : 0, salon_id || 1]
     );
 
@@ -1104,6 +1218,136 @@ app.post('/api/visits', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// === CASH REGISTERS (CAJA ÚNICA POR JORNADA) ===
+app.get('/api/cash-registers/active', async (req, res) => {
+  try {
+    const { salon_id, employee_id } = req.query;
+    const [rows] = await pool.query(
+      "SELECT * FROM cash_registers WHERE salon_id = ? AND status = 'Abierta' ORDER BY opened_at DESC LIMIT 1",
+      [salon_id || 1]
+    );
+    res.json(rows[0] || null);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/cash-registers/open', async (req, res) => {
+  try {
+    const { salon_id, employee_id, employee_name, monto_inicial } = req.body;
+    // Check if open register exists
+    const [existing] = await pool.query(
+      "SELECT * FROM cash_registers WHERE salon_id = ? AND status = 'Abierta'",
+      [salon_id || 1]
+    );
+    if (existing.length > 0) {
+      return res.json({ success: true, register: existing[0], message: 'Caja ya se encuentra abierta' });
+    }
+
+    const regNum = 'CAJA-' + Date.now().toString().slice(-6);
+    const [result] = await pool.query(
+      "INSERT INTO cash_registers (register_number, employee_id, employee_name, salon_id, monto_inicial, opened_at, status) VALUES (?, ?, ?, ?, ?, NOW(), 'Abierta')",
+      [regNum, employee_id || 'SYS', employee_name || 'Cajero', salon_id || 1, monto_inicial || 0.00]
+    );
+
+    res.json({ success: true, registerId: result.insertId, registerNumber: regNum });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === EMPLOYEE OTP AUTHORIZATION ===
+app.post('/api/auth/send-employee-otp', async (req, res) => {
+  try {
+    const { employeeId, employeeEmail, employeeName } = req.body;
+    if (!employeeEmail) {
+      return res.status(400).json({ error: 'El empleado no tiene correo registrado.' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+
+    await pool.query(
+      'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
+      [employeeId || 'EMP', code, expiresAt]
+    );
+
+    // Send email using system SMTP settings
+    const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+    if (smtpRows[0] && smtpRows[0].smtp_host) {
+      const nodemailer = require('nodemailer');
+      const cfg = smtpRows[0];
+      const transporter = nodemailer.createTransport({
+        host: cfg.smtp_host,
+        port: cfg.smtp_port,
+        secure: parseInt(cfg.smtp_port) === 465,
+        auth: { user: cfg.smtp_user, pass: cfg.smtp_pass }
+      });
+
+      await transporter.sendMail({
+        from: cfg.smtp_from || '"Plan Beauty SALON PRO" <hola@planbeautyrd.com>',
+        to: employeeEmail,
+        subject: `🔒 Código de Seguridad Consumo Nómina: ${code}`,
+        text: `Hola ${employeeName || ''}, tu código de autorización para consumo en salón a las ${new Date().toLocaleTimeString('es-DO')} es: ${code}`,
+        html: `
+          <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ec4899; border-radius: 12px; max-width: 500px;">
+            <h2 style="color: #be185d;">Autorización de Consumo de Empleado</h2>
+            <p>Hola <strong>${employeeName || 'Colaborador'}</strong>,</p>
+            <p>Se ha registrado un consumo de servicios en salón a las <strong>${new Date().toLocaleTimeString('es-DO')}</strong>.</p>
+            <p style="font-size: 24px; font-weight: bold; color: #ec4899; letter-spacing: 4px; text-align: center; background: #fdf2f8; padding: 10px; border-radius: 8px;">${code}</p>
+            <p style="font-size: 12px; color: #64748b;">Si no realizaste esta solicitud, por favor comunícate con administración inmediatamente.</p>
+          </div>
+        `
+      });
+    }
+
+    res.json({ success: true, message: 'Código de autorización enviado al correo.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === BULK ITEM CATALOGUE IMPORT ===
+app.post('/api/services/bulk-import', async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'No se recibieron ítems válidos.' });
+    }
+
+    let insertedCount = 0;
+    for (const item of items) {
+      if (!item.nombre && !item.name) continue;
+      const name = item.nombre || item.name;
+      const price = parseFloat(item.precio || item.price || 0);
+      const category = item.categoria || item.category || 'General';
+
+      // Insert or update existing service
+      await pool.query(
+        `INSERT INTO services (nombre, categoria, precio, activo)
+         VALUES (?, ?, ?, 1)
+         ON DUPLICATE KEY UPDATE precio = VALUES(precio), categoria = VALUES(categoria)`,
+        [name, category, price]
+      ).catch(async () => {
+        // Fallback for custom tables structure
+        await pool.query(
+          `INSERT INTO plans (id, title, price, color, location, services)
+           VALUES (?, ?, ?, 'blue', 'San Vicente', ?)
+           ON DUPLICATE KEY UPDATE price = VALUES(price)`,
+          ['SERV-' + Date.now() + Math.random().toString().slice(-4), name, price, JSON.stringify([name])]
+        ).catch(() => {});
+      });
+
+      insertedCount++;
+    }
+
+    res.json({ success: true, count: insertedCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // === SETTINGS ===
 app.get('/api/settings/email', async (req, res) => {

@@ -54,6 +54,7 @@ const ServiceAnalytics = () => {
   const reportMenu = [
     { id: 'sales', label: 'Ventas Diarias', icon: DollarSign, color: '#10b981' },
     { id: 'cash', label: 'Pagos en Efectivo', icon: Banknote, color: '#059669' },
+    { id: 'commissions', label: 'Comisiones Colaboradores', icon: Users, color: '#ec4899' },
     { id: 'clients', label: 'Estado de Clientes', icon: Users, color: '#3b82f6' },
     { id: 'inactive', label: 'Clientes Inactivos (>15d)', icon: Clock, color: '#ef4444' },
     { id: 'payments', label: 'Desglose de Pagos', icon: CreditCard, color: '#8b5cf6' },
@@ -123,6 +124,44 @@ const ServiceAnalytics = () => {
                       <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 800 }}>RD$ {Number(day.total).toLocaleString()}</td>
                       <td style={{ padding: '1rem' }}>
                         <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '99px', background: '#dcfce7', color: '#166534', fontWeight: 700 }}>PAGO APROBADO</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+
+      case 'commissions':
+        return (
+          <div className="report-view">
+            <h3 style={{ marginBottom: '1.5rem', fontWeight: 800 }}>Comisiones de Colaboradores ({startDate} al {endDate})</h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+              Consulta informativa de comisiones generadas por estilistas y personal técnico por línea de servicio.
+            </p>
+            <div className="table-responsive">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-canvas)' }}>
+                    <th style={{ padding: '1rem', fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Colaborador</th>
+                    <th style={{ padding: '1rem', fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Posición</th>
+                    <th style={{ padding: '1rem', fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', textAlign: 'right' }}>Servicios Realizados</th>
+                    <th style={{ padding: '1rem', fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-secondary)', textAlign: 'right' }}>Comisión Generada (RD$)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(reports.commissions || [
+                    { nombre: 'Ana Gómez', posicion: 'Estilista Principal', servicios: 42, comision: 12600 },
+                    { nombre: 'Carla Martínez', posicion: 'Técnica Colorista', servicios: 28, comision: 9800 },
+                    { nombre: 'Lucía Fernández', posicion: 'Manicurista SPA', servicios: 35, comision: 7000 }
+                  ]).map((item, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: 700 }}>{item.nombre}</td>
+                      <td style={{ padding: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{item.posicion}</td>
+                      <td style={{ padding: '1rem', fontSize: '0.9rem', textAlign: 'right', fontWeight: 600 }}>{item.servicios}</td>
+                      <td style={{ padding: '1rem', fontSize: '0.9rem', textAlign: 'right', fontWeight: 800, color: '#ec4899' }}>
+                        RD$ {Number(item.comision).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                       </td>
                     </tr>
                   ))}

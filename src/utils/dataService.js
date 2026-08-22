@@ -95,7 +95,7 @@ export const dataService = {
     } catch { return null; }
   },
 
-  // Visits
+  // Visits & POS Tickets
   getVisits: async () => {
     try {
       const res = await fetch(`${API_URL}/visits`);
@@ -107,6 +107,109 @@ export const dataService = {
       return visits.map(v => ({ ...v, servicios: ensureArray(v.servicios) }));
     } catch (e) {
       console.error("Error en getVisits:", e);
+      throw e;
+    }
+  },
+
+  getPendingVisits: async (salonId = 1) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/pending?salon_id=${salonId}`);
+      if (!res.ok) return [];
+      const visits = await res.json();
+      return visits.map(v => ({ ...v, servicios: ensureArray(v.servicios) }));
+    } catch (e) {
+      console.error("Error en getPendingVisits:", e);
+      return [];
+    }
+  },
+
+  createPendingTicket: async (ticketData) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ticketData)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error("Error en createPendingTicket:", e);
+      throw e;
+    }
+  },
+
+  saveDraftTicket: async (ticketId, draftData) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/${ticketId}/draft`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draftData)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error("Error en saveDraftTicket:", e);
+      throw e;
+    }
+  },
+
+  checkoutTicket: async (ticketId, checkoutData) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/${ticketId}/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(checkoutData)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error("Error en checkoutTicket:", e);
+      throw e;
+    }
+  },
+
+  getActiveCashRegister: async (salonId = 1) => {
+    try {
+      const res = await fetch(`${API_URL}/cash-registers/active?salon_id=${salonId}`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  },
+
+  openCashRegister: async (data) => {
+    try {
+      const res = await fetch(`${API_URL}/cash-registers/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  sendEmployeeOtp: async (data) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/send-employee-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  bulkImportServices: async (items) => {
+    try {
+      const res = await fetch(`${API_URL}/services/bulk-import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+      });
+      return await res.json();
+    } catch (e) {
       throw e;
     }
   },

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, MapPin, Layers, CheckCircle2, MoreVertical, Edit2, Trash2, X, Save } from 'lucide-react';
 import { useTranslation } from '../../context/LanguageContext';
 import { dataService } from '../../utils/dataService';
+import BulkItemImporter from './BulkItemImporter';
 
 const PlanCard = ({ plan, onEdit, onDelete, t }) => {
   const hasDiscount = plan.discount && plan.discount > 0;
@@ -408,6 +409,9 @@ const PlansModule = () => {
           </div>
         </div>
       )}
+
+      {/* Carga Masiva de Ítems / Catálogo */}
+      <BulkItemImporter />
     </div>
   );
 };

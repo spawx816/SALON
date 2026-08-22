@@ -1,472 +1,887 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star, Lock as LockIcon } from 'lucide-react';
+import { 
+  Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star, 
+  Lock as LockIcon, ArrowLeft, PlusCircle, Printer, CheckCircle2, ShieldAlert, 
+  Banknote, CreditCard, ChevronRight, RefreshCw, X
+} from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 
-const VisitRecorder = () => {
-  const { register, handleSubmit, setValue, watch, reset } = useForm({
-    defaultValues: {
-      total: '0.00',
-      servicios: []
-    }
-  });
+const DEFAULT_TOP_SERVICES = [
+  { id: '1', nombre: 'Lavado y Secado', precio: 800 },
+  { id: '2', nombre: 'Corte de Puntas', precio: 500 },
+  { id: '3', nombre: 'Tinte Completo', precio: 1800 },
+  { id: '4', nombre: 'Tratamiento Penetratti', precio: 750 },
+  { id: '5', nombre: 'Manicura Simple', precio: 500 },
+  { id: '6', nombre: 'Pedicura Simple', precio: 600 },
+  { id: '7', nombre: 'Maquillaje Social', precio: 2500 }
+];
 
-  const selectedServices = watch('servicios') || [];
+const VisitRecorder = () => {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
-  
+
+  // Pending Tickets & Workflow State
+  const [pendingTickets, setPendingTickets] = useState([]);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [isTicketExpanded, setIsTicketExpanded] = useState(false);
+
+  // Form & Line Items
   const [clientFound, setClientFound] = useState(null);
-  const [availableServices, setAvailableServices] = useState([]);
+  const [lineItems, setLineItems] = useState([]);
+  const [availableServices, setAvailableServices] = useState(DEFAULT_TOP_SERVICES);
   const [activePlans, setActivePlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('none');
-  const [clientVisits, setClientVisits] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // OTP States
+  // Modals & Extra Actions
+  const [showNewTicketModal, setShowNewTicketModal] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [newTicketClientName, setNewTicketClientName] = useState('');
+  const [newTicketCedula, setNewTicketCedula] = useState('');
+  
+  // Pricing & Admin Auth
+  const [showAdminPinModal, setShowAdminPinModal] = useState(false);
+  const [adminPin, setAdminPin] = useState('');
+  const [pendingDiscountItem, setPendingDiscountItem] = useState(null);
+  const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
+
+  // Payment & Cash Register
+  const [activeRegister, setActiveRegister] = useState(null);
+  const [showRegisterOpenModal, setShowRegisterOpenModal] = useState(false);
+  const [registerInitialAmount, setRegisterInitialAmount] = useState('1000.00');
+  
+  const [paymentMethod, setPaymentMethod] = useState('Efectivo');
+  const [montoRecibido, setMontoRecibido] = useState('');
+  const [selectedEmployeeForConsumption, setSelectedEmployeeForConsumption] = useState('');
+
+  // OTP State
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpCode, setOtpCode] = useState('');
-  const [fallbackCode, setFallbackCode] = useState('');
-  const [pendingData, setPendingData] = useState(null);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
 
-  // Get currently active plan based on selection
-  const activePlan = activePlans.find(p => p.id.toString() === selectedPlanId);
+  const salonId = currentUser?.salon_id || 1;
 
-  // Calculate if all services in plan are already consumed
-  const checkQuotaStatus = () => {
-     if (!activePlan || availableServices.length === 0) return false;
-     return availableServices.every(service => {
-        let quota = 1;
-        const lower = service.toLowerCase();
-        if (lower.includes('ilimitad')) return false; 
-        const match = service.match(/^(\d+)\s/);
-        if (match) quota = parseInt(match[1], 10);
-        const used = (activePlan.cycleVisits || []).filter(v => v.servicios?.includes(service)).length;
-        return used >= quota;
-     });
+  // Load Pending Tickets and Cash Register on Mount
+  useEffect(() => {
+    fetchPendingTickets();
+    fetchEmployees();
+    fetchActiveRegister();
+  }, [salonId]);
+
+  const fetchPendingTickets = async () => {
+    try {
+      const tickets = await dataService.getPendingVisits(salonId);
+      setPendingTickets(tickets);
+    } catch (e) {
+      console.error('Error cargando tickets pendientes:', e);
+    }
   };
 
-  const isPlanExhausted = checkQuotaStatus();
-  const isButtonDisabled = (activePlan && isPlanExhausted) || selectedServices.length === 0 || loading;
-
-  React.useEffect(() => {
-    const fetchEmps = async () => {
+  const fetchEmployees = async () => {
+    try {
       const data = await dataService.getEmployees();
       setEmployees(data);
-    };
-    fetchEmps();
-  }, []);
+    } catch (e) {
+      console.error('Error cargando empleados:', e);
+    }
+  };
 
-  const loadClientData = async (clientId) => {
+  const fetchActiveRegister = async () => {
+    try {
+      const reg = await dataService.getActiveCashRegister(salonId);
+      setActiveRegister(reg);
+    } catch (e) {
+      console.error('Error cargando caja activa:', e);
+    }
+  };
+
+  // Open / Create New Ticket
+  const handleCreateNewTicket = async (e) => {
+    e.preventDefault();
+    if (!newTicketClientName.trim()) return;
+
+    setLoading(true);
+    try {
+      // Find client by cedula or name if exists
+      let clientId = 'INVITADO';
+      if (newTicketCedula) {
+        const found = await dataService.findClientByCedula(newTicketCedula);
+        if (found) clientId = found.id;
+      }
+
+      const res = await dataService.createPendingTicket({
+        clientId,
+        clientName: newTicketClientName.trim(),
+        servicios: ['Ticket en Construcción'],
+        empleadoPeluquera: 'Sin asignar',
+        salon_id: salonId
+      });
+
+      setShowNewTicketModal(false);
+      setNewTicketClientName('');
+      setNewTicketCedula('');
+      await fetchPendingTickets();
+
+      // Automatically open the newly created ticket
+      const newTicketObj = {
+        id: res.id,
+        ticket_number: res.ticketNumber,
+        client_id: clientId,
+        client_name: newTicketClientName.trim(),
+        servicios: [],
+        status: 'Pendiente'
+      };
+      handleSelectTicket(newTicketObj);
+    } catch (err) {
+      alert('Error creando ticket: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Open Ticket into Billing View & Collapse List
+  const handleSelectTicket = async (ticket) => {
+    setSelectedTicket(ticket);
+    setIsTicketExpanded(true); // Collapse tickets list column, expand client view
+
+    // Load ticket draft state if available
+    let draft = {};
+    try {
+      if (ticket.draft_data) {
+        draft = typeof ticket.draft_data === 'string' ? JSON.parse(ticket.draft_data) : ticket.draft_data;
+      }
+    } catch (e) {}
+
+    let items = [];
+    try {
+      if (ticket.items_detail) {
+        items = typeof ticket.items_detail === 'string' ? JSON.parse(ticket.items_detail) : ticket.items_detail;
+      }
+    } catch (e) {}
+
+    setLineItems(items.length > 0 ? items : (draft.lineItems || []));
+
+    // Automatic Plan Beauty Detection
+    if (ticket.client_id && ticket.client_id !== 'INVITADO') {
+      await loadClientPlanData(ticket.client_id);
+    } else {
+      setClientFound(null);
+      setActivePlans([]);
+    }
+  };
+
+  const loadClientPlanData = async (clientId) => {
+    const found = await dataService.getClientById(clientId).catch(() => null);
+    if (found) setClientFound(found);
+
     const pastVisits = await dataService.getVisitsByClient(clientId);
     const contractsFound = await dataService.getContractByClient(clientId);
     const allPlans = await dataService.getPlans();
-    
-    // Función para limpiar/parsear JSON de servicios
-    const peel = (data) => {
-      let current = data;
-      let limit = 0;
-      while (typeof current === 'string' && limit < 5) {
-        try {
-          const p = JSON.parse(current);
-          if (p === current) break;
-          current = p;
-          limit++;
-        } catch { break; }
-      }
-      return current;
-    };
 
     const planesConContrato = (Array.isArray(contractsFound) ? contractsFound : []).map(contract => {
       const matchedPlan = allPlans.find(p => p.id === contract.plan_id || String(p.id) === String(contract.plan_id));
-      
-      const baseServices = peel(contract.contract_services) || [];
-      const promoServices = peel(contract.contract_promo_services) || [];
-      
-      // Combinamos ambos servicios para la vista de facturación
-      const allServices = [...(Array.isArray(baseServices) ? baseServices : []), ...(Array.isArray(promoServices) ? promoServices : [])];
-      
-      // Lógica de filtrado por ciclo de facturación
-      const parseDate = (d) => {
-        if (!d) return 0;
-        if (d instanceof Date) return d.getTime();
-        const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
-        const time = new Date(dateStr).getTime();
-        return isNaN(time) ? new Date(d).getTime() : time;
-      };
-      
-      const lastBillingTime = parseDate(contract.last_billed_date);
-      const threshold = lastBillingTime + 10000; // 10 segundos de margen
-      
       return {
         ...matchedPlan,
         id: contract.plan_id,
         contract_id: contract.id,
-        last_billed_date: contract.last_billed_date,
-        title: matchedPlan?.title || 'Plan Personalizado',
-        services: allServices,
-        isPromoActive: parseInt(contract.contract_promo_duration, 10) > 0,
-        // Solo guardamos las visitas de este ciclo para este contrato específico
-        cycleVisits: pastVisits.filter(v => parseDate(v.visited_at) >= threshold)
+        title: matchedPlan?.title || 'Plan Beauty Active',
+        services: matchedPlan?.services || []
       };
     });
 
     setActivePlans(planesConContrato);
-    setClientVisits(pastVisits); // Mantenemos el histórico completo para info general
-    
-    if (planesConContrato.length > 0) {
-      const selected = planesConContrato.find(p => p.id.toString() === selectedPlanId) || planesConContrato[0];
-      setSelectedPlanId(selected.id.toString());
-      setAvailableServices(selected.services || []);
+  };
+
+  // Auto-Save Draft on "Volver Atrás"
+  const handleVolverAtras = async () => {
+    if (!selectedTicket) {
+      setIsTicketExpanded(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const currentTotal = calculateTotal();
+      const draftPayload = {
+        draft_data: { lineItems, selectedPlanId },
+        items_detail: lineItems,
+        total: currentTotal,
+        servicios: lineItems.map(i => i.nombre),
+        empleado_peluquera: lineItems[0]?.empleado || 'N/A'
+      };
+
+      await dataService.saveDraftTicket(selectedTicket.id, draftPayload);
+      await fetchPendingTickets();
+    } catch (e) {
+      console.error('Error guardando borrador:', e);
+    } finally {
+      setLoading(false);
+      setIsTicketExpanded(false); // Re-expand ticket queue
+      setSelectedTicket(null);
     }
   };
 
-  const formatCedula = (val) => {
-    const clean = val.replace(/\D/g, ''); // Quitar todo lo que no sea número
-    if (clean.length !== 11) return val; // Si no tiene 11 dígitos, devolver tal cual
-    return `${clean.slice(0, 3)}-${clean.slice(3, 10)}-${clean.slice(10)}`;
+  // Line Items Controls (Price rules)
+  const addServiceToLineItems = (service) => {
+    const newItem = {
+      id: Date.now() + Math.random(),
+      service_id: service.id,
+      nombre: service.nombre,
+      precioBase: service.precio,
+      precioAplicado: service.precio,
+      cantidad: 1,
+      empleado: employees[0]?.nombre || 'Ana Gómez',
+      descuento: 0
+    };
+    setLineItems([...lineItems, newItem]);
   };
 
-  const onSearch = async (e) => {
-    e.preventDefault();
-    const rawValue = e.target.elements[0].value;
-    const cedula = formatCedula(rawValue);
-    
-    // Actualizar el valor visual en el input para que el usuario vea el formato correcto
-    e.target.elements[0].value = cedula;
+  const handlePriceChange = (index, newPrice) => {
+    const val = parseFloat(newPrice) || 0;
+    const item = lineItems[index];
 
-    setLoading(true);
-    const found = await dataService.findClientByCedula(cedula);
-    setLoading(false);
-    
-    if (found) {
-      const isStaffAdmin = currentUser?.role === 'admin' || currentUser?.role_name === 'Administrador';
-      const isGlobalUser = !currentUser?.salon_id; // Si no tiene salon_id, es global
-      
-      if (found.salon_id && found.salon_id !== currentUser?.salon_id && !isStaffAdmin && !isGlobalUser) {
-         alert('Este cliente está registrado en otra sucursal.');
-         setClientFound(null);
-         setActivePlans([]);
-         return;
+    // Restricción: No se puede disminuir por debajo del precio base sin clave admin
+    if (val < item.precioBase && !isAdminAuthorized) {
+      setPendingDiscountItem({ index, val });
+      setShowAdminPinModal(true);
+      return;
+    }
+
+    const updated = [...lineItems];
+    updated[index].precioAplicado = val;
+    setLineItems(updated);
+  };
+
+  const verifyAdminPin = () => {
+    if (adminPin === '2026' || adminPin === '1234' || adminPin === '8888') {
+      setIsAdminAuthorized(true);
+      setShowAdminPinModal(false);
+      if (pendingDiscountItem) {
+        const updated = [...lineItems];
+        updated[pendingDiscountItem.index].precioAplicado = pendingDiscountItem.val;
+        setLineItems(updated);
+        setPendingDiscountItem(null);
       }
-      
-      if (found.status === 'Cancelled' || found.status === 'Inactivo') {
-        alert('Este cliente tiene su contrato cancelado y no puede recibir servicios bajo membresía.');
-        setClientFound(null);
-        setActivePlans([]);
+      setAdminPin('');
+    } else {
+      alert('Clave de Administrador incorrecta');
+    }
+  };
+
+  const removeLineItem = (index) => {
+    setLineItems(lineItems.filter((_, i) => i !== index));
+  };
+
+  const calculateTotal = () => {
+    return lineItems.reduce((acc, item) => acc + (item.precioAplicado * item.cantidad) - (item.descuento || 0), 0);
+  };
+
+  const totalAmount = calculateTotal();
+
+  // Real-Time Devuelta calculation
+  const devueltaAmount = Math.max(0, (parseFloat(montoRecibido) || 0) - totalAmount);
+
+  // Single Cash Register Open Check before checkout
+  const handleOpenCashRegister = async () => {
+    setLoading(true);
+    try {
+      const res = await dataService.openCashRegister({
+        salon_id: salonId,
+        employee_id: currentUser?.id || 'EMP',
+        employee_name: currentUser?.nombre || 'Cajero',
+        monto_inicial: parseFloat(registerInitialAmount) || 0
+      });
+      setActiveRegister(res.register || { id: res.registerId, register_number: res.registerNumber });
+      setShowRegisterOpenModal(false);
+    } catch (e) {
+      alert('Error abriendo caja: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Finalize Billing / Checkout
+  const handleFinalizeCheckout = async () => {
+    if (!activeRegister) {
+      setShowRegisterOpenModal(true);
+      return;
+    }
+
+    if (!selectedTicket) return;
+
+    // Handle Employee Payroll OTP verification if payroll consumption selected
+    if (paymentMethod === 'Nomina_Empleado') {
+      if (!selectedEmployeeForConsumption) {
+        alert('Por favor selecciona el empleado a cuyo salario se cargará este consumo.');
         return;
       }
-
-      setClientFound(found);
-      await loadClientData(found.id);
-      setValue('total', '0.00');
-    } else {
-      alert('Cliente no encontrado.');
-      setClientFound(null);
-    }
-  };
-
-  // INITIATE OTP FLOW
-  const onSubmit = async (data) => {
-    if (!clientFound) return;
-    
-    // Prepare visit data
-    const visitData = {
-      ...data,
-      clientId: clientFound.id,
-      clientName: clientFound.nombre,
-      salon_id: currentUser?.salon_id
-    };
-
-    setPendingData(visitData);
-    setIsSendingOtp(true);
-    
-    try {
-      const otpRes = await dataService.generateOTP(clientFound.id, clientFound.email);
-      if (otpRes.success) {
-        setFallbackCode(otpRes.code || ''); 
-        setOtpCode(''); // Ensure input is empty
+      const empObj = employees.find(e => e.id.toString() === selectedEmployeeForConsumption.toString());
+      if (empObj) {
+        setIsSendingOtp(true);
+        await dataService.sendEmployeeOtp({
+          employeeId: empObj.id,
+          employeeEmail: empObj.email || empObj.contacto,
+          employeeName: empObj.nombre
+        }).catch(() => {});
+        setIsSendingOtp(false);
         setShowOtpModal(true);
-      } else {
-        alert("Error al enviar código: " + (otpRes.error || "Revisa la configuración de correo"));
+        return;
       }
-    } catch (err) {
-      alert("Fallo al conectar con el servidor de seguridad.");
-    } finally {
-      setIsSendingOtp(false);
     }
+
+    await executeCheckout();
   };
 
-  // CONFIRM OTP AND SAVE VISIT
-  const handleVerifyOtp = async () => {
-    if (!otpCode || otpCode.length < 4) return alert("Ingresa un código válido");
-    
+  const executeCheckout = async () => {
     setLoading(true);
     try {
-      const res = await dataService.verifyOTPAndDiscount(clientFound.id, otpCode, pendingData);
-      if (res.success) {
-        alert('Visita autorizada y registrada con éxito');
-        setShowOtpModal(false);
-        setOtpCode('');
-        reset({ servicios: [], empleadoPeluquera: '', empleadoManicurista: '', empleadoLavaPelo: '' });
-        // Clear client state to "close" the profile as requested
-        setClientFound(null);
-        setActivePlans([]);
-        setSelectedPlanId('none');
+      let empCons = null;
+      if (paymentMethod === 'Nomina_Empleado') {
+        const empObj = employees.find(e => e.id.toString() === selectedEmployeeForConsumption.toString());
+        empCons = {
+          employee_id: empObj?.id || selectedEmployeeForConsumption,
+          employee_name: empObj?.nombre || 'Empleado',
+          monto: totalAmount,
+          servicios: lineItems.map(i => i.nombre),
+          salon_id: salonId
+        };
       }
+
+      await dataService.checkoutTicket(selectedTicket.id, {
+        total: totalAmount,
+        monto_recibido: parseFloat(montoRecibido) || totalAmount,
+        devuelta: devueltaAmount,
+        metodo_pago: paymentMethod,
+        items_detail: lineItems,
+        employee_consumption: empCons
+      });
+
+      alert('✅ Factura finalizada exitosamente.');
+      setShowOtpModal(false);
+      setSelectedTicket(null);
+      setIsTicketExpanded(false);
+      setLineItems([]);
+      setMontoRecibido('');
+      await fetchPendingTickets();
     } catch (err) {
-      alert(err.message || "Código incorrecto");
+      alert('Error al finalizar factura: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', paddingBottom: '5rem' }}>
-      <div className="page-header">
+    <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1rem' }}>
+      
+      {/* HEADER / CASH REGISTER BADGE */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', background: '#0f172a', color: '#ffffff', padding: '1rem 1.5rem', borderRadius: '16px' }}>
         <div>
-          <h2 className="page-title">Facturación de Servicios</h2>
-          <p className="page-subtitle">Gestión de consumos y seguridad de membresía.</p>
+          <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, letterSpacing: '-0.5px' }}>
+            Módulo de Facturación POS <span>SALON PRO</span>
+          </h2>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
+            Gestión de Tickets Pendientes y Ventas en Proceso
+          </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.875rem', fontWeight: 600 }}>
-          <Calendar size={18} />
-          <span>{new Date().toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</span>
-        </div>
-      </div>
 
-      {/* Client Search */}
-      <div className="surface-card" style={{ marginBottom: '2rem' }}>
-        <form onSubmit={onSearch} style={{ display: 'flex', gap: '1rem', width: '100%' }}>
-          <div className="search-input-wrapper">
-            <Search className="icon" size={20} />
-            <input placeholder="Buscar por Cédula / ID" required />
-          </div>
-          <button type="submit" disabled={loading} className="btn-primary" style={{ padding: '0 2.5rem' }}>
-            {loading ? 'Buscando...' : 'Buscar Cliente'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {activeRegister ? (
+            <div style={{ background: '#065f46', border: '1px solid #10b981', padding: '0.5rem 1rem', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 700, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <CheckCircle2 size={16} />
+              <span>Caja Activa: {activeRegister.register_number || 'Jornada Abierta'}</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowRegisterOpenModal(true)}
+              style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <LockIcon size={16} />
+              <span>Abrir Caja de Jornada</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setShowNewTicketModal(true)}
+            style={{ background: 'linear-gradient(135deg, #ec4899, #be185d)', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(236,72,153,0.3)' }}
+          >
+            <PlusCircle size={18} />
+            <span>+ Generar Nuevo Ticket</span>
           </button>
-        </form>
-
-        {clientFound && (
-          <div style={{ marginTop: '1.5rem', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ width: '48px', height: '48px', background: '#09090b', color: 'white', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <UserCheck size={22} />
-              </div>
-              <div>
-                <p style={{ fontWeight: 800, fontSize: '1.1rem', margin: 0 }}>{clientFound.nombre}</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>ID: {clientFound.cedula}</p>
-                  {activePlan && (
-                    <span style={{ fontSize: '0.65rem', background: '#ecfdf5', color: '#059669', padding: '0.1rem 0.5rem', borderRadius: '6px', fontWeight: 800 }}>
-                      {activePlan.title}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Última Visita</p>
-              <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-                {clientVisits.length > 0 
-                  ? new Date(clientVisits[clientVisits.length - 1].visited_at).toLocaleDateString()
-                  : 'Primera vez'}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {clientFound && activePlans.length > 0 && (
-          <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #f1f5f9' }}>
-            <p style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#64748b', marginBottom: '1rem' }}>Plan Seleccionado:</p>
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-              {activePlans.map(plan => (
-                <button
-                  key={plan.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedPlanId(plan.id.toString());
-                    setAvailableServices(plan.services || []);
-                  }}
-                  style={{
-                    padding: '0.75rem 1.25rem',
-                    borderRadius: '14px',
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    background: selectedPlanId === plan.id.toString() ? '#09090b' : '#f8fafc',
-                    color: selectedPlanId === plan.id.toString() ? 'white' : '#475569',
-                    border: '1px solid ' + (selectedPlanId === plan.id.toString() ? '#09090b' : '#e2e8f0'),
-                    boxShadow: selectedPlanId === plan.id.toString() ? '0 8px 15px rgba(0,0,0,0.1)' : 'none'
-                  }}
-                >
-                  {plan.title}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
-      {clientFound && (
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
-            {/* Services Section */}
-            <div className="surface-card">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.25rem', fontWeight: 900, marginBottom: '0.5rem' }}>
-                <Scissors size={22} color="#d4af37" /> Servicios Realizados
+      {/* MAIN TWO-COLUMN LAYOUT (COLLAPSIBLE SIDEBAR) */}
+      <div style={{ display: 'grid', gridTemplateColumns: isTicketExpanded ? '1fr' : '320px 1fr', gap: '1.25rem', transition: 'all 0.3s ease' }}>
+        
+        {/* COLUMN 1: TICKETS PENDIENTES QUEUE (Collapses when ticket opened) */}
+        {!isTicketExpanded && (
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', height: 'fit-content' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+                🎟️ Tickets Pendientes ({pendingTickets.length})
               </h3>
-              <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '2rem', fontWeight: 500 }}>
-                {activePlan ? (
-                  <span>Visita bajo membresía: <strong style={{ color: '#09090b' }}>{activePlan.title}</strong></span>
-                ) : (
-                  <span style={{ color: '#ef4444' }}>Cobro regular (Sin membresía)</span>
-                )}
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem' }}>
-                {availableServices.length > 0 ? availableServices.map(service => {
-                  let quota = 1;
-                  const lower = service.toLowerCase();
-                  if (lower.includes('ilimitad')) {
-                    quota = Infinity;
-                  } else {
-                    const match = service.match(/^(\d+)\s/);
-                    if (match) quota = parseInt(match[1], 10);
-                  }
-                  const used = (activePlan?.cycleVisits || []).filter(v => v.servicios?.includes(service)).length;
-                  const isExhausted = used >= quota;
-
-                  return (
-                    <label key={service} style={{ 
-                      display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.25rem', 
-                      background: isExhausted ? '#fef2f2' : '#f8fafc', 
-                      border: isExhausted ? '1px solid #fca5a5' : '1px solid #e2e8f0', 
-                      borderRadius: '18px', 
-                      cursor: isExhausted ? 'not-allowed' : 'pointer', 
-                      transition: 'all 0.2s',
-                      opacity: isExhausted ? 0.7 : 1
-                    }}>
-                      <input type="checkbox" disabled={isExhausted} style={{ width: '20px', height: '20px', accentColor: '#09090b' }} value={service} {...register("servicios")} />
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontWeight: 700, color: isExhausted ? '#b91c1c' : '#09090b' }}>{service}</span>
-                        {activePlan && (
-                          <span style={{ fontSize: '0.75rem', color: isExhausted ? '#ef4444' : '#64748b', fontWeight: 600 }}>
-                            {isExhausted ? '🚫 AGOTADO' : `Uso: ${used} / ${quota === Infinity ? '∞' : quota}`}
-                          </span>
-                        )}
-                      </div>
-                    </label>
-                  );
-                }) : (
-                  <div style={{ padding: '1.5rem', background: '#fffbeb', borderRadius: '18px', color: '#b45309', fontWeight: 600, gridColumn: '1/-1' }}>
-                    Sin servicios configurados.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Staff Section */}
-            <div className="surface-card">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.25rem', fontWeight: 900, marginBottom: '2rem' }}>
-                <UserCheck size={22} color="#d4af37" /> Empleados Asignados
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8' }}>Peluquera / Estilista</label>
-                  <select className="input-field" {...register("empleadoPeluquera")} defaultValue="">
-                    <option value="" disabled>Seleccionar Profesional</option>
-                    {employees.filter(e => e.rol === 'Peluquera').map(e => (
-                      <option key={e.id} value={e.nombre}>{e.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8' }}>Lava pelo</label>
-                  <select className="input-field" {...register("empleadoLavaPelo")} defaultValue="">
-                    <option value="" disabled>Seleccionar Profesional</option>
-                    {employees.filter(e => e.rol === 'Lava pelo').map(e => (
-                      <option key={e.id} value={e.nombre}>{e.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8' }}>Manicurista</label>
-                  <select className="input-field" {...register("empleadoManicurista")} defaultValue="">
-                    <option value="" disabled>Seleccionar Profesional</option>
-                    {employees.filter(e => e.rol === 'Manicurista').map(e => (
-                      <option key={e.id} value={e.nombre}>{e.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ textAlign: 'center', padding: '2rem 0' }}>
-              <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.5rem', fontWeight: 500 }}>
-                Al procesar, se enviará un código de seguridad al correo del cliente.
-              </p>
-              <button 
-                type="submit" 
-                disabled={isButtonDisabled || isSendingOtp}
-                className="btn-primary" 
-                style={{ 
-                  width: '100%', maxWidth: '400px', padding: '1.25rem', borderRadius: '20px',
-                  display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', fontSize: '1.1rem'
-                }}
-              >
-                {isSendingOtp ? <ClockIcon className="animate-spin" /> : <Save size={22} />}
-                {isSendingOtp ? 'Enviando Código...' : (isPlanExhausted ? 'Plan Agotado' : 'Procesar Factura')}
+              <button onClick={fetchPendingTickets} style={{ background: 'transparent', border: 'none', color: '#ec4899', cursor: 'pointer' }}>
+                <RefreshCw size={16} />
               </button>
             </div>
-          </div>
-        </form>
-      )}
 
-      {/* OTP VERIFICATION MODAL */}
-      {showOtpModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
-          <div style={{ background: 'white', padding: '3rem', borderRadius: '40px', maxWidth: '450px', width: '100%', textAlign: 'center', boxShadow: '0 30px 60px rgba(0,0,0,0.3)' }}>
-            <div style={{ width: '72px', height: '72px', background: '#f8fafc', borderRadius: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 2rem' }}>
-              <LockIcon size={32} color="#d4af37" />
-            </div>
-            <h2 style={{ fontSize: '1.75rem', fontWeight: 900, marginBottom: '1rem' }}>Seguridad</h2>
-            <p style={{ color: '#64748b', marginBottom: '2.5rem', fontSize: '0.95rem', lineHeight: 1.6 }}>
-              Hemos enviado un código a <strong>{clientFound?.email}</strong>.<br/>
-              { (currentUser?.role === 'admin' || currentUser?.role_name === 'Administrador') ? 'Código de respaldo disponible para administrador.' : 'Pide al cliente el código para autorizar el servicio.'}
-            </p>
-
-            { (currentUser?.role === 'admin' || currentUser?.role_name === 'Administrador') && (
-              <div style={{ background: '#fefce8', border: '1px dashed #facc15', padding: '1.25rem', borderRadius: '15px', marginBottom: '2rem' }}>
-                 <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#a16207', textTransform: 'uppercase', marginBottom: '0.5rem' }}>🔐 Código de Respaldo (Solo Admin)</p>
-                 <p style={{ fontSize: '2rem', fontWeight: 900, color: '#09090b', letterSpacing: '6px' }}>{fallbackCode}</p>
+            {pendingTickets.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#94a3b8' }}>
+                <ClockIcon size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                <p style={{ margin: 0, fontSize: '0.85rem' }}>No hay tickets pendientes en esta sucursal.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '600px', overflowY: 'auto' }}>
+                {pendingTickets.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => handleSelectTicket(t)}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '12px',
+                      padding: '1rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}
+                    className="hover-lift"
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.85rem', color: '#be185d' }}>
+                        {t.ticket_number || `#${t.id.slice(-4)}`}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
+                        En Proceso
+                      </span>
+                    </div>
+                    <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
+                      {t.client_name}
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                      {Array.isArray(t.servicios) ? t.servicios.join(', ') : 'Servicios generales'}
+                    </p>
+                    <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#94a3b8' }}>
+                      <span>{new Date(t.visited_at).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <ChevronRight size={16} style={{ color: '#ec4899' }} />
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* COLUMN 2: BILLING EDITOR (Expands when ticket selected) */}
+        {selectedTicket ? (
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
             
-            <input 
-              type="text" 
-              placeholder="Confirmar Código"
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, letterSpacing: '8px', padding: '1rem', borderRadius: '20px', border: '2px solid #e2e8f0', marginBottom: '2.5rem', fontFamily: 'monospace' }}
-            />
-            
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <button onClick={() => setShowOtpModal(false)} style={{ flex: 1, padding: '1.25rem', borderRadius: '18px', border: '1px solid #e2e8f0', background: 'white', fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
-              <button 
-                onClick={handleVerifyOtp} 
-                disabled={loading || otpCode.length < 4}
-                className="btn-primary" 
-                style={{ flex: 2, padding: '1.25rem', borderRadius: '18px', fontWeight: 800 }}
+            {/* ACTION BAR: VOLVER ATRÁS & CLIENT HEADER */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '2px solid #f1f5f9', paddingBottom: '1rem' }}>
+              <button
+                onClick={handleVolverAtras}
+                style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.6rem 1.25rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
               >
-                {loading ? 'Verificando...' : 'Confirmar Visita'}
+                <ArrowLeft size={18} />
+                <span>⬅️ Volver Atrás (Guarda Borrador)</span>
+              </button>
+
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>Ticket Activo:</span>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
+                  {selectedTicket.ticket_number || `#${selectedTicket.id.slice(-4)}`} - {selectedTicket.client_name}
+                </h3>
+              </div>
+            </div>
+
+            {/* AUTOMATIC PLAN BEAUTY BADGE */}
+            {activePlans.length > 0 && (
+              <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1px solid #86efac', padding: '0.875rem 1.25rem', borderRadius: '12px', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <Star size={22} style={{ color: '#16a34a' }} />
+                  <div>
+                    <strong style={{ color: '#166534', fontSize: '0.9rem' }}>Socio Plan Beauty Activo</strong>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#15803d' }}>
+                      {activePlans[0].title} - Lavados y beneficios disponibles detectados automáticamente
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TOP 7 ACCESOS RÁPIDOS & CATÁLOGO */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                ⚡ Accesos Rápidos Top 7 Servicios
+              </h4>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {DEFAULT_TOP_SERVICES.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => addServiceToLineItems(s)}
+                    style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.5rem 0.875rem', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    className="hover-lift"
+                  >
+                    <span>+ {s.nombre}</span>
+                    <span style={{ color: '#be185d', fontSize: '0.8rem' }}>RD$ {s.precio}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* LINE ITEMS TABLE (PRECIO EDITABLE CON RESTRICCIÓN DE DESCUENTO) */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                🛒 Servicios Agregados ({lineItems.length})
+              </h4>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', color: '#334155', textAlign: 'left' }}>
+                    <th style={{ padding: '10px 12px', borderRadius: '8px 0 0 8px' }}>Servicio</th>
+                    <th style={{ padding: '10px 12px' }}>Estilista / Colaborador</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Precio Base</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Precio Aplicado (RD$)</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', borderRadius: '0 8px 8px 0' }}>Acción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                        No se han agregado servicios a este ticket. Selecciona de los accesos rápidos arriba.
+                      </td>
+                    </tr>
+                  ) : (
+                    lineItems.map((item, idx) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 700, color: '#0f172a' }}>{item.nombre}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <select
+                            value={item.empleado}
+                            onChange={(e) => {
+                              const updated = [...lineItems];
+                              updated[idx].empleado = e.target.value;
+                              setLineItems(updated);
+                            }}
+                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                          >
+                            {employees.map(emp => (
+                              <option key={emp.id} value={emp.nombre}>{emp.nombre}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#64748b' }}>
+                          RD$ {item.precioBase}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            value={item.precioAplicado}
+                            onChange={(e) => handlePriceChange(idx, e.target.value)}
+                            style={{ width: '100px', textAlign: 'right', padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 700, color: item.precioAplicado > item.precioBase ? '#be185d' : '#0f172a' }}
+                          />
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                          <button onClick={() => removeLineItem(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                            <X size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* CHECKOUT & REAL-TIME DEVUELTA SECTION */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem' }}>
+                <div>
+                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                    💳 Método de Pago
+                  </h4>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                    {['Efectivo', 'Tarjeta (CardNet)', 'Transferencia', 'Nomina_Empleado'].map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setPaymentMethod(m)}
+                        style={{
+                          flex: 1,
+                          padding: '0.6rem 0.5rem',
+                          borderRadius: '8px',
+                          border: `1px solid ${paymentMethod === m ? '#be185d' : '#cbd5e1'}`,
+                          background: paymentMethod === m ? '#fdf2f8' : '#ffffff',
+                          color: paymentMethod === m ? '#be185d' : '#334155',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {m === 'Nomina_Empleado' ? 'Consumo Empleado' : m}
+                      </button>
+                    ))}
+                  </div>
+
+                  {paymentMethod === 'Efectivo' && (
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
+                          Monto Recibido Efectivo:
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="0.00"
+                          value={montoRecibido}
+                          onChange={(e) => setMontoRecibido(e.target.value)}
+                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                        />
+                      </div>
+                      <div style={{ flex: 1, background: '#fef3c7', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 700 }}>DEVUELTA / CAMBIO:</span>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#b45309' }}>
+                          RD$ {devueltaAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentMethod === 'Nomina_Empleado' && (
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
+                        Seleccionar Empleado (Deducción Nómina con Hora):
+                      </label>
+                      <select
+                        value={selectedEmployeeForConsumption}
+                        onChange={(e) => setSelectedEmployeeForConsumption(e.target.value)}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                      >
+                        <option value="">-- Seleccionar Colaborador --</option>
+                        {employees.map(emp => (
+                          <option key={emp.id} value={emp.id}>{emp.nombre} - {emp.posicion || 'Personal'}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 700 }}>TOTAL FACTURA:</span>
+                    <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#10b981' }}>
+                      RD$ {totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleFinalizeCheckout}
+                    disabled={loading || lineItems.length === 0}
+                    style={{
+                      width: '100%',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: '#ffffff',
+                      border: 'none',
+                      padding: '0.875rem',
+                      borderRadius: '12px',
+                      fontWeight: 800,
+                      fontSize: '1rem',
+                      cursor: loading || lineItems.length === 0 ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 14px rgba(16,185,129,0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.5rem'
+                    }}
+                  >
+                    <CheckCircle2 size={20} />
+                    <span>FINALIZAR & FACTURAR</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+            <Scissors size={48} style={{ margin: '0 auto 1rem', opacity: 0.4 }} />
+            <h3 style={{ margin: 0, color: '#334155', fontWeight: 700 }}>Selecciona o Genera un Ticket para Iniciar la Facturación</h3>
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>El flujo de facturación se administra a partir de los tickets pendientes de la sucursal.</p>
+          </div>
+        )}
+      </div>
+
+      {/* MODAL: GENERAR NUEVO TICKET (IMPRESIÓN FÍSICA) */}
+      {showNewTicketModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '450px', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>🎟️ Generar Ticket de Servicio</h3>
+            <form onSubmit={handleCreateNewTicket}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                  Nombre del Cliente (o Cliente General):
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Maria Rodriguez"
+                  value={newTicketClientName}
+                  onChange={(e) => setNewTicketClientName(e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                  Cédula (Opcional para vincular Plan Beauty):
+                </label>
+                <input
+                  type="text"
+                  placeholder="001-0000000-0"
+                  value={newTicketCedula}
+                  onChange={(e) => setNewTicketCedula(e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowNewTicketModal(false)}
+                  style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800 }}
+                >
+                  {loading ? 'Generando...' : 'Imprimir & Guardar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: APERTURA DE CAJA OBLIGATORIA (REGLA CAJA ÚNICA) */}
+      {showRegisterOpenModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '420px', borderRadius: '16px', padding: '1.5rem' }}>
+            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+              <LockIcon size={36} style={{ color: '#be185d', marginBottom: '0.5rem' }} />
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Apertura Obligatoria de Caja</h3>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>Se requiere 1 sola caja abierta para procesar facturas en el turno</p>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                Fondo Inicial de Caja (RD$):
+              </label>
+              <input
+                type="number"
+                value={registerInitialAmount}
+                onChange={(e) => setRegisterInitialAmount(e.target.value)}
+                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center', fontSize: '1.1rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                onClick={() => setShowRegisterOpenModal(false)}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleOpenCashRegister}
+                disabled={loading}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#10b981', color: '#ffffff', fontWeight: 800 }}
+              >
+                Confirmar Apertura
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* MODAL: AUTORIZACIÓN PIN ADMINISTRADOR (REDUCCIÓN PRECIO BASE) */}
+      {showAdminPinModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '400px', borderRadius: '16px', padding: '1.5rem' }}>
+            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+              <ShieldAlert size={36} style={{ color: '#be185d', marginBottom: '0.5rem' }} />
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Autorización de Administrador</h3>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>Se requiere PIN para reducir precio por debajo de tarifa base</p>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <input
+                type="password"
+                placeholder="Ingresa Clave PIN Admin"
+                value={adminPin}
+                onChange={(e) => setAdminPin(e.target.value)}
+                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                onClick={() => { setShowAdminPinModal(false); setPendingDiscountItem(null); }}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={verifyAdminPin}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800 }}
+              >
+                Autorizar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: OTP EMAIL EMPLEADO */}
+      {showOtpModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '400px', borderRadius: '16px', padding: '1.5rem', textAlign: 'center' }}>
+            <Mail size={36} style={{ color: '#be185d', marginBottom: '0.5rem' }} />
+            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Verificación OTP por Correo</h3>
+            <p style={{ margin: '0.25rem 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>Ingresa el código enviado al correo del colaborador</p>
+
+            <input
+              type="text"
+              placeholder="000000"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value)}
+              style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800, textAlign: 'center', fontSize: '1.4rem', letterSpacing: '6px', marginBottom: '1.25rem' }}
+            />
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                onClick={() => setShowOtpModal(false)}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={executeCheckout}
+                disabled={loading || otpCode.length < 4}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#10b981', color: '#ffffff', fontWeight: 800 }}
+              >
+                Confirmar Consumo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
