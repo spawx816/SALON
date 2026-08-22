@@ -237,6 +237,66 @@ export const dataService = {
     }
   },
 
+  getServices: async (activeOnly = false) => {
+    try {
+      const url = activeOnly ? `${API_URL}/services?active_only=1` : `${API_URL}/services`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching services:', e);
+      return [];
+    }
+  },
+
+  createService: async (serviceData) => {
+    try {
+      const res = await fetch(`${API_URL}/services`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serviceData)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  updateService: async (id, serviceData) => {
+    try {
+      const res = await fetch(`${API_URL}/services/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serviceData)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  toggleServiceStatus: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/services/${id}/toggle-status`, {
+        method: 'PATCH'
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  deleteService: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/services/${id}`, {
+        method: 'DELETE'
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
   bulkImportServices: async (items) => {
     try {
       const res = await fetch(`${API_URL}/services/bulk-import`, {

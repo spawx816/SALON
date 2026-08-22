@@ -172,6 +172,32 @@ const setupDB = async () => {
     try { await pool.query('ALTER TABLE cash_registers ADD COLUMN observaciones TEXT'); } catch(e){}
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS services (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        descripcion TEXT,
+        categoria VARCHAR(100) DEFAULT 'General',
+        precio DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        activo TINYINT DEFAULT 1,
+        genera_comision TINYINT DEFAULT 1,
+        tipo_comision VARCHAR(50) DEFAULT 'Porcentaje',
+        comision_valor DECIMAL(10,2) DEFAULT 0.00,
+        aplica_itbis TINYINT DEFAULT 0,
+        orden_visualizacion INT DEFAULT 0,
+        imagen_url VARCHAR(255) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    try { await pool.query('ALTER TABLE services ADD COLUMN descripcion TEXT'); } catch(e){}
+    try { await pool.query('ALTER TABLE services ADD COLUMN genera_comision TINYINT DEFAULT 1'); } catch(e){}
+    try { await pool.query('ALTER TABLE services ADD COLUMN tipo_comision VARCHAR(50) DEFAULT "Porcentaje"'); } catch(e){}
+    try { await pool.query('ALTER TABLE services ADD COLUMN comision_valor DECIMAL(10,2) DEFAULT 0.00'); } catch(e){}
+    try { await pool.query('ALTER TABLE services ADD COLUMN aplica_itbis TINYINT DEFAULT 0'); } catch(e){}
+    try { await pool.query('ALTER TABLE services ADD COLUMN orden_visualizacion INT DEFAULT 0'); } catch(e){}
+    try { await pool.query('ALTER TABLE services ADD COLUMN imagen_url VARCHAR(255) DEFAULT ""'); } catch(e){}
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS cash_register_movements (
         id INT AUTO_INCREMENT PRIMARY KEY,
         cash_register_id INT NOT NULL,
@@ -1597,6 +1623,174 @@ app.post('/api/services/bulk-import', async (req, res) => {
     }
 
     res.json({ success: true, count: insertedCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === GESTIÓN DE ÍTEMS Y SERVICIOS (SECTION 8) ===
+app.get('/api/services', async (req, res) => {
+  try {
+    const { active_only } = req.query;
+    let query = 'SELECT * FROM services';
+    if (active_only === '1') {
+      query += ' WHERE activo = 1';
+    }
+    query += ' ORDER BY orden_visualizacion ASC, nombre ASC';
+
+    let [rows] = await pool.query(query);
+
+    // If services table is empty, seed with initial catalog items
+    if (rows.length === 0) {
+      const initialServices = [
+        { nombre: 'Lavado y Secado', categoria: 'Peluquería', precio: 500.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 15, orden_visualizacion: 1 },
+        { nombre: 'Corte de Pelo Dama', categoria: 'Peluquería', precio: 800.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 20, orden_visualizacion: 2 },
+        { nombre: 'Tinte Completo', categoria: 'Coloración', precio: 2200.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 20, orden_visualizacion: 3 },
+        { nombre: 'Tratamiento Penetratti', categoria: 'Tratamientos', precio: 1500.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 15, orden_visualizacion: 4 },
+        { nombre: 'Manicura Rusa', categoria: 'Uñas', precio: 650.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 30, orden_visualizacion: 5 },
+        { nombre: 'Pedicura Spa', categoria: 'Uñas', precio: 850.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 30, orden_visualizacion: 6 }
+      ];
+
+      for (const s of initialServices) {
+        await pool.query(
+          `INSERT INTO services (nombre, categoria, precio, activo, genera_comision, tipo_comision, comision_valor, orden_visualizacion)
+           VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+          [s.nombre, s.categoria, s.precio, s.genera_comision, s.tipo_comision, s.comision_valor, s.orden_visualizacion]
+        );
+      }
+      [rows] = await pool.query(query);
+    }
+
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/services', async (req, res) => {
+  try {
+    const {
+      nombre, descripcion, categoria, precio, activo,
+      genera_comision, tipo_comision, comision_valor,
+      aplica_itbis, orden_visualizacion, imagen_url
+    } = req.body;
+
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({ error: 'El nombre del servicio es obligatorio.' });
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO services 
+        (nombre, descripcion, categoria, precio, activo, genera_comision, tipo_comision, comision_valor, aplica_itbis, orden_visualizacion, imagen_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nombre.trim(),
+        descripcion || '',
+        categoria || 'General',
+        parseFloat(precio) || 0,
+        activo !== undefined ? (activo ? 1 : 0) : 1,
+        genera_comision !== undefined ? (genera_comision ? 1 : 0) : 1,
+        tipo_comision || 'Porcentaje',
+        parseFloat(comision_valor) || 0,
+        aplica_itbis !== undefined ? (aplica_itbis ? 1 : 0) : 0,
+        parseInt(orden_visualizacion) || 0,
+        imagen_url || ''
+      ]
+    );
+
+    res.json({ success: true, serviceId: result.insertId, message: 'Servicio creado exitosamente' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      nombre, descripcion, categoria, precio, activo,
+      genera_comision, tipo_comision, comision_valor,
+      aplica_itbis, orden_visualizacion, imagen_url
+    } = req.body;
+
+    await pool.query(
+      `UPDATE services SET
+        nombre = ?,
+        descripcion = ?,
+        categoria = ?,
+        precio = ?,
+        activo = ?,
+        genera_comision = ?,
+        tipo_comision = ?,
+        comision_valor = ?,
+        aplica_itbis = ?,
+        orden_visualizacion = ?,
+        imagen_url = ?
+       WHERE id = ?`,
+      [
+        nombre ? nombre.trim() : 'Servicio',
+        descripcion || '',
+        categoria || 'General',
+        parseFloat(precio) || 0,
+        activo !== undefined ? (activo ? 1 : 0) : 1,
+        genera_comision !== undefined ? (genera_comision ? 1 : 0) : 1,
+        tipo_comision || 'Porcentaje',
+        parseFloat(comision_valor) || 0,
+        aplica_itbis !== undefined ? (aplica_itbis ? 1 : 0) : 0,
+        parseInt(orden_visualizacion) || 0,
+        imagen_url || '',
+        id
+      ]
+    );
+
+    res.json({ success: true, message: 'Servicio actualizado exitosamente. Las facturas anteriores conservan su precio histórico.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/services/:id/toggle-status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.query('SELECT activo FROM services WHERE id = ?', [id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Servicio no encontrado' });
+
+    const newStatus = rows[0].activo === 1 ? 0 : 1;
+    await pool.query('UPDATE services SET activo = ? WHERE id = ?', [newStatus, id]);
+
+    res.json({ success: true, activo: newStatus, message: `Servicio ${newStatus === 1 ? 'activado' : 'desactivado'} exitosamente` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/services/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [srvRows] = await pool.query('SELECT * FROM services WHERE id = ?', [id]);
+    if (srvRows.length === 0) return res.status(404).json({ error: 'Servicio no encontrado' });
+
+    const serviceName = srvRows[0].nombre;
+
+    // Check historical usage in visits
+    const [usedInVisits] = await pool.query(
+      `SELECT id FROM visits WHERE JSON_SEARCH(items_detail, 'one', ?) IS NOT NULL OR JSON_SEARCH(servicios, 'one', ?) IS NOT NULL LIMIT 1`,
+      [serviceName, serviceName]
+    );
+
+    if (usedInVisits.length > 0) {
+      // Protect history: perform soft delete (deactivate) instead of hard deletion
+      await pool.query('UPDATE services SET activo = 0 WHERE id = ?', [id]);
+      return res.json({
+        success: true,
+        protected: true,
+        message: 'El servicio ha sido facturado anteriormente. Para proteger la integridad histórica de las facturas, el ítem ha sido Desactivado en lugar de eliminado.'
+      });
+    }
+
+    // Hard delete if never used in historical invoices
+    await pool.query('DELETE FROM services WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Servicio eliminado permanentemente.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

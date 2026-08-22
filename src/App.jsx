@@ -23,6 +23,7 @@ import ClientServices from './components/clients/ClientServices';
 import ActivateAccount from './pages/ActivateAccount';
 import CardNetTest from './pages/CardNetTest';
 import DigitalContract from './components/contracts/DigitalContract';
+import ServiceManagement from './components/services/ServiceManagement';
 import Payments from './components/admin/Payments';
 import PlansModule from './components/admin/PlansModule';
 import ClientProfile from './components/clients/ClientProfile';
@@ -267,6 +268,9 @@ const AppContent = () => {
               {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
                 <SidebarLink to="/registro-cliente" icon={UserPlus} label="Registrar Cliente" active={location.pathname === '/registro-cliente'} onClick={closeMobileMenu} />
               )}
+              {(isAdmin || (user?.permissions && (user.permissions.process_billing || user.permissions.register_visits))) && (
+                <SidebarLink to="/servicios" icon={Sparkles} label="Gestión de Servicios" active={location.pathname === '/servicios'} onClick={closeMobileMenu} />
+              )}
               
               <div style={{ margin: '1.5rem 0.75rem 0.5rem', height: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
               <button 
@@ -409,6 +413,7 @@ const AppContent = () => {
                 <Route path="/registro-cliente" element={isClient ? <Navigate to="/" /> : <ClientRegistration />} />
                 <Route path="/lista-clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
                 <Route path="/visitas" element={isClient ? <Navigate to="/" /> : <VisitRecorder />} />
+                <Route path="/servicios" element={isClient ? <Navigate to="/" /> : <ServiceManagement />} />
                 <Route path="/encuesta" element={(isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />} />
                 <Route path="/regalos" element={isAdmin ? <AdminGiftCards /> : <GiftCertificates />} />
                 <Route path="/regalar" element={<GiftCertificates />} />
