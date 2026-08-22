@@ -59,6 +59,9 @@ const VisitRecorder = () => {
   const [activeRegister, setActiveRegister] = useState(null);
   const [showRegisterOpenModal, setShowRegisterOpenModal] = useState(false);
   const [registerInitialAmount, setRegisterInitialAmount] = useState('1000.00');
+  const [showRegisterDetailsModal, setShowRegisterDetailsModal] = useState(false);
+  const [closeRegisterAmount, setCloseRegisterAmount] = useState('');
+  const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
 
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [montoRecibido, setMontoRecibido] = useState('');
@@ -406,6 +409,25 @@ const VisitRecorder = () => {
       setShowRegisterOpenModal(false);
     } catch (e) {
       alert('Error abriendo caja: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCloseCashRegister = async () => {
+    if (!activeRegister) return;
+    setLoading(true);
+    try {
+      await dataService.closeCashRegister(activeRegister.id, {
+        monto_final: parseFloat(closeRegisterAmount) || 0
+      });
+      alert('🔒 Caja de Jornada cerrada exitosamente.');
+      setActiveRegister(null);
+      setShowConfirmCloseModal(false);
+      setShowRegisterDetailsModal(false);
+      setCloseRegisterAmount('');
+    } catch (e) {
+      alert('Error cerrando caja: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -1506,6 +1528,126 @@ const VisitRecorder = () => {
                 style={{ background: '#000000', color: '#ffffff', border: 'none', padding: '0.65rem 1.5rem', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer' }}
               >
                 Cerrar Historial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DETALLES DE CAJA ACTIVA DE JORNADA */}
+      {showRegisterDetailsModal && activeRegister && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1070 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '480px', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CheckCircle2 size={24} style={{ color: '#10b981' }} />
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>
+                  Detalles de Caja de Jornada
+                </h3>
+              </div>
+              <button onClick={() => setShowRegisterDetailsModal(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem', background: '#f8fafc', padding: '1.25rem', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>📌 Numeración Única:</span>
+                <strong style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 800 }}>{activeRegister.register_number}</strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>👤 Empleado / Cajero:</span>
+                <strong style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 800 }}>{activeRegister.employee_name || currentUser?.nombre || 'Cajero Principal'}</strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>🏢 Sucursal:</span>
+                <strong style={{ fontSize: '0.9rem', color: '#be185d', fontWeight: 800 }}>{activeRegister.salon_name || 'Sucursal San Vicente de Paúl'}</strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>🕒 Fecha y Hora Apertura:</span>
+                <strong style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 700 }}>
+                  {new Date(activeRegister.opened_at).toLocaleString('es-DO', { dateStyle: 'medium', timeStyle: 'short' })}
+                </strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>💰 Monto Inicial en Caja:</span>
+                <strong style={{ fontSize: '1rem', color: '#166534', fontWeight: 900 }}>
+                  RD$ {Number(activeRegister.monto_inicial || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                </strong>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>🟢 Estado de Caja:</span>
+                <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 800 }}>
+                  ABIERTA (Activa por Jornada)
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                onClick={() => setShowRegisterDetailsModal(false)}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+              >
+                Cerrar Ventana
+              </button>
+              <button
+                onClick={() => {
+                  setShowRegisterDetailsModal(false);
+                  setShowConfirmCloseModal(true);
+                }}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#dc2626', color: '#ffffff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+              >
+                <LockIcon size={16} />
+                <span>Cerrar Caja de Jornada</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFIRMAR CIERRE DE CAJA */}
+      {showConfirmCloseModal && activeRegister && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '400px', borderRadius: '16px', padding: '1.5rem' }}>
+            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+              <LockIcon size={36} style={{ color: '#dc2626', marginBottom: '0.5rem' }} />
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Cierre Manual de Caja</h3>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                Ingresa el cuadre / efectivo final para finalizar la jornada de la caja {activeRegister.register_number}
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                Monto Final de Cuadre en Caja (RD$):
+              </label>
+              <input
+                type="number"
+                placeholder="0.00"
+                value={closeRegisterAmount}
+                onChange={(e) => setCloseRegisterAmount(e.target.value)}
+                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '1.1rem', textAlign: 'center' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                onClick={() => setShowConfirmCloseModal(false)}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCloseCashRegister}
+                disabled={loading}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#dc2626', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}
+              >
+                Confirmar Cierre
               </button>
             </div>
           </div>

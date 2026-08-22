@@ -188,6 +188,19 @@ export const dataService = {
     }
   },
 
+  closeCashRegister: async (registerId, data) => {
+    try {
+      const res = await fetch(`${API_URL}/cash-registers/${registerId}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
   sendEmployeeOtp: async (data) => {
     try {
       const res = await fetch(`${API_URL}/auth/send-employee-otp`, {

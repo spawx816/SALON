@@ -1249,12 +1249,16 @@ app.post('/api/visits', async (req, res) => {
   }
 });
 
-// === CASH REGISTERS (CAJA ÚNICA POR JORNADA) ===
+// === CASH REGISTERS (CAJA ÚNICA POR JORNADA Y CIERRE MANUAL) ===
 app.get('/api/cash-registers/active', async (req, res) => {
   try {
-    const { salon_id, employee_id } = req.query;
+    const { salon_id } = req.query;
     const [rows] = await pool.query(
-      "SELECT * FROM cash_registers WHERE salon_id = ? AND status = 'Abierta' ORDER BY opened_at DESC LIMIT 1",
+      `SELECT cr.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name 
+       FROM cash_registers cr 
+       LEFT JOIN salons s ON cr.salon_id = s.id 
+       WHERE cr.salon_id = ? AND cr.status = 'Abierta' 
+       ORDER BY cr.opened_at DESC LIMIT 1`,
       [salon_id || 1]
     );
     res.json(rows[0] || null);
@@ -1266,22 +1270,61 @@ app.get('/api/cash-registers/active', async (req, res) => {
 app.post('/api/cash-registers/open', async (req, res) => {
   try {
     const { salon_id, employee_id, employee_name, monto_inicial } = req.body;
-    // Check if open register exists
+    // Check if open register exists for this salon
     const [existing] = await pool.query(
-      "SELECT * FROM cash_registers WHERE salon_id = ? AND status = 'Abierta'",
+      `SELECT cr.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name 
+       FROM cash_registers cr 
+       LEFT JOIN salons s ON cr.salon_id = s.id 
+       WHERE cr.salon_id = ? AND cr.status = 'Abierta'`,
       [salon_id || 1]
     );
     if (existing.length > 0) {
-      return res.json({ success: true, register: existing[0], message: 'Caja ya se encuentra abierta' });
+      return res.json({ success: true, register: existing[0], message: 'Existe una caja abierta para esta jornada' });
     }
 
-    const regNum = 'CAJA-' + Date.now().toString().slice(-6);
+    // Unique Register Numbering format: CAJA-SD-YYYYMMDD-XXXX
+    const dateCode = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const regNum = `CAJA-SD-${dateCode}-${randomSuffix}`;
+
     const [result] = await pool.query(
       "INSERT INTO cash_registers (register_number, employee_id, employee_name, salon_id, monto_inicial, opened_at, status) VALUES (?, ?, ?, ?, ?, NOW(), 'Abierta')",
       [regNum, employee_id || 'SYS', employee_name || 'Cajero', salon_id || 1, monto_inicial || 0.00]
     );
 
-    res.json({ success: true, registerId: result.insertId, registerNumber: regNum });
+    const [newReg] = await pool.query(
+      `SELECT cr.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name 
+       FROM cash_registers cr 
+       LEFT JOIN salons s ON cr.salon_id = s.id 
+       WHERE cr.id = ?`,
+      [result.insertId]
+    );
+
+    res.json({ success: true, register: newReg[0], registerId: result.insertId, registerNumber: regNum });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/cash-registers/:id/close', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { monto_final } = req.body;
+
+    const [regs] = await pool.query('SELECT * FROM cash_registers WHERE id = ?', [id]);
+    if (regs.length === 0) return res.status(404).json({ error: 'Caja no encontrada' });
+    const reg = regs[0];
+
+    const finalAmt = parseFloat(monto_final) || 0;
+    const initialAmt = parseFloat(reg.monto_inicial) || 0;
+    const diff = finalAmt - initialAmt;
+
+    await pool.query(
+      "UPDATE cash_registers SET status = 'Cerrada', closed_at = NOW(), monto_final = ?, diferencia = ? WHERE id = ?",
+      [finalAmt, diff, id]
+    );
+
+    res.json({ success: true, message: 'Caja cerrada exitosamente' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
