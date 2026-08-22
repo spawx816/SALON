@@ -22,6 +22,7 @@ const DEFAULT_TOP_SERVICES = [
 const VisitRecorder = () => {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
+  const salonId = currentUser?.salon_id || 1;
 
   // Pending Tickets & Workflow State
   const [pendingTickets, setPendingTickets] = useState([]);
@@ -44,6 +45,26 @@ const VisitRecorder = () => {
   const [selectedClientForTicket, setSelectedClientForTicket] = useState(null);
   const [newTicketClientName, setNewTicketClientName] = useState('');
   const [newTicketCedula, setNewTicketCedula] = useState('');
+
+  // Pricing & Admin Auth
+  const [showAdminPinModal, setShowAdminPinModal] = useState(false);
+  const [adminPin, setAdminPin] = useState('');
+  const [pendingDiscountItem, setPendingDiscountItem] = useState(null);
+  const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
+
+  // Payment & Cash Register
+  const [activeRegister, setActiveRegister] = useState(null);
+  const [showRegisterOpenModal, setShowRegisterOpenModal] = useState(false);
+  const [registerInitialAmount, setRegisterInitialAmount] = useState('1000.00');
+
+  const [paymentMethod, setPaymentMethod] = useState('Efectivo');
+  const [montoRecibido, setMontoRecibido] = useState('');
+  const [selectedEmployeeForConsumption, setSelectedEmployeeForConsumption] = useState('');
+
+  // OTP State
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
 
   // Load Pending Tickets, Employees, Cash Register, and Clients on Mount
   useEffect(() => {
