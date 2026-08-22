@@ -64,6 +64,14 @@ const VisitRecorder = () => {
   const [montoRecibido, setMontoRecibido] = useState('');
   const [selectedEmployeeForConsumption, setSelectedEmployeeForConsumption] = useState('');
 
+  // Gift Card & Mixed Payment States
+  const [giftCardCode, setGiftCardCode] = useState('');
+  const [giftCardInfo, setGiftCardInfo] = useState(null);
+  const [giftCardLoading, setGiftCardLoading] = useState(false);
+  const [giftCardError, setGiftCardError] = useState('');
+  const [mixedComplementMethod, setMixedComplementMethod] = useState('Efectivo');
+  const [mixedCashReceived, setMixedCashReceived] = useState('');
+
   // OTP State
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpCode, setOtpCode] = useState('');
@@ -403,6 +411,40 @@ const VisitRecorder = () => {
     }
   };
 
+  // Verification for Gift Card
+  const handleVerifyGiftCard = async (overrideCode = null) => {
+    const codeToTest = overrideCode || giftCardCode;
+    if (!codeToTest || !codeToTest.trim()) {
+      setGiftCardError('Por favor ingresa el código de la Gift Card');
+      setGiftCardInfo(null);
+      return;
+    }
+
+    setGiftCardLoading(true);
+    setGiftCardError('');
+    try {
+      const card = await dataService.verifyGiftCardCode(codeToTest);
+      if (!card) {
+        setGiftCardError('Código de Gift Card no encontrado en el sistema.');
+        setGiftCardInfo(null);
+      } else if (card.status !== 'Active' && card.status !== 'Partially_Redeemed') {
+        setGiftCardError(`Esta Gift Card no está activa (Estado actual: ${card.status}).`);
+        setGiftCardInfo(null);
+      } else if (Number(card.balance) <= 0) {
+        setGiftCardError('Esta Gift Card ya no posee balance disponible (RD$ 0.00).');
+        setGiftCardInfo(null);
+      } else {
+        setGiftCardInfo(card);
+        setGiftCardError('');
+      }
+    } catch (e) {
+      setGiftCardError('Error al verificar Gift Card: ' + e.message);
+      setGiftCardInfo(null);
+    } finally {
+      setGiftCardLoading(false);
+    }
+  };
+
   // Finalize Billing / Checkout with Strict Validations
   const handleFinalizeCheckout = async () => {
     if (!activeRegister) {
@@ -423,6 +465,24 @@ const VisitRecorder = () => {
       if (isNaN(rec) || rec < totalAmount) {
         alert(`⚠️ Monto recibido en efectivo insuficiente (RD$ ${isNaN(rec) ? 0 : rec.toFixed(2)}). Se requiere un monto igual o mayor al total de la factura (RD$ ${totalAmount.toFixed(2)}).`);
         return;
+      }
+    }
+
+    // Gift Card & Mixed Payment Validations
+    if (paymentMethod === 'Gift_Card') {
+      if (!giftCardInfo) {
+        alert('⚠️ Por favor ingresa y verifica un código válido de Gift Card con balance antes de procesar el cobro.');
+        return;
+      }
+      const cardBal = Number(giftCardInfo.balance);
+      const remainingToPay = totalAmount - cardBal;
+
+      if (remainingToPay > 0 && mixedComplementMethod === 'Efectivo') {
+        const cashRec = parseFloat(mixedCashReceived);
+        if (isNaN(cashRec) || cashRec < remainingToPay) {
+          alert(`⚠️ Efectivo recibido para el saldo restante (RD$ ${isNaN(cashRec) ? 0 : cashRec.toFixed(2)}) insuficiente. Se requiere al menos RD$ ${remainingToPay.toFixed(2)}.`);
+          return;
+        }
       }
     }
 
@@ -453,6 +513,38 @@ const VisitRecorder = () => {
     setLoading(true);
     try {
       let empCons = null;
+      let gcRedemption = null;
+      let finalMetodoPago = paymentMethod === 'Tarjeta (CardNet)' ? 'Tarjeta' : paymentMethod;
+      let finalMontoRecibido = parseFloat(montoRecibido) || totalAmount;
+      let finalDevuelta = devueltaAmount;
+
+      if (paymentMethod === 'Gift_Card' && giftCardInfo) {
+        const cardBal = Number(giftCardInfo.balance);
+        const redeemed = Math.min(totalAmount, cardBal);
+        const remainingToPay = Math.max(0, totalAmount - redeemed);
+
+        gcRedemption = {
+          code: giftCardInfo.code,
+          amount_redeemed: redeemed
+        };
+
+        if (remainingToPay <= 0) {
+          finalMetodoPago = 'Gift Card';
+          finalMontoRecibido = redeemed;
+          finalDevuelta = 0;
+        } else {
+          finalMetodoPago = `Pago Mixto (Gift Card + ${mixedComplementMethod})`;
+          if (mixedComplementMethod === 'Efectivo') {
+            const cash = parseFloat(mixedCashReceived) || remainingToPay;
+            finalMontoRecibido = redeemed + cash;
+            finalDevuelta = Math.max(0, cash - remainingToPay);
+          } else {
+            finalMontoRecibido = totalAmount;
+            finalDevuelta = 0;
+          }
+        }
+      }
+
       if (paymentMethod === 'Nomina_Empleado') {
         const empObj = employees.find(e => e.id.toString() === selectedEmployeeForConsumption.toString());
         empCons = {
@@ -466,11 +558,12 @@ const VisitRecorder = () => {
 
       await dataService.checkoutTicket(selectedTicket.id, {
         total: totalAmount,
-        monto_recibido: parseFloat(montoRecibido) || totalAmount,
-        devuelta: devueltaAmount,
-        metodo_pago: paymentMethod,
+        monto_recibido: finalMontoRecibido,
+        devuelta: finalDevuelta,
+        metodo_pago: finalMetodoPago,
         items_detail: lineItems,
-        employee_consumption: empCons
+        employee_consumption: empCons,
+        gift_card_redemption: gcRedemption
       });
 
       alert('✅ Factura finalizada exitosamente.');
@@ -799,14 +892,16 @@ const VisitRecorder = () => {
                   <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
                     💳 Método de Pago
                   </h4>
-                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-                    {['Efectivo', 'Tarjeta (CardNet)', 'Transferencia', 'Nomina_Empleado'].map((m) => (
+                  <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                    {['Efectivo', 'Tarjeta (CardNet)', 'Transferencia', 'Gift_Card', 'Nomina_Empleado'].map((m) => (
                       <button
                         key={m}
+                        type="button"
                         onClick={() => setPaymentMethod(m)}
                         style={{
                           flex: 1,
-                          padding: '0.6rem 0.5rem',
+                          minWidth: '100px',
+                          padding: '0.6rem 0.4rem',
                           borderRadius: '8px',
                           border: `1px solid ${paymentMethod === m ? '#be185d' : '#cbd5e1'}`,
                           background: paymentMethod === m ? '#fdf2f8' : '#ffffff',
@@ -816,10 +911,145 @@ const VisitRecorder = () => {
                           cursor: 'pointer'
                         }}
                       >
-                        {m === 'Nomina_Empleado' ? 'Consumo Empleado' : m}
+                        {m === 'Nomina_Empleado' ? 'Consumo Empleado' : m === 'Gift_Card' ? '🎁 Gift Card' : m}
                       </button>
                     ))}
                   </div>
+
+                  {/* GIFT CARD & PAGO MIXTO SECTION */}
+                  {paymentMethod === 'Gift_Card' && (
+                    <div style={{ background: '#ffffff', padding: '1rem', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '0.5rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                        🎟️ Código de Gift Card / Certificado:
+                      </label>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                        <input
+                          type="text"
+                          placeholder="Ej: GC-123456"
+                          value={giftCardCode}
+                          onChange={(e) => {
+                            setGiftCardCode(e.target.value.toUpperCase());
+                            setGiftCardError('');
+                          }}
+                          style={{ flex: 1, padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.95rem' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleVerifyGiftCard()}
+                          disabled={giftCardLoading}
+                          style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0.55rem 1rem', fontWeight: 800, cursor: 'pointer', fontSize: '0.8rem' }}
+                        >
+                          {giftCardLoading ? 'Verificando...' : '🔍 Verificar Balance'}
+                        </button>
+                      </div>
+
+                      {giftCardError && (
+                        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '0.5rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.75rem' }}>
+                          ❌ {giftCardError}
+                        </div>
+                      )}
+
+                      {giftCardInfo && (
+                        <div>
+                          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.75rem', borderRadius: '10px', marginBottom: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534' }}>
+                                ✅ Gift Card Válida ({giftCardInfo.code})
+                              </span>
+                              <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#15803d' }}>
+                                Balance: RD$ {Number(giftCardInfo.balance).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* PAGO COMPLETO O PAGO MIXTO */}
+                          {Number(giftCardInfo.balance) >= totalAmount ? (
+                            <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '0.75rem', borderRadius: '10px', color: '#065f46', fontSize: '0.85rem', fontWeight: 800 }}>
+                              🎉 ¡Factura cubierta 100% por Gift Card!
+                              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#047857', marginTop: '0.2rem' }}>
+                                Saldo restante en tarjeta tras cobro: RD$ {(Number(giftCardInfo.balance) - totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          ) : (
+                            /* PAGO MIXTO REQUERIDO */
+                            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '0.875rem', borderRadius: '12px' }}>
+                              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#92400e', marginBottom: '0.5rem' }}>
+                                🔀 Pago Mixto Requerido (El balance no cubre el total):
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+                                <div style={{ flex: 1, background: '#ffffff', padding: '0.5rem', borderRadius: '6px', border: '1px solid #fef3c7' }}>
+                                  <span style={{ color: '#78350f', display: 'block', fontSize: '0.7rem', fontWeight: 700 }}>Cubierto por Gift Card:</span>
+                                  <strong style={{ color: '#166534', fontSize: '0.95rem' }}>RD$ {Number(giftCardInfo.balance).toFixed(2)}</strong>
+                                </div>
+                                <div style={{ flex: 1, background: '#ffffff', padding: '0.5rem', borderRadius: '6px', border: '1px solid #fef3c7' }}>
+                                  <span style={{ color: '#78350f', display: 'block', fontSize: '0.7rem', fontWeight: 700 }}>Saldo Restante a Pagar:</span>
+                                  <strong style={{ color: '#be185d', fontSize: '0.95rem' }}>RD$ {(totalAmount - Number(giftCardInfo.balance)).toFixed(2)}</strong>
+                                </div>
+                              </div>
+
+                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#78350f', marginBottom: '0.35rem' }}>
+                                Seleccionar Método para el Saldo Restante (RD$ {(totalAmount - Number(giftCardInfo.balance)).toFixed(2)}):
+                              </label>
+                              <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                                {['Efectivo', 'Tarjeta (CardNet)', 'Transferencia'].map(m => (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => setMixedComplementMethod(m)}
+                                    style={{
+                                      flex: 1,
+                                      padding: '0.4rem 0.5rem',
+                                      borderRadius: '6px',
+                                      border: mixedComplementMethod === m ? '2px solid #be185d' : '1px solid #cbd5e1',
+                                      background: mixedComplementMethod === m ? '#fdf2f8' : '#ffffff',
+                                      color: mixedComplementMethod === m ? '#be185d' : '#334155',
+                                      fontWeight: 800,
+                                      fontSize: '0.75rem',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    {m}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {mixedComplementMethod === 'Efectivo' && (
+                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#78350f', marginBottom: '0.2rem' }}>
+                                      Efectivo Recibido para el Restante:
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder="0.00"
+                                      value={mixedCashReceived}
+                                      onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9.]/g, '');
+                                        const parts = val.split('.');
+                                        if (parts.length > 2) return;
+                                        setMixedCashReceived(val);
+                                      }}
+                                      style={{ width: '100%', padding: '0.45rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '0.9rem' }}
+                                    />
+                                  </div>
+                                  <div style={{ flex: 1, background: '#ffffff', padding: '0.45rem', borderRadius: '6px', border: '1px solid #fde68a' }}>
+                                    <span style={{ fontSize: '0.7rem', color: '#92400e', fontWeight: 800 }}>DEVUELTA EFECTIVO:</span>
+                                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: (parseFloat(mixedCashReceived) || 0) >= (totalAmount - Number(giftCardInfo.balance)) ? '#15803d' : '#b45309' }}>
+                                      {(parseFloat(mixedCashReceived) || 0) >= (totalAmount - Number(giftCardInfo.balance))
+                                        ? `RD$ ${((parseFloat(mixedCashReceived) || 0) - (totalAmount - Number(giftCardInfo.balance))).toFixed(2)}`
+                                        : `Falta RD$ ${((totalAmount - Number(giftCardInfo.balance)) - (parseFloat(mixedCashReceived) || 0)).toFixed(2)}`
+                                      }
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {paymentMethod === 'Efectivo' && (
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>

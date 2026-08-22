@@ -1168,7 +1168,7 @@ app.put('/api/visits/:id/draft', async (req, res) => {
 app.post('/api/visits/:id/checkout', async (req, res) => {
   try {
     const { id } = req.params;
-    const { total, monto_recibido, devuelta, metodo_pago, items_detail, employee_consumption } = req.body;
+    const { total, monto_recibido, devuelta, metodo_pago, items_detail, employee_consumption, gift_card_redemption } = req.body;
 
     await pool.query(
       `UPDATE visits SET 
@@ -1182,6 +1182,27 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
        WHERE id = ?`,
       [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), id]
     );
+
+    // Record Gift Card Redemption if applicable
+    if (gift_card_redemption && gift_card_redemption.code && gift_card_redemption.amount_redeemed > 0) {
+      const [cards] = await pool.query('SELECT * FROM gift_cards WHERE code = ?', [gift_card_redemption.code]);
+      if (cards.length > 0) {
+        const card = cards[0];
+        const redeemed = Number(gift_card_redemption.amount_redeemed);
+        const newBalance = Math.max(0, Number(card.balance) - redeemed);
+        const newStatus = newBalance <= 0 ? 'Redeemed' : 'Partially_Redeemed';
+
+        await pool.query(
+          'UPDATE gift_cards SET balance = ?, status = ?, used_at = NOW() WHERE id = ?',
+          [newBalance, newStatus, card.id]
+        );
+
+        await pool.query(
+          'INSERT INTO gift_card_logs (gift_card_id, amount_redeemed, balance_before, balance_after, created_at) VALUES (?, ?, ?, ?, NOW())',
+          [card.id, redeemed, card.balance, newBalance]
+        );
+      }
+    }
 
     // Record employee consumption for payroll deduction if applicable
     if (employee_consumption && employee_consumption.employee_id) {

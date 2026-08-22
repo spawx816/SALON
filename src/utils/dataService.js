@@ -487,6 +487,16 @@ export const dataService = {
     }
   },
 
+  verifyGiftCardCode: async (code) => {
+    try {
+      if (!code) return null;
+      const res = await fetch(`${API_URL}/gifts?code=${encodeURIComponent(code.trim())}`);
+      if (!res.ok) return null;
+      const cards = await res.json();
+      return (Array.isArray(cards) && cards.length > 0) ? cards[0] : null;
+    } catch { return null; }
+  },
+
   // Contracts
   getContracts: async () => {
     try {
