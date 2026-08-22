@@ -194,17 +194,17 @@ const VisitRecorder = () => {
     setLineItems(items.length > 0 ? items : (draft.lineItems || []));
 
     // Automatic Plan Beauty & Client Profile Detection
-    if (ticket.client_name || (ticket.client_id && ticket.client_id !== 'INVITADO')) {
-      await loadClientPlanData(ticket.client_id, ticket.client_name);
+    if (ticket.client_name || (ticket.client_id && ticket.client_id !== 'INVITADO') || ticket.plan_beauty_id) {
+      await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
     } else {
       setClientFound(null);
       setActivePlans([]);
     }
   };
 
-  const loadClientPlanData = async (clientId, clientName) => {
+  const loadClientPlanData = async (clientId, clientName, ticketObj = null) => {
     const searchTarget = (clientId && clientId !== 'INVITADO') ? clientId : (clientName || '');
-    if (!searchTarget) return;
+    if (!searchTarget && !ticketObj?.plan_beauty_id) return;
 
     let found = await dataService.getClientById(searchTarget).catch(() => null);
     if (!found) {
@@ -245,7 +245,7 @@ const VisitRecorder = () => {
       return current;
     };
 
-    const planesConContrato = (Array.isArray(contractsFound) ? contractsFound : []).map(contract => {
+    let planesConContrato = (Array.isArray(contractsFound) ? contractsFound : []).map(contract => {
       const matchedPlan = allPlans.find(p => p.id === contract.plan_id || String(p.id) === String(contract.plan_id));
       const baseServices = peel(contract.contract_services) || matchedPlan?.services || [];
       const promoServices = peel(contract.contract_promo_services) || matchedPlan?.promo_services || [];
@@ -267,7 +267,7 @@ const VisitRecorder = () => {
         ...matchedPlan,
         id: contract.plan_id,
         contract_id: contract.id,
-        title: matchedPlan?.title || 'Plan Beauty Activo',
+        title: contract.planTitle || matchedPlan?.title || 'Plan Beauty',
         services: allServices,
         baseServices,
         promoServices,
@@ -275,6 +275,15 @@ const VisitRecorder = () => {
         isPromoActive: parseInt(contract.contract_promo_duration || 0, 10) > 0
       };
     });
+
+    // Fallback: If planesConContrato is empty but ticketObj or found indicates a Plan Beauty membership
+    if (planesConContrato.length === 0 && (ticketObj?.plan_beauty_id || found?.status === 'Active')) {
+      planesConContrato = [{
+        id: ticketObj?.plan_beauty_id || '1',
+        title: 'Plan Beauty',
+        services: ['Lavado y secado ilimitados']
+      }];
+    }
 
     setActivePlans(planesConContrato);
     if (planesConContrato.length > 0) {
@@ -604,13 +613,13 @@ const VisitRecorder = () => {
             </div>
 
             {/* MEMBRESÍA ACTIVA CAJA VERDE (EXACTO A IMAGEN 1) */}
-            {activePlans.length > 0 ? (
+            {(activePlans.length > 0 || selectedTicket?.plan_beauty_id) ? (
               <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '1rem 1.25rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
                 <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#166534', letterSpacing: '0.5px', textTransform: 'uppercase', display: 'block' }}>
                   MEMBRESÍA ACTIVA
                 </span>
                 <h4 style={{ margin: '0.2rem 0 0', fontSize: '1.1rem', fontWeight: 900, color: '#065f46' }}>
-                  {activePlans[0].title || 'Plan Beauty'}
+                  {activePlans[0]?.title || 'Plan Beauty'}
                 </h4>
               </div>
             ) : (
