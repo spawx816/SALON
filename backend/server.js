@@ -150,6 +150,21 @@ const setupDB = async () => {
       )
     `);
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS cash_register_movements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        cash_register_id INT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        payment_method VARCHAR(50) DEFAULT 'Efectivo',
+        amount DECIMAL(10,2) NOT NULL,
+        concept TEXT,
+        user_id VARCHAR(50),
+        user_name VARCHAR(255),
+        visit_id VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (cash_register_id) REFERENCES cash_registers(id) ON DELETE CASCADE
+      )
+    `);
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS billing_codes (
         id INT AUTO_INCREMENT PRIMARY KEY,
         contract_id VARCHAR(50),
@@ -1222,6 +1237,19 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
       );
     }
 
+    // Auto-record sale movement into active cash register session
+    const [openRegisters] = await pool.query(
+      "SELECT id FROM cash_registers WHERE status = 'Abierta' ORDER BY opened_at DESC LIMIT 1"
+    );
+    if (openRegisters.length > 0) {
+      const activeRegId = openRegisters[0].id;
+      await pool.query(
+        `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+         VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
+        [activeRegId, metodo_pago || 'Efectivo', total || 0, `Cobro Ticket ${id}`, id]
+      );
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1325,6 +1353,94 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
     );
 
     res.json({ success: true, message: 'Caja cerrada exitosamente' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/cash-registers/:id/movements', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [movements] = await pool.query(
+      'SELECT * FROM cash_register_movements WHERE cash_register_id = ? ORDER BY created_at DESC',
+      [id]
+    );
+
+    const [regRows] = await pool.query('SELECT monto_inicial FROM cash_registers WHERE id = ?', [id]);
+    const montoInicial = regRows[0] ? Number(regRows[0].monto_inicial) : 0;
+
+    let efectivoTotal = 0;
+    let tarjetaTotal = 0;
+    let transferenciaTotal = 0;
+    let giftCardTotal = 0;
+    let consumoTotal = 0;
+    let planBeautyTotal = 0;
+    let otrosTotal = 0;
+
+    let gastosTotal = 0;
+    let retirosTotal = 0;
+    let entradasTotal = 0;
+
+    movements.forEach(m => {
+      const amt = Number(m.amount) || 0;
+      if (m.type === 'Ingreso_Venta') {
+        const method = (m.payment_method || '').toLowerCase();
+        if (method.includes('efectivo')) efectivoTotal += amt;
+        else if (method.includes('tarjeta')) tarjetaTotal += amt;
+        else if (method.includes('transferencia')) transferenciaTotal += amt;
+        else if (method.includes('gift card') || method.includes('gift_card')) giftCardTotal += amt;
+        else if (method.includes('consumo')) consumoTotal += amt;
+        else if (method.includes('plan beauty') || method.includes('plan_beauty')) planBeautyTotal += amt;
+        else otrosTotal += amt;
+      } else if (m.type === 'Gasto_Imprevisto') {
+        gastosTotal += amt;
+      } else if (m.type === 'Retiro_Efectivo') {
+        retirosTotal += amt;
+      } else if (m.type === 'Entrada_Adicional') {
+        entradasTotal += amt;
+      }
+    });
+
+    const montoEstimadoEnCaja = montoInicial + efectivoTotal + entradasTotal - gastosTotal - retirosTotal;
+
+    res.json({
+      movements,
+      summary: {
+        montoInicial,
+        efectivoTotal,
+        tarjetaTotal,
+        transferenciaTotal,
+        giftCardTotal,
+        consumoTotal,
+        planBeautyTotal,
+        otrosTotal,
+        gastosTotal,
+        retirosTotal,
+        entradasTotal,
+        montoEstimadoEnCaja
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/cash-registers/:id/movements', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type, amount, concept, user_id, user_name, payment_method } = req.body;
+
+    if (!type || !amount || Number(amount) <= 0) {
+      return res.status(400).json({ error: 'Tipo y monto válido son requeridos.' });
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_id, user_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [id, type, payment_method || 'Efectivo', amount, concept || '', user_id || 'SYS', user_name || 'Cajero']
+    );
+
+    res.json({ success: true, movementId: result.insertId, message: 'Movimiento registrado exitosamente' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

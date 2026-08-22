@@ -63,6 +63,14 @@ const VisitRecorder = () => {
   const [closeRegisterAmount, setCloseRegisterAmount] = useState('');
   const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
 
+  // Real-Time Cash Movements States
+  const [registerMovements, setRegisterMovements] = useState([]);
+  const [registerSummary, setRegisterSummary] = useState(null);
+  const [movementActiveTab, setMovementActiveTab] = useState('resumen');
+  const [newMovementType, setNewMovementType] = useState('Gasto_Imprevisto');
+  const [newMovementAmount, setNewMovementAmount] = useState('');
+  const [newMovementConcept, setNewMovementConcept] = useState('');
+
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [montoRecibido, setMontoRecibido] = useState('');
   const [selectedEmployeeForConsumption, setSelectedEmployeeForConsumption] = useState('');
@@ -119,6 +127,9 @@ const VisitRecorder = () => {
     try {
       const reg = await dataService.getActiveCashRegister(salonId);
       setActiveRegister(reg);
+      if (reg?.id) {
+        await fetchRegisterMovements(reg.id);
+      }
       if (window.location.search.includes('action=caja')) {
         if (reg) {
           setShowRegisterDetailsModal(true);
@@ -435,6 +446,52 @@ const VisitRecorder = () => {
       setCloseRegisterAmount('');
     } catch (e) {
       alert('Error cerrando caja: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchRegisterMovements = async (regId) => {
+    const idToUse = regId || activeRegister?.id;
+    if (!idToUse) return;
+    try {
+      const data = await dataService.getCashRegisterMovements(idToUse);
+      setRegisterMovements(data.movements || []);
+      setRegisterSummary(data.summary || null);
+    } catch (e) {
+      console.error('Error cargando movimientos de caja:', e);
+    }
+  };
+
+  const handleSaveManualMovement = async (e) => {
+    e.preventDefault();
+    if (!activeRegister) return;
+    const amt = parseFloat(newMovementAmount);
+    if (isNaN(amt) || amt <= 0) {
+      alert('Por favor ingresa un monto válido mayor a 0.');
+      return;
+    }
+    if (!newMovementConcept.trim()) {
+      alert('Por favor especifica las observaciones o concepto del movimiento.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await dataService.addCashRegisterMovement(activeRegister.id, {
+        type: newMovementType,
+        amount: amt,
+        concept: newMovementConcept.trim(),
+        user_id: currentUser?.id || 'EMP',
+        user_name: currentUser?.nombre || 'Cajero'
+      });
+      alert('✅ Movimiento de caja registrado exitosamente.');
+      setNewMovementAmount('');
+      setNewMovementConcept('');
+      await fetchRegisterMovements(activeRegister.id);
+      setMovementActiveTab('resumen');
+    } catch (err) {
+      alert('Error registrando movimiento: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -1566,61 +1623,251 @@ const VisitRecorder = () => {
         </div>
       )}
 
-      {/* MODAL: DETALLES DE CAJA ACTIVA DE JORNADA */}
+      {/* MODAL: DETALLES DE CAJA Y MOVIMIENTOS EN TIEMPO REAL */}
       {showRegisterDetailsModal && activeRegister && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1070 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '480px', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '640px', borderRadius: '20px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <CheckCircle2 size={24} style={{ color: '#10b981' }} />
-                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>
-                  Detalles de Caja de Jornada
-                </h3>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+                    Caja de Jornada {activeRegister.register_number}
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    {activeRegister.salon_name || 'Sucursal San Vicente de Paúl'} • Apertura: {new Date(activeRegister.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
               </div>
               <button onClick={() => setShowRegisterDetailsModal(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}>
                 <X size={20} />
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem', background: '#f8fafc', padding: '1.25rem', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>📌 Numeración Única:</span>
-                <strong style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 800 }}>{activeRegister.register_number}</strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>👤 Empleado / Cajero:</span>
-                <strong style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 800 }}>{activeRegister.employee_name || currentUser?.nombre || 'Cajero Principal'}</strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>🏢 Sucursal:</span>
-                <strong style={{ fontSize: '0.9rem', color: '#be185d', fontWeight: 800 }}>{activeRegister.salon_name || 'Sucursal San Vicente de Paúl'}</strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>🕒 Fecha y Hora Apertura:</span>
-                <strong style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 700 }}>
-                  {new Date(activeRegister.opened_at).toLocaleString('es-DO', { dateStyle: 'medium', timeStyle: 'short' })}
-                </strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #cbd5e1', paddingBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>💰 Monto Inicial en Caja:</span>
-                <strong style={{ fontSize: '1rem', color: '#166534', fontWeight: 900 }}>
-                  RD$ {Number(activeRegister.monto_inicial || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                </strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>🟢 Estado de Caja:</span>
-                <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', padding: '3px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 800 }}>
-                  ABIERTA (Activa por Jornada)
-                </span>
-              </div>
+            {/* TAB SELECTION */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+              {[
+                { id: 'resumen', label: '📊 Desglose de Ingresos' },
+                { id: 'nuevo', label: '✍️ Registrar Movimiento' },
+                { id: 'historial', label: '📋 Historial Movimientos' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setMovementActiveTab(tab.id)}
+                  style={{
+                    flex: 1,
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: movementActiveTab === tab.id ? '#ffffff' : 'transparent',
+                    color: movementActiveTab === tab.id ? '#be185d' : '#475569',
+                    fontWeight: 800,
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    boxShadow: movementActiveTab === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
+            {/* TAB CONTENT */}
+            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.25rem' }}>
+              {movementActiveTab === 'resumen' && (
+                <div>
+                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                    💰 Resumen en Tiempo Real por Método de Pago
+                  </h4>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.75rem', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.7rem', color: '#166534', fontWeight: 800 }}>💵 EFECTIVO EN VENTAS:</span>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#15803d' }}>
+                        RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', padding: '0.75rem', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.7rem', color: '#075985', fontWeight: 800 }}>💳 TARJETA (CARDNET):</span>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0369a1' }}>
+                        RD$ {(registerSummary?.tarjetaTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', padding: '0.75rem', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.7rem', color: '#6b21a8', fontWeight: 800 }}>🏦 TRANSFERENCIA:</span>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#7e22ce' }}>
+                        RD$ {(registerSummary?.transferenciaTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', padding: '0.75rem', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.7rem', color: '#9d174d', fontWeight: 800 }}>🎁 GIFT CARD:</span>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#be185d' }}>
+                        RD$ {(registerSummary?.giftCardTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', padding: '0.75rem', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.7rem', color: '#9a3412', fontWeight: 800 }}>👤 CONSUMO EMPLEADOS:</span>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#c2410c' }}>
+                        RD$ {(registerSummary?.consumoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '0.75rem', borderRadius: '10px' }}>
+                      <span style={{ fontSize: '0.7rem', color: '#065f46', fontWeight: 800 }}>✨ PLAN BEAUTY:</span>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#047857' }}>
+                        RD$ {(registerSummary?.planBeautyTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <h4 style={{ margin: '1rem 0 0.5rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                    ⚙️ Movimientos Manuales Registrados
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#991b1b', fontWeight: 800 }}>💸 GASTOS:</span>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#dc2626' }}>
+                        - RD$ {(registerSummary?.gastosTotal || 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#9f1239', fontWeight: 800 }}>📤 RETIROS:</span>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#e11d48' }}>
+                        - RD$ {(registerSummary?.retirosTotal || 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '0.65rem', color: '#166534', fontWeight: 800 }}>📥 ENTRADAS:</span>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#16a34a' }}>
+                        + RD$ {(registerSummary?.entradasTotal || 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ESTIMADO EN CAJA */}
+                  <div style={{ background: '#0f172a', color: '#ffffff', padding: '1rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700, display: 'block' }}>ESTIMADO TOTAL EN CAJA FÍSICA:</span>
+                      <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Inicial ({registerSummary?.montoInicial || activeRegister.monto_inicial}) + Efectivo + Entradas - Gastos - Retiros</span>
+                    </div>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#34d399' }}>
+                      RD$ {(registerSummary?.montoEstimadoEnCaja || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {movementActiveTab === 'nuevo' && (
+                <form onSubmit={handleSaveManualMovement}>
+                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                    ✍️ Registrar Movimiento Manual de Caja
+                  </h4>
+
+                  <div style={{ marginBottom: '0.875rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                      Tipo de Movimiento:
+                    </label>
+                    <select
+                      value={newMovementType}
+                      onChange={(e) => setNewMovementType(e.target.value)}
+                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800 }}
+                    >
+                      <option value="Gasto_Imprevisto">💸 Gasto Imprevisto (Salida de dinero)</option>
+                      <option value="Retiro_Efectivo">📤 Retiro de Efectivo / Sangría (Salida de caja)</option>
+                      <option value="Entrada_Adicional">📥 Entrada Adicional de Dinero (Ingreso a caja)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: '0.875rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                      Monto del Movimiento (RD$):
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      value={newMovementAmount}
+                      onChange={(e) => setNewMovementAmount(e.target.value)}
+                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '1rem' }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '1.25rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                      Observaciones / Concepto del Movimiento:
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="Ej: Compra de insumos de limpieza de emergencia, retiro por seguridad a caja fuerte..."
+                      value={newMovementConcept}
+                      onChange={(e) => setNewMovementConcept(e.target.value)}
+                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
+                    />
+                  </div>
+
+                  <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '1.25rem', fontSize: '0.75rem', color: '#64748b' }}>
+                    👤 Registrado por: <strong>{currentUser?.nombre || activeRegister.employee_name || 'Cajero Principal'}</strong> | 🕒 Timestamp: <strong>{new Date().toLocaleTimeString()}</strong>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer' }}
+                  >
+                    💾 Guardar Movimiento en Caja
+                  </button>
+                </form>
+              )}
+
+              {movementActiveTab === 'historial' && (
+                <div>
+                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                    📋 Historial de Movimientos de la Jornada ({registerMovements.length})
+                  </h4>
+
+                  {registerMovements.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8', fontSize: '0.85rem' }}>
+                      No hay movimientos registrados en esta sesión de caja.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {registerMovements.map(m => (
+                        <div key={m.id} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
+                              <span style={{
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '0.65rem',
+                                fontWeight: 800,
+                                background: m.type === 'Ingreso_Venta' ? '#dcfce7' : m.type === 'Entrada_Adicional' ? '#dbeafe' : '#fef2f2',
+                                color: m.type === 'Ingreso_Venta' ? '#15803d' : m.type === 'Entrada_Adicional' ? '#1e40af' : '#b91c1c'
+                              }}>
+                                {m.type === 'Ingreso_Venta' ? `Venta (${m.payment_method})` : m.type.replace('_', ' ')}
+                              </span>
+                              <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 600 }}>{m.concept || 'Movimiento de Caja'}</span>
+                            <span style={{ display: 'block', fontSize: '0.68rem', color: '#94a3b8' }}>Por: {m.user_name || 'Cajero'}</span>
+                          </div>
+                          <strong style={{ fontSize: '0.95rem', fontWeight: 900, color: m.type.includes('Gasto') || m.type.includes('Retiro') ? '#dc2626' : '#166534' }}>
+                            {m.type.includes('Gasto') || m.type.includes('Retiro') ? '-' : '+'} RD$ {Number(m.amount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          </strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER ACTIONS */}
+            <div style={{ marginTop: '1.25rem', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '0.75rem' }}>
               <button
                 onClick={() => setShowRegisterDetailsModal(false)}
                 style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#475569', cursor: 'pointer' }}

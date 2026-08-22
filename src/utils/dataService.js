@@ -201,6 +201,29 @@ export const dataService = {
     }
   },
 
+  getCashRegisterMovements: async (registerId) => {
+    try {
+      const res = await fetch(`${API_URL}/cash-registers/${registerId}/movements`);
+      if (!res.ok) return { movements: [], summary: {} };
+      return await res.json();
+    } catch (e) {
+      return { movements: [], summary: {} };
+    }
+  },
+
+  addCashRegisterMovement: async (registerId, data) => {
+    try {
+      const res = await fetch(`${API_URL}/cash-registers/${registerId}/movements`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
   sendEmployeeOtp: async (data) => {
     try {
       const res = await fetch(`${API_URL}/auth/send-employee-otp`, {
