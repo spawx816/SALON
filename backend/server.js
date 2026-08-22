@@ -7,7 +7,40 @@ const axios = require('axios');
 const nodemailer = require('nodemailer');
 const app = express();
 app.set('trust proxy', true);
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://127.0.0.1:5173', 'https://planbeautyrd.com', 'https://www.planbeautyrd.com'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Acceso no permitido por política CORS'));
+    }
+  },
+  credentials: true
+}));
+
+// Protection middleware for /api/cron and /api/test endpoints
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/cron')) {
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret) {
+      const providedSecret = req.headers['x-cron-secret'] || req.query.cron_secret;
+      if (providedSecret !== cronSecret) {
+        return res.status(401).json({ error: 'Acceso no autorizado al servicio de cron.' });
+      }
+    }
+  }
+  if (req.path.startsWith('/api/test')) {
+    if (process.env.NODE_ENV === 'production' && process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
+      return res.status(403).json({ error: 'Endpoints de prueba deshabilitados en entorno de producción.' });
+    }
+  }
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -1042,7 +1075,8 @@ app.get('/api/clients', async (req, res) => {
       LEFT JOIN plans p ON c.plan_id = p.id
     `);
     console.log(`[API] Found ${rows.length} clients.`);
-    res.json(rows);
+    const safeRows = rows.map(({ password, ...rest }) => rest);
+    res.json(safeRows);
   } catch (err) {
     console.error('[API ERROR] Failed to fetch clients:', err.message);
     res.status(500).json({ error: err.message });
@@ -2075,15 +2109,26 @@ app.get('/api/commissions/payouts', async (req, res) => {
 app.get('/api/settings/email', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
-    res.json(rows[0] || {});
+    const settings = rows[0] || {};
+    if (settings.smtp_pass) {
+      settings.smtp_pass = '********';
+    }
+    res.json(settings);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post('/api/settings/email', async (req, res) => {
-  const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure } = req.body;
+  let { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure } = req.body;
   try {
+    if (smtp_pass === '********' || !smtp_pass) {
+      const [existing] = await pool.query('SELECT smtp_pass FROM email_settings WHERE id = 1');
+      if (existing[0]?.smtp_pass) {
+        smtp_pass = existing[0].smtp_pass;
+      }
+    }
+
     await pool.query(`
       INSERT INTO email_settings (id, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure)
       VALUES (1, ?, ?, ?, ?, ?, ?)
@@ -2403,7 +2448,7 @@ app.post('/api/otp/generate', async (req, res) => {
       console.error('[SETTINGS] Could not fetch email settings for OTP:', err.message);
     }
     
-    res.json({ success: true, code, message: 'Código generado.' });
+    res.json({ success: true, message: 'Código de verificación generado y enviado por correo.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2412,7 +2457,7 @@ app.post('/api/otp/generate', async (req, res) => {
 app.get('/api/otp/active/:clientId', async (req, res) => {
   try {
     const [rows] = await pool.query(
-      'SELECT code, expires_at FROM verification_codes WHERE client_id = ? AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+      'SELECT expires_at FROM verification_codes WHERE client_id = ? AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
       [req.params.clientId]
     );
     if (rows.length > 0) {
@@ -2422,10 +2467,10 @@ app.get('/api/otp/active/:clientId', async (req, res) => {
         : new Date(codeRecord.expires_at).getTime();
 
       if (Date.now() <= expiresAtTime) {
-        return res.json({ code: codeRecord.code });
+        return res.json({ hasActiveOtp: true, expiresAt: expiresAtTime });
       }
     }
-    res.status(404).json({ error: 'No hay código activo.' });
+    res.status(404).json({ hasActiveOtp: false, error: 'No hay código activo.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
