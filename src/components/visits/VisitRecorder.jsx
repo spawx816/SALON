@@ -210,18 +210,59 @@ const VisitRecorder = () => {
     const contractsFound = await dataService.getContractByClient(clientId);
     const allPlans = await dataService.getPlans();
 
+    const peel = (data) => {
+      let current = data;
+      let limit = 0;
+      while (typeof current === 'string' && limit < 5) {
+        try {
+          const p = JSON.parse(current);
+          if (p === current) break;
+          current = p;
+          limit++;
+        } catch { break; }
+      }
+      return current;
+    };
+
     const planesConContrato = (Array.isArray(contractsFound) ? contractsFound : []).map(contract => {
       const matchedPlan = allPlans.find(p => p.id === contract.plan_id || String(p.id) === String(contract.plan_id));
+      const baseServices = peel(contract.contract_services) || matchedPlan?.services || [];
+      const promoServices = peel(contract.contract_promo_services) || matchedPlan?.promo_services || [];
+      const allServices = [...(Array.isArray(baseServices) ? baseServices : []), ...(Array.isArray(promoServices) ? promoServices : [])];
+
+      const parseDate = (d) => {
+        if (!d) return 0;
+        if (d instanceof Date) return d.getTime();
+        const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
+        const time = new Date(dateStr).getTime();
+        return isNaN(time) ? new Date(d).getTime() : time;
+      };
+
+      const lastBillingTime = parseDate(contract.last_billed_date);
+      const threshold = lastBillingTime + 10000;
+      const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
+
       return {
         ...matchedPlan,
         id: contract.plan_id,
         contract_id: contract.id,
-        title: matchedPlan?.title || 'Plan Beauty Active',
-        services: matchedPlan?.services || []
+        title: matchedPlan?.title || 'Plan Beauty Activo',
+        services: allServices,
+        baseServices,
+        promoServices,
+        cycleVisitsCount: cycleVisits.length,
+        isPromoActive: parseInt(contract.contract_promo_duration || 0, 10) > 0
       };
     });
 
     setActivePlans(planesConContrato);
+    if (planesConContrato.length > 0) {
+      setSelectedPlanId(planesConContrato[0].id.toString());
+      setAvailableServices(planesConContrato[0].services.length > 0 
+        ? planesConContrato[0].services.map((s, idx) => typeof s === 'string' ? { id: `plan-${idx}`, nombre: s, precio: 0 } : s) 
+        : DEFAULT_TOP_SERVICES
+      );
+    }
   };
 
   // Auto-Save Draft on "Volver Atrás"
@@ -491,6 +532,11 @@ const VisitRecorder = () => {
                     <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
                       👤 {t.client_name}
                     </h4>
+                    {t.plan_beauty_id && (
+                      <div style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 800, marginBottom: '0.35rem', display: 'inline-block' }}>
+                        ✨ Plan Beauty Activo
+                      </div>
+                    )}
                     <p style={{ margin: '0 0 0.35rem', fontSize: '0.75rem', color: '#ec4899', fontWeight: 700 }}>
                       📍 {t.salon_name || 'Sucursal San Vicente de Paúl'}
                     </p>
@@ -534,17 +580,39 @@ const VisitRecorder = () => {
 
             {/* DETALLES DE PLAN BEAUTY DEL CLIENTE */}
             {activePlans.length > 0 ? (
-              <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1px solid #86efac', padding: '0.875rem', borderRadius: '12px', marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-                  <Star size={18} style={{ color: '#16a34a' }} />
-                  <strong style={{ color: '#166534', fontSize: '0.85rem' }}>Socio Plan Beauty Activo</strong>
+              <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1px solid #86efac', padding: '1rem', borderRadius: '14px', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <Star size={20} style={{ color: '#16a34a' }} />
+                  <div>
+                    <strong style={{ color: '#166534', fontSize: '0.9rem', display: 'block' }}>Socio Plan Beauty Activo</strong>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#15803d', textTransform: 'uppercase' }}>
+                      {activePlans[0].title}
+                    </span>
+                  </div>
                 </div>
-                <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#15803d' }}>
-                  {activePlans[0].title}
-                </p>
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#166534' }}>
-                  Beneficios y lavados disponibles detectados automáticamente.
-                </p>
+
+                <div style={{ borderTop: '1px solid #bbf7d0', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#166534', display: 'block', marginBottom: '0.25rem' }}>
+                    ✨ Inclusiones del Ciclo Actual:
+                  </span>
+                  <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.75rem', color: '#14532d', fontWeight: 600 }}>
+                    {activePlans[0].services && activePlans[0].services.length > 0 ? (
+                      activePlans[0].services.map((serv, idx) => (
+                        <li key={idx} style={{ marginBottom: '2px' }}>
+                          {typeof serv === 'string' ? serv : serv.nombre || 'Servicio del Plan'}
+                        </li>
+                      ))
+                    ) : (
+                      <li>Lavado y Secado Ilimitados</li>
+                    )}
+                  </ul>
+                  
+                  {activePlans[0].promoServices && activePlans[0].promoServices.length > 0 && (
+                    <div style={{ marginTop: '0.5rem', background: '#ffffff', padding: '0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', color: '#92400e', fontWeight: 700, border: '1px solid #fde68a' }}>
+                      🎁 Beneficio Promo Activo: {activePlans[0].promoServices.join(', ')}
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '10px', fontSize: '0.8rem', color: '#64748b' }}>

@@ -1079,7 +1079,12 @@ app.get('/api/visits/pending', async (req, res) => {
   try {
     const salonId = req.query.salon_id || 1;
     const [rows] = await pool.query(
-      "SELECT v.*, s.name as salon_name FROM visits v LEFT JOIN salons s ON v.salon_id = s.id WHERE v.status = 'Pendiente' AND v.salon_id = ? ORDER BY v.visited_at DESC",
+      `SELECT v.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name,
+              (SELECT c.plan_id FROM contracts c WHERE c.client_id = v.client_id AND c.status = 'Activo' LIMIT 1) as plan_beauty_id
+       FROM visits v 
+       LEFT JOIN salons s ON v.salon_id = s.id 
+       WHERE v.status = 'Pendiente' AND v.salon_id = ? 
+       ORDER BY v.visited_at DESC`,
       [salonId]
     );
     res.json(rows);
