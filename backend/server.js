@@ -39,6 +39,17 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(express.static(path.join(__dirname, '..', 'dist')));
 
+// HTML Escaping helper function to prevent HTML/XSS injection in email templates
+const escapeHtml = (str) => {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 const CARDNET_CONFIG = {
   MERCHANT_NUMBER: process.env.CARDNET_MERCHANT_NUMBER,
   TERMINAL_ID: process.env.CARDNET_TERMINAL_ID,
@@ -548,8 +559,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; borderRadius: 10px;">
           <h2 style="color: #d4af37; text-align: center;">Recuperación de Contraseña</h2>
-          <p>Hola <strong>${account.nombre}</strong>,</p>
-          <p>Has solicitado restablecer tu contraseña para tu cuenta (${targetEmail}). Usa el siguiente código de verificación:</p>
+          <p>Hola <strong>${escapeHtml(account.nombre)}</strong>,</p>
+          <p>Has solicitado restablecer tu contraseña para tu cuenta (${escapeHtml(targetEmail)}). Usa el siguiente código de verificación:</p>
           <div style="background: #f8f9fa; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 10px; color: #09090b; margin: 20px 0;">
             ${code}
           </div>
@@ -793,8 +804,8 @@ app.post('/api/contracts/:id/request-code', async (req, res) => {
       html: `
         <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 40px; border: 1px solid #eee; border-radius: 20px; background: #fff;">
           <h2 style="color: #09090b; text-align: center;">Verificación de Seguridad</h2>
-          <p>Hola <strong>${contract.nombre}</strong>,</p>
-          <p>Se ha solicitado una acción de <strong>${actionName}</strong> para tu contrato. Usa el siguiente código para autorizarla:</p>
+          <p>Hola <strong>${escapeHtml(contract.nombre)}</strong>,</p>
+          <p>Se ha solicitado una acción de <strong>${escapeHtml(actionName)}</strong> para tu contrato. Usa el siguiente código para autorizarla:</p>
           <div style="background: #f8fafc; padding: 30px; border-radius: 16px; margin: 30px 0; border: 1px solid #e2e8f0; text-align: center;">
             <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #09090b;">${code}</span>
           </div>
@@ -1074,15 +1085,15 @@ app.post('/api/clients', async (req, res) => {
           html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 40px; border: 1px solid #eee; border-radius: 20px; background: #fff;">
               <div style="text-align: center; margin-bottom: 30px;">
-                <h1 style="color: #09090b; margin: 0; font-size: 24px; font-weight: 900;">¡Hola ${nombre}!</h1>
+                <h1 style="color: #09090b; margin: 0; font-size: 24px; font-weight: 900;">¡Hola ${escapeHtml(nombre)}!</h1>
               </div>
               
               <p style="color: #444; line-height: 1.6;">Tu cuenta en <strong>Abatte Peluquería</strong> ha sido creada. Ya puedes acceder a tu panel de cliente para gestionar tus servicios.</p>
               
               <div style="background: #f8fafc; padding: 25px; border-radius: 16px; margin: 30px 0; border: 1px solid #e2e8f0;">
                 <p style="margin: 0 0 10px 0; font-size: 0.9rem; color: #64748b;">Tus credenciales de acceso:</p>
-                <p style="margin: 5px 0; font-size: 1.1rem;"><strong>Usuario:</strong> ${email}</p>
-                <p style="margin: 5px 0; font-size: 1.1rem;"><strong>Contraseña Temporal:</strong> <span style="background: #09090b; color: #fff; padding: 2px 8px; border-radius: 4px;">${tempPassword}</span></p>
+                <p style="margin: 5px 0; font-size: 1.1rem;"><strong>Usuario:</strong> ${escapeHtml(email)}</p>
+                <p style="margin: 5px 0; font-size: 1.1rem;"><strong>Contraseña Temporal:</strong> <span style="background: #09090b; color: #fff; padding: 2px 8px; border-radius: 4px;">${escapeHtml(tempPassword)}</span></p>
               </div>
 
               <div style="text-align: center; margin: 30px 0;">
