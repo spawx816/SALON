@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
-  Sparkles, Star, UserPlus, Clock, Phone
+  Sparkles, Star, UserPlus, Clock, Phone, Percent
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
