@@ -37,40 +37,30 @@ const VisitRecorder = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Modals & Extra Actions
+  // Modals & Client Search for Ticket Generation
   const [showNewTicketModal, setShowNewTicketModal] = useState(false);
-  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [allClients, setAllClients] = useState([]);
+  const [clientSearchTerm, setClientSearchTerm] = useState('');
+  const [selectedClientForTicket, setSelectedClientForTicket] = useState(null);
   const [newTicketClientName, setNewTicketClientName] = useState('');
   const [newTicketCedula, setNewTicketCedula] = useState('');
-  
-  // Pricing & Admin Auth
-  const [showAdminPinModal, setShowAdminPinModal] = useState(false);
-  const [adminPin, setAdminPin] = useState('');
-  const [pendingDiscountItem, setPendingDiscountItem] = useState(null);
-  const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
 
-  // Payment & Cash Register
-  const [activeRegister, setActiveRegister] = useState(null);
-  const [showRegisterOpenModal, setShowRegisterOpenModal] = useState(false);
-  const [registerInitialAmount, setRegisterInitialAmount] = useState('1000.00');
-  
-  const [paymentMethod, setPaymentMethod] = useState('Efectivo');
-  const [montoRecibido, setMontoRecibido] = useState('');
-  const [selectedEmployeeForConsumption, setSelectedEmployeeForConsumption] = useState('');
-
-  // OTP State
-  const [showOtpModal, setShowOtpModal] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-
-  const salonId = currentUser?.salon_id || 1;
-
-  // Load Pending Tickets and Cash Register on Mount
+  // Load Pending Tickets, Employees, Cash Register, and Clients on Mount
   useEffect(() => {
     fetchPendingTickets();
     fetchEmployees();
     fetchActiveRegister();
+    fetchClients();
   }, [salonId]);
+
+  const fetchClients = async () => {
+    try {
+      const data = await dataService.getClients();
+      setAllClients(data || []);
+    } catch (e) {
+      console.error('Error cargando clientes para búsqueda:', e);
+    }
+  };
 
   const fetchPendingTickets = async () => {
     try {
@@ -99,23 +89,25 @@ const VisitRecorder = () => {
     }
   };
 
-  // Open / Create New Ticket
+  // Open / Create New Ticket with Integrated Client Search
   const handleCreateNewTicket = async (e) => {
     e.preventDefault();
-    if (!newTicketClientName.trim()) return;
+    const finalName = selectedClientForTicket ? (selectedClientForTicket.nombre || selectedClientForTicket.name) : newTicketClientName.trim();
+    if (!finalName) return;
 
     setLoading(true);
     try {
-      // Find client by cedula or name if exists
-      let clientId = 'INVITADO';
-      if (newTicketCedula) {
-        const found = await dataService.findClientByCedula(newTicketCedula);
+      let clientId = selectedClientForTicket ? selectedClientForTicket.id : 'INVITADO';
+      let cedula = selectedClientForTicket ? selectedClientForTicket.cedula : newTicketCedula;
+
+      if (!selectedClientForTicket && cedula) {
+        const found = await dataService.findClientByCedula(cedula);
         if (found) clientId = found.id;
       }
 
       const res = await dataService.createPendingTicket({
         clientId,
-        clientName: newTicketClientName.trim(),
+        clientName: finalName,
         servicios: ['Ticket en Construcción'],
         empleadoPeluquera: 'Sin asignar',
         salon_id: salonId
@@ -124,6 +116,8 @@ const VisitRecorder = () => {
       setShowNewTicketModal(false);
       setNewTicketClientName('');
       setNewTicketCedula('');
+      setClientSearchTerm('');
+      setSelectedClientForTicket(null);
       await fetchPendingTickets();
 
       // Automatically open the newly created ticket
@@ -131,7 +125,7 @@ const VisitRecorder = () => {
         id: res.id,
         ticket_number: res.ticketNumber,
         client_id: clientId,
-        client_name: newTicketClientName.trim(),
+        client_name: finalName,
         servicios: [],
         status: 'Pendiente'
       };
@@ -713,38 +707,102 @@ const VisitRecorder = () => {
         )}
       </div>
 
-      {/* MODAL: GENERAR NUEVO TICKET (IMPRESIÓN FÍSICA) */}
+      {/* MODAL: GENERAR NUEVO TICKET CON BÚSQUEDA INTEGRADA DE CLIENTE */}
       {showNewTicketModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '450px', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>🎟️ Generar Ticket de Servicio</h3>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '500px', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>🎟️ Generar Ticket de Servicio</h3>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+              La búsqueda del cliente forma parte de la generación del ticket. Busca un cliente registrado o escribe el nombre.
+            </p>
+
             <form onSubmit={handleCreateNewTicket}>
+              {/* Búsqueda Predictiva de Cliente Integrada */}
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                  Nombre del Cliente (o Cliente General):
+                  🔍 Buscar Cliente Registrado (Cédula, Nombre o Teléfono):
                 </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Maria Rodriguez"
-                  value={newTicketClientName}
-                  onChange={(e) => setNewTicketClientName(e.target.value)}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    placeholder="Escribe para buscar cliente..."
+                    value={clientSearchTerm}
+                    onChange={(e) => {
+                      setClientSearchTerm(e.target.value);
+                      setSelectedClientForTicket(null);
+                    }}
+                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
+                  />
+
+                  {clientSearchTerm.trim().length > 0 && !selectedClientForTicket && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                      {allClients
+                        .filter(c => {
+                          const term = clientSearchTerm.toLowerCase();
+                          const n = (c.nombre || c.name || '').toLowerCase();
+                          const cd = (c.cedula || '').toLowerCase();
+                          const ph = (c.telefono || c.phone || '').toLowerCase();
+                          return n.includes(term) || cd.includes(term) || ph.includes(term);
+                        })
+                        .slice(0, 5)
+                        .map((cli) => (
+                          <div
+                            key={cli.id}
+                            onClick={() => {
+                              setSelectedClientForTicket(cli);
+                              setClientSearchTerm(cli.nombre || cli.name);
+                              setNewTicketClientName(cli.nombre || cli.name);
+                              setNewTicketCedula(cli.cedula || '');
+                            }}
+                            style={{ padding: '0.6rem 0.8rem', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '0.85rem' }}
+                            className="hover-lift"
+                          >
+                            <strong style={{ color: '#0f172a' }}>{cli.nombre || cli.name}</strong>
+                            <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem' }}>
+                              {cli.cedula ? `Cédula: ${cli.cedula}` : ''} {cli.telefono ? `Tel: ${cli.telefono}` : ''}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div style={{ marginBottom: '1.25rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                  Cédula (Opcional para vincular Plan Beauty):
-                </label>
-                <input
-                  type="text"
-                  placeholder="001-0000000-0"
-                  value={newTicketCedula}
-                  onChange={(e) => setNewTicketCedula(e.target.value)}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
-                />
-              </div>
+              {/* Indicador de cliente seleccionado o campo manual */}
+              {selectedClientForTicket ? (
+                <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <strong style={{ color: '#166534', fontSize: '0.85rem' }}>✅ Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}</strong>
+                    {selectedClientForTicket.cedula && (
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: '#15803d' }}>Cédula: {selectedClientForTicket.cedula}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedClientForTicket(null);
+                      setClientSearchTerm('');
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                  >
+                    Cambiar
+                  </button>
+                </div>
+              ) : (
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                    O escribe Nombre del Cliente (Invitado / General):
+                  </label>
+                  <input
+                    type="text"
+                    required={!selectedClientForTicket}
+                    placeholder="Ej: Maria Rodriguez"
+                    value={newTicketClientName}
+                    onChange={(e) => setNewTicketClientName(e.target.value)}
+                    style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
+                  />
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button
