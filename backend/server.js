@@ -1705,30 +1705,38 @@ app.post('/api/services/bulk-import', async (req, res) => {
     let insertedCount = 0;
     for (const item of items) {
       if (!item.nombre && !item.name) continue;
-      const name = item.nombre || item.name;
-      const price = parseFloat(item.precio || item.price || 0);
+      const name = (item.nombre || item.name).trim();
+      const desc = item.descripcion || item.description || '';
       const category = item.categoria || item.category || 'General';
+      const price = parseFloat(item.precio || item.price || 0);
+      const active = item.activo !== undefined ? (item.activo ? 1 : 0) : 1;
+      const generaComision = item.genera_comision !== undefined ? (item.genera_comision ? 1 : 0) : 1;
+      const tipoComision = item.tipo_comision || 'Porcentaje';
+      const comisionValor = parseFloat(item.comision_valor || item.comision || 15);
+      const aplicaItbis = item.aplica_itbis !== undefined ? (item.aplica_itbis ? 1 : 0) : 0;
+      const orden = parseInt(item.orden_visualizacion || 0);
 
-      // Insert or update existing service
       await pool.query(
-        `INSERT INTO services (nombre, categoria, precio, activo)
-         VALUES (?, ?, ?, 1)
-         ON DUPLICATE KEY UPDATE precio = VALUES(precio), categoria = VALUES(categoria)`,
-        [name, category, price]
-      ).catch(async () => {
-        // Fallback for custom tables structure
-        await pool.query(
-          `INSERT INTO plans (id, title, price, color, location, services)
-           VALUES (?, ?, ?, 'blue', 'San Vicente', ?)
-           ON DUPLICATE KEY UPDATE price = VALUES(price)`,
-          ['SERV-' + Date.now() + Math.random().toString().slice(-4), name, price, JSON.stringify([name])]
-        ).catch(() => {});
-      });
+        `INSERT INTO services 
+          (nombre, descripcion, categoria, precio, activo, genera_comision, tipo_comision, comision_valor, aplica_itbis, orden_visualizacion)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE 
+          descripcion = VALUES(descripcion),
+          categoria = VALUES(categoria),
+          precio = VALUES(precio),
+          activo = VALUES(activo),
+          genera_comision = VALUES(genera_comision),
+          tipo_comision = VALUES(tipo_comision),
+          comision_valor = VALUES(comision_valor),
+          aplica_itbis = VALUES(aplica_itbis),
+          orden_visualizacion = VALUES(orden_visualizacion)`,
+        [name, desc, category, price, active, generaComision, tipoComision, comisionValor, aplicaItbis, orden]
+      );
 
       insertedCount++;
     }
 
-    res.json({ success: true, count: insertedCount });
+    res.json({ success: true, count: insertedCount, message: `Se importaron ${insertedCount} ítems/servicios exitosamente.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
