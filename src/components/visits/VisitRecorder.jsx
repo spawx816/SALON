@@ -442,11 +442,12 @@ const VisitRecorder = () => {
         </div>
       </div>
 
-      {/* MAIN TWO-COLUMN LAYOUT (COLLAPSIBLE SIDEBAR) */}
-      <div style={{ display: 'grid', gridTemplateColumns: isTicketExpanded ? '1fr' : '320px 1fr', gap: '1.25rem', transition: 'all 0.3s ease' }}>
+      {/* MAIN TWO-COLUMN LAYOUT */}
+      <div style={{ display: 'grid', gridTemplateColumns: selectedTicket ? '360px 1fr' : '360px 1fr', gap: '1.25rem', transition: 'all 0.3s ease' }}>
         
-        {/* COLUMN 1: TICKETS PENDIENTES QUEUE (Collapses when ticket opened) */}
-        {!isTicketExpanded && (
+        {/* COLUMN 1: SWAPS BETWEEN PENDING TICKETS LIST AND SELECTED CLIENT EXPANDED PROFILE */}
+        {!selectedTicket ? (
+          /* STATE A: LISTADO DE TICKETS PENDIENTES DE LA SUCURSAL */
           <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', height: 'fit-content' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
               <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
@@ -502,27 +503,72 @@ const VisitRecorder = () => {
               </div>
             )}
           </div>
+        ) : (
+          /* STATE B: COLUMNA 1 SE TRANSFORMA COMPLETAMENTE EN PERFIL DE CLIENTE & TICKET EXPANDIDO */
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '2px solid #ec4899', padding: '1.25rem', height: 'fit-content' }}>
+            <button
+              onClick={handleVolverAtras}
+              style={{ width: '100%', background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.65rem 1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1rem' }}
+            >
+              <ArrowLeft size={16} />
+              <span>⬅️ Volver Atrás (Guarda Borrador)</span>
+            </button>
+
+            <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#ec4899', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                CLIENTE SELECCIONADO EN FACTURACIÓN
+              </span>
+              <h3 style={{ margin: '0.2rem 0 0.25rem', fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>
+                👤 {selectedTicket.client_name}
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#be185d', fontWeight: 700 }}>
+                🎫 Ticket: {selectedTicket.ticket_number || `#${selectedTicket.id.slice(-4)}`}
+              </p>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                📍 {selectedTicket.salon_name || 'Sucursal San Vicente de Paúl'}
+              </p>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                🕒 Generado: {new Date(selectedTicket.visited_at || Date.now()).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+
+            {/* DETALLES DE PLAN BEAUTY DEL CLIENTE */}
+            {activePlans.length > 0 ? (
+              <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1px solid #86efac', padding: '0.875rem', borderRadius: '12px', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <Star size={18} style={{ color: '#16a34a' }} />
+                  <strong style={{ color: '#166534', fontSize: '0.85rem' }}>Socio Plan Beauty Activo</strong>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#15803d' }}>
+                  {activePlans[0].title}
+                </p>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#166534' }}>
+                  Beneficios y lavados disponibles detectados automáticamente.
+                </p>
+              </div>
+            ) : (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '10px', fontSize: '0.8rem', color: '#64748b' }}>
+                ℹ️ Cliente registrado en sistema (Sin suscripción Plan Beauty activa).
+              </div>
+            )}
+          </div>
         )}
 
-        {/* COLUMN 2: BILLING EDITOR (Expands when ticket selected) */}
+        {/* COLUMN 2: POS SERVICES & BILLING EDITOR */}
         {selectedTicket ? (
           <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
             
-            {/* ACTION BAR: VOLVER ATRÁS & CLIENT HEADER */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '2px solid #f1f5f9', paddingBottom: '1rem' }}>
-              <button
-                onClick={handleVolverAtras}
-                style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.6rem 1.25rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-              >
-                <ArrowLeft size={18} />
-                <span>⬅️ Volver Atrás (Guarda Borrador)</span>
-              </button>
-
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>Ticket Activo:</span>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
-                  {selectedTicket.ticket_number || `#${selectedTicket.id.slice(-4)}`} - {selectedTicket.client_name}
+            {/* CLIENT & TICKET BANNER */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '2px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+              <div>
+                <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>Facturando Venta en Proceso:</span>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>
+                  {selectedTicket.client_name} ({selectedTicket.ticket_number})
                 </h3>
+              </div>
+
+              <div style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '0.4rem 0.875rem', borderRadius: '20px', fontWeight: 800, fontSize: '0.75rem' }}>
+                EN CURSO DE FACTURACIÓN
               </div>
             </div>
 
