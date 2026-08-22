@@ -403,7 +403,7 @@ const VisitRecorder = () => {
     }
   };
 
-  // Finalize Billing / Checkout
+  // Finalize Billing / Checkout with Strict Validations
   const handleFinalizeCheckout = async () => {
     if (!activeRegister) {
       setShowRegisterOpenModal(true);
@@ -411,6 +411,20 @@ const VisitRecorder = () => {
     }
 
     if (!selectedTicket) return;
+
+    if (lineItems.length === 0) {
+      alert('⚠️ No se han agregado servicios a este ticket. Por favor selecciona al menos un servicio antes de facturar.');
+      return;
+    }
+
+    // Cash Payment Validations
+    if (paymentMethod === 'Efectivo') {
+      const rec = parseFloat(montoRecibido);
+      if (isNaN(rec) || rec < totalAmount) {
+        alert(`⚠️ Monto recibido en efectivo insuficiente (RD$ ${isNaN(rec) ? 0 : rec.toFixed(2)}). Se requiere un monto igual o mayor al total de la factura (RD$ ${totalAmount.toFixed(2)}).`);
+        return;
+      }
+    }
 
     // Handle Employee Payroll OTP verification if payroll consumption selected
     if (paymentMethod === 'Nomina_Empleado') {
@@ -811,20 +825,48 @@ const VisitRecorder = () => {
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                       <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-                          Monto Recibido Efectivo:
+                          Monto Recibido Efectivo (RD$):
                         </label>
                         <input
-                          type="number"
-                          placeholder="0.00"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="Ej: 1000.00"
                           value={montoRecibido}
-                          onChange={(e) => setMontoRecibido(e.target.value)}
-                          style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                          onKeyDown={(e) => {
+                            if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
+                          }}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^0-9.]/g, '');
+                            const parts = val.split('.');
+                            if (parts.length > 2) return;
+                            setMontoRecibido(val);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '0.55rem 0.75rem',
+                            borderRadius: '8px',
+                            border: `2px solid ${(parseFloat(montoRecibido) || 0) < totalAmount && totalAmount > 0 ? '#fca5a5' : '#cbd5e1'}`,
+                            fontWeight: 800,
+                            fontSize: '1rem',
+                            outline: 'none'
+                          }}
                         />
                       </div>
-                      <div style={{ flex: 1, background: '#fef3c7', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #fde68a' }}>
-                        <span style={{ fontSize: '0.75rem', color: '#92400e', fontWeight: 700 }}>DEVUELTA / CAMBIO:</span>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#b45309' }}>
-                          RD$ {devueltaAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      <div style={{ 
+                        flex: 1, 
+                        background: (parseFloat(montoRecibido) || 0) >= totalAmount ? '#f0fdf4' : '#fef3c7', 
+                        padding: '0.5rem 0.75rem', 
+                        borderRadius: '8px', 
+                        border: `1px solid ${(parseFloat(montoRecibido) || 0) >= totalAmount ? '#86efac' : '#fde68a'}` 
+                      }}>
+                        <span style={{ fontSize: '0.75rem', color: (parseFloat(montoRecibido) || 0) >= totalAmount ? '#166534' : '#92400e', fontWeight: 800 }}>
+                          {(parseFloat(montoRecibido) || 0) >= totalAmount ? '✅ DEVUELTA / CAMBIO:' : '⚠️ MONTO INSUFICIENTE:'}
+                        </span>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: (parseFloat(montoRecibido) || 0) >= totalAmount ? '#15803d' : '#b45309' }}>
+                          {(parseFloat(montoRecibido) || 0) >= totalAmount 
+                            ? `RD$ ${devueltaAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}`
+                            : `Falta RD$ ${(totalAmount - (parseFloat(montoRecibido) || 0)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}`
+                          }
                         </div>
                       </div>
                     </div>
