@@ -150,6 +150,28 @@ const setupDB = async () => {
       )
     `);
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS cash_registers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        register_number VARCHAR(50) UNIQUE NOT NULL,
+        employee_id VARCHAR(50),
+        employee_name VARCHAR(255),
+        salon_id INT DEFAULT 1,
+        monto_inicial DECIMAL(10,2) DEFAULT 0.00,
+        monto_esperado DECIMAL(10,2) DEFAULT 0.00,
+        monto_final DECIMAL(10,2) DEFAULT 0.00,
+        gastos_turno DECIMAL(10,2) DEFAULT 0.00,
+        diferencia DECIMAL(10,2) DEFAULT 0.00,
+        observaciones TEXT,
+        opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        closed_at TIMESTAMP NULL,
+        status VARCHAR(20) DEFAULT 'Abierta'
+      )
+    `);
+    try { await pool.query('ALTER TABLE cash_registers ADD COLUMN monto_esperado DECIMAL(10,2) DEFAULT 0.00'); } catch(e){}
+    try { await pool.query('ALTER TABLE cash_registers ADD COLUMN gastos_turno DECIMAL(10,2) DEFAULT 0.00'); } catch(e){}
+    try { await pool.query('ALTER TABLE cash_registers ADD COLUMN observaciones TEXT'); } catch(e){}
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS cash_register_movements (
         id INT AUTO_INCREMENT PRIMARY KEY,
         cash_register_id INT NOT NULL,
@@ -1337,22 +1359,65 @@ app.post('/api/cash-registers/open', async (req, res) => {
 app.post('/api/cash-registers/:id/close', async (req, res) => {
   try {
     const { id } = req.params;
-    const { monto_final } = req.body;
+    const { monto_final, observaciones } = req.body;
 
     const [regs] = await pool.query('SELECT * FROM cash_registers WHERE id = ?', [id]);
     if (regs.length === 0) return res.status(404).json({ error: 'Caja no encontrada' });
     const reg = regs[0];
 
-    const finalAmt = parseFloat(monto_final) || 0;
-    const initialAmt = parseFloat(reg.monto_inicial) || 0;
-    const diff = finalAmt - initialAmt;
-
-    await pool.query(
-      "UPDATE cash_registers SET status = 'Cerrada', closed_at = NOW(), monto_final = ?, diferencia = ? WHERE id = ?",
-      [finalAmt, diff, id]
+    // Fetch movements for full breakdown
+    const [movements] = await pool.query(
+      'SELECT * FROM cash_register_movements WHERE cash_register_id = ?',
+      [id]
     );
 
-    res.json({ success: true, message: 'Caja cerrada exitosamente' });
+    const initialAmt = parseFloat(reg.monto_inicial) || 0;
+    let efectivoTotal = 0;
+    let gastosTotal = 0;
+    let retirosTotal = 0;
+    let entradasTotal = 0;
+
+    movements.forEach(m => {
+      const amt = Number(m.amount) || 0;
+      if (m.type === 'Ingreso_Venta') {
+        const method = (m.payment_method || '').toLowerCase();
+        if (method.includes('efectivo')) efectivoTotal += amt;
+      } else if (m.type === 'Gasto_Imprevisto') {
+        gastosTotal += amt;
+      } else if (m.type === 'Retiro_Efectivo') {
+        retirosTotal += amt;
+      } else if (m.type === 'Entrada_Adicional') {
+        entradasTotal += amt;
+      }
+    });
+
+    const montoEsperado = initialAmt + efectivoTotal + entradasTotal - gastosTotal - retirosTotal;
+    const finalAmt = parseFloat(monto_final) || 0;
+    const diff = finalAmt - montoEsperado;
+
+    await pool.query(
+      `UPDATE cash_registers SET 
+        status = 'Cerrada', 
+        closed_at = NOW(), 
+        monto_esperado = ?, 
+        monto_final = ?, 
+        gastos_turno = ?, 
+        diferencia = ?, 
+        observaciones = ? 
+       WHERE id = ?`,
+      [montoEsperado, finalAmt, gastosTotal, diff, observaciones || '', id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Caja cerrada y arqueada exitosamente',
+      summary: {
+        montoEsperado,
+        montoDeclarado: finalAmt,
+        diferencia: diff,
+        gastosTotal
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -61,6 +61,7 @@ const VisitRecorder = () => {
   const [registerInitialAmount, setRegisterInitialAmount] = useState('1000.00');
   const [showRegisterDetailsModal, setShowRegisterDetailsModal] = useState(false);
   const [closeRegisterAmount, setCloseRegisterAmount] = useState('');
+  const [closeRegisterNotes, setCloseRegisterNotes] = useState('');
   const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
 
   // Real-Time Cash Movements States
@@ -436,14 +437,18 @@ const VisitRecorder = () => {
     if (!activeRegister) return;
     setLoading(true);
     try {
-      await dataService.closeCashRegister(activeRegister.id, {
-        monto_final: parseFloat(closeRegisterAmount) || 0
+      const res = await dataService.closeCashRegister(activeRegister.id, {
+        monto_final: parseFloat(closeRegisterAmount) || 0,
+        observaciones: closeRegisterNotes.trim()
       });
-      alert('🔒 Caja de Jornada cerrada exitosamente.');
+      const diffVal = res.summary?.diferencia || 0;
+      const diffText = diffVal === 0 ? '🟢 Cuadre Perfecto (Sin diferencia)' : diffVal > 0 ? `🔷 Sobrante: + RD$ ${diffVal.toFixed(2)}` : `🔴 Faltante: - RD$ ${Math.abs(diffVal).toFixed(2)}`;
+      alert(`🔒 Arqueo y Cierre de Caja Finalizado Exitosamente.\n\n${diffText}`);
       setActiveRegister(null);
       setShowConfirmCloseModal(false);
       setShowRegisterDetailsModal(false);
       setCloseRegisterAmount('');
+      setCloseRegisterNotes('');
     } catch (e) {
       alert('Error cerrando caja: ' + e.message);
     } finally {
@@ -1889,44 +1894,113 @@ const VisitRecorder = () => {
         </div>
       )}
 
-      {/* MODAL CONFIRMAR CIERRE DE CAJA */}
+      {/* MODAL CIERRE Y ARQUEO DE CAJA */}
       {showConfirmCloseModal && activeRegister && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '400px', borderRadius: '16px', padding: '1.5rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '520px', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-              <LockIcon size={36} style={{ color: '#dc2626', marginBottom: '0.5rem' }} />
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Cierre Manual de Caja</h3>
+              <LockIcon size={38} style={{ color: '#dc2626', marginBottom: '0.4rem' }} />
+              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
+                Arqueo y Cierre de Caja de Jornada
+              </h3>
               <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                Ingresa el cuadre / efectivo final para finalizar la jornada de la caja {activeRegister.register_number}
+                Caja {activeRegister.register_number} • Cajero: {activeRegister.employee_name || currentUser?.nombre || 'Cajero Principal'}
               </p>
             </div>
 
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                Monto Final de Cuadre en Caja (RD$):
+            {/* PRE-CLOSING AUDIT SUMMARY BOX */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1rem', marginBottom: '1.25rem' }}>
+              <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                📊 Resumen Previo al Cierre:
+              </h4>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem', fontSize: '0.78rem' }}>
+                <div>💵 Efectivo: <strong>RD$ {(registerSummary?.efectivoTotal || 0).toFixed(2)}</strong></div>
+                <div>💳 Tarjeta: <strong>RD$ {(registerSummary?.tarjetaTotal || 0).toFixed(2)}</strong></div>
+                <div>🏦 Transferencia: <strong>RD$ {(registerSummary?.transferenciaTotal || 0).toFixed(2)}</strong></div>
+                <div>🎁 Gift Card: <strong>RD$ {(registerSummary?.giftCardTotal || 0).toFixed(2)}</strong></div>
+                <div>✨ Plan Beauty: <strong>RD$ {(registerSummary?.planBeautyTotal || 0).toFixed(2)}</strong></div>
+                <div>👤 Consumo Empleados: <strong>RD$ {(registerSummary?.consumoTotal || 0).toFixed(2)}</strong></div>
+              </div>
+
+              <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px dashed #cbd5e1', display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                <span style={{ color: '#dc2626', fontWeight: 700 }}>💸 Total Gastos de la Jornada:</span>
+                <strong style={{ color: '#dc2626' }}>- RD$ {(registerSummary?.gastosTotal || 0).toFixed(2)}</strong>
+              </div>
+
+              <div style={{ marginTop: '0.4rem', paddingTop: '0.4rem', borderTop: '1px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                <span style={{ color: '#0f172a', fontWeight: 800 }}>💰 Monto Total Esperado en Caja:</span>
+                <strong style={{ color: '#166534', fontSize: '1rem', fontWeight: 900 }}>
+                  RD$ {(registerSummary?.montoEstimadoEnCaja || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                </strong>
+              </div>
+            </div>
+
+            {/* INPUT: CASH COUNTED PHYSICALLY */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.3rem' }}>
+                💵 Dinero Contado Físicamente en Caja (RD$):
               </label>
               <input
                 type="number"
                 placeholder="0.00"
                 value={closeRegisterAmount}
                 onChange={(e) => setCloseRegisterAmount(e.target.value)}
-                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '1.1rem', textAlign: 'center' }}
+                style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '2px solid #cbd5e1', fontWeight: 900, fontSize: '1.2rem', textAlign: 'center', color: '#0f172a' }}
+              />
+            </div>
+
+            {/* LIVE DIFFERENCE CALCULATION FEEDBACK */}
+            {closeRegisterAmount !== '' && (() => {
+              const declared = parseFloat(closeRegisterAmount) || 0;
+              const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+              const diff = declared - expected;
+              return (
+                <div style={{
+                  padding: '0.75rem',
+                  borderRadius: '10px',
+                  marginBottom: '1rem',
+                  textAlign: 'center',
+                  background: Math.abs(diff) < 0.01 ? '#f0fdf4' : diff > 0 ? '#f0f9ff' : '#fef2f2',
+                  border: `1px solid ${Math.abs(diff) < 0.01 ? '#86efac' : diff > 0 ? '#bae6fd' : '#fca5a5'}`
+                }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>
+                    {Math.abs(diff) < 0.01 ? '🟢 CUADRE PERFECTO' : diff > 0 ? '🔷 SOBRANTE DE CAJA' : '🔴 FALTANTE DE CAJA'}
+                  </span>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 900, color: Math.abs(diff) < 0.01 ? '#15803d' : diff > 0 ? '#0369a1' : '#dc2626' }}>
+                    Diferencia: {diff >= 0 ? '+' : ''} RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* INPUT: CLOSING NOTES / OBSERVATIONS */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                📝 Observaciones del Cierre:
+              </label>
+              <textarea
+                rows={2}
+                placeholder="Notas de arqueo, justificación de sobrante/faltante u observaciones del turno..."
+                value={closeRegisterNotes}
+                onChange={(e) => setCloseRegisterNotes(e.target.value)}
+                style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
               />
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button
                 onClick={() => setShowConfirmCloseModal(false)}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700, cursor: 'pointer' }}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, cursor: 'pointer', color: '#475569' }}
               >
                 Cancelar
               </button>
               <button
                 onClick={handleCloseCashRegister}
-                disabled={loading}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#dc2626', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}
+                disabled={loading || closeRegisterAmount === ''}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#dc2626', color: '#ffffff', fontWeight: 800, cursor: 'pointer', opacity: (loading || closeRegisterAmount === '') ? 0.6 : 1 }}
               >
-                Confirmar Cierre
+                Finalizar y Cerrar Caja
               </button>
             </div>
           </div>
