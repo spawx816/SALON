@@ -119,6 +119,13 @@ const VisitRecorder = () => {
     try {
       const reg = await dataService.getActiveCashRegister(salonId);
       setActiveRegister(reg);
+      if (window.location.search.includes('action=caja')) {
+        if (reg) {
+          setShowRegisterDetailsModal(true);
+        } else {
+          setShowRegisterOpenModal(true);
+        }
+      }
     } catch (e) {
       console.error('Error cargando caja activa:', e);
     }
@@ -618,9 +625,34 @@ const VisitRecorder = () => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {activeRegister ? (
-            <div style={{ background: '#065f46', border: '1px solid #10b981', padding: '0.5rem 1rem', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 700, color: '#34d399', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <CheckCircle2 size={16} />
-              <span>Caja Activa: {activeRegister.register_number || 'Jornada Abierta'}</span>
+            <div 
+              onClick={() => setShowRegisterDetailsModal(true)}
+              style={{ 
+                background: '#065f46', 
+                border: '2px solid #10b981', 
+                padding: '0.5rem 1rem', 
+                borderRadius: '12px', 
+                fontSize: '0.85rem', 
+                fontWeight: 800, 
+                color: '#ffffff', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.6rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(16,185,129,0.25)',
+                transition: 'all 0.2s'
+              }}
+              title="Haz clic para ver detalles de la caja o realizar el cierre manual de jornada"
+            >
+              <CheckCircle2 size={18} style={{ color: '#34d399' }} />
+              <div>
+                <span style={{ display: 'block', fontSize: '0.65rem', color: '#a7f3d0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  CAJA ACTIVA (VER DETALLES / CERRAR)
+                </span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#ffffff' }}>
+                  {activeRegister.register_number || 'Jornada Abierta'}
+                </span>
+              </div>
             </div>
           ) : (
             <button
