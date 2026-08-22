@@ -710,9 +710,15 @@ const VisitRecorder = () => {
 
             {/* LINE ITEMS TABLE (PRECIO EDITABLE CON RESTRICCIÓN DE DESCUENTO) */}
             <div style={{ marginBottom: '1.5rem' }}>
-              <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                🛒 Servicios Agregados ({lineItems.length})
-              </h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                  🛒 Servicios Agregados ({lineItems.length})
+                </h4>
+                <span style={{ fontSize: '0.75rem', background: '#eff6ff', color: '#1d4ed8', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bfdbfe' }}>
+                  💡 Cajero puede aumentar precio libremente • Descuentos requieren PIN Admin
+                </span>
+              </div>
+
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ background: '#f1f5f9', color: '#334155', textAlign: 'left' }}>
