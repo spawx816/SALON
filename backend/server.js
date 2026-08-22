@@ -1080,7 +1080,7 @@ app.get('/api/visits/pending', async (req, res) => {
     const salonId = req.query.salon_id || 1;
     const [rows] = await pool.query(
       `SELECT v.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name,
-              (SELECT c.plan_id FROM contracts c WHERE c.client_id = v.client_id AND c.status = 'Activo' LIMIT 1) as plan_beauty_id
+              (SELECT c.plan_id FROM contracts c JOIN clients cl ON c.client_id = cl.id WHERE (c.client_id = v.client_id OR cl.nombre = v.client_name) AND (c.status = 'Activo' OR c.status = 'Active') LIMIT 1) as plan_beauty_id
        FROM visits v 
        LEFT JOIN salons s ON v.salon_id = s.id 
        WHERE v.status = 'Pendiente' AND v.salon_id = ? 
@@ -2133,18 +2133,21 @@ app.post('/api/plans', async (req, res) => {
 
 app.get('/api/contracts/client/:clientId', async (req, res) => {
   try {
+    const { clientId } = req.params;
     const [rows] = await pool.query(`
       SELECT 
         c.*, 
         cl.nombre as clientName, 
         cl.cedula as clientCedula,
+        cl.telefono as clientPhone,
+        cl.email as clientEmail,
         p.title as planTitle
       FROM contracts c
       JOIN clients cl ON c.client_id = cl.id
       JOIN plans p ON c.plan_id = p.id
-      WHERE c.client_id = ? 
+      WHERE (c.client_id = ? OR cl.cedula = ? OR cl.nombre = ? OR cl.nombre LIKE ?)
       ORDER BY c.signed_at DESC
-    `, [req.params.clientId]);
+    `, [clientId, clientId, clientId, `%${clientId}%`]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

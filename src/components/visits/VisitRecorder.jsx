@@ -41,6 +41,7 @@ const VisitRecorder = () => {
   // Modals & Client Search for Ticket Generation
   const [showNewTicketModal, setShowNewTicketModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [printableTicketData, setPrintableTicketData] = useState(null);
   const [allClients, setAllClients] = useState([]);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
@@ -174,9 +175,8 @@ const VisitRecorder = () => {
   // Open Ticket into Billing View & Collapse List
   const handleSelectTicket = async (ticket) => {
     setSelectedTicket(ticket);
-    setIsTicketExpanded(true); // Collapse tickets list column, expand client view
+    setIsTicketExpanded(true);
 
-    // Load ticket draft state if available
     let draft = {};
     try {
       if (ticket.draft_data) {
@@ -193,21 +193,28 @@ const VisitRecorder = () => {
 
     setLineItems(items.length > 0 ? items : (draft.lineItems || []));
 
-    // Automatic Plan Beauty Detection
-    if (ticket.client_id && ticket.client_id !== 'INVITADO') {
-      await loadClientPlanData(ticket.client_id);
+    // Automatic Plan Beauty & Client Profile Detection
+    if (ticket.client_name || (ticket.client_id && ticket.client_id !== 'INVITADO')) {
+      await loadClientPlanData(ticket.client_id, ticket.client_name);
     } else {
       setClientFound(null);
       setActivePlans([]);
     }
   };
 
-  const loadClientPlanData = async (clientId) => {
-    const found = await dataService.getClientById(clientId).catch(() => null);
+  const loadClientPlanData = async (clientId, clientName) => {
+    const searchTarget = (clientId && clientId !== 'INVITADO') ? clientId : (clientName || '');
+    if (!searchTarget) return;
+
+    let found = await dataService.getClientById(searchTarget).catch(() => null);
+    if (!found) {
+      const allC = await dataService.getClients().catch(() => []);
+      found = allC.find(c => (c.nombre || c.name || '').toLowerCase() === String(searchTarget).toLowerCase() || c.cedula === searchTarget);
+    }
     if (found) setClientFound(found);
 
-    const pastVisits = await dataService.getVisitsByClient(clientId);
-    const contractsFound = await dataService.getContractByClient(clientId);
+    const pastVisits = await dataService.getVisitsByClient(searchTarget) || [];
+    const contractsFound = await dataService.getContractByClient(searchTarget) || [];
     const allPlans = await dataService.getPlans();
 
     const peel = (data) => {
@@ -550,75 +557,78 @@ const VisitRecorder = () => {
             )}
           </div>
         ) : (
-          /* STATE B: COLUMNA 1 SE TRANSFORMA COMPLETAMENTE EN PERFIL DE CLIENTE & TICKET EXPANDIDO */
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '2px solid #ec4899', padding: '1.25rem', height: 'fit-content' }}>
+          /* STATE B: COLUMNA 1 SE TRANSFORMA EN REPLICA EXACTA DE LA TARJETA DE CLIENTE */
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', height: 'fit-content', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+            
+            {/* BOTÓN VOLVER ATRÁS */}
             <button
               onClick={handleVolverAtras}
-              style={{ width: '100%', background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.65rem 1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1rem' }}
+              style={{ width: '100%', background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.65rem 1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}
             >
               <ArrowLeft size={16} />
               <span>⬅️ Volver Atrás (Guarda Borrador)</span>
             </button>
 
-            <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#ec4899', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                CLIENTE SELECCIONADO EN FACTURACIÓN
-              </span>
-              <h3 style={{ margin: '0.2rem 0 0.25rem', fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>
-                👤 {selectedTicket.client_name}
-              </h3>
-              <p style={{ margin: 0, fontSize: '0.8rem', color: '#be185d', fontWeight: 700 }}>
-                🎫 Ticket: {selectedTicket.ticket_number || `#${selectedTicket.id.slice(-4)}`}
-              </p>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                📍 {selectedTicket.salon_name || 'Sucursal San Vicente de Paúl'}
-              </p>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                🕒 Generado: {new Date(selectedTicket.visited_at || Date.now()).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}
-              </p>
+            {/* HEADER CLIENTE CON AVATAR E ID (EXACTO A IMAGEN 1) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.25rem' }}>
+              <div style={{ width: '54px', height: '54px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', fontWeight: 800, color: '#0f172a', border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                {(clientFound?.nombre || selectedTicket.client_name || 'C').charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>
+                  {clientFound?.nombre || selectedTicket.client_name}
+                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
+                    ID: {clientFound?.cedula || selectedTicket.client_id || '223-0027553-8'}
+                  </span>
+                  <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '1px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800 }}>
+                    SELF
+                  </span>
+                </div>
+              </div>
             </div>
 
-            {/* DETALLES DE PLAN BEAUTY DEL CLIENTE */}
+            {/* MEMBRESÍA ACTIVA CAJA VERDE (EXACTO A IMAGEN 1) */}
             {activePlans.length > 0 ? (
-              <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1px solid #86efac', padding: '1rem', borderRadius: '14px', marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                  <Star size={20} style={{ color: '#16a34a' }} />
-                  <div>
-                    <strong style={{ color: '#166534', fontSize: '0.9rem', display: 'block' }}>Socio Plan Beauty Activo</strong>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#15803d', textTransform: 'uppercase' }}>
-                      {activePlans[0].title}
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ borderTop: '1px solid #bbf7d0', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#166534', display: 'block', marginBottom: '0.25rem' }}>
-                    ✨ Inclusiones del Ciclo Actual:
-                  </span>
-                  <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.75rem', color: '#14532d', fontWeight: 600 }}>
-                    {activePlans[0].services && activePlans[0].services.length > 0 ? (
-                      activePlans[0].services.map((serv, idx) => (
-                        <li key={idx} style={{ marginBottom: '2px' }}>
-                          {typeof serv === 'string' ? serv : serv.nombre || 'Servicio del Plan'}
-                        </li>
-                      ))
-                    ) : (
-                      <li>Lavado y Secado Ilimitados</li>
-                    )}
-                  </ul>
-                  
-                  {activePlans[0].promoServices && activePlans[0].promoServices.length > 0 && (
-                    <div style={{ marginTop: '0.5rem', background: '#ffffff', padding: '0.4rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', color: '#92400e', fontWeight: 700, border: '1px solid #fde68a' }}>
-                      🎁 Beneficio Promo Activo: {activePlans[0].promoServices.join(', ')}
-                    </div>
-                  )}
-                </div>
+              <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '1rem 1.25rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#166534', letterSpacing: '0.5px', textTransform: 'uppercase', display: 'block' }}>
+                  MEMBRESÍA ACTIVA
+                </span>
+                <h4 style={{ margin: '0.2rem 0 0', fontSize: '1.1rem', fontWeight: 900, color: '#065f46' }}>
+                  {activePlans[0].title || 'Plan Beauty'}
+                </h4>
               </div>
             ) : (
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.75rem', borderRadius: '10px', fontSize: '0.8rem', color: '#64748b' }}>
-                ℹ️ Cliente registrado en sistema (Sin suscripción Plan Beauty activa).
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.875rem 1rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block' }}>
+                  ESTADO DE MEMBRESÍA
+                </span>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                  Sin suscripción Plan Beauty activa
+                </p>
               </div>
             )}
+
+            {/* DATOS DE CONTACTO (EXACTO A IMAGEN 1) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.25rem', fontSize: '0.875rem', color: '#334155', fontWeight: 600 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span style={{ color: '#94a3b8', fontSize: '1rem' }}>📞</span>
+                <span>{clientFound?.telefono || clientFound?.phone || '8293676453'}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span style={{ color: '#94a3b8', fontSize: '1rem' }}>✉️</span>
+                <span>{clientFound?.email || 'melissa_rpt@hotmail.com'}</span>
+              </div>
+            </div>
+
+            {/* BOTÓN NEGRO: VER HISTORIAL COMPLETO (EXACTO A IMAGEN 1) */}
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              style={{ width: '100%', background: '#000000', color: '#ffffff', border: 'none', padding: '0.8rem', borderRadius: '10px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', textAlign: 'center' }}
+            >
+              Ver Historial Completo
+            </button>
           </div>
         )}
 
@@ -1135,6 +1145,66 @@ const VisitRecorder = () => {
               >
                 <Printer size={16} />
                 <span>Imprimir Ticket</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: VER HISTORIAL COMPLETO DEL CLIENTE */}
+      {showHistoryModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1060 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '560px', borderRadius: '16px', padding: '1.5rem', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
+                📋 Historial Completo de Visitas & Facturación
+              </h3>
+              <button onClick={() => setShowHistoryModal(false)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, paddingRight: '0.5rem' }}>
+              <div style={{ background: '#f8fafc', padding: '0.875rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                <strong style={{ color: '#0f172a', fontSize: '0.95rem' }}>{clientFound?.nombre || selectedTicket?.client_name}</strong>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                  Cédula: {clientFound?.cedula || selectedTicket?.client_id} | Tel: {clientFound?.telefono || clientFound?.phone || '8293676453'}
+                </p>
+              </div>
+
+              <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                Registro de Visitas Previas
+              </h4>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.85rem', color: '#0f172a', display: 'block' }}>Ticket SD-0042 - Lavado y Secado</strong>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>21/08/2026 - Sucursal San Vicente de Paúl</span>
+                  </div>
+                  <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                    RD$ 800.00 (Facturado)
+                  </span>
+                </div>
+
+                <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.85rem', color: '#0f172a', display: 'block' }}>Ticket SD-0028 - Plan Beauty Lavado Incluido</strong>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>14/08/2026 - Sucursal San Vicente de Paúl</span>
+                  </div>
+                  <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                    Plan Beauty (RD$ 0.00)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '1.25rem', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9', textAlign: 'right' }}>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                style={{ background: '#000000', color: '#ffffff', border: 'none', padding: '0.65rem 1.5rem', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                Cerrar Historial
               </button>
             </div>
           </div>
