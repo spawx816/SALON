@@ -198,6 +198,54 @@ const setupDB = async () => {
     try { await pool.query('ALTER TABLE services ADD COLUMN imagen_url VARCHAR(255) DEFAULT ""'); } catch(e){}
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_commissions_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        visit_id VARCHAR(50) NOT NULL,
+        ticket_number VARCHAR(50),
+        employee_id VARCHAR(50) NOT NULL,
+        employee_name VARCHAR(255) NOT NULL,
+        service_name VARCHAR(255) NOT NULL,
+        precio_servicio DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        cantidad INT DEFAULT 1,
+        descuento_aplicado DECIMAL(10,2) DEFAULT 0.00,
+        monto_base DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        tipo_comision VARCHAR(50) DEFAULT 'Porcentaje',
+        comision_valor DECIMAL(10,2) DEFAULT 0.00,
+        monto_comision DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        status VARCHAR(20) DEFAULT 'Pendiente',
+        payout_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_commission_rules (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id VARCHAR(50) NOT NULL,
+        service_name VARCHAR(255) DEFAULT 'General',
+        tipo_comision VARCHAR(50) DEFAULT 'Porcentaje',
+        comision_valor DECIMAL(10,2) DEFAULT 0.00,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY emp_srv (employee_id, service_name)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS commission_payouts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        payout_number VARCHAR(50) UNIQUE NOT NULL,
+        employee_id VARCHAR(50) NOT NULL,
+        employee_name VARCHAR(255) NOT NULL,
+        monto_total DECIMAL(10,2) NOT NULL,
+        total_items INT DEFAULT 0,
+        metodo_pago VARCHAR(50) DEFAULT 'Efectivo',
+        notas TEXT,
+        usuario_liquidador VARCHAR(255) DEFAULT 'Admin',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS cash_register_movements (
         id INT AUTO_INCREMENT PRIMARY KEY,
         cash_register_id INT NOT NULL,
@@ -1285,6 +1333,64 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
       );
     }
 
+    // Auto-calculate and record commissions per line-item for assigned employees (Multi-employee support - Section 9 & 10)
+    if (Array.isArray(items_detail) && items_detail.length > 0) {
+      const [vRows] = await pool.query('SELECT ticket_number FROM visits WHERE id = ?', [id]);
+      const ticketNum = vRows[0]?.ticket_number || `TK-${id}`;
+
+      for (const item of items_detail) {
+        const empId = item.empleado_id || item.employee_id;
+        const empName = item.empleado_nombre || item.employee_name || 'N/A';
+
+        if (empId && empId !== 'N/A') {
+          const serviceName = item.servicio || item.name || 'Servicio';
+          const price = parseFloat(item.precioAplicado || item.precio || 0);
+          const qty = parseInt(item.cantidad) || 1;
+          const desc = parseFloat(item.descuento) || 0;
+          const baseAmt = Math.max(0, (price * qty) - desc);
+
+          let commissionType = 'Porcentaje';
+          let commissionVal = 15.00;
+
+          // Check custom employee commission rule first
+          const [rules] = await pool.query(
+            'SELECT * FROM employee_commission_rules WHERE employee_id = ? AND (service_name = ? OR service_name = "General") ORDER BY service_name DESC LIMIT 1',
+            [empId, serviceName]
+          );
+
+          if (rules.length > 0) {
+            commissionType = rules[0].tipo_comision;
+            commissionVal = parseFloat(rules[0].comision_valor) || 0;
+          } else {
+            // Check default service commission rule
+            const [srvs] = await pool.query('SELECT genera_comision, tipo_comision, comision_valor FROM services WHERE nombre = ?', [serviceName]);
+            if (srvs.length > 0 && srvs[0].genera_comision === 0) {
+              commissionVal = 0;
+            } else if (srvs.length > 0) {
+              commissionType = srvs[0].tipo_comision || 'Porcentaje';
+              commissionVal = parseFloat(srvs[0].comision_valor) || 0;
+            }
+          }
+
+          let earnedCommission = 0;
+          if (commissionType === 'Porcentaje') {
+            earnedCommission = (baseAmt * commissionVal) / 100;
+          } else {
+            earnedCommission = commissionVal * qty;
+          }
+
+          if (earnedCommission > 0) {
+            await pool.query(
+              `INSERT INTO employee_commissions_log 
+                (visit_id, ticket_number, employee_id, employee_name, service_name, precio_servicio, cantidad, descuento_aplicado, monto_base, tipo_comision, comision_valor, monto_comision, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', NOW())`,
+              [id, ticketNum, empId, empName, serviceName, price, qty, desc, baseAmt, commissionType, commissionVal, earnedCommission]
+            );
+          }
+        }
+      }
+    }
+
     // Auto-record sale movement into active cash register session
     const [openRegisters] = await pool.query(
       "SELECT id FROM cash_registers WHERE status = 'Abierta' ORDER BY opened_at DESC LIMIT 1"
@@ -1791,6 +1897,155 @@ app.delete('/api/services/:id', async (req, res) => {
     // Hard delete if never used in historical invoices
     await pool.query('DELETE FROM services WHERE id = ?', [id]);
     res.json({ success: true, message: 'Servicio eliminado permanentemente.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === MÓDULO DE COMISIONES (SECTION 10) ===
+app.get('/api/commissions', async (req, res) => {
+  try {
+    const { start_date, end_date, employee_id, status, service_name } = req.query;
+
+    let query = 'SELECT * FROM employee_commissions_log WHERE 1=1';
+    const params = [];
+
+    if (start_date) {
+      query += ' AND created_at >= ?';
+      params.push(`${start_date} 00:00:00`);
+    }
+    if (end_date) {
+      query += ' AND created_at <= ?';
+      params.push(`${end_date} 23:59:59`);
+    }
+    if (employee_id) {
+      query += ' AND employee_id = ?';
+      params.push(employee_id);
+    }
+    if (status) {
+      query += ' AND status = ?';
+      params.push(status);
+    }
+    if (service_name) {
+      query += ' AND service_name LIKE ?';
+      params.push(`%${service_name}%`);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const [rows] = await pool.query(query, params);
+
+    let totalGenerado = 0;
+    let totalPendiente = 0;
+    let totalPagado = 0;
+
+    rows.forEach(r => {
+      const amt = Number(r.monto_comision) || 0;
+      totalGenerado += amt;
+      if (r.status === 'Pendiente') totalPendiente += amt;
+      else if (r.status === 'Pagado') totalPagado += amt;
+    });
+
+    res.json({
+      commissions: rows,
+      metrics: {
+        totalGenerado,
+        totalPendiente,
+        totalPagado,
+        count: rows.length
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/commissions/rules', async (req, res) => {
+  try {
+    const [rules] = await pool.query('SELECT * FROM employee_commission_rules ORDER BY employee_id ASC');
+    res.json(rules);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/commissions/rules', async (req, res) => {
+  try {
+    const { employee_id, service_name, tipo_comision, comision_valor } = req.body;
+    if (!employee_id) return res.status(400).json({ error: 'Empleado es obligatorio.' });
+
+    await pool.query(
+      `INSERT INTO employee_commission_rules (employee_id, service_name, tipo_comision, comision_valor)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE tipo_comision = VALUES(tipo_comision), comision_valor = VALUES(comision_valor)`,
+      [employee_id, service_name || 'General', tipo_comision || 'Porcentaje', parseFloat(comision_valor) || 0]
+    );
+
+    res.json({ success: true, message: 'Regla de comisión guardada exitosamente' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/commissions/payout', async (req, res) => {
+  try {
+    const { employee_id, employee_name, commission_ids, metodo_pago, notas, usuario_liquidador } = req.body;
+
+    if (!employee_id || !Array.isArray(commission_ids) || commission_ids.length === 0) {
+      return res.status(400).json({ error: 'Empleado y comisiones seleccionadas son obligatorias.' });
+    }
+
+    const placeholders = commission_ids.map(() => '?').join(',');
+    const [commRows] = await pool.query(
+      `SELECT * FROM employee_commissions_log WHERE id IN (${placeholders}) AND status = 'Pendiente'`,
+      commission_ids
+    );
+
+    if (commRows.length === 0) {
+      return res.status(400).json({ error: 'No se encontraron comisiones pendientes elegibles para liquidar.' });
+    }
+
+    const montoTotal = commRows.reduce((acc, c) => acc + Number(c.monto_comision), 0);
+    const dateCode = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const payoutNumber = `LIQ-${dateCode}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const [payoutResult] = await pool.query(
+      `INSERT INTO commission_payouts (payout_number, employee_id, employee_name, monto_total, total_items, metodo_pago, notas, usuario_liquidador, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        payoutNumber,
+        employee_id,
+        employee_name || commRows[0].employee_name || 'Empleado',
+        montoTotal,
+        commRows.length,
+        metodo_pago || 'Efectivo',
+        notas || '',
+        usuario_liquidador || 'Admin'
+      ]
+    );
+
+    const payoutId = payoutResult.insertId;
+
+    await pool.query(
+      `UPDATE employee_commissions_log SET status = 'Pagado', payout_id = ? WHERE id IN (${placeholders})`,
+      [payoutId, ...commission_ids]
+    );
+
+    res.json({
+      success: true,
+      payoutNumber,
+      montoTotal,
+      message: `Liquidación ${payoutNumber} realizada exitosamente por RD$ ${montoTotal.toFixed(2)}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/commissions/payouts', async (req, res) => {
+  try {
+    const [payouts] = await pool.query('SELECT * FROM commission_payouts ORDER BY created_at DESC');
+    res.json(payouts);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

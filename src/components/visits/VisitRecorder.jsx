@@ -356,6 +356,7 @@ const VisitRecorder = () => {
 
   // Line Items Controls (Price rules)
   const addServiceToLineItems = (service) => {
+    const firstEmp = employees[0] || { id: 'EMP-1', nombre: 'Ana Gómez' };
     const newItem = {
       id: Date.now() + Math.random(),
       service_id: service.id,
@@ -363,7 +364,9 @@ const VisitRecorder = () => {
       precioBase: service.precio,
       precioAplicado: service.precio,
       cantidad: 1,
-      empleado: employees[0]?.nombre || 'Ana Gómez',
+      empleado: firstEmp.nombre,
+      empleado_id: firstEmp.id,
+      empleado_nombre: firstEmp.nombre,
       descuento: 0
     };
     setLineItems([...lineItems, newItem]);
@@ -965,16 +968,20 @@ const VisitRecorder = () => {
                         <td style={{ padding: '10px 12px', fontWeight: 700, color: '#0f172a' }}>{item.nombre}</td>
                         <td style={{ padding: '10px 12px' }}>
                           <select
-                            value={item.empleado}
+                            value={item.empleado_id || item.empleado}
                             onChange={(e) => {
+                              const selectedVal = e.target.value;
+                              const empObj = employees.find(emp => emp.id.toString() === selectedVal || emp.nombre === selectedVal);
                               const updated = [...lineItems];
-                              updated[idx].empleado = e.target.value;
+                              updated[idx].empleado = empObj?.nombre || selectedVal;
+                              updated[idx].empleado_id = empObj?.id || selectedVal;
+                              updated[idx].empleado_nombre = empObj?.nombre || selectedVal;
                               setLineItems(updated);
                             }}
-                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}
                           >
                             {employees.map(emp => (
-                              <option key={emp.id} value={emp.nombre}>{emp.nombre}</option>
+                              <option key={emp.id} value={emp.id}>{emp.nombre} ({emp.cargo || 'Colaborador'})</option>
                             ))}
                           </select>
                         </td>

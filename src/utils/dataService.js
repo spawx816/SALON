@@ -297,6 +297,54 @@ export const dataService = {
     }
   },
 
+  getCommissions: async (params = {}) => {
+    try {
+      const queryStr = new URLSearchParams(params).toString();
+      const res = await fetch(`${API_URL}/commissions?${queryStr}`);
+      if (!res.ok) return { commissions: [], metrics: {} };
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching commissions:', e);
+      return { commissions: [], metrics: {} };
+    }
+  },
+
+  saveCommissionRule: async (ruleData) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ruleData)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  processCommissionPayout: async (payoutData) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/payout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payoutData)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  getCommissionPayouts: async () => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/payouts`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      return [];
+    }
+  },
+
   bulkImportServices: async (items) => {
     try {
       const res = await fetch(`${API_URL}/services/bulk-import`, {
