@@ -43,6 +43,18 @@ export const dataService = {
     }
   },
 
+  getClientById: async (id) => {
+    try {
+      const clean = encodeURIComponent(String(id).trim());
+      const res = await fetch(`${API_URL}/clients/${clean}`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      console.error("Error en getClientById:", e);
+      return null;
+    }
+  },
+
   // Contracts & Plans
   getContracts: async () => {
     try {

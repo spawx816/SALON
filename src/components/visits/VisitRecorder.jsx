@@ -252,109 +252,117 @@ const VisitRecorder = () => {
   };
 
   const loadClientPlanData = async (clientId, clientName, ticketObj = null) => {
-    const searchTarget = (clientId && clientId !== 'INVITADO') ? clientId : (clientName || '');
-    if (!searchTarget && !ticketObj?.plan_beauty_id) return;
-
-    let found = await dataService.getClientById(searchTarget).catch(() => null);
-    if (!found) {
-      const allC = await dataService.getClients().catch(() => []);
-      const targetClean = String(searchTarget).trim().toLowerCase();
-      found = allC.find(c => (c.nombre || c.name || '').trim().toLowerCase() === targetClean || c.cedula === searchTarget);
-    }
-    if (found) setClientFound(found);
-
-    // Multi-stage contract lookup (searchTarget -> found.id -> found.cedula -> found.nombre)
-    let contractsFound = await dataService.getContractByClient(searchTarget) || [];
-    if ((!contractsFound || contractsFound.length === 0) && found) {
-      if (found.id && found.id !== searchTarget) {
-        contractsFound = await dataService.getContractByClient(found.id) || [];
+    try {
+      const searchTarget = (clientId && clientId !== 'INVITADO') ? clientId : (clientName || '');
+      if (!searchTarget && !ticketObj?.plan_beauty_id) {
+        setActivePlans([]);
+        return;
       }
-      if ((!contractsFound || contractsFound.length === 0) && found.cedula) {
-        contractsFound = await dataService.getContractByClient(found.cedula) || [];
+
+      // Multi-stage contract lookup (by ID, by Name, by Cedula, by searchTarget)
+      let contractsFound = [];
+      if (clientId && clientId !== 'INVITADO') {
+        contractsFound = await dataService.getContractByClient(clientId);
       }
-      if ((!contractsFound || contractsFound.length === 0) && found.nombre) {
-        contractsFound = await dataService.getContractByClient(found.nombre.trim()) || [];
+      if ((!contractsFound || contractsFound.length === 0) && clientName) {
+        contractsFound = await dataService.getContractByClient(clientName.trim());
       }
-    }
-
-    const pastVisits = await dataService.getVisitsByClient(searchTarget) || [];
-    const allPlans = await dataService.getPlans();
-
-    const peel = (data) => {
-      let current = data;
-      let limit = 0;
-      while (typeof current === 'string' && limit < 5) {
-        try {
-          const p = JSON.parse(current);
-          if (p === current) break;
-          current = p;
-          limit++;
-        } catch { break; }
+      if ((!contractsFound || contractsFound.length === 0) && clientFound?.cedula) {
+        contractsFound = await dataService.getContractByClient(clientFound.cedula.trim());
       }
-      return current;
-    };
+      if ((!contractsFound || contractsFound.length === 0) && searchTarget) {
+        contractsFound = await dataService.getContractByClient(searchTarget);
+      }
 
-    let planesConContrato = (Array.isArray(contractsFound) ? contractsFound : []).map(contract => {
-      const matchedPlan = allPlans.find(p => p.id === contract.plan_id || String(p.id) === String(contract.plan_id));
-      const baseServices = peel(contract.contract_services) || matchedPlan?.services || [];
-      const promoServices = peel(contract.contract_promo_services) || matchedPlan?.promo_services || [];
-      const allServices = [...(Array.isArray(baseServices) ? baseServices : []), ...(Array.isArray(promoServices) ? promoServices : [])];
-
-      const parseDate = (d) => {
-        if (!d) return 0;
-        if (d instanceof Date) return d.getTime();
-        const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
-        const time = new Date(dateStr).getTime();
-        return isNaN(time) ? new Date(d).getTime() : time;
-      };
-
-      const lastBillingTime = parseDate(contract.last_billed_date);
-      const threshold = lastBillingTime + 10000;
-      const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
-
-      const usedCount = cycleVisits.length;
-      const totalAllowed = 4;
-      const remainingCount = Math.max(0, totalAllowed - usedCount);
-
-      return {
-        ...matchedPlan,
-        id: contract.plan_id || '1',
-        contract_id: contract.id,
-        title: contract.planTitle || matchedPlan?.title || 'Plan Beauty',
-        services: allServices.length > 0 ? allServices : ['Lavado y Secado', 'Tratamiento Profundo'],
-        baseServices,
-        promoServices,
-        cycleVisitsCount: usedCount,
-        used_washes: usedCount > 0 ? usedCount : 2,
-        total_washes: totalAllowed,
-        remaining_washes: remainingCount > 0 ? remainingCount : 2,
-        end_date: contract.end_date || '29/8/2026',
-        isPromoActive: true
-      };
-    });
-
-    // If no contracts were found, check if ticket specifies a plan
-    if (planesConContrato.length === 0 && ticketObj?.plan_beauty_id) {
-      planesConContrato = [{
-        id: ticketObj.plan_beauty_id,
-        title: 'Plan Beauty',
-        services: ['Lavado y Secado', 'Tratamiento Profundo'],
-        used_washes: 2,
-        total_washes: 4,
-        remaining_washes: 2,
-        end_date: '29/8/2026',
-        isPromoActive: true
-      }];
-    }
-
-    setActivePlans(planesConContrato);
-    if (planesConContrato.length > 0) {
-      setSelectedPlanId(planesConContrato[0].id.toString());
-      setAvailableServices(planesConContrato[0].services.length > 0 
-        ? planesConContrato[0].services.map((s, idx) => typeof s === 'string' ? { id: `plan-${idx}`, nombre: s, precio: 0 } : s) 
-        : DEFAULT_TOP_SERVICES
+      // Filter only Active contracts
+      const activeContracts = (Array.isArray(contractsFound) ? contractsFound : []).filter(
+        c => c.status === 'Active' || c.status === 'Activo'
       );
-    } else {
+
+      const pastVisits = await dataService.getVisitsByClient(searchTarget).catch(() => []) || [];
+      const allPlans = await dataService.getPlans().catch(() => []) || [];
+
+      const peel = (data) => {
+        let current = data;
+        let limit = 0;
+        while (typeof current === 'string' && limit < 5) {
+          try {
+            const p = JSON.parse(current);
+            if (p === current) break;
+            current = p;
+            limit++;
+          } catch { break; }
+        }
+        return current;
+      };
+
+      let planesConContrato = activeContracts.map(contract => {
+        const matchedPlan = allPlans.find(p => p.id === contract.plan_id || String(p.id) === String(contract.plan_id));
+        const baseServices = peel(contract.contract_services) || matchedPlan?.services || [];
+        const promoServices = peel(contract.contract_promo_services) || matchedPlan?.promo_services || [];
+        const allServices = [...(Array.isArray(baseServices) ? baseServices : []), ...(Array.isArray(promoServices) ? promoServices : [])];
+
+        const parseDate = (d) => {
+          if (!d) return 0;
+          if (d instanceof Date) return d.getTime();
+          const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
+          const time = new Date(dateStr).getTime();
+          return isNaN(time) ? new Date(d).getTime() : time;
+        };
+
+        const lastBillingTime = parseDate(contract.last_billed_date);
+        const threshold = lastBillingTime + 10000;
+        const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
+
+        const usedCount = cycleVisits.length;
+        const totalAllowed = 4;
+        const remainingCount = Math.max(0, totalAllowed - usedCount);
+
+        return {
+          ...matchedPlan,
+          id: contract.plan_id || '1',
+          contract_id: contract.id,
+          title: contract.planTitle || matchedPlan?.title || 'Plan Beauty',
+          services: allServices.length > 0 ? allServices : ['Lavado y Secado', 'Tratamiento Profundo'],
+          baseServices,
+          promoServices,
+          cycleVisitsCount: usedCount,
+          used_washes: usedCount > 0 ? usedCount : 2,
+          total_washes: totalAllowed,
+          remaining_washes: remainingCount > 0 ? remainingCount : 2,
+          end_date: contract.end_date || '29/8/2026',
+          isPromoActive: true
+        };
+      });
+
+      // If no active contracts were found, check if ticket specifies a plan
+      if (planesConContrato.length === 0 && ticketObj?.plan_beauty_id) {
+        planesConContrato = [{
+          id: ticketObj.plan_beauty_id,
+          title: 'Plan Beauty',
+          services: ['Lavado y Secado', 'Tratamiento Profundo'],
+          used_washes: 2,
+          total_washes: 4,
+          remaining_washes: 2,
+          end_date: '29/8/2026',
+          isPromoActive: true
+        }];
+      }
+
+      setActivePlans(planesConContrato);
+      if (planesConContrato.length > 0) {
+        setSelectedPlanId(planesConContrato[0].id.toString());
+        setAvailableServices(planesConContrato[0].services.length > 0 
+          ? planesConContrato[0].services.map((s, idx) => typeof s === 'string' ? { id: `plan-${idx}`, nombre: s, precio: 0 } : s) 
+          : DEFAULT_TOP_SERVICES
+        );
+      } else {
+        setSelectedPlanId('none');
+        setAvailableServices(DEFAULT_TOP_SERVICES);
+      }
+    } catch (err) {
+      console.error('Error in loadClientPlanData:', err);
+      setActivePlans([]);
       setSelectedPlanId('none');
       setAvailableServices(DEFAULT_TOP_SERVICES);
     }
