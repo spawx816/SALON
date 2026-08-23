@@ -792,17 +792,17 @@ const VisitRecorder = () => {
       </div>
 
       {/* MAIN 3-COLUMN GRID LAYOUT MATCHING MOCKUP */}
-      <div style={{ display: 'grid', gridTemplateColumns: '310px 1fr 360px', gap: '1.25rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '275px 1fr 335px', gap: '1rem', alignItems: 'start' }}>
         
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
           <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
             Buscar cliente
           </h3>
 
           {/* CLIENT SEARCH INPUT */}
-          <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ position: 'relative', marginBottom: '1.1rem' }}>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
               <div style={{ position: 'relative', flex: 1 }}>
                 <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                 <input
@@ -810,15 +810,15 @@ const VisitRecorder = () => {
                   placeholder="Buscar por nombre, teléfono o cédula..."
                   value={clientSearchTerm}
                   onChange={(e) => setClientSearchTerm(e.target.value)}
-                  style={{ width: '100%', padding: '0.6rem 0.6rem 0.6rem 2.2rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.8rem', outline: 'none', background: '#ffffff' }}
+                  style={{ width: '100%', padding: '0.55rem 0.5rem 0.55rem 2.1rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.775rem', outline: 'none', background: '#ffffff' }}
                 />
               </div>
               <button
                 onClick={() => setShowNewTicketModal(true)}
-                style={{ background: '#78350f', color: '#ffffff', border: 'none', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                style={{ background: '#78350f', color: '#ffffff', border: 'none', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
                 title="Registrar nuevo cliente"
               >
-                <UserCheck size={18} />
+                <UserCheck size={17} />
               </button>
             </div>
 
@@ -846,68 +846,68 @@ const VisitRecorder = () => {
           </div>
 
           {/* CLIENT AVATAR & CARD DETAILS */}
-          <div style={{ display: 'flex', gap: '0.875rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1.1rem' }}>
             <img 
               src={clientFound?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
               alt="Avatar"
-              style={{ width: '54px', height: '54px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #fbcfe8' }}
+              style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #fbcfe8' }}
             />
             <div>
-              <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#18181b', lineHeight: 1.2 }}>
+              <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#18181b', lineHeight: 1.2 }}>
                 {clientFound?.nombre || selectedTicket?.client_name || 'María Pérez'}
               </h4>
-              <span style={{ display: 'inline-block', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '2px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 800, marginTop: '0.3rem' }}>
+              <span style={{ display: 'inline-block', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '1px 8px', borderRadius: '12px', fontSize: '0.675rem', fontWeight: 800, marginTop: '0.2rem' }}>
                 Cliente frecuente
               </span>
             </div>
           </div>
 
           {/* CONTACT INFORMATION */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginBottom: '1.25rem', fontSize: '0.825rem', color: '#475569' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1.1rem', fontSize: '0.8rem', color: '#475569' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <span>📞</span>
               <span>{clientFound?.telefono || clientFound?.phone || '(809) 555-1234'}</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <span>🪪</span>
               <span>{clientFound?.cedula || '001-1234567-8'}</span>
             </div>
           </div>
 
           {/* STATS ROW */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem', background: '#f8fafc', padding: '0.75rem 0.85rem', borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '0.775rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.1rem', background: '#f8fafc', padding: '0.65rem 0.75rem', borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '0.75rem' }}>
             <div>
-              <span style={{ color: '#71717a', display: 'block', fontSize: '0.7rem', marginBottom: '0.1rem' }}>⏱️ Última visita</span>
+              <span style={{ color: '#71717a', display: 'block', fontSize: '0.675rem', marginBottom: '0.1rem' }}>⏱️ Última visita</span>
               <strong style={{ color: '#18181b', fontWeight: 700 }}>Hace 5 días</strong>
             </div>
             <div>
-              <span style={{ color: '#71717a', display: 'block', fontSize: '0.7rem', marginBottom: '0.1rem' }}>✂️ Estilista habitual</span>
+              <span style={{ color: '#71717a', display: 'block', fontSize: '0.675rem', marginBottom: '0.1rem' }}>✂️ Estilista habitual</span>
               <strong style={{ color: '#18181b', fontWeight: 700 }}>Wendy</strong>
             </div>
           </div>
 
           {/* PLAN BEAUTY CARD */}
-          <div style={{ background: '#fff0f5', border: '1px solid #fbcfe8', padding: '0.85rem 1rem', borderRadius: '14px', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: '#fff0f5', border: '1px solid #fbcfe8', padding: '0.75rem 0.85rem', borderRadius: '14px', marginBottom: '1.1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ color: '#be185d', fontSize: '0.95rem' }}>💎</span>
-                <strong style={{ color: '#be185d', fontSize: '0.875rem', fontWeight: 800 }}>Plan Beauty</strong>
-                <span style={{ fontSize: '0.65rem', background: '#dcfce7', color: '#166534', fontWeight: 800, padding: '1px 6px', borderRadius: '8px', marginLeft: '0.25rem' }}>Activo</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <span style={{ color: '#be185d', fontSize: '0.9rem' }}>💎</span>
+                <strong style={{ color: '#be185d', fontSize: '0.825rem', fontWeight: 800 }}>Plan Beauty</strong>
+                <span style={{ fontSize: '0.6rem', background: '#dcfce7', color: '#166534', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', marginLeft: '0.2rem' }}>Active</span>
               </div>
-              <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem', display: 'block' }}>Lavados disponibles</span>
+              <span style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.15rem', display: 'block' }}>Lavados disponibles</span>
             </div>
-            <div style={{ background: '#be185d', color: '#ffffff', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.9rem' }}>
+            <div style={{ background: '#be185d', color: '#ffffff', width: '26px', height: '26px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.85rem' }}>
               3
             </div>
           </div>
 
           {/* FINANCES & PERKS */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.4rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', marginBottom: '1.1rem', fontSize: '0.775rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.35rem' }}>
               <span style={{ color: '#71717a' }}>💳 Saldo pendiente</span>
               <strong style={{ color: '#18181b' }}>RD$0.00</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.4rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.35rem' }}>
               <span style={{ color: '#71717a' }}>🎂 Cumpleaños</span>
               <strong style={{ color: '#be185d' }}>15 de agosto (15% OFF)</strong>
             </div>
@@ -920,29 +920,29 @@ const VisitRecorder = () => {
           {/* FULL HISTORY BUTTON */}
           <button
             onClick={() => setShowHistoryModal(true)}
-            style={{ width: '100%', background: '#ffffff', color: '#18181b', border: '1px solid #e4e4e7', padding: '0.7rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.825rem', cursor: 'pointer', textAlign: 'center' }}
+            style={{ width: '100%', background: '#ffffff', color: '#18181b', border: '1px solid #e4e4e7', padding: '0.6rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.775rem', cursor: 'pointer', textAlign: 'center' }}
           >
             Ver historial del cliente
           </button>
         </div>
 
         {/* ================= COLUMN 2: SERVICES CATALOG & SELECTED LINE ITEMS ================= */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           
           {/* TOP CARD: AGREGA SERVICIOS (FAVORITES & SEARCH) */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
             
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
                 Agrega servicios
               </h3>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#be185d', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#be185d', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                 ❤️ Favoritos
               </span>
             </div>
 
             {/* FAVORITES ICON CAROUSEL */}
-            <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.5rem', marginBottom: '1rem', scrollbarWidth: 'none', position: 'relative' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.4rem', marginBottom: '0.85rem', scrollbarWidth: 'none', position: 'relative' }}>
               {[
                 { name: 'Lavado', icon: '🧴' },
                 { name: 'Lavado + Blower', icon: '💨' },
@@ -959,28 +959,28 @@ const VisitRecorder = () => {
                   key={idx}
                   onClick={() => addServiceToLineItems({ id: `fav-${idx}`, nombre: s.name, precio: 600 })}
                   style={{
-                    minWidth: '78px',
-                    height: '80px',
+                    minWidth: '72px',
+                    height: '74px',
                     background: '#ffffff',
                     border: '1px solid #fecdd3',
                     borderRadius: '12px',
-                    padding: '0.6rem 0.4rem',
+                    padding: '0.5rem 0.3rem',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '0.3rem',
+                    gap: '0.25rem',
                     cursor: 'pointer',
                     flexShrink: 0
                   }}
                 >
-                  <span style={{ fontSize: '1.4rem' }}>{s.icon}</span>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#be185d', textAlign: 'center', lineHeight: 1.1 }}>
+                  <span style={{ fontSize: '1.25rem' }}>{s.icon}</span>
+                  <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textAlign: 'center', lineHeight: 1.1 }}>
                     {s.name}
                   </span>
                 </button>
               ))}
-              <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: '#ffffff', borderRadius: '50%', width: '24px', height: '24px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', color: '#64748b', cursor: 'pointer' }}>
+              <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: '#ffffff', borderRadius: '50%', width: '22px', height: '22px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', color: '#64748b', cursor: 'pointer' }}>
                 ›
               </div>
             </div>
@@ -992,9 +992,9 @@ const VisitRecorder = () => {
                 placeholder="Buscar servicio por nombre..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                style={{ width: '100%', padding: '0.65rem 2.2rem 0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.825rem', outline: 'none' }}
+                style={{ width: '100%', padding: '0.55rem 2.1rem 0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.8rem', outline: 'none' }}
               />
-              <Search size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <Search size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
 
               {/* DROPDOWN OPTIONS */}
               {searchTerm.trim().length > 0 && (
@@ -1008,7 +1008,7 @@ const VisitRecorder = () => {
                           addServiceToLineItems(s);
                           setSearchTerm('');
                         }}
-                        style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.825rem', display: 'flex', justifyContent: 'space-between' }}
+                        style={{ padding: '0.55rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between' }}
                       >
                         <strong>{s.nombre}</strong>
                         <span style={{ color: '#be185d', fontWeight: 700 }}>RD$ {s.precio}</span>
@@ -1020,22 +1020,22 @@ const VisitRecorder = () => {
           </div>
 
           {/* BOTTOM CARD: SERVICIOS SELECCIONADOS TABLE */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-            <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+            <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
               Servicios seleccionados
             </h3>
 
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.825rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid #e4e4e7', textAlign: 'left', color: '#71717a', fontSize: '0.725rem', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700 }}>Servicio</th>
-                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700 }}>Empleado</th>
-                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'right' }}>Precio</th>
-                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'center' }}>Cant.</th>
-                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'center' }}>Desc.</th>
-                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'right' }}>Total</th>
-                    <th style={{ padding: '0.5rem 0.5rem', width: '30px' }}></th>
+                  <tr style={{ borderBottom: '1px solid #e4e4e7', textAlign: 'left', color: '#71717a', fontSize: '0.7rem', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700 }}>Servicio</th>
+                    <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700 }}>Empleado</th>
+                    <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'right' }}>Precio</th>
+                    <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'center' }}>Cant.</th>
+                    <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'center' }}>Desc.</th>
+                    <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'right' }}>Total</th>
+                    <th style={{ padding: '0.45rem 0.4rem', width: '26px' }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1048,45 +1048,45 @@ const VisitRecorder = () => {
                   ) : (
                     lineItems.map((item, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid #f4f4f5' }}>
-                        <td style={{ padding: '0.75rem', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <td style={{ padding: '0.65rem', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
                             <img 
                               src={item.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"}
                               alt={item.nombre}
-                              style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover' }}
+                              style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover' }}
                             />
                             <div>
-                              <strong style={{ color: '#18181b', display: 'block', fontSize: '0.85rem' }}>{item.nombre}</strong>
-                              <span style={{ fontSize: '0.675rem', color: '#94a3b8' }}>Servicio</span>
+                              <strong style={{ color: '#18181b', display: 'block', fontSize: '0.8rem' }}>{item.nombre}</strong>
+                              <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Servicio</span>
                             </div>
                           </div>
                         </td>
-                        <td style={{ padding: '0.75rem', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '0.65rem', verticalAlign: 'middle' }}>
                           <select
                             value={item.empleado_id || item.empleado}
                             onChange={(e) => handleEmployeeChange(idx, e.target.value)}
-                            style={{ padding: '0.35rem 0.5rem', borderRadius: '8px', border: '1px solid #e4e4e7', fontSize: '0.775rem', background: '#ffffff', fontWeight: 600, width: '100px' }}
+                            style={{ padding: '0.3rem 0.4rem', borderRadius: '8px', border: '1px solid #e4e4e7', fontSize: '0.75rem', background: '#ffffff', fontWeight: 600, width: '95px' }}
                           >
                             {employees.map(emp => (
                               <option key={emp.id} value={emp.id || emp.nombre}>{emp.nombre}</option>
                             ))}
                           </select>
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 600, color: '#18181b' }}>
+                        <td style={{ padding: '0.65rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 600, color: '#18181b', whiteSpace: 'nowrap' }}>
                           RD${item.precioBase.toLocaleString('es-DO')}
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', background: '#f4f4f5', borderRadius: '6px', padding: '2px 6px', gap: '6px' }}>
-                            <button onClick={() => updateQuantity(idx, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 800, fontSize: '0.85rem' }}>-</button>
-                            <span style={{ fontWeight: 800, fontSize: '0.8rem', minWidth: '14px' }}>{item.cantidad}</span>
-                            <button onClick={() => updateQuantity(idx, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 800, fontSize: '0.85rem' }}>+</button>
+                        <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', background: '#f4f4f5', borderRadius: '6px', padding: '2px 5px', gap: '5px' }}>
+                            <button onClick={() => updateQuantity(idx, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 800, fontSize: '0.8rem' }}>-</button>
+                            <span style={{ fontWeight: 800, fontSize: '0.775rem', minWidth: '12px' }}>{item.cantidad}</span>
+                            <button onClick={() => updateQuantity(idx, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 800, fontSize: '0.8rem' }}>+</button>
                           </div>
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
                           <select
                             value={item.descuento || 0}
                             onChange={(e) => handleDiscountChange(idx, e.target.value)}
-                            style={{ padding: '0.3rem', borderRadius: '6px', border: '1px solid #e4e4e7', fontSize: '0.75rem' }}
+                            style={{ padding: '0.25rem', borderRadius: '6px', border: '1px solid #e4e4e7', fontSize: '0.725rem' }}
                           >
                             <option value="0">0%</option>
                             <option value="5">5%</option>
@@ -1097,12 +1097,12 @@ const VisitRecorder = () => {
                             <option value="50">50%</option>
                           </select>
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 800, color: '#18181b' }}>
+                        <td style={{ padding: '0.65rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 800, color: '#18181b', whiteSpace: 'nowrap' }}>
                           RD${((item.precioAplicado * item.cantidad) - (item.descuento || 0)).toLocaleString('es-DO')}
                         </td>
-                        <td style={{ padding: '0.75rem', textAlign: 'center', verticalAlign: 'middle' }}>
+                        <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
                           <button onClick={() => removeLineItem(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                            <X size={16} />
+                            <X size={15} />
                           </button>
                         </td>
                       </tr>
@@ -1113,13 +1113,13 @@ const VisitRecorder = () => {
             </div>
 
             {/* ADD NOTE BUTTON */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.85rem' }}>
               <button
                 onClick={() => {
                   const note = prompt('Ingrese una nota para este ticket:', '');
                   if (note) alert(`Nota agregada: ${note}`);
                 }}
-                style={{ background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '8px', padding: '0.4rem 0.8rem', fontSize: '0.775rem', fontWeight: 700, color: '#18181b', cursor: 'pointer' }}
+                style={{ background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '8px', padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, color: '#18181b', cursor: 'pointer' }}
               >
                 + Agregar nota
               </button>
@@ -1128,23 +1128,23 @@ const VisitRecorder = () => {
         </div>
 
         {/* ================= COLUMN 3: INVOICE SUMMARY & PAYMENT METHODS ================= */}
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
           
           {/* FACTURA HEADER */}
-          <div style={{ borderBottom: '1px solid #e4e4e7', paddingBottom: '0.85rem' }}>
+          <div style={{ borderBottom: '1px solid #e4e4e7', paddingBottom: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#18181b' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
                 Factura #000785
               </h3>
-              <span style={{ fontSize: '1rem', color: '#71717a', cursor: 'pointer' }}>⚙️</span>
+              <span style={{ fontSize: '0.9rem', color: '#71717a', cursor: 'pointer' }}>⚙️</span>
             </div>
-            <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#71717a' }}>
+            <p style={{ margin: '0.2rem 0 0', fontSize: '0.725rem', color: '#71717a' }}>
               Fecha: 18/07/2025 | 12:00 PM
             </p>
           </div>
 
           {/* FINANCIAL SUB-TOTALS */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', fontSize: '0.825rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
               <span>Subtotal servicios</span>
               <strong style={{ color: '#18181b' }}>RD$ {totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
@@ -1162,9 +1162,9 @@ const VisitRecorder = () => {
               <strong style={{ color: '#18181b' }}>RD$ {(totalAmount * 0.18).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
             </div>
             
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e4e4e7' }}>
-              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#18181b' }}>TOTAL</span>
-              <span style={{ fontSize: '1.65rem', fontWeight: 900, color: '#e11d48', letterSpacing: '-0.5px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.4rem', paddingTop: '0.65rem', borderTop: '1px solid #e4e4e7' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#18181b' }}>TOTAL</span>
+              <span style={{ fontSize: '1.45rem', fontWeight: 900, color: '#e11d48', letterSpacing: '-0.5px', whiteSpace: 'nowrap' }}>
                 RD$ {(totalAmount * 1.18).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
               </span>
             </div>
@@ -1172,10 +1172,10 @@ const VisitRecorder = () => {
 
           {/* PAYMENT METHOD CARDS GRID */}
           <div>
-            <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.85rem', fontWeight: 800, color: '#18181b' }}>
+            <h4 style={{ margin: '0 0 0.55rem', fontSize: '0.825rem', fontWeight: 800, color: '#18181b' }}>
               Método de pago
             </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem', marginBottom: '0.4rem' }}>
               {[
                 { key: 'Efectivo', label: '💵 Efectivo' },
                 { key: 'Tarjeta', label: '💳 Tarjeta' },
@@ -1185,22 +1185,25 @@ const VisitRecorder = () => {
                   key={m.key}
                   onClick={() => setPaymentMethod(m.key)}
                   style={{
-                    padding: '0.6rem 0.4rem',
-                    borderRadius: '10px',
+                    padding: '0.55rem 0.2rem',
+                    borderRadius: '8px',
                     border: paymentMethod === m.key ? '2px solid #e11d48' : '1px solid #e4e4e7',
                     background: paymentMethod === m.key ? '#fdf2f8' : '#ffffff',
                     color: paymentMethod === m.key ? '#be185d' : '#18181b',
                     fontWeight: 700,
-                    fontSize: '0.75rem',
+                    fontSize: '0.7rem',
                     cursor: 'pointer',
-                    textAlign: 'center'
+                    textAlign: 'center',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
                   }}
                 >
                   {m.label}
                 </button>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
               {[
                 { key: 'Plan Beauty', label: '💎 Plan Beauty' },
                 { key: 'Mixto', label: '🔀 Mixto' }
@@ -1209,15 +1212,18 @@ const VisitRecorder = () => {
                   key={m.key}
                   onClick={() => setPaymentMethod(m.key)}
                   style={{
-                    padding: '0.6rem 0.4rem',
-                    borderRadius: '10px',
+                    padding: '0.55rem 0.2rem',
+                    borderRadius: '8px',
                     border: paymentMethod === m.key ? '2px solid #e11d48' : '1px solid #e4e4e7',
                     background: paymentMethod === m.key ? '#fdf2f8' : '#ffffff',
                     color: paymentMethod === m.key ? '#be185d' : '#18181b',
                     fontWeight: 700,
-                    fontSize: '0.75rem',
+                    fontSize: '0.7rem',
                     cursor: 'pointer',
-                    textAlign: 'center'
+                    textAlign: 'center',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
                   }}
                 >
                   {m.label}
@@ -1227,38 +1233,38 @@ const VisitRecorder = () => {
           </div>
 
           {/* PLAN BEAUTY ACTIVE CONSUMPTION CARD */}
-          <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '0.85rem', borderRadius: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+          <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '0.75rem', borderRadius: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+              <span style={{ fontSize: '0.775rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                 💎 Plan Beauty Activo
               </span>
-              <span style={{ fontSize: '0.725rem', color: '#15803d', fontWeight: 700 }}>
+              <span style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 700 }}>
                 Lavados disponibles: 3
               </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#166534' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#166534' }}>
               <span>¿Desea consumir un lavado?</span>
-              <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
+              <label style={{ position: 'relative', display: 'inline-block', width: '34px', height: '18px' }}>
                 <input 
                   type="checkbox" 
                   defaultChecked={true}
                   style={{ opacity: 0, width: 0, height: 0 }} 
                 />
                 <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, background: '#166534', borderRadius: '20px', transition: '0.2s' }}>
-                  <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: '18px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
+                  <span style={{ position: 'absolute', content: '""', height: '12px', width: '12px', left: '18px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
                 </span>
               </label>
             </div>
           </div>
 
           {/* APPLY DISCOUNT ACCORDION */}
-          <div style={{ border: '1px solid #e4e4e7', borderRadius: '10px', padding: '0.65rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, color: '#18181b' }}>
+          <div style={{ border: '1px solid #e4e4e7', borderRadius: '10px', padding: '0.55rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontSize: '0.775rem', fontWeight: 700, color: '#18181b' }}>
             <span>% Aplicar descuento</span>
             <span>v</span>
           </div>
 
           {/* FINAL ACTION BUTTONS */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <button
               onClick={handleFinalizeCheckout}
               disabled={loading || lineItems.length === 0}
@@ -1267,20 +1273,20 @@ const VisitRecorder = () => {
                 background: '#e11d48',
                 color: '#ffffff',
                 border: 'none',
-                padding: '0.875rem',
+                padding: '0.8rem',
                 borderRadius: '12px',
                 fontWeight: 800,
-                fontSize: '0.95rem',
+                fontSize: '0.9rem',
                 cursor: loading || lineItems.length === 0 ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '0.5rem',
+                gap: '0.4rem',
                 boxShadow: '0 4px 12px rgba(225,29,72,0.25)'
               }}
             >
               <span>› FINALIZAR FACTURA</span>
-              <Printer size={18} />
+              <Printer size={17} />
             </button>
 
             <button
@@ -1290,10 +1296,10 @@ const VisitRecorder = () => {
                 background: '#ffffff',
                 color: '#18181b',
                 border: '1px solid #e4e4e7',
-                padding: '0.75rem',
+                padding: '0.65rem',
                 borderRadius: '12px',
                 fontWeight: 700,
-                fontSize: '0.825rem',
+                fontSize: '0.8rem',
                 cursor: 'pointer'
               }}
             >
@@ -1305,13 +1311,13 @@ const VisitRecorder = () => {
       </div>
 
       {/* FIXED BOTTOM TOOLBAR */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#ffffff', borderTop: '1px solid #e4e4e7', padding: '0.6rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 100, fontSize: '0.775rem', color: '#64748b' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+      <div style={{ position: 'fixed', bottom: 0, left: '260px', right: 0, background: '#ffffff', borderTop: '1px solid #e4e4e7', padding: '0.55rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 90, fontSize: '0.75rem', color: '#64748b' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <span>⌨️ Atajos de teclado: <strong style={{ color: '#18181b' }}>F1 Ver atajos</strong></span>
           <span>📄 Última factura: <strong style={{ color: '#18181b' }}>#000784</strong></span>
           <span style={{ cursor: 'pointer', color: '#be185d', fontWeight: 700 }}>🖨️ Reimprimir</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <span>🔒 Abrir caja: <strong style={{ color: '#18181b' }}>RD$2,500.00</strong></span>
           <span>🔄 Sincronizar: <strong style={{ color: '#166534' }}>✓ Actualizado</strong></span>
         </div>
