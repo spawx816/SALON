@@ -261,10 +261,7 @@ const AppContent = () => {
                 <SidebarLink to="/lista-clientes" icon={Users} label={t('menu.clients')} active={location.pathname === '/lista-clientes'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && (user.permissions.process_billing || user.permissions.register_visits))) && (
-                <SidebarLink to="/visitas" icon={Calendar} label="Facturar" active={location.pathname === '/visitas' && !location.search.includes('caja')} onClick={closeMobileMenu} />
-              )}
-              {(isAdmin || (user?.permissions && (user.permissions.process_billing || user.permissions.register_visits))) && (
-                <SidebarLink to="/visitas?action=caja" icon={CreditCard} label="Caja de Jornada" active={location.search.includes('action=caja')} onClick={closeMobileMenu} />
+                <SidebarLink to="/visitas" icon={Calendar} label="Facturar" active={location.pathname === '/visitas'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
                 <SidebarLink to="/registro-cliente" icon={UserPlus} label="Registrar Cliente" active={location.pathname === '/registro-cliente'} onClick={closeMobileMenu} />
