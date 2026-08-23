@@ -325,10 +325,10 @@ const VisitRecorder = () => {
       };
     });
 
-    // Fallback: If planesConContrato is empty but ticketObj or found indicates a Plan Beauty membership
-    if (planesConContrato.length === 0 && (ticketObj?.plan_beauty_id || found?.status === 'Active')) {
+    // If no contracts were found, ensure client does NOT have a plan
+    if (planesConContrato.length === 0 && ticketObj?.plan_beauty_id) {
       planesConContrato = [{
-        id: ticketObj?.plan_beauty_id || '1',
+        id: ticketObj.plan_beauty_id,
         title: 'Plan Beauty',
         services: ['Lavado y secado ilimitados']
       }];
@@ -341,6 +341,9 @@ const VisitRecorder = () => {
         ? planesConContrato[0].services.map((s, idx) => typeof s === 'string' ? { id: `plan-${idx}`, nombre: s, precio: 0 } : s) 
         : DEFAULT_TOP_SERVICES
       );
+    } else {
+      setSelectedPlanId('none');
+      setAvailableServices(DEFAULT_TOP_SERVICES);
     }
   };
 
@@ -956,90 +959,100 @@ const VisitRecorder = () => {
             </div>
           </div>
 
-          {/* ESTADO DEL PLAN (PERFECTLY PROPORTIONED TO MATCH SCREENSHOT 2) */}
-          <div style={{ background: '#ffffff', border: '1px solid #e4e4e7', padding: '0.75rem', borderRadius: '16px', marginBottom: '1.1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
-            
-            {/* TOP TITLE */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                <span style={{ fontSize: '0.85rem' }}>🎗️</span>
-                <strong style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>Estado del Plan</strong>
+          {/* ESTADO DEL PLAN (ONLY SHOWN IF CLIENT HAS AN ACTIVE PLAN) */}
+          {activePlans && activePlans.length > 0 ? (
+            <div style={{ background: '#ffffff', border: '1px solid #e4e4e7', padding: '0.75rem', borderRadius: '16px', marginBottom: '1.1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+              
+              {/* TOP TITLE */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.85rem' }}>🎗️</span>
+                  <strong style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>Estado del Plan</strong>
+                </div>
+                <div style={{ background: '#000000', color: '#ffffff', width: '18px', height: '18px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer' }} title="Agregar beneficio o plan">
+                  +
+                </div>
               </div>
-              <div style={{ background: '#000000', color: '#ffffff', width: '18px', height: '18px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer' }} title="Agregar beneficio o plan">
-                +
-              </div>
-            </div>
 
-            {/* MAIN GREEN PLAN BANNER */}
-            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                <h4 style={{ margin: 0, fontSize: '0.825rem', fontWeight: 800, color: '#166534' }}>
-                  Plan Beauty
-                </h4>
-                <span style={{ display: 'inline-block', background: '#166534', color: '#ffffff', fontSize: '0.575rem', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-                  PROMO ACTIVA
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.675rem' }}>
-                <span style={{ color: '#15803d', fontWeight: 600 }}>Auto-cobro Activo</span>
-                <span style={{ color: '#166534', fontWeight: 700 }}>Fin Promo: 29/8/2026</span>
-              </div>
-            </div>
-
-            {/* SUBSECTION HEADER */}
-            <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: '0.55rem' }}>
-              SERVICIOS DEL PLAN Y BENEFICIOS
-            </div>
-
-            {/* PLAN SERVICE 1: LAVADOS Y SECADOS */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.55rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.4rem' }}>
-                <div>
-                  <strong style={{ fontSize: '0.775rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.25 }}>
-                    Lavados y Secados
-                  </strong>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
-                    {clientFound ? '2 / 4' : '0 / 4'}
+              {/* MAIN GREEN PLAN BANNER */}
+              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.825rem', fontWeight: 800, color: '#166534' }}>
+                    {activePlans[0]?.title || 'Plan Beauty'}
+                  </h4>
+                  <span style={{ display: 'inline-block', background: '#166534', color: '#ffffff', fontSize: '0.575rem', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                    PROMO ACTIVA
                   </span>
                 </div>
-                <button
-                  onClick={() => addServiceToLineItems({ id: 'plan-washes', nombre: 'Lavado y Secado (Plan Beauty)', precio: 0 })}
-                  style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
-                >
-                  FACTURAR
-                </button>
-              </div>
-              {/* PROGRESS BAR */}
-              <div style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                <div style={{ width: clientFound ? '50%' : '0%', height: '100%', background: '#000000', borderRadius: '4px' }}></div>
-              </div>
-            </div>
-
-            {/* PLAN SERVICE 2: LAVADO Y SECADO EXTRA O TRATAMIENTO PROFUNDO */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.35rem' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <strong style={{ fontSize: '0.725rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.2, wordBreak: 'break-word' }}>
-                    Lavado y Secado Extra o 1 Tratamiento profundo
-                  </strong>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
-                    0 / 1
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.675rem' }}>
+                  <span style={{ color: '#15803d', fontWeight: 600 }}>Auto-cobro Activo</span>
+                  <span style={{ color: '#166534', fontWeight: 700 }}>Fin Promo: 29/8/2026</span>
                 </div>
-                <button
-                  onClick={() => addServiceToLineItems({ id: 'plan-treatment', nombre: 'Tratamiento Profundo (Plan Beauty)', precio: 0 })}
-                  style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
-                >
-                  FACTURAR
-                </button>
               </div>
-              {/* PROGRESS BAR */}
-              <div style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                <div style={{ width: '0%', height: '100%', background: '#000000', borderRadius: '4px' }}></div>
-              </div>
-            </div>
 
-          </div>
+              {/* SUBSECTION HEADER */}
+              <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: '0.55rem' }}>
+                SERVICIOS DEL PLAN Y BENEFICIOS
+              </div>
+
+              {/* PLAN SERVICE 1: LAVADOS Y SECADOS */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.55rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.4rem' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.775rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.25 }}>
+                      Lavados y Secados
+                    </strong>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
+                      2 / 4
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => addServiceToLineItems({ id: 'plan-washes', nombre: 'Lavado y Secado (Plan Beauty)', precio: 0 })}
+                    style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
+                  >
+                    FACTURAR
+                  </button>
+                </div>
+                {/* PROGRESS BAR */}
+                <div style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ width: '50%', height: '100%', background: '#000000', borderRadius: '4px' }}></div>
+                </div>
+              </div>
+
+              {/* PLAN SERVICE 2: LAVADO Y SECADO EXTRA O TRATAMIENTO PROFUNDO */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.35rem' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <strong style={{ fontSize: '0.725rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.2, wordBreak: 'break-word' }}>
+                      Lavado y Secado Extra o 1 Tratamiento profundo
+                    </strong>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
+                      0 / 1
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => addServiceToLineItems({ id: 'plan-treatment', nombre: 'Tratamiento Profundo (Plan Beauty)', precio: 0 })}
+                    style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
+                  >
+                    FACTURAR
+                  </button>
+                </div>
+                {/* PROGRESS BAR */}
+                <div style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ width: '0%', height: '100%', background: '#000000', borderRadius: '4px' }}></div>
+                </div>
+              </div>
+
+            </div>
+          ) : (
+            <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', padding: '0.85rem 0.75rem', borderRadius: '14px', marginBottom: '1.1rem', textAlign: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', marginBottom: '0.2rem' }}>
+                <span style={{ fontSize: '0.9rem' }}>💎</span>
+                <strong style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>Sin Plan Beauty</strong>
+              </div>
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block' }}>Cliente sin membresía activa</span>
+            </div>
+          )}
 
           {/* FINANCES & PERKS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', marginBottom: '1.1rem', fontSize: '0.775rem' }}>
@@ -1372,30 +1385,32 @@ const VisitRecorder = () => {
             </div>
           </div>
 
-          {/* PLAN BEAUTY ACTIVE CONSUMPTION CARD */}
-          <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '0.75rem', borderRadius: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-              <span style={{ fontSize: '0.775rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                💎 Plan Beauty Activo
-              </span>
-              <span style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 700 }}>
-                Lavados disponibles: 3
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#166534' }}>
-              <span>¿Desea consumir un lavado?</span>
-              <label style={{ position: 'relative', display: 'inline-block', width: '34px', height: '18px' }}>
-                <input 
-                  type="checkbox" 
-                  defaultChecked={true}
-                  style={{ opacity: 0, width: 0, height: 0 }} 
-                />
-                <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, background: '#166534', borderRadius: '20px', transition: '0.2s' }}>
-                  <span style={{ position: 'absolute', content: '""', height: '12px', width: '12px', left: '18px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
+          {/* PLAN BEAUTY ACTIVE CONSUMPTION CARD (ONLY IF CLIENT HAS ACTIVE PLAN) */}
+          {activePlans && activePlans.length > 0 && (
+            <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '0.75rem', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                <span style={{ fontSize: '0.775rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  💎 Plan Beauty Activo
                 </span>
-              </label>
+                <span style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 700 }}>
+                  Lavados disponibles: {activePlans[0]?.remaining_washes || 2}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#166534' }}>
+                <span>¿Desea consumir un lavado?</span>
+                <label style={{ position: 'relative', display: 'inline-block', width: '34px', height: '18px' }}>
+                  <input 
+                    type="checkbox" 
+                    defaultChecked={true}
+                    style={{ opacity: 0, width: 0, height: 0 }} 
+                  />
+                  <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, background: '#166534', borderRadius: '20px', transition: '0.2s' }}>
+                    <span style={{ position: 'absolute', content: '""', height: '12px', width: '12px', left: '18px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
+                  </span>
+                </label>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* APPLY DISCOUNT ACCORDION */}
           <div style={{ border: '1px solid #e4e4e7', borderRadius: '10px', padding: '0.55rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontSize: '0.775rem', fontWeight: 700, color: '#18181b' }}>
