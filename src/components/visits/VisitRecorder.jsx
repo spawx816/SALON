@@ -143,9 +143,14 @@ const VisitRecorder = () => {
     }
   };
 
-  // Open / Create New Ticket with Integrated Client Search
   const handleCreateNewTicket = async (e) => {
     e.preventDefault();
+    if (!activeRegister) {
+      alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets de servicio si no existe una caja abierta para el turno actual.');
+      setShowNewTicketModal(false);
+      setShowRegisterOpenModal(true);
+      return;
+    }
     const finalName = selectedClientForTicket ? (selectedClientForTicket.nombre || selectedClientForTicket.name) : newTicketClientName.trim();
     if (!finalName) return;
 
@@ -730,8 +735,30 @@ const VisitRecorder = () => {
           )}
 
           <button
-            onClick={() => setShowNewTicketModal(true)}
-            style={{ background: 'linear-gradient(135deg, #ec4899, #be185d)', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(236,72,153,0.3)' }}
+            onClick={() => {
+              if (!activeRegister) {
+                alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets de atención si no existe una caja abierta para la jornada actual.');
+                setShowRegisterOpenModal(true);
+                return;
+              }
+              setShowNewTicketModal(true);
+            }}
+            style={{ 
+              background: activeRegister ? 'linear-gradient(135deg, #ec4899, #be185d)' : '#64748b', 
+              color: '#ffffff', 
+              border: 'none', 
+              padding: '0.65rem 1.25rem', 
+              borderRadius: '12px', 
+              fontWeight: 800, 
+              fontSize: '0.9rem', 
+              cursor: 'pointer', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem', 
+              boxShadow: activeRegister ? '0 4px 12px rgba(236,72,153,0.3)' : 'none',
+              opacity: activeRegister ? 1 : 0.85
+            }}
+            title={activeRegister ? 'Generar nuevo ticket de servicio' : 'Debe abrir la caja antes de generar un nuevo ticket'}
           >
             <PlusCircle size={18} />
             <span>+ Generar Nuevo Ticket</span>
