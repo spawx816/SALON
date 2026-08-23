@@ -57,6 +57,15 @@ const VisitRecorder = () => {
   const [pendingDiscountItem, setPendingDiscountItem] = useState(null);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
 
+  // OTP Verification for Plan Beauty Consumption
+  const [showOtpVerificationModal, setShowOtpVerificationModal] = useState(false);
+  const [otpCodeInput, setOtpCodeInput] = useState('');
+  const [pendingPlanService, setPendingPlanService] = useState(null);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [adminCodeBypass, setAdminCodeBypass] = useState(false);
+  const [adminBypassPin, setAdminBypassPin] = useState('');
+
   // Payment & Cash Register
   const [activeRegister, setActiveRegister] = useState(null);
   const [showRegisterOpenModal, setShowRegisterOpenModal] = useState(false);
@@ -459,6 +468,97 @@ const VisitRecorder = () => {
         createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
       });
       setShowPrintModal(true);
+    }
+  };
+
+  // Handle Facturar Plan Service with OTP Security
+  const handleStartFacturarPlanService = async (serviceObj) => {
+    if (!clientFound) {
+      alert('Por favor seleccione un cliente primero.');
+      return;
+    }
+    setPendingPlanService(serviceObj);
+    setOtpCodeInput('');
+    setAdminCodeBypass(false);
+    setAdminBypassPin('');
+    setShowOtpVerificationModal(true);
+    setOtpSending(true);
+
+    try {
+      const res = await dataService.generateOTP(clientFound.id, clientFound.email);
+      if (res && res.error) {
+        console.warn('Error sending OTP:', res.error);
+      }
+    } catch (err) {
+      console.error('Error generating OTP for client:', err);
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleResendOtpCode = async () => {
+    if (!clientFound) return;
+    setOtpSending(true);
+    try {
+      const res = await dataService.generateOTP(clientFound.id, clientFound.email);
+      if (res && res.error) {
+        alert('Error al reenviar código: ' + res.error);
+      } else {
+        alert(`✉️ Nuevo código de seguridad enviado al correo del cliente (${clientFound.email || 'correo registrado'}).`);
+      }
+    } catch (err) {
+      alert('Error enviando código: ' + err.message);
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleVerifyOtpAndAddPlanService = async () => {
+    if (adminCodeBypass) {
+      // Gerencial PIN authorization (2026, 1234, 8888)
+      if (adminBypassPin === '2026' || adminBypassPin === '1234' || adminBypassPin === '8888') {
+        if (pendingPlanService) {
+          addServiceToLineItems({ ...pendingPlanService, precio: 0 });
+        }
+        setShowOtpVerificationModal(false);
+        setPendingPlanService(null);
+        alert('🔓 Autorización gerencial aceptada. Servicio del Plan Beauty agregado a la factura (RD$ 0.00).');
+        return;
+      } else {
+        alert('Clave gerencial incorrecta.');
+        return;
+      }
+    }
+
+    if (!otpCodeInput || otpCodeInput.trim().length < 4) {
+      alert('Por favor ingrese el código de verificación de 6 dígitos.');
+      return;
+    }
+
+    setOtpVerifying(true);
+    try {
+      const visitData = {
+        clientName: clientFound.nombre || clientFound.name,
+        servicios: [pendingPlanService?.nombre || 'Lavado y Secado (Plan Beauty)'],
+        salon_id: salonId,
+        empleadoPeluquera: lineItems[0]?.empleado || 'Wendy'
+      };
+
+      await dataService.verifyOTPAndDiscount(clientFound.id, otpCodeInput.trim(), visitData);
+
+      if (pendingPlanService) {
+        addServiceToLineItems({ ...pendingPlanService, precio: 0 });
+      }
+      setShowOtpVerificationModal(false);
+      setPendingPlanService(null);
+      alert('✅ Código verificado con éxito. Servicio del Plan Beauty agregado a la factura (RD$ 0.00).');
+      
+      // Refresh plan data
+      await loadClientPlanData(clientFound.id, clientFound.nombre || clientFound.name);
+    } catch (err) {
+      alert('Código incorrecto o vencido: ' + (err.message || 'Intente nuevamente'));
+    } finally {
+      setOtpVerifying(false);
     }
   };
 
@@ -1062,7 +1162,7 @@ const VisitRecorder = () => {
                     </span>
                   </div>
                   <button
-                    onClick={() => addServiceToLineItems({ id: 'plan-washes', nombre: 'Lavado y Secado (Plan Beauty)', precio: 0 })}
+                    onClick={() => handleStartFacturarPlanService({ id: 'plan-washes', nombre: 'Lavado y Secado (Plan Beauty)', precio: 0 })}
                     style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
                   >
                     FACTURAR
@@ -1086,7 +1186,7 @@ const VisitRecorder = () => {
                     </span>
                   </div>
                   <button
-                    onClick={() => addServiceToLineItems({ id: 'plan-treatment', nombre: 'Tratamiento Profundo (Plan Beauty)', precio: 0 })}
+                    onClick={() => handleStartFacturarPlanService({ id: 'plan-treatment', nombre: 'Tratamiento Profundo (Plan Beauty)', precio: 0 })}
                     style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
                   >
                     FACTURAR
@@ -2277,6 +2377,115 @@ const VisitRecorder = () => {
                 Finalizar y Cerrar Caja
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* ================= MODAL: OTP SECURITY CODE VERIFICATION ================= */}
+      {showOtpVerificationModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
+          <div style={{ background: '#ffffff', borderRadius: '20px', width: '100%', maxWidth: '440px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            
+            {/* MODAL HEADER */}
+            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fdf2f8', border: '2px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem', fontSize: '1.5rem' }}>
+                🔐
+              </div>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>
+                Verificación de Seguridad
+              </h3>
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: '#64748b', lineHeight: 1.4 }}>
+                Autorizar consumo de <strong style={{ color: '#0f172a' }}>{pendingPlanService?.nombre}</strong>
+              </p>
+            </div>
+
+            {/* CLIENT EMAIL NOTICE */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.75rem', marginBottom: '1.25rem', textAlign: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '0.15rem' }}>
+                Código enviado al correo registrado:
+              </span>
+              <strong style={{ fontSize: '0.85rem', color: '#be185d', wordBreak: 'break-all' }}>
+                ✉️ {clientFound?.email || 'melissa_rpt@hotmail.com'}
+              </strong>
+            </div>
+
+            {!adminCodeBypass ? (
+              <>
+                {/* OTP INPUT */}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.4rem', textAlign: 'center' }}>
+                    INGRESE EL CÓDIGO DE 6 DÍGITOS
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="------"
+                    value={otpCodeInput}
+                    onChange={(e) => setOtpCodeInput(e.target.value.replace(/[^0-9]/g, ''))}
+                    autoFocus
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', border: '2px solid #be185d', fontSize: '1.75rem', fontWeight: 900, textAlign: 'center', letterSpacing: '8px', color: '#0f172a', outline: 'none', background: '#fff' }}
+                  />
+                </div>
+
+                {/* HELPER ACTIONS */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', fontSize: '0.75rem' }}>
+                  <button
+                    onClick={handleResendOtpCode}
+                    disabled={otpSending}
+                    style={{ background: 'none', border: 'none', color: '#be185d', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                  >
+                    {otpSending ? 'Enviando...' : '🔄 Reenviar código'}
+                  </button>
+                  <button
+                    onClick={() => setAdminCodeBypass(true)}
+                    style={{ background: 'none', border: 'none', color: '#64748b', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                  >
+                    🔑 Clave Gerencial
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* GERENCIAL PIN BYPASS FORM */
+              <div style={{ marginBottom: '1.25rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', padding: '0.85rem' }}>
+                <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 800, color: '#991b1b', marginBottom: '0.4rem', textAlign: 'center' }}>
+                  CLAVE DE AUTORIZACIÓN GERENCIAL
+                </label>
+                <input
+                  type="password"
+                  placeholder="PIN Gerencial"
+                  value={adminBypassPin}
+                  onChange={(e) => setAdminBypassPin(e.target.value)}
+                  autoFocus
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '10px', border: '1px solid #f87171', fontSize: '1.2rem', fontWeight: 800, textAlign: 'center', outline: 'none', color: '#991b1b' }}
+                />
+                <button
+                  onClick={() => setAdminCodeBypass(false)}
+                  style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '0.725rem', fontWeight: 700, cursor: 'pointer', marginTop: '0.5rem', width: '100%', textAlign: 'center' }}
+                >
+                  ← Volver a código por correo
+                </button>
+              </div>
+            )}
+
+            {/* ACTION BUTTONS */}
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                onClick={() => {
+                  setShowOtpVerificationModal(false);
+                  setPendingPlanService(null);
+                }}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, cursor: 'pointer', color: '#475569', fontSize: '0.85rem' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleVerifyOtpAndAddPlanService}
+                disabled={otpVerifying || (!adminCodeBypass && otpCodeInput.length < 4)}
+                style={{ flex: 1.3, padding: '0.75rem', borderRadius: '12px', border: 'none', background: '#000000', color: '#ffffff', fontWeight: 900, cursor: 'pointer', fontSize: '0.85rem', opacity: (otpVerifying || (!adminCodeBypass && otpCodeInput.length < 4)) ? 0.6 : 1 }}
+              >
+                {otpVerifying ? 'Verificando...' : 'Verificar y Facturar'}
+              </button>
+            </div>
+
           </div>
         </div>
       )}
