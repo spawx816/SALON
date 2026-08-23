@@ -388,20 +388,29 @@ const VisitRecorder = () => {
     }
   };
 
-  // Line Items Controls (Price rules)
+  // Line Items Controls (Price rules & Intelligent matching)
   const addServiceToLineItems = (service) => {
-    const firstEmp = employees[0] || { id: 'EMP-1', nombre: 'Ana Gómez' };
+    const match = availableServices.find(s => 
+      (s.id && s.id === service.id) || 
+      (s.nombre || '').toLowerCase().trim() === (service.nombre || '').toLowerCase().trim() ||
+      (s.nombre || '').toLowerCase().includes((service.nombre || '').toLowerCase())
+    );
+    const realPrice = match?.precio || match?.precioBase || service.precio || service.precioBase || 600;
+    const realName = match?.nombre || service.nombre;
+    const firstEmp = employees[0] || { id: '1', nombre: 'Wendy' };
+
     const newItem = {
       id: Date.now() + Math.random(),
-      service_id: service.id,
-      nombre: service.nombre,
-      precioBase: service.precio,
-      precioAplicado: service.precio,
+      service_id: match?.id || service.id || `srv-${Date.now()}`,
+      nombre: realName,
+      precioBase: realPrice,
+      precioAplicado: realPrice,
       cantidad: 1,
       empleado: firstEmp.nombre,
       empleado_id: firstEmp.id,
       empleado_nombre: firstEmp.nombre,
-      descuento: 0
+      descuento: 0,
+      image: service.image || match?.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"
     };
     setLineItems([...lineItems, newItem]);
   };
@@ -823,24 +832,39 @@ const VisitRecorder = () => {
             </div>
 
             {/* SEARCH AUTO-COMPLETE RESULTS */}
-            {clientSearchTerm.trim().length > 1 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+            {clientSearchTerm.trim().length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '220px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
                 {allClients
                   .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
-                  .map(c => (
-                    <div
-                      key={c.id}
+                  .length === 0 ? (
+                    <div 
                       onClick={() => {
-                        setClientFound(c);
-                        loadClientPlanData(c.id, c.nombre || c.name);
-                        setClientSearchTerm('');
+                        setNewTicketClientName(clientSearchTerm);
+                        setShowNewTicketModal(true);
                       }}
-                      style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.825rem' }}
+                      style={{ padding: '0.65rem 0.85rem', cursor: 'pointer', fontSize: '0.8rem', color: '#be185d', fontWeight: 700 }}
                     >
-                      <strong style={{ color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
-                      <span style={{ color: '#64748b', fontSize: '0.75rem' }}>📞 {c.telefono || c.phone || 'Sin tel'} | 🪪 {c.cedula || 'Sin cédula'}</span>
+                      ➕ Registrar "{clientSearchTerm}" como nuevo cliente
                     </div>
-                  ))}
+                  ) : (
+                    allClients
+                      .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
+                      .map(c => (
+                        <div
+                          key={c.id}
+                          onClick={() => {
+                            setClientFound(c);
+                            loadClientPlanData(c.id, c.nombre || c.name);
+                            setClientSearchTerm('');
+                          }}
+                          style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem' }}
+                          className="hover-bg-pink"
+                        >
+                          <strong style={{ color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
+                          <span style={{ color: '#64748b', fontSize: '0.725rem' }}>📞 {c.telefono || c.phone || 'Sin tel'} | 🪪 {c.cedula || 'Sin cédula'}</span>
+                        </div>
+                      ))
+                  )}
               </div>
             )}
           </div>
