@@ -956,59 +956,55 @@ const VisitRecorder = () => {
             </div>
           </div>
 
-          {/* ESTADO DEL PLAN (MATCHING USER SCREENSHOT 2) */}
-          <div style={{ background: '#ffffff', border: '1px solid #e4e4e7', padding: '0.85rem', borderRadius: '16px', marginBottom: '1.1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+          {/* ESTADO DEL PLAN (PERFECTLY PROPORTIONED TO MATCH SCREENSHOT 2) */}
+          <div style={{ background: '#ffffff', border: '1px solid #e4e4e7', padding: '0.75rem', borderRadius: '16px', marginBottom: '1.1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
             
             {/* TOP TITLE */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.9rem' }}>🎗️</span>
-                <strong style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0f172a' }}>Estado del Plan</strong>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '0.85rem' }}>🎗️</span>
+                <strong style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>Estado del Plan</strong>
               </div>
-              <div style={{ background: '#000000', color: '#ffffff', width: '20px', height: '20px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }} title="Agregar beneficio o plan">
+              <div style={{ background: '#000000', color: '#ffffff', width: '18px', height: '18px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer' }} title="Agregar beneficio o plan">
                 +
               </div>
             </div>
 
             {/* MAIN GREEN PLAN BANNER */}
-            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '0.75rem 0.85rem', borderRadius: '14px', marginBottom: '0.85rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.2rem' }}>
-                <div>
-                  <h4 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 800, color: '#166534' }}>
-                    Plan Beauty
-                  </h4>
-                  <span style={{ fontSize: '0.725rem', color: '#15803d', fontWeight: 600 }}>Auto-cobro Activo</span>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ display: 'inline-block', background: '#166534', color: '#ffffff', fontSize: '0.6rem', fontWeight: 800, padding: '2px 7px', borderRadius: '10px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-                    PROMO ACTIVA
-                  </span>
-                  <div style={{ fontSize: '0.675rem', color: '#166534', fontWeight: 700, marginTop: '0.2rem' }}>
-                    Fin Promo: 29/8/2026
-                  </div>
-                </div>
+            <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                <h4 style={{ margin: 0, fontSize: '0.825rem', fontWeight: 800, color: '#166534' }}>
+                  Plan Beauty
+                </h4>
+                <span style={{ display: 'inline-block', background: '#166534', color: '#ffffff', fontSize: '0.575rem', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                  PROMO ACTIVA
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.675rem' }}>
+                <span style={{ color: '#15803d', fontWeight: 600 }}>Auto-cobro Activo</span>
+                <span style={{ color: '#166534', fontWeight: 700 }}>Fin Promo: 29/8/2026</span>
               </div>
             </div>
 
             {/* SUBSECTION HEADER */}
-            <div style={{ fontSize: '0.675rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.5px', textTransform: 'uppercase', marginBottom: '0.6rem' }}>
+            <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: '0.55rem' }}>
               SERVICIOS DEL PLAN Y BENEFICIOS
             </div>
 
             {/* PLAN SERVICE 1: LAVADOS Y SECADOS */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.75rem 0.85rem', borderRadius: '12px', marginBottom: '0.6rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.55rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.4rem' }}>
                 <div>
-                  <strong style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.2 }}>
+                  <strong style={{ fontSize: '0.775rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.25 }}>
                     Lavados y Secados
                   </strong>
-                  <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#475569', marginTop: '0.15rem', display: 'block' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
                     {clientFound ? '2 / 4' : '0 / 4'}
                   </span>
                 </div>
                 <button
                   onClick={() => addServiceToLineItems({ id: 'plan-washes', nombre: 'Lavado y Secado (Plan Beauty)', precio: 0 })}
-                  style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0.35rem 0.75rem', fontWeight: 900, fontSize: '0.675rem', cursor: 'pointer', letterSpacing: '0.5px' }}
+                  style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
                 >
                   FACTURAR
                 </button>
@@ -1020,19 +1016,19 @@ const VisitRecorder = () => {
             </div>
 
             {/* PLAN SERVICE 2: LAVADO Y SECADO EXTRA O TRATAMIENTO PROFUNDO */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.75rem 0.85rem', borderRadius: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                <div>
-                  <strong style={{ fontSize: '0.775rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.2 }}>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.35rem' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <strong style={{ fontSize: '0.725rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.2, wordBreak: 'break-word' }}>
                     Lavado y Secado Extra o 1 Tratamiento profundo
                   </strong>
-                  <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#475569', marginTop: '0.15rem', display: 'block' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
                     0 / 1
                   </span>
                 </div>
                 <button
                   onClick={() => addServiceToLineItems({ id: 'plan-treatment', nombre: 'Tratamiento Profundo (Plan Beauty)', precio: 0 })}
-                  style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0.35rem 0.75rem', fontWeight: 900, fontSize: '0.675rem', cursor: 'pointer', letterSpacing: '0.5px', marginLeft: '0.4rem', flexShrink: 0 }}
+                  style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
                 >
                   FACTURAR
                 </button>
