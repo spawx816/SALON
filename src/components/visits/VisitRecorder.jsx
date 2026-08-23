@@ -30,29 +30,13 @@ const VisitRecorder = () => {
   const [isTicketExpanded, setIsTicketExpanded] = useState(false);
 
   // Form & Line Items
-  const [clientFound, setClientFound] = useState({
-    id: 'CLI-001',
-    nombre: 'María Pérez',
-    telefono: '(809) 555-1234',
-    cedula: '001-1234567-8',
-    email: 'maria.perez@example.com',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
-  });
-  const [lineItems, setLineItems] = useState([
-    { id: '1', nombre: 'Lavado + Blower', precioBase: 600, precioAplicado: 600, cantidad: 1, empleado: 'Wendy', empleado_id: '1', empleado_nombre: 'Wendy', descuento: 0, image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80' },
-    { id: '2', nombre: 'Color Largo', precioBase: 2800, precioAplicado: 2800, cantidad: 1, empleado: 'Nelly', empleado_id: '2', empleado_nombre: 'Nelly', descuento: 0, image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=100&auto=format&fit=crop&q=80' },
-    { id: '3', nombre: 'Ampolla Hidratante', precioBase: 500, precioAplicado: 500, cantidad: 1, empleado: 'Genesis', empleado_id: '3', empleado_nombre: 'Genesis', descuento: 0, image: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?w=100&auto=format&fit=crop&q=80' },
-    { id: '4', nombre: 'Gel Manos', precioBase: 1000, precioAplicado: 1000, cantidad: 1, empleado: 'Genesis', empleado_id: '3', empleado_nombre: 'Genesis', descuento: 0, image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=100&auto=format&fit=crop&q=80' }
-  ]);
+  const [clientFound, setClientFound] = useState(null);
+  const [lineItems, setLineItems] = useState([]);
   const [availableServices, setAvailableServices] = useState(DEFAULT_TOP_SERVICES);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activePlans, setActivePlans] = useState([{ title: 'Plan Beauty', remaining_washes: 3 }]);
+  const [activePlans, setActivePlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('none');
-  const [employees, setEmployees] = useState([
-    { id: '1', nombre: 'Wendy', cargo: 'Estilista' },
-    { id: '2', nombre: 'Nelly', cargo: 'Estilista' },
-    { id: '3', nombre: 'Genesis', cargo: 'Manicurista' }
-  ]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Modals & Client Search for Ticket Generation
@@ -62,6 +46,7 @@ const VisitRecorder = () => {
   const [printableTicketData, setPrintableTicketData] = useState(null);
   const [allClients, setAllClients] = useState([]);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
+  const [modalClientSearchTerm, setModalClientSearchTerm] = useState('');
   const [selectedClientForTicket, setSelectedClientForTicket] = useState(null);
   const [newTicketClientName, setNewTicketClientName] = useState('');
   const [newTicketCedula, setNewTicketCedula] = useState('');
@@ -871,17 +856,23 @@ const VisitRecorder = () => {
 
           {/* CLIENT AVATAR & CARD DETAILS */}
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1.1rem' }}>
-            <img 
-              src={clientFound?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
-              alt="Avatar"
-              style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #fbcfe8' }}
-            />
+            {clientFound?.avatar ? (
+              <img 
+                src={clientFound.avatar}
+                alt="Avatar"
+                style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #fbcfe8' }}
+              />
+            ) : (
+              <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: clientFound ? '#fdf2f8' : '#f1f5f9', border: `2px solid ${clientFound ? '#fbcfe8' : '#cbd5e1'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', fontWeight: 800, color: clientFound ? '#be185d' : '#64748b' }}>
+                {clientFound ? (clientFound.nombre || 'C').charAt(0).toUpperCase() : '👤'}
+              </div>
+            )}
             <div>
               <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#18181b', lineHeight: 1.2 }}>
-                {clientFound?.nombre || selectedTicket?.client_name || 'María Pérez'}
+                {clientFound?.nombre || selectedTicket?.client_name || 'Sin Cliente Seleccionado'}
               </h4>
-              <span style={{ display: 'inline-block', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '1px 8px', borderRadius: '12px', fontSize: '0.675rem', fontWeight: 800, marginTop: '0.2rem' }}>
-                Cliente frecuente
+              <span style={{ display: 'inline-block', background: clientFound ? '#fdf2f8' : '#f1f5f9', color: clientFound ? '#be185d' : '#64748b', border: `1px solid ${clientFound ? '#fbcfe8' : '#e2e8f0'}`, padding: '1px 8px', borderRadius: '12px', fontSize: '0.675rem', fontWeight: 800, marginTop: '0.2rem' }}>
+                {clientFound ? (activePlans.length > 0 ? 'Socio Plan Beauty' : 'Cliente Frecuente') : 'Busca un cliente arriba'}
               </span>
             </div>
           </div>
@@ -890,11 +881,11 @@ const VisitRecorder = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1.1rem', fontSize: '0.8rem', color: '#475569' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <span>📞</span>
-              <span>{clientFound?.telefono || clientFound?.phone || '(809) 555-1234'}</span>
+              <span>{clientFound?.telefono || clientFound?.phone || '--'}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <span>🪪</span>
-              <span>{clientFound?.cedula || '001-1234567-8'}</span>
+              <span>{clientFound?.cedula || '--'}</span>
             </div>
           </div>
 
@@ -902,26 +893,28 @@ const VisitRecorder = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.1rem', background: '#f8fafc', padding: '0.65rem 0.75rem', borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '0.75rem' }}>
             <div>
               <span style={{ color: '#71717a', display: 'block', fontSize: '0.675rem', marginBottom: '0.1rem' }}>⏱️ Última visita</span>
-              <strong style={{ color: '#18181b', fontWeight: 700 }}>Hace 5 días</strong>
+              <strong style={{ color: '#18181b', fontWeight: 700 }}>{clientFound ? 'Hace 5 días' : '--'}</strong>
             </div>
             <div>
               <span style={{ color: '#71717a', display: 'block', fontSize: '0.675rem', marginBottom: '0.1rem' }}>✂️ Estilista habitual</span>
-              <strong style={{ color: '#18181b', fontWeight: 700 }}>Wendy</strong>
+              <strong style={{ color: '#18181b', fontWeight: 700 }}>{lineItems[0]?.empleado || 'Wendy'}</strong>
             </div>
           </div>
 
           {/* PLAN BEAUTY CARD */}
-          <div style={{ background: '#fff0f5', border: '1px solid #fbcfe8', padding: '0.75rem 0.85rem', borderRadius: '14px', marginBottom: '1.1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: activePlans.length > 0 ? '#fff0f5' : '#f8fafc', border: `1px solid ${activePlans.length > 0 ? '#fbcfe8' : '#e2e8f0'}`, padding: '0.75rem 0.85rem', borderRadius: '14px', marginBottom: '1.1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <span style={{ color: '#be185d', fontSize: '0.9rem' }}>💎</span>
-                <strong style={{ color: '#be185d', fontSize: '0.825rem', fontWeight: 800 }}>Plan Beauty</strong>
-                <span style={{ fontSize: '0.6rem', background: '#dcfce7', color: '#166534', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', marginLeft: '0.2rem' }}>Active</span>
+                <span style={{ color: activePlans.length > 0 ? '#be185d' : '#64748b', fontSize: '0.9rem' }}>💎</span>
+                <strong style={{ color: activePlans.length > 0 ? '#be185d' : '#475569', fontSize: '0.825rem', fontWeight: 800 }}>Plan Beauty</strong>
+                {activePlans.length > 0 && (
+                  <span style={{ fontSize: '0.6rem', background: '#dcfce7', color: '#166534', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', marginLeft: '0.2rem' }}>Activo</span>
+                )}
               </div>
               <span style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '0.15rem', display: 'block' }}>Lavados disponibles</span>
             </div>
-            <div style={{ background: '#be185d', color: '#ffffff', width: '26px', height: '26px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.85rem' }}>
-              3
+            <div style={{ background: activePlans.length > 0 ? '#be185d' : '#94a3b8', color: '#ffffff', width: '26px', height: '26px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.85rem' }}>
+              {activePlans.length > 0 ? (activePlans[0].remaining_washes || 3) : 0}
             </div>
           </div>
 
@@ -1366,19 +1359,19 @@ const VisitRecorder = () => {
                   <input
                     type="text"
                     placeholder="Escribe para buscar cliente..."
-                    value={clientSearchTerm}
+                    value={modalClientSearchTerm}
                     onChange={(e) => {
-                      setClientSearchTerm(e.target.value);
+                      setModalClientSearchTerm(e.target.value);
                       setSelectedClientForTicket(null);
                     }}
                     style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
                   />
 
-                  {clientSearchTerm.trim().length > 0 && !selectedClientForTicket && (
+                  {modalClientSearchTerm.trim().length > 0 && !selectedClientForTicket && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
                       {allClients
                         .filter(c => {
-                          const term = clientSearchTerm.toLowerCase();
+                          const term = modalClientSearchTerm.toLowerCase();
                           const n = (c.nombre || c.name || '').toLowerCase();
                           const cd = (c.cedula || '').toLowerCase();
                           const ph = (c.telefono || c.phone || '').toLowerCase();
@@ -1390,7 +1383,7 @@ const VisitRecorder = () => {
                             key={cli.id}
                             onClick={() => {
                               setSelectedClientForTicket(cli);
-                              setClientSearchTerm(cli.nombre || cli.name);
+                              setModalClientSearchTerm(cli.nombre || cli.name);
                               setNewTicketClientName(cli.nombre || cli.name);
                               setNewTicketCedula(cli.cedula || '');
                             }}
@@ -1421,7 +1414,7 @@ const VisitRecorder = () => {
                     type="button"
                     onClick={() => {
                       setSelectedClientForTicket(null);
-                      setClientSearchTerm('');
+                      setModalClientSearchTerm('');
                     }}
                     style={{ background: 'transparent', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
                   >
