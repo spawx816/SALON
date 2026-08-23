@@ -373,6 +373,46 @@ const VisitRecorder = () => {
     }
   };
 
+  // Automatically Create/Assign Ticket on Client Selection from Search
+  const handleSelectClientAndInitTicket = async (clientObj) => {
+    setClientFound(clientObj);
+    loadClientPlanData(clientObj.id, clientObj.nombre || clientObj.name);
+    setClientSearchTerm('');
+
+    try {
+      const res = await dataService.createPendingTicket({
+        clientId: clientObj.id,
+        clientName: clientObj.nombre || clientObj.name,
+        servicios: ['Servicio en preparación'],
+        empleadoPeluquera: 'Sin asignar',
+        salon_id: salonId
+      });
+      
+      const newTicketObj = {
+        id: res.id,
+        ticket_number: res.ticketNumber || `#${Math.floor(100000 + Math.random() * 900000)}`,
+        salon_name: res.salonName || 'Sucursal San Vicente de Paúl',
+        client_id: clientObj.id,
+        client_name: clientObj.nombre || clientObj.name,
+        visited_at: new Date().toISOString(),
+        servicios: [],
+        status: 'En Edición'
+      };
+      
+      setSelectedTicket(newTicketObj);
+      await fetchPendingTickets();
+    } catch (err) {
+      console.error('Error creating ticket on client select:', err);
+      setSelectedTicket({
+        id: `ticket-${Date.now()}`,
+        ticket_number: `#${Math.floor(100000 + Math.random() * 900000)}`,
+        client_id: clientObj.id,
+        client_name: clientObj.nombre || clientObj.name,
+        status: 'En Edición'
+      });
+    }
+  };
+
   // Line Items Controls (Price rules & Intelligent matching)
   const addServiceToLineItems = (service) => {
     const match = availableServices.find(s => 
@@ -838,9 +878,7 @@ const VisitRecorder = () => {
                         <div
                           key={c.id}
                           onClick={() => {
-                            setClientFound(c);
-                            loadClientPlanData(c.id, c.nombre || c.name);
-                            setClientSearchTerm('');
+                            handleSelectClientAndInitTicket(c);
                           }}
                           style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem' }}
                           className="hover-bg-pink"
@@ -1151,12 +1189,12 @@ const VisitRecorder = () => {
           <div style={{ borderBottom: '1px solid #e4e4e7', paddingBottom: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
-                Factura #000785
+                Factura {selectedTicket?.ticket_number || `#000${Math.floor(700 + Math.random() * 100)}`}
               </h3>
               <span style={{ fontSize: '0.9rem', color: '#71717a', cursor: 'pointer' }}>⚙️</span>
             </div>
             <p style={{ margin: '0.2rem 0 0', fontSize: '0.725rem', color: '#71717a' }}>
-              Fecha: 18/07/2025 | 12:00 PM
+              Fecha: {new Date().toLocaleDateString('es-DO')} | {new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
 
