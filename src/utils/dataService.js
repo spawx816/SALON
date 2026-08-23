@@ -249,6 +249,17 @@ export const dataService = {
     }
   },
 
+  getTopServices: async () => {
+    try {
+      const res = await fetch(`${API_URL}/services/top`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching top services:', e);
+      return [];
+    }
+  },
+
   createService: async (serviceData) => {
     try {
       const res = await fetch(`${API_URL}/services`, {

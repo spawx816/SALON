@@ -89,13 +89,25 @@ const VisitRecorder = () => {
   const [otpCode, setOtpCode] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
 
-  // Load Pending Tickets, Employees, Cash Register, and Clients on Mount
+  // Load Pending Tickets, Employees, Cash Register, Top Services and Clients on Mount
   useEffect(() => {
     fetchPendingTickets();
     fetchEmployees();
     fetchActiveRegister();
     fetchClients();
+    fetchTopServices();
   }, [salonId]);
+
+  const fetchTopServices = async () => {
+    try {
+      const top = await dataService.getTopServices();
+      if (Array.isArray(top) && top.length > 0) {
+        setAvailableServices(top);
+      }
+    } catch (e) {
+      console.error('Error cargando accesos rápidos Top 7:', e);
+    }
+  };
 
   const fetchClients = async () => {
     try {
@@ -672,6 +684,7 @@ const VisitRecorder = () => {
       setLineItems([]);
       setMontoRecibido('');
       await fetchPendingTickets();
+      await fetchTopServices();
     } catch (err) {
       alert('Error al finalizar factura: ' + err.message);
     } finally {
@@ -941,21 +954,27 @@ const VisitRecorder = () => {
               </div>
             )}
 
-            {/* TOP 7 ACCESOS RÁPIDOS & CATÁLOGO */}
+            {/* TOP 7 ACCESOS RÁPIDOS INTELEVENTES CALCULADOS EN TIEMPO REAL */}
             <div style={{ marginBottom: '1.5rem' }}>
-              <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                ⚡ Accesos Rápidos Top 7 Servicios
-              </h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  ⚡ Accesos Rápidos Inteligentes (Top 7)
+                </h4>
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '12px', border: '1px solid #86efac' }}>
+                  📊 Calculados en tiempo real
+                </span>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                {DEFAULT_TOP_SERVICES.map((s) => (
+                {availableServices.slice(0, 7).map((s) => (
                   <button
-                    key={s.id}
+                    key={s.id || s.nombre}
                     onClick={() => addServiceToLineItems(s)}
                     style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.5rem 0.875rem', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                     className="hover-lift"
+                    title="Agregar servicio al ticket con 1 clic"
                   >
                     <span>+ {s.nombre}</span>
-                    <span style={{ color: '#be185d', fontSize: '0.8rem' }}>RD$ {s.precio}</span>
+                    <span style={{ color: '#be185d', fontSize: '0.8rem', fontWeight: 800 }}>RD$ {Number(s.precio || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</span>
                   </button>
                 ))}
               </div>

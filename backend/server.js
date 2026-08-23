@@ -1841,6 +1841,46 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
+// === TOP 7 INTELLIGENT QUICK ACCESS SERVICES ===
+app.get('/api/services/top', async (req, res) => {
+  try {
+    // 1. Fetch active services
+    const [activeServices] = await pool.query('SELECT * FROM services WHERE activo = 1 ORDER BY orden_visualizacion ASC, nombre ASC');
+
+    if (activeServices.length === 0) {
+      return res.json([]);
+    }
+
+    // 2. Compute historical usage frequency from past visits
+    const [visits] = await pool.query("SELECT items_detail FROM visits WHERE status = 'Facturado' AND items_detail IS NOT NULL");
+    const usageCounts = {};
+
+    visits.forEach(v => {
+      let items = [];
+      try { items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail; } catch(e){}
+      if (Array.isArray(items)) {
+        items.forEach(item => {
+          const sName = (item.servicio || item.nombre || item.name || '').trim().toLowerCase();
+          if (sName) {
+            usageCounts[sName] = (usageCounts[sName] || 0) + (parseInt(item.cantidad) || 1);
+          }
+        });
+      }
+    });
+
+    // 3. Sort active services by real usage frequency
+    const sortedServices = [...activeServices].sort((a, b) => {
+      const countA = usageCounts[a.nombre.trim().toLowerCase()] || 0;
+      const countB = usageCounts[b.nombre.trim().toLowerCase()] || 0;
+      return countB - countA; // Most used first
+    });
+
+    res.json(sortedServices.slice(0, 7));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/services', async (req, res) => {
   try {
     const {
