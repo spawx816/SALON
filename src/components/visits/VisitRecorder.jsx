@@ -77,6 +77,7 @@ const VisitRecorder = () => {
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [montoRecibido, setMontoRecibido] = useState('');
   const [selectedEmployeeForConsumption, setSelectedEmployeeForConsumption] = useState('');
+  const [consumePlanWash, setConsumePlanWash] = useState(true);
 
   // Gift Card & Mixed Payment States
   const [giftCardCode, setGiftCardCode] = useState('');
@@ -543,11 +544,37 @@ const VisitRecorder = () => {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  const calculateTotal = () => {
-    return lineItems.reduce((acc, item) => acc + (item.precioAplicado * item.cantidad) - (item.descuento || 0), 0);
+  // Calculate Plan Beauty discount when consumePlanWash is ON and client has active plan
+  const calculatePlanDiscount = () => {
+    if (!consumePlanWash || !activePlans || activePlans.length === 0) return 0;
+    // Find the first wash/covered item in line items
+    const washItem = lineItems.find(item => 
+      (item.nombre || '').toLowerCase().includes('lavado') || 
+      (item.nombre || '').toLowerCase().includes('secado') || 
+      String(item.service_id).includes('plan') ||
+      item.id === 'plan-washes' ||
+      item.id === 'plan-treatment'
+    );
+    if (washItem) {
+      return (washItem.precioAplicado * washItem.cantidad);
+    }
+    // If paymentMethod is Plan Beauty and items exist, cover the first item
+    if (paymentMethod === 'Plan Beauty' && lineItems.length > 0) {
+      return (lineItems[0].precioAplicado * lineItems[0].cantidad);
+    }
+    return 0;
   };
 
-  const totalAmount = calculateTotal();
+  const grossSubtotal = lineItems.reduce((acc, item) => acc + (item.precioAplicado * item.cantidad), 0);
+  const manualDiscounts = lineItems.reduce((acc, item) => acc + (item.descuento || 0), 0);
+  const planDiscountAmount = calculatePlanDiscount();
+  const totalDiscounts = manualDiscounts + planDiscountAmount;
+  const taxableSubtotal = Math.max(0, grossSubtotal - totalDiscounts);
+  const itbisAmount = taxableSubtotal * 0.18;
+  const finalTotalAmount = taxableSubtotal + itbisAmount;
+  const totalAmount = finalTotalAmount;
+
+  const calculateTotal = () => finalTotalAmount;
 
   // Real-Time Devuelta calculation
   const devueltaAmount = Math.max(0, (parseFloat(montoRecibido) || 0) - totalAmount);
@@ -1321,25 +1348,27 @@ const VisitRecorder = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
               <span>Subtotal servicios</span>
-              <strong style={{ color: '#18181b' }}>RD$ {totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+              <strong style={{ color: '#18181b' }}>RD$ {grossSubtotal.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
               <span>Productos</span>
               <strong style={{ color: '#18181b' }}>RD$ 0.00</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
-              <span>Descuentos</span>
-              <strong style={{ color: '#ef4444' }}>- RD$ 0.00</strong>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: totalDiscounts > 0 ? '#ef4444' : '#71717a' }}>
+              <span>Descuentos {planDiscountAmount > 0 ? '(Plan Beauty)' : ''}</span>
+              <strong style={{ color: totalDiscounts > 0 ? '#ef4444' : '#71717a' }}>
+                - RD$ {totalDiscounts.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+              </strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
               <span>ITBIS (18%)</span>
-              <strong style={{ color: '#18181b' }}>RD$ {(totalAmount * 0.18).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+              <strong style={{ color: '#18181b' }}>RD$ {itbisAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
             </div>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.4rem', paddingTop: '0.65rem', borderTop: '1px solid #e4e4e7' }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#18181b' }}>TOTAL</span>
               <span style={{ fontSize: '1.45rem', fontWeight: 900, color: '#e11d48', letterSpacing: '-0.5px', whiteSpace: 'nowrap' }}>
-                RD$ {(totalAmount * 1.18).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                RD$ {finalTotalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
               </span>
             </div>
           </div>
@@ -1384,7 +1413,10 @@ const VisitRecorder = () => {
               ].map(m => (
                 <button
                   key={m.key}
-                  onClick={() => setPaymentMethod(m.key)}
+                  onClick={() => {
+                    setPaymentMethod(m.key);
+                    if (m.key === 'Plan Beauty') setConsumePlanWash(true);
+                  }}
                   style={{
                     padding: '0.55rem 0.2rem',
                     borderRadius: '8px',
@@ -1419,14 +1451,15 @@ const VisitRecorder = () => {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#166534' }}>
                 <span>¿Desea consumir un lavado?</span>
-                <label style={{ position: 'relative', display: 'inline-block', width: '34px', height: '18px' }}>
+                <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px', cursor: 'pointer' }}>
                   <input 
                     type="checkbox" 
-                    defaultChecked={true}
+                    checked={consumePlanWash}
+                    onChange={(e) => setConsumePlanWash(e.target.checked)}
                     style={{ opacity: 0, width: 0, height: 0 }} 
                   />
-                  <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, background: '#166534', borderRadius: '20px', transition: '0.2s' }}>
-                    <span style={{ position: 'absolute', content: '""', height: '12px', width: '12px', left: '18px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
+                  <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, background: consumePlanWash ? '#166534' : '#cbd5e1', borderRadius: '20px', transition: '0.2s' }}>
+                    <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: consumePlanWash ? '19px' : '3px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
                   </span>
                 </label>
               </div>
