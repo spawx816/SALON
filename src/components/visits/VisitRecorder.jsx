@@ -30,12 +30,28 @@ const VisitRecorder = () => {
   const [isTicketExpanded, setIsTicketExpanded] = useState(false);
 
   // Form & Line Items
-  const [clientFound, setClientFound] = useState(null);
-  const [lineItems, setLineItems] = useState([]);
+  const [clientFound, setClientFound] = useState({
+    id: 'CLI-001',
+    nombre: 'María Pérez',
+    telefono: '(809) 555-1234',
+    cedula: '001-1234567-8',
+    email: 'maria.perez@example.com',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+  });
+  const [lineItems, setLineItems] = useState([
+    { id: '1', nombre: 'Lavado + Blower', precioBase: 600, precioAplicado: 600, cantidad: 1, empleado: 'Wendy', empleado_id: '1', empleado_nombre: 'Wendy', descuento: 0, image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80' },
+    { id: '2', nombre: 'Color Largo', precioBase: 2800, precioAplicado: 2800, cantidad: 1, empleado: 'Nelly', empleado_id: '2', empleado_nombre: 'Nelly', descuento: 0, image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=100&auto=format&fit=crop&q=80' },
+    { id: '3', nombre: 'Ampolla Hidratante', precioBase: 500, precioAplicado: 500, cantidad: 1, empleado: 'Genesis', empleado_id: '3', empleado_nombre: 'Genesis', descuento: 0, image: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?w=100&auto=format&fit=crop&q=80' },
+    { id: '4', nombre: 'Gel Manos', precioBase: 1000, precioAplicado: 1000, cantidad: 1, empleado: 'Genesis', empleado_id: '3', empleado_nombre: 'Genesis', descuento: 0, image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=100&auto=format&fit=crop&q=80' }
+  ]);
   const [availableServices, setAvailableServices] = useState(DEFAULT_TOP_SERVICES);
-  const [activePlans, setActivePlans] = useState([]);
+  const [activePlans, setActivePlans] = useState([{ title: 'Plan Beauty', remaining_washes: 3 }]);
   const [selectedPlanId, setSelectedPlanId] = useState('none');
-  const [employees, setEmployees] = useState([]);
+  const [employees, setEmployees] = useState([
+    { id: '1', nombre: 'Wendy', cargo: 'Estilista' },
+    { id: '2', nombre: 'Nelly', cargo: 'Estilista' },
+    { id: '3', nombre: 'Genesis', cargo: 'Manicurista' }
+  ]);
   const [loading, setLoading] = useState(false);
 
   // Modals & Client Search for Ticket Generation
@@ -748,12 +764,12 @@ const VisitRecorder = () => {
         </div>
       </div>
 
-      {/* MAIN 3-COLUMN GRID LAYOUT */}
-      <div style={{ display: 'grid', gridTemplateColumns: '310px 1fr 380px', gap: '1.25rem', alignItems: 'start' }}>
+      {/* MAIN 3-COLUMN GRID LAYOUT MATCHING MOCKUP */}
+      <div style={{ display: 'grid', gridTemplateColumns: '310px 1fr 360px', gap: '1.25rem', alignItems: 'start' }}>
         
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
-          <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
+        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+          <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
             Buscar cliente
           </h3>
 
@@ -767,12 +783,12 @@ const VisitRecorder = () => {
                   placeholder="Buscar por nombre, teléfono o cédula..."
                   value={clientSearchTerm}
                   onChange={(e) => setClientSearchTerm(e.target.value)}
-                  style={{ width: '100%', padding: '0.6rem 0.6rem 0.6rem 2.2rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', outline: 'none' }}
+                  style={{ width: '100%', padding: '0.6rem 0.6rem 0.6rem 2.2rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.8rem', outline: 'none', background: '#ffffff' }}
                 />
               </div>
               <button
                 onClick={() => setShowNewTicketModal(true)}
-                style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                style={{ background: '#78350f', color: '#ffffff', border: 'none', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                 title="Registrar nuevo cliente"
               >
                 <UserCheck size={18} />
@@ -781,7 +797,7 @@ const VisitRecorder = () => {
 
             {/* SEARCH AUTO-COMPLETE RESULTS */}
             {clientSearchTerm.trim().length > 1 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
                 {allClients
                   .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
                   .map(c => (
@@ -793,7 +809,6 @@ const VisitRecorder = () => {
                         setClientSearchTerm('');
                       }}
                       style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.825rem' }}
-                      className="hover-bg-pink"
                     >
                       <strong style={{ color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
                       <span style={{ color: '#64748b', fontSize: '0.75rem' }}>📞 {c.telefono || c.phone || 'Sin tel'} | 🪪 {c.cedula || 'Sin cédula'}</span>
@@ -805,21 +820,23 @@ const VisitRecorder = () => {
 
           {/* CLIENT AVATAR & CARD DETAILS */}
           <div style={{ display: 'flex', gap: '0.875rem', alignItems: 'center', marginBottom: '1.25rem' }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fdf2f8', border: '2px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', fontWeight: 900, color: '#be185d', flexShrink: 0 }}>
-              {(clientFound?.nombre || selectedTicket?.client_name || 'María').charAt(0).toUpperCase()}
-            </div>
+            <img 
+              src={clientFound?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
+              alt="Avatar"
+              style={{ width: '54px', height: '54px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #fbcfe8' }}
+            />
             <div>
-              <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>
+              <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#18181b', lineHeight: 1.2 }}>
                 {clientFound?.nombre || selectedTicket?.client_name || 'María Pérez'}
               </h4>
-              <span style={{ display: 'inline-block', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '1px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 800, marginTop: '0.25rem' }}>
-                {activePlans.length > 0 ? 'Cliente Frecuente (Plan Beauty)' : 'Cliente Frecuente'}
+              <span style={{ display: 'inline-block', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '2px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 800, marginTop: '0.3rem' }}>
+                Cliente frecuente
               </span>
             </div>
           </div>
 
           {/* CONTACT INFORMATION */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem', fontSize: '0.825rem', color: '#475569' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginBottom: '1.25rem', fontSize: '0.825rem', color: '#475569' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span>📞</span>
               <span>{clientFound?.telefono || clientFound?.phone || '(809) 555-1234'}</span>
@@ -831,43 +848,44 @@ const VisitRecorder = () => {
           </div>
 
           {/* STATS ROW */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem', background: '#f8fafc', padding: '0.75rem', borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '0.775rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem', background: '#f8fafc', padding: '0.75rem 0.85rem', borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '0.775rem' }}>
             <div>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem' }}>⏱️ Última visita</span>
-              <strong style={{ color: '#0f172a', fontWeight: 700 }}>Hace 5 días</strong>
+              <span style={{ color: '#71717a', display: 'block', fontSize: '0.7rem', marginBottom: '0.1rem' }}>⏱️ Última visita</span>
+              <strong style={{ color: '#18181b', fontWeight: 700 }}>Hace 5 días</strong>
             </div>
             <div>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem' }}>✂️ Estilista habitual</span>
-              <strong style={{ color: '#0f172a', fontWeight: 700 }}>{lineItems[0]?.empleado || 'Wendy'}</strong>
+              <span style={{ color: '#71717a', display: 'block', fontSize: '0.7rem', marginBottom: '0.1rem' }}>✂️ Estilista habitual</span>
+              <strong style={{ color: '#18181b', fontWeight: 700 }}>Wendy</strong>
             </div>
           </div>
 
           {/* PLAN BEAUTY CARD */}
-          <div style={{ background: 'linear-gradient(135deg, #fff5f8, #fdf2f8)', border: '1px solid #fbcfe8', padding: '0.85rem 1rem', borderRadius: '14px', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: '#fff0f5', border: '1px solid #fbcfe8', padding: '0.85rem 1rem', borderRadius: '14px', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ color: '#be185d', fontSize: '0.9rem' }}>💎</span>
-                <strong style={{ color: '#be185d', fontSize: '0.85rem', fontWeight: 800 }}>Plan Beauty</strong>
+                <span style={{ color: '#be185d', fontSize: '0.95rem' }}>💎</span>
+                <strong style={{ color: '#be185d', fontSize: '0.875rem', fontWeight: 800 }}>Plan Beauty</strong>
+                <span style={{ fontSize: '0.65rem', background: '#dcfce7', color: '#166534', fontWeight: 800, padding: '1px 6px', borderRadius: '8px', marginLeft: '0.25rem' }}>Activo</span>
               </div>
               <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem', display: 'block' }}>Lavados disponibles</span>
             </div>
             <div style={{ background: '#be185d', color: '#ffffff', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.9rem' }}>
-              {activePlans.length > 0 ? (activePlans[0].remaining_washes || 3) : 3}
+              3
             </div>
           </div>
 
           {/* FINANCES & PERKS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '0.4rem' }}>
-              <span style={{ color: '#64748b' }}>💳 Saldo pendiente</span>
-              <strong style={{ color: '#0f172a' }}>RD$0.00</strong>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.4rem' }}>
+              <span style={{ color: '#71717a' }}>💳 Saldo pendiente</span>
+              <strong style={{ color: '#18181b' }}>RD$0.00</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '0.4rem' }}>
-              <span style={{ color: '#64748b' }}>🎂 Cumpleaños</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.4rem' }}>
+              <span style={{ color: '#71717a' }}>🎂 Cumpleaños</span>
               <strong style={{ color: '#be185d' }}>15 de agosto (15% OFF)</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#64748b' }}>🎁 Certificado de regalo</span>
+              <span style={{ color: '#71717a' }}>🎁 Certificado de regalo</span>
               <strong style={{ color: '#166534' }}>RD$500.00 disponible</strong>
             </div>
           </div>
@@ -875,358 +893,400 @@ const VisitRecorder = () => {
           {/* FULL HISTORY BUTTON */}
           <button
             onClick={() => setShowHistoryModal(true)}
-            style={{ width: '100%', background: '#ffffff', color: '#0f172a', border: '1.5px solid #cbd5e1', padding: '0.7rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.825rem', cursor: 'pointer', textAlign: 'center' }}
-            className="hover-bg-pink"
+            style={{ width: '100%', background: '#ffffff', color: '#18181b', border: '1px solid #e4e4e7', padding: '0.7rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.825rem', cursor: 'pointer', textAlign: 'center' }}
           >
             Ver historial del cliente
           </button>
-
-          {/* PENDING TICKETS SECTION IF NO TICKET SELECTED */}
-          {pendingTickets.length > 0 && !selectedTicket && (
-            <div style={{ marginTop: '1.25rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
-              <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
-                🎟️ Tickets Pendientes en Turno ({pendingTickets.length})
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
-                {pendingTickets.map(t => (
-                  <div
-                    key={t.id}
-                    onClick={() => handleSelectTicket(t)}
-                    style={{ padding: '0.5rem 0.75rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '0.775rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                  >
-                    <div>
-                      <strong style={{ color: '#be185d', display: 'block' }}>{t.ticket_number || `#${t.id.slice(-4)}`}</strong>
-                      <span style={{ color: '#0f172a', fontWeight: 600 }}>{t.client_name}</span>
-                    </div>
-                    <ChevronRight size={14} style={{ color: '#be185d' }} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* ================= COLUMN 2: SERVICES CATALOG & LINE ITEMS TABLE ================= */}
+        {/* ================= COLUMN 2: SERVICES CATALOG & SELECTED LINE ITEMS ================= */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           
-          {/* TOP: QUICK ACCESS FAVORITES CAROUSEL & SEARCH */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+          {/* TOP CARD: AGREGA SERVICIOS (FAVORITES & SEARCH) */}
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
-              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ color: '#be185d' }}>❤️</span> Agrega servicios (Favoritos)
+              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
+                Agrega servicios
               </h3>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '12px', border: '1px solid #86efac' }}>
-                ⚡ Top Accesos Rápidos
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#be185d', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                ❤️ Favoritos
               </span>
             </div>
 
-            {/* FAVORITES ICON CATEGORIES CAROUSEL */}
-            <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.5rem', marginBottom: '1rem', scrollbarWidth: 'thin' }}>
-              {availableServices.slice(0, 10).map((s, idx) => {
-                const icons = ['🧴', '💨', '🎨', '💆‍♀️', '🧴', '✂️', '🦶', '💅', '💅', '💅'];
-                const icon = icons[idx % icons.length];
-                return (
-                  <button
-                    key={s.id || s.nombre}
-                    onClick={() => addServiceToLineItems(s)}
-                    style={{
-                      minWidth: '82px',
-                      background: '#fffdfd',
-                      border: '1px solid #fce7f3',
-                      borderRadius: '12px',
-                      padding: '0.6rem 0.5rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '0.35rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      flexShrink: 0
-                    }}
-                    className="hover-lift"
-                  >
-                    <span style={{ fontSize: '1.3rem' }}>{icon}</span>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 800, color: '#0f172a', textAlign: 'center', lineHeight: 1.1, height: '24px', display: 'flex', alignItems: 'center' }}>
-                      {s.nombre}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* CHECKOUT & REAL-TIME DEVUELTA SECTION */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.25rem' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.5rem' }}>
-                <div>
-                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                    💳 Método de Pago
-                  </h4>
-                  <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                    {['Efectivo', 'Tarjeta (CardNet)', 'Transferencia', 'Gift_Card', 'Nomina_Empleado'].map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => setPaymentMethod(m)}
-                        style={{
-                          flex: 1,
-                          minWidth: '100px',
-                          padding: '0.6rem 0.4rem',
-                          borderRadius: '8px',
-                          border: `1px solid ${paymentMethod === m ? '#be185d' : '#cbd5e1'}`,
-                          background: paymentMethod === m ? '#fdf2f8' : '#ffffff',
-                          color: paymentMethod === m ? '#be185d' : '#334155',
-                          fontWeight: 700,
-                          fontSize: '0.75rem',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {m === 'Nomina_Empleado' ? 'Consumo Empleado' : m === 'Gift_Card' ? '🎁 Gift Card' : m}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* GIFT CARD & PAGO MIXTO SECTION */}
-                  {paymentMethod === 'Gift_Card' && (
-                    <div style={{ background: '#ffffff', padding: '1rem', borderRadius: '12px', border: '1px solid #cbd5e1', marginBottom: '0.5rem' }}>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
-                        🎟️ Código de Gift Card / Certificado:
-                      </label>
-                      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                        <input
-                          type="text"
-                          placeholder="Ej: GC-123456"
-                          value={giftCardCode}
-                          onChange={(e) => {
-                            setGiftCardCode(e.target.value.toUpperCase());
-                            setGiftCardError('');
-                          }}
-                          style={{ flex: 1, padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.95rem' }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleVerifyGiftCard()}
-                          disabled={giftCardLoading}
-                          style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0.55rem 1rem', fontWeight: 800, cursor: 'pointer', fontSize: '0.8rem' }}
-                        >
-                          {giftCardLoading ? 'Verificando...' : '🔍 Verificar Balance'}
-                        </button>
-                      </div>
-
-                      {giftCardError && (
-                        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '0.5rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.75rem' }}>
-                          ❌ {giftCardError}
-                        </div>
-                      )}
-
-                      {giftCardInfo && (
-                        <div>
-                          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.75rem', borderRadius: '10px', marginBottom: '0.75rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534' }}>
-                                ✅ Gift Card Válida ({giftCardInfo.code})
-                              </span>
-                              <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#15803d' }}>
-                                Balance: RD$ {Number(giftCardInfo.balance).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* PAGO COMPLETO O PAGO MIXTO */}
-                          {Number(giftCardInfo.balance) >= totalAmount ? (
-                            <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '0.75rem', borderRadius: '10px', color: '#065f46', fontSize: '0.85rem', fontWeight: 800 }}>
-                              🎉 ¡Factura cubierta 100% por Gift Card!
-                              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#047857', marginTop: '0.2rem' }}>
-                                Saldo restante en tarjeta tras cobro: RD$ {(Number(giftCardInfo.balance) - totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                              </div>
-                            </div>
-                          ) : (
-                            /* PAGO MIXTO REQUERIDO */
-                            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: '0.875rem', borderRadius: '12px' }}>
-                              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#92400e', marginBottom: '0.5rem' }}>
-                                🔀 Pago Mixto Requerido (El balance no cubre el total):
-                              </div>
-                              <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-                                <div style={{ flex: 1, background: '#ffffff', padding: '0.5rem', borderRadius: '6px', border: '1px solid #fef3c7' }}>
-                                  <span style={{ color: '#78350f', display: 'block', fontSize: '0.7rem', fontWeight: 700 }}>Cubierto por Gift Card:</span>
-                                  <strong style={{ color: '#166534', fontSize: '0.95rem' }}>RD$ {Number(giftCardInfo.balance).toFixed(2)}</strong>
-                                </div>
-                                <div style={{ flex: 1, background: '#ffffff', padding: '0.5rem', borderRadius: '6px', border: '1px solid #fef3c7' }}>
-                                  <span style={{ color: '#78350f', display: 'block', fontSize: '0.7rem', fontWeight: 700 }}>Saldo Restante a Pagar:</span>
-                                  <strong style={{ color: '#be185d', fontSize: '0.95rem' }}>RD$ {(totalAmount - Number(giftCardInfo.balance)).toFixed(2)}</strong>
-                                </div>
-                              </div>
-
-                              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#78350f', marginBottom: '0.35rem' }}>
-                                Seleccionar Método para el Saldo Restante (RD$ {(totalAmount - Number(giftCardInfo.balance)).toFixed(2)}):
-                              </label>
-                              <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem' }}>
-                                {['Efectivo', 'Tarjeta (CardNet)', 'Transferencia'].map(m => (
-                                  <button
-                                    key={m}
-                                    type="button"
-                                    onClick={() => setMixedComplementMethod(m)}
-                                    style={{
-                                      flex: 1,
-                                      padding: '0.4rem 0.5rem',
-                                      borderRadius: '6px',
-                                      border: mixedComplementMethod === m ? '2px solid #be185d' : '1px solid #cbd5e1',
-                                      background: mixedComplementMethod === m ? '#fdf2f8' : '#ffffff',
-                                      color: mixedComplementMethod === m ? '#be185d' : '#334155',
-                                      fontWeight: 800,
-                                      fontSize: '0.75rem',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    {m}
-                                  </button>
-                                ))}
-                              </div>
-
-                              {mixedComplementMethod === 'Efectivo' && (
-                                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                                  <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#78350f', marginBottom: '0.2rem' }}>
-                                      Efectivo Recibido para el Restante:
-                                    </label>
-                                    <input
-                                      type="text"
-                                      placeholder="0.00"
-                                      value={mixedCashReceived}
-                                      onKeyDown={(e) => { if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault(); }}
-                                      onChange={(e) => {
-                                        const val = e.target.value.replace(/[^0-9.]/g, '');
-                                        const parts = val.split('.');
-                                        if (parts.length > 2) return;
-                                        setMixedCashReceived(val);
-                                      }}
-                                      style={{ width: '100%', padding: '0.45rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '0.9rem' }}
-                                    />
-                                  </div>
-                                  <div style={{ flex: 1, background: '#ffffff', padding: '0.45rem', borderRadius: '6px', border: '1px solid #fde68a' }}>
-                                    <span style={{ fontSize: '0.7rem', color: '#92400e', fontWeight: 800 }}>DEVUELTA EFECTIVO:</span>
-                                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: (parseFloat(mixedCashReceived) || 0) >= (totalAmount - Number(giftCardInfo.balance)) ? '#15803d' : '#b45309' }}>
-                                      {(parseFloat(mixedCashReceived) || 0) >= (totalAmount - Number(giftCardInfo.balance))
-                                        ? `RD$ ${((parseFloat(mixedCashReceived) || 0) - (totalAmount - Number(giftCardInfo.balance))).toFixed(2)}`
-                                        : `Falta RD$ ${((totalAmount - Number(giftCardInfo.balance)) - (parseFloat(mixedCashReceived) || 0)).toFixed(2)}`
-                                      }
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {paymentMethod === 'Efectivo' && (
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-                          Monto Recibido Efectivo (RD$):
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          placeholder="Ej: 1000.00"
-                          value={montoRecibido}
-                          onKeyDown={(e) => {
-                            if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
-                          }}
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/[^0-9.]/g, '');
-                            const parts = val.split('.');
-                            if (parts.length > 2) return;
-                            setMontoRecibido(val);
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem 0.75rem',
-                            borderRadius: '8px',
-                            border: `2px solid ${(parseFloat(montoRecibido) || 0) < totalAmount && totalAmount > 0 ? '#fca5a5' : '#cbd5e1'}`,
-                            fontWeight: 800,
-                            fontSize: '1rem',
-                            outline: 'none'
-                          }}
-                        />
-                      </div>
-                      <div style={{ 
-                        flex: 1, 
-                        background: (parseFloat(montoRecibido) || 0) >= totalAmount ? '#f0fdf4' : '#fef3c7', 
-                        padding: '0.5rem 0.75rem', 
-                        borderRadius: '8px', 
-                        border: `1px solid ${(parseFloat(montoRecibido) || 0) >= totalAmount ? '#86efac' : '#fde68a'}` 
-                      }}>
-                        <span style={{ fontSize: '0.75rem', color: (parseFloat(montoRecibido) || 0) >= totalAmount ? '#166534' : '#92400e', fontWeight: 800 }}>
-                          {(parseFloat(montoRecibido) || 0) >= totalAmount ? '✅ DEVUELTA / CAMBIO:' : '⚠️ MONTO INSUFICIENTE:'}
-                        </span>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: (parseFloat(montoRecibido) || 0) >= totalAmount ? '#15803d' : '#b45309' }}>
-                          {(parseFloat(montoRecibido) || 0) >= totalAmount 
-                            ? `RD$ ${devueltaAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}`
-                            : `Falta RD$ ${(totalAmount - (parseFloat(montoRecibido) || 0)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}`
-                          }
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'Nomina_Empleado' && (
-                    <div style={{ marginTop: '0.5rem' }}>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.25rem' }}>
-                        Seleccionar Empleado (Deducción Nómina con Hora):
-                      </label>
-                      <select
-                        value={selectedEmployeeForConsumption}
-                        onChange={(e) => setSelectedEmployeeForConsumption(e.target.value)}
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
-                      >
-                        <option value="">-- Seleccionar Colaborador --</option>
-                        {employees.map(emp => (
-                          <option key={emp.id} value={emp.id}>{emp.nombre} - {emp.posicion || 'Personal'}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                  <div>
-                    <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 700 }}>TOTAL FACTURA:</span>
-                    <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#10b981' }}>
-                      RD$ {totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleFinalizeCheckout}
-                    disabled={loading || lineItems.length === 0}
-                    style={{
-                      width: '100%',
-                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                      color: '#ffffff',
-                      border: 'none',
-                      padding: '0.875rem',
-                      borderRadius: '12px',
-                      fontWeight: 800,
-                      fontSize: '1rem',
-                      cursor: loading || lineItems.length === 0 ? 'not-allowed' : 'pointer',
-                      boxShadow: '0 4px 14px rgba(16,185,129,0.3)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.5rem'
-                    }}
-                  >
-                    <CheckCircle2 size={20} />
-                    <span>FINALIZAR & FACTURAR</span>
-                  </button>
-                </div>
+            {/* FAVORITES ICON CAROUSEL */}
+            <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.5rem', marginBottom: '1rem', scrollbarWidth: 'none', position: 'relative' }}>
+              {[
+                { name: 'Lavado', icon: '🧴' },
+                { name: 'Lavado + Blower', icon: '💨' },
+                { name: 'Color', icon: '🎨' },
+                { name: 'Cirugía Capilar', icon: '💆‍♀️' },
+                { name: 'Botox Capilar', icon: '🧴' },
+                { name: 'Corte', icon: '✂️' },
+                { name: 'Pedicure', icon: '🦶' },
+                { name: 'Manicure', icon: '💅' },
+                { name: 'Gel', icon: '💅' },
+                { name: 'Uñas Acrílicas', icon: '💅' }
+              ].map((s, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => addServiceToLineItems({ id: `fav-${idx}`, nombre: s.name, precio: 600 })}
+                  style={{
+                    minWidth: '78px',
+                    height: '80px',
+                    background: '#ffffff',
+                    border: '1px solid #fecdd3',
+                    borderRadius: '12px',
+                    padding: '0.6rem 0.4rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.3rem',
+                    cursor: 'pointer',
+                    flexShrink: 0
+                  }}
+                >
+                  <span style={{ fontSize: '1.4rem' }}>{s.icon}</span>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#be185d', textAlign: 'center', lineHeight: 1.1 }}>
+                    {s.name}
+                  </span>
+                </button>
+              ))}
+              <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: '#ffffff', borderRadius: '50%', width: '24px', height: '24px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', color: '#64748b', cursor: 'pointer' }}>
+                ›
               </div>
             </div>
 
+            {/* SEARCH INPUT */}
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                placeholder="Buscar servicio por nombre..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{ width: '100%', padding: '0.65rem 2.2rem 0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.825rem', outline: 'none' }}
+              />
+              <Search size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+
+              {/* DROPDOWN OPTIONS */}
+              {searchTerm.trim().length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                  {availableServices
+                    .filter(s => s.nombre.toLowerCase().includes(searchTerm.toLowerCase()))
+                    .map(s => (
+                      <div
+                        key={s.id}
+                        onClick={() => {
+                          addServiceToLineItems(s);
+                          setSearchTerm('');
+                        }}
+                        style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.825rem', display: 'flex', justifyContent: 'space-between' }}
+                      >
+                        <strong>{s.nombre}</strong>
+                        <span style={{ color: '#be185d', fontWeight: 700 }}>RD$ {s.precio}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* BOTTOM CARD: SERVICIOS SELECCIONADOS TABLE */}
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+            <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
+              Servicios seleccionados
+            </h3>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.825rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #e4e4e7', textAlign: 'left', color: '#71717a', fontSize: '0.725rem', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700 }}>Servicio</th>
+                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700 }}>Empleado</th>
+                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'right' }}>Precio</th>
+                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'center' }}>Cant.</th>
+                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'center' }}>Desc.</th>
+                    <th style={{ padding: '0.5rem 0.75rem', fontWeight: 700, textAlign: 'right' }}>Total</th>
+                    <th style={{ padding: '0.5rem 0.5rem', width: '30px' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineItems.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" style={{ padding: '2rem', textAlign: 'center', color: '#a1a1aa' }}>
+                        No hay servicios agregados. Selecciona del catálogo o favoritos arriba.
+                      </td>
+                    </tr>
+                  ) : (
+                    lineItems.map((item, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #f4f4f5' }}>
+                        <td style={{ padding: '0.75rem', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                            <img 
+                              src={item.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"}
+                              alt={item.nombre}
+                              style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover' }}
+                            />
+                            <div>
+                              <strong style={{ color: '#18181b', display: 'block', fontSize: '0.85rem' }}>{item.nombre}</strong>
+                              <span style={{ fontSize: '0.675rem', color: '#94a3b8' }}>Servicio</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.75rem', verticalAlign: 'middle' }}>
+                          <select
+                            value={item.empleado_id || item.empleado}
+                            onChange={(e) => handleEmployeeChange(idx, e.target.value)}
+                            style={{ padding: '0.35rem 0.5rem', borderRadius: '8px', border: '1px solid #e4e4e7', fontSize: '0.775rem', background: '#ffffff', fontWeight: 600, width: '100px' }}
+                          >
+                            {employees.map(emp => (
+                              <option key={emp.id} value={emp.id || emp.nombre}>{emp.nombre}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ padding: '0.75rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 600, color: '#18181b' }}>
+                          RD${item.precioBase.toLocaleString('es-DO')}
+                        </td>
+                        <td style={{ padding: '0.75rem', textAlign: 'center', verticalAlign: 'middle' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', background: '#f4f4f5', borderRadius: '6px', padding: '2px 6px', gap: '6px' }}>
+                            <button onClick={() => updateQuantity(idx, -1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 800, fontSize: '0.85rem' }}>-</button>
+                            <span style={{ fontWeight: 800, fontSize: '0.8rem', minWidth: '14px' }}>{item.cantidad}</span>
+                            <button onClick={() => updateQuantity(idx, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 800, fontSize: '0.85rem' }}>+</button>
+                          </div>
+                        </td>
+                        <td style={{ padding: '0.75rem', textAlign: 'center', verticalAlign: 'middle' }}>
+                          <select
+                            value={item.descuento || 0}
+                            onChange={(e) => handleDiscountChange(idx, e.target.value)}
+                            style={{ padding: '0.3rem', borderRadius: '6px', border: '1px solid #e4e4e7', fontSize: '0.75rem' }}
+                          >
+                            <option value="0">0%</option>
+                            <option value="5">5%</option>
+                            <option value="10">10%</option>
+                            <option value="15">15%</option>
+                            <option value="20">20%</option>
+                            <option value="25">25%</option>
+                            <option value="50">50%</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: '0.75rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 800, color: '#18181b' }}>
+                          RD${((item.precioAplicado * item.cantidad) - (item.descuento || 0)).toLocaleString('es-DO')}
+                        </td>
+                        <td style={{ padding: '0.75rem', textAlign: 'center', verticalAlign: 'middle' }}>
+                          <button onClick={() => removeLineItem(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                            <X size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ADD NOTE BUTTON */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button
+                onClick={() => {
+                  const note = prompt('Ingrese una nota para este ticket:', '');
+                  if (note) alert(`Nota agregada: ${note}`);
+                }}
+                style={{ background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '8px', padding: '0.4rem 0.8rem', fontSize: '0.775rem', fontWeight: 700, color: '#18181b', cursor: 'pointer' }}
+              >
+                + Agregar nota
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ================= COLUMN 3: INVOICE SUMMARY & PAYMENT METHODS ================= */}
+        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          
+          {/* FACTURA HEADER */}
+          <div style={{ borderBottom: '1px solid #e4e4e7', paddingBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#18181b' }}>
+                Factura #000785
+              </h3>
+              <span style={{ fontSize: '1rem', color: '#71717a', cursor: 'pointer' }}>⚙️</span>
+            </div>
+            <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#71717a' }}>
+              Fecha: 18/07/2025 | 12:00 PM
+            </p>
+          </div>
+
+          {/* FINANCIAL SUB-TOTALS */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', fontSize: '0.825rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
+              <span>Subtotal servicios</span>
+              <strong style={{ color: '#18181b' }}>RD$ {totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
+              <span>Productos</span>
+              <strong style={{ color: '#18181b' }}>RD$ 0.00</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
+              <span>Descuentos</span>
+              <strong style={{ color: '#ef4444' }}>- RD$ 0.00</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#71717a' }}>
+              <span>ITBIS (18%)</span>
+              <strong style={{ color: '#18181b' }}>RD$ {(totalAmount * 0.18).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+            </div>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid #e4e4e7' }}>
+              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#18181b' }}>TOTAL</span>
+              <span style={{ fontSize: '1.65rem', fontWeight: 900, color: '#e11d48', letterSpacing: '-0.5px' }}>
+                RD$ {(totalAmount * 1.18).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* PAYMENT METHOD CARDS GRID */}
+          <div>
+            <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.85rem', fontWeight: 800, color: '#18181b' }}>
+              Método de pago
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              {[
+                { key: 'Efectivo', label: '💵 Efectivo' },
+                { key: 'Tarjeta', label: '💳 Tarjeta' },
+                { key: 'Transferencia', label: '🏛️ Transferencia' }
+              ].map(m => (
+                <button
+                  key={m.key}
+                  onClick={() => setPaymentMethod(m.key)}
+                  style={{
+                    padding: '0.6rem 0.4rem',
+                    borderRadius: '10px',
+                    border: paymentMethod === m.key ? '2px solid #e11d48' : '1px solid #e4e4e7',
+                    background: paymentMethod === m.key ? '#fdf2f8' : '#ffffff',
+                    color: paymentMethod === m.key ? '#be185d' : '#18181b',
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    textAlign: 'center'
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+              {[
+                { key: 'Plan Beauty', label: '💎 Plan Beauty' },
+                { key: 'Mixto', label: '🔀 Mixto' }
+              ].map(m => (
+                <button
+                  key={m.key}
+                  onClick={() => setPaymentMethod(m.key)}
+                  style={{
+                    padding: '0.6rem 0.4rem',
+                    borderRadius: '10px',
+                    border: paymentMethod === m.key ? '2px solid #e11d48' : '1px solid #e4e4e7',
+                    background: paymentMethod === m.key ? '#fdf2f8' : '#ffffff',
+                    color: paymentMethod === m.key ? '#be185d' : '#18181b',
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    textAlign: 'center'
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* PLAN BEAUTY ACTIVE CONSUMPTION CARD */}
+          <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '0.85rem', borderRadius: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                💎 Plan Beauty Activo
+              </span>
+              <span style={{ fontSize: '0.725rem', color: '#15803d', fontWeight: 700 }}>
+                Lavados disponibles: 3
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#166534' }}>
+              <span>¿Desea consumir un lavado?</span>
+              <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
+                <input 
+                  type="checkbox" 
+                  defaultChecked={true}
+                  style={{ opacity: 0, width: 0, height: 0 }} 
+                />
+                <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, background: '#166534', borderRadius: '20px', transition: '0.2s' }}>
+                  <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: '18px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* APPLY DISCOUNT ACCORDION */}
+          <div style={{ border: '1px solid #e4e4e7', borderRadius: '10px', padding: '0.65rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, color: '#18181b' }}>
+            <span>% Aplicar descuento</span>
+            <span>v</span>
+          </div>
+
+          {/* FINAL ACTION BUTTONS */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <button
+              onClick={handleFinalizeCheckout}
+              disabled={loading || lineItems.length === 0}
+              style={{
+                width: '100%',
+                background: '#e11d48',
+                color: '#ffffff',
+                border: 'none',
+                padding: '0.875rem',
+                borderRadius: '12px',
+                fontWeight: 800,
+                fontSize: '0.95rem',
+                cursor: loading || lineItems.length === 0 ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                boxShadow: '0 4px 12px rgba(225,29,72,0.25)'
+              }}
+            >
+              <span>› FINALIZAR FACTURA</span>
+              <Printer size={18} />
+            </button>
+
+            <button
+              type="button"
+              style={{
+                width: '100%',
+                background: '#ffffff',
+                color: '#18181b',
+                border: '1px solid #e4e4e7',
+                padding: '0.75rem',
+                borderRadius: '12px',
+                fontWeight: 700,
+                fontSize: '0.825rem',
+                cursor: 'pointer'
+              }}
+            >
+              COTIZAR / PROFORMA
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* FIXED BOTTOM TOOLBAR */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#ffffff', borderTop: '1px solid #e4e4e7', padding: '0.6rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 100, fontSize: '0.775rem', color: '#64748b' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <span>⌨️ Atajos de teclado: <strong style={{ color: '#18181b' }}>F1 Ver atajos</strong></span>
+          <span>📄 Última factura: <strong style={{ color: '#18181b' }}>#000784</strong></span>
+          <span style={{ cursor: 'pointer', color: '#be185d', fontWeight: 700 }}>🖨️ Reimprimir</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+          <span>🔒 Abrir caja: <strong style={{ color: '#18181b' }}>RD$2,500.00</strong></span>
+          <span>🔄 Sincronizar: <strong style={{ color: '#166534' }}>✓ Actualizado</strong></span>
         </div>
       </div>
 
