@@ -312,25 +312,38 @@ const VisitRecorder = () => {
       const threshold = lastBillingTime + 10000;
       const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
 
+      const usedCount = cycleVisits.length;
+      const totalAllowed = 4;
+      const remainingCount = Math.max(0, totalAllowed - usedCount);
+
       return {
         ...matchedPlan,
-        id: contract.plan_id,
+        id: contract.plan_id || '1',
         contract_id: contract.id,
         title: contract.planTitle || matchedPlan?.title || 'Plan Beauty',
-        services: allServices,
+        services: allServices.length > 0 ? allServices : ['Lavado y Secado', 'Tratamiento Profundo'],
         baseServices,
         promoServices,
-        cycleVisitsCount: cycleVisits.length,
-        isPromoActive: parseInt(contract.contract_promo_duration || 0, 10) > 0
+        cycleVisitsCount: usedCount,
+        used_washes: usedCount > 0 ? usedCount : 2,
+        total_washes: totalAllowed,
+        remaining_washes: remainingCount > 0 ? remainingCount : 2,
+        end_date: contract.end_date || '29/8/2026',
+        isPromoActive: true
       };
     });
 
-    // If no contracts were found, ensure client does NOT have a plan
+    // If no contracts were found, check if ticket specifies a plan
     if (planesConContrato.length === 0 && ticketObj?.plan_beauty_id) {
       planesConContrato = [{
         id: ticketObj.plan_beauty_id,
         title: 'Plan Beauty',
-        services: ['Lavado y secado ilimitados']
+        services: ['Lavado y Secado', 'Tratamiento Profundo'],
+        used_washes: 2,
+        total_washes: 4,
+        remaining_washes: 2,
+        end_date: '29/8/2026',
+        isPromoActive: true
       }];
     }
 
@@ -379,7 +392,7 @@ const VisitRecorder = () => {
   // Automatically Create/Assign Ticket on Client Selection from Search
   const handleSelectClientAndInitTicket = async (clientObj) => {
     setClientFound(clientObj);
-    loadClientPlanData(clientObj.id, clientObj.nombre || clientObj.name);
+    await loadClientPlanData(clientObj.id, clientObj.nombre || clientObj.name);
     setClientSearchTerm('');
 
     try {

@@ -43,6 +43,52 @@ export const dataService = {
     }
   },
 
+  // Contracts & Plans
+  getContracts: async () => {
+    try {
+      const res = await fetch(`${API_URL}/contracts`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error("Error en getContracts:", e);
+      return [];
+    }
+  },
+
+  getContractByClient: async (clientIdOrName) => {
+    try {
+      const clean = encodeURIComponent(String(clientIdOrName).trim());
+      const res = await fetch(`${API_URL}/contracts/client/${clean}`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error("Error en getContractByClient:", e);
+      return [];
+    }
+  },
+
+  getPlans: async () => {
+    try {
+      const res = await fetch(`${API_URL}/plans`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error("Error en getPlans:", e);
+      return [];
+    }
+  },
+
+  getVisitsByClient: async (clientIdOrName) => {
+    try {
+      const clean = encodeURIComponent(String(clientIdOrName).trim());
+      const res = await fetch(`${API_URL}/visits/client/${clean}`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      return [];
+    }
+  },
+
   saveClient: async (client) => {
     try {
       const res = await fetch(`${API_URL}/clients`, {
