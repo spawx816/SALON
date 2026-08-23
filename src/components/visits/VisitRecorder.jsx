@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { 
   Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star, 
@@ -38,6 +38,20 @@ const VisitRecorder = () => {
   const [selectedPlanId, setSelectedPlanId] = useState('none');
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Favorites Horizontal Carousel Ref & Handlers
+  const favoritesScrollRef = useRef(null);
+  const scrollFavorites = (direction) => {
+    if (favoritesScrollRef.current) {
+      const scrollAmount = direction === 'left' ? -240 : 240;
+      favoritesScrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
+  const handleFavoritesWheel = (e) => {
+    if (favoritesScrollRef.current && e.deltaY !== 0) {
+      favoritesScrollRef.current.scrollLeft += e.deltaY;
+    }
+  };
 
   // Modals & Client Search for Ticket Generation
   const [showNewTicketModal, setShowNewTicketModal] = useState(false);
@@ -1249,48 +1263,122 @@ const VisitRecorder = () => {
               </span>
             </div>
 
-            {/* FAVORITES ICON CAROUSEL */}
-            <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.4rem', marginBottom: '0.85rem', scrollbarWidth: 'none', position: 'relative' }}>
-              {[
-                { name: 'Lavado', icon: '🧴' },
-                { name: 'Lavado + Blower', icon: '💨' },
-                { name: 'Color', icon: '🎨' },
-                { name: 'Cirugía Capilar', icon: '💆‍♀️' },
-                { name: 'Botox Capilar', icon: '🧴' },
-                { name: 'Corte', icon: '✂️' },
-                { name: 'Pedicure', icon: '🦶' },
-                { name: 'Manicure', icon: '💅' },
-                { name: 'Gel', icon: '💅' },
-                { name: 'Uñas Acrílicas', icon: '💅' }
-              ].map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => addServiceToLineItems({ id: `fav-${idx}`, nombre: s.name, precio: 600 })}
-                  style={{
-                    minWidth: '72px',
-                    height: '74px',
-                    background: '#ffffff',
-                    border: '1px solid #fecdd3',
-                    borderRadius: '12px',
-                    padding: '0.5rem 0.3rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.25rem',
-                    cursor: 'pointer',
-                    flexShrink: 0
-                  }}
-                >
-                  <span style={{ fontSize: '1.25rem' }}>{s.icon}</span>
-                  <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textAlign: 'center', lineHeight: 1.1 }}>
-                    {s.name}
-                  </span>
-                </button>
-              ))}
-              <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: '#ffffff', borderRadius: '50%', width: '22px', height: '22px', boxShadow: '0 2px 6px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', color: '#64748b', cursor: 'pointer' }}>
-                ›
+            {/* FAVORITES ICON CAROUSEL WRAPPER WITH NAVIGATION ARROWS */}
+            <div style={{ position: 'relative', marginBottom: '0.85rem' }}>
+              
+              {/* LEFT SCROLL ARROW */}
+              <button
+                onClick={() => scrollFavorites('left')}
+                style={{
+                  position: 'absolute',
+                  left: '-6px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: '#ffffff',
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  boxShadow: '0 3px 8px rgba(0,0,0,0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1rem',
+                  color: '#be185d',
+                  cursor: 'pointer',
+                  zIndex: 10,
+                  fontWeight: 900
+                }}
+                title="Desplazar a la izquierda"
+              >
+                ‹
+              </button>
+
+              {/* HORIZONTALLY SCROLLABLE ITEMS */}
+              <div 
+                ref={favoritesScrollRef}
+                onWheel={handleFavoritesWheel}
+                style={{ 
+                  display: 'flex', 
+                  gap: '0.5rem', 
+                  overflowX: 'auto', 
+                  padding: '0.2rem 1.4rem 0.5rem 1.4rem', 
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: '#fbcfe8 transparent',
+                  scrollBehavior: 'smooth',
+                  WebkitOverflowScrolling: 'touch'
+                }}
+              >
+                {[
+                  { name: 'Lavado', icon: '🧴' },
+                  { name: 'Lavado + Blower', icon: '💨' },
+                  { name: 'Color', icon: '🎨' },
+                  { name: 'Cirugía Capilar', icon: '💆‍♀️' },
+                  { name: 'Botox Capilar', icon: '🧴' },
+                  { name: 'Corte', icon: '✂️' },
+                  { name: 'Pedicure', icon: '🦶' },
+                  { name: 'Manicure', icon: '💅' },
+                  { name: 'Gel', icon: '💅' },
+                  { name: 'Uñas Acrílicas', icon: '💅' },
+                  { name: 'Secado Express', icon: '💨' },
+                  { name: 'Tratamiento Profundo', icon: '✨' },
+                  { name: 'Maquillaje Social', icon: '💄' }
+                ].map((s, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => addServiceToLineItems({ id: `fav-${idx}`, nombre: s.name, precio: 600 })}
+                    style={{
+                      minWidth: '76px',
+                      height: '76px',
+                      background: '#ffffff',
+                      border: '1px solid #fecdd3',
+                      borderRadius: '14px',
+                      padding: '0.5rem 0.3rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.25rem',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span style={{ fontSize: '1.35rem' }}>{s.icon}</span>
+                    <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textAlign: 'center', lineHeight: 1.15 }}>
+                      {s.name}
+                    </span>
+                  </button>
+                ))}
               </div>
+
+              {/* RIGHT SCROLL ARROW */}
+              <button
+                onClick={() => scrollFavorites('right')}
+                style={{
+                  position: 'absolute',
+                  right: '-6px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: '#ffffff',
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  boxShadow: '0 3px 8px rgba(0,0,0,0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1rem',
+                  color: '#be185d',
+                  cursor: 'pointer',
+                  zIndex: 10,
+                  fontWeight: 900
+                }}
+                title="Desplazar a la derecha"
+              >
+                ›
+              </button>
             </div>
 
             {/* SEARCH INPUT */}
