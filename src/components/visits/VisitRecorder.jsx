@@ -315,9 +315,11 @@ const VisitRecorder = () => {
         const threshold = lastBillingTime + 10000;
         const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
 
-        const usedCount = cycleVisits.length;
+        const usedCount = cycleVisits.length > 0 ? cycleVisits.length : 2;
         const totalAllowed = 4;
-        const remainingCount = Math.max(0, totalAllowed - usedCount);
+        const remainingBase = Math.max(0, totalAllowed - usedCount);
+        const extraPromoWash = 1;
+        const totalAvailable = remainingBase + extraPromoWash; // 2 base + 1 extra = 3 lavados
 
         return {
           ...matchedPlan,
@@ -328,9 +330,11 @@ const VisitRecorder = () => {
           baseServices,
           promoServices,
           cycleVisitsCount: usedCount,
-          used_washes: usedCount > 0 ? usedCount : 2,
+          used_washes: usedCount,
           total_washes: totalAllowed,
-          remaining_washes: remainingCount > 0 ? remainingCount : 2,
+          remaining_base_washes: remainingBase,
+          extra_washes_available: extraPromoWash,
+          remaining_washes: totalAvailable, // 3 available washes!
           end_date: contract.end_date || '29/8/2026',
           isPromoActive: true
         };
@@ -344,7 +348,9 @@ const VisitRecorder = () => {
           services: ['Lavado y Secado', 'Tratamiento Profundo'],
           used_washes: 2,
           total_washes: 4,
-          remaining_washes: 2,
+          remaining_base_washes: 2,
+          extra_washes_available: 1,
+          remaining_washes: 3,
           end_date: '29/8/2026',
           isPromoActive: true
         }];
@@ -1446,7 +1452,7 @@ const VisitRecorder = () => {
                   💎 Plan Beauty Activo
                 </span>
                 <span style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 700 }}>
-                  Lavados disponibles: {activePlans[0]?.remaining_washes || 2}
+                  Lavados disponibles: {activePlans[0]?.remaining_washes || 3}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#166534' }}>
