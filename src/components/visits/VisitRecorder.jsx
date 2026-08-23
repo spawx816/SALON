@@ -45,6 +45,7 @@ const VisitRecorder = () => {
     { id: '4', nombre: 'Gel Manos', precioBase: 1000, precioAplicado: 1000, cantidad: 1, empleado: 'Genesis', empleado_id: '3', empleado_nombre: 'Genesis', descuento: 0, image: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=100&auto=format&fit=crop&q=80' }
   ]);
   const [availableServices, setAvailableServices] = useState(DEFAULT_TOP_SERVICES);
+  const [searchTerm, setSearchTerm] = useState('');
   const [activePlans, setActivePlans] = useState([{ title: 'Plan Beauty', remaining_washes: 3 }]);
   const [selectedPlanId, setSelectedPlanId] = useState('none');
   const [employees, setEmployees] = useState([
@@ -403,6 +404,32 @@ const VisitRecorder = () => {
       descuento: 0
     };
     setLineItems([...lineItems, newItem]);
+  };
+
+  const updateQuantity = (index, delta) => {
+    const updated = [...lineItems];
+    const newQty = Math.max(1, (updated[index].cantidad || 1) + delta);
+    updated[index].cantidad = newQty;
+    setLineItems(updated);
+  };
+
+  const handleEmployeeChange = (index, empVal) => {
+    const updated = [...lineItems];
+    const emp = employees.find(e => e.id === empVal || e.nombre === empVal);
+    updated[index].empleado = emp ? emp.nombre : empVal;
+    updated[index].empleado_id = emp ? emp.id : empVal;
+    updated[index].empleado_nombre = emp ? emp.nombre : empVal;
+    setLineItems(updated);
+  };
+
+  const handleDiscountChange = (index, discountPercent) => {
+    const pct = parseFloat(discountPercent) || 0;
+    const updated = [...lineItems];
+    const item = updated[index];
+    const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
+    updated[index].descuento = discountAmt;
+    updated[index].descuentoPercent = pct;
+    setLineItems(updated);
   };
 
   const handlePriceChange = (index, newPrice) => {
