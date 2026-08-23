@@ -313,13 +313,14 @@ const VisitRecorder = () => {
 
         const lastBillingTime = parseDate(contract.last_billed_date);
         const threshold = lastBillingTime + 10000;
-        const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
+        // Count only finalized/billed visits in the current cycle
+        const cycleVisits = pastVisits.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && parseDate(v.visited_at) >= threshold);
 
         const usedCount = cycleVisits.length > 0 ? cycleVisits.length : 2;
         const totalAllowed = 4;
         const remainingBase = Math.max(0, totalAllowed - usedCount);
         const extraPromoWash = 1;
-        const totalAvailable = remainingBase + extraPromoWash; // 2 base + 1 extra = 3 lavados
+        const totalAvailable = remainingBase + extraPromoWash; // 2 base + 1 extra = 3 lavados disponibles
 
         return {
           ...matchedPlan,
