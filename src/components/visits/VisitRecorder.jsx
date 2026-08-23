@@ -693,16 +693,16 @@ const VisitRecorder = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1rem' }}>
+    <div style={{ maxWidth: '1600px', margin: '0 auto', padding: '1rem 1.5rem', paddingBottom: '5rem', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
       
-      {/* HEADER / CASH REGISTER BADGE */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', background: '#0f172a', color: '#ffffff', padding: '1rem 1.5rem', borderRadius: '16px' }}>
+      {/* HEADER / PAGE TITLE BAR */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, letterSpacing: '-0.5px' }}>
-            Módulo de Facturación POS <span>PLAN BEAUTY RD</span>
-          </h2>
-          <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
-            Gestión de Tickets Pendientes y Ventas en Proceso
+          <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.5px' }}>
+            Facturación
+          </h1>
+          <p style={{ margin: '0.2rem 0 0', fontSize: '0.9rem', color: '#64748b', fontWeight: 500 }}>
+            Crea y gestiona facturas de ventas
           </p>
         </div>
 
@@ -710,37 +710,21 @@ const VisitRecorder = () => {
           {activeRegister ? (
             <div 
               onClick={() => setShowRegisterDetailsModal(true)}
-              style={{ 
-                background: '#065f46', 
-                border: '2px solid #10b981', 
-                padding: '0.5rem 1rem', 
-                borderRadius: '12px', 
-                fontSize: '0.85rem', 
-                fontWeight: 800, 
-                color: '#ffffff', 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '0.6rem',
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(16,185,129,0.25)',
-                transition: 'all 0.2s'
-              }}
-              title="Haz clic para ver detalles de la caja o realizar el cierre manual de jornada"
+              style={{ background: '#065f46', border: '1.5px solid #10b981', padding: '0.5rem 1rem', borderRadius: '12px', color: '#ffffff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem' }}
+              title="Haz clic para ver detalles de la caja o realizar el cierre manual"
             >
               <CheckCircle2 size={18} style={{ color: '#34d399' }} />
               <div>
-                <span style={{ display: 'block', fontSize: '0.65rem', color: '#a7f3d0', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  CAJA ACTIVA (VER DETALLES / CERRAR)
+                <span style={{ display: 'block', fontSize: '0.65rem', color: '#a7f3d0', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                  Caja Activa
                 </span>
-                <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#ffffff' }}>
-                  {activeRegister.register_number || 'Jornada Abierta'}
-                </span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>{activeRegister.register_number || 'Jornada Abierta'}</span>
               </div>
             </div>
           ) : (
             <button
               onClick={() => setShowRegisterOpenModal(true)}
-              style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
               <LockIcon size={16} />
               <span>Abrir Caja de Jornada</span>
@@ -750,28 +734,13 @@ const VisitRecorder = () => {
           <button
             onClick={() => {
               if (!activeRegister) {
-                alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets de atención si no existe una caja abierta para la jornada actual.');
+                alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets si no existe una caja abierta.');
                 setShowRegisterOpenModal(true);
                 return;
               }
               setShowNewTicketModal(true);
             }}
-            style={{ 
-              background: activeRegister ? 'linear-gradient(135deg, #ec4899, #be185d)' : '#64748b', 
-              color: '#ffffff', 
-              border: 'none', 
-              padding: '0.65rem 1.25rem', 
-              borderRadius: '12px', 
-              fontWeight: 800, 
-              fontSize: '0.9rem', 
-              cursor: 'pointer', 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              boxShadow: activeRegister ? '0 4px 12px rgba(236,72,153,0.3)' : 'none',
-              opacity: activeRegister ? 1 : 0.85
-            }}
-            title={activeRegister ? 'Generar nuevo ticket de servicio' : 'Debe abrir la caja antes de generar un nuevo ticket'}
+            style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(190,24,93,0.25)' }}
           >
             <PlusCircle size={18} />
             <span>+ Generar Nuevo Ticket</span>
@@ -779,279 +748,211 @@ const VisitRecorder = () => {
         </div>
       </div>
 
-      {/* MAIN TWO-COLUMN LAYOUT */}
-      <div style={{ display: 'grid', gridTemplateColumns: selectedTicket ? '360px 1fr' : '360px 1fr', gap: '1.25rem', transition: 'all 0.3s ease' }}>
+      {/* MAIN 3-COLUMN GRID LAYOUT */}
+      <div style={{ display: 'grid', gridTemplateColumns: '310px 1fr 380px', gap: '1.25rem', alignItems: 'start' }}>
         
-        {/* COLUMN 1: SWAPS BETWEEN PENDING TICKETS LIST AND SELECTED CLIENT EXPANDED PROFILE */}
-        {!selectedTicket ? (
-          /* STATE A: LISTADO DE TICKETS PENDIENTES DE LA SUCURSAL */
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', height: 'fit-content' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
-                🎟️ Tickets Pendientes ({pendingTickets.length})
-              </h3>
-              <button onClick={fetchPendingTickets} style={{ background: 'transparent', border: 'none', color: '#ec4899', cursor: 'pointer' }}>
-                <RefreshCw size={16} />
+        {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
+        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
+          <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
+            Buscar cliente
+          </h3>
+
+          {/* CLIENT SEARCH INPUT */}
+          <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre, teléfono o cédula..."
+                  value={clientSearchTerm}
+                  onChange={(e) => setClientSearchTerm(e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem 0.6rem 0.6rem 2.2rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', outline: 'none' }}
+                />
+              </div>
+              <button
+                onClick={() => setShowNewTicketModal(true)}
+                style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                title="Registrar nuevo cliente"
+              >
+                <UserCheck size={18} />
               </button>
             </div>
 
-            {pendingTickets.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#94a3b8' }}>
-                <ClockIcon size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
-                <p style={{ margin: 0, fontSize: '0.85rem' }}>No hay tickets pendientes en esta sucursal.</p>
+            {/* SEARCH AUTO-COMPLETE RESULTS */}
+            {clientSearchTerm.trim().length > 1 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                {allClients
+                  .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
+                  .map(c => (
+                    <div
+                      key={c.id}
+                      onClick={() => {
+                        setClientFound(c);
+                        loadClientPlanData(c.id, c.nombre || c.name);
+                        setClientSearchTerm('');
+                      }}
+                      style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.825rem' }}
+                      className="hover-bg-pink"
+                    >
+                      <strong style={{ color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
+                      <span style={{ color: '#64748b', fontSize: '0.75rem' }}>📞 {c.telefono || c.phone || 'Sin tel'} | 🪪 {c.cedula || 'Sin cédula'}</span>
+                    </div>
+                  ))}
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '600px', overflowY: 'auto' }}>
-                {pendingTickets.map((t) => (
+            )}
+          </div>
+
+          {/* CLIENT AVATAR & CARD DETAILS */}
+          <div style={{ display: 'flex', gap: '0.875rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fdf2f8', border: '2px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', fontWeight: 900, color: '#be185d', flexShrink: 0 }}>
+              {(clientFound?.nombre || selectedTicket?.client_name || 'María').charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>
+                {clientFound?.nombre || selectedTicket?.client_name || 'María Pérez'}
+              </h4>
+              <span style={{ display: 'inline-block', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '1px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 800, marginTop: '0.25rem' }}>
+                {activePlans.length > 0 ? 'Cliente Frecuente (Plan Beauty)' : 'Cliente Frecuente'}
+              </span>
+            </div>
+          </div>
+
+          {/* CONTACT INFORMATION */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem', fontSize: '0.825rem', color: '#475569' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>📞</span>
+              <span>{clientFound?.telefono || clientFound?.phone || '(809) 555-1234'}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>🪪</span>
+              <span>{clientFound?.cedula || '001-1234567-8'}</span>
+            </div>
+          </div>
+
+          {/* STATS ROW */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem', background: '#f8fafc', padding: '0.75rem', borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '0.775rem' }}>
+            <div>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem' }}>⏱️ Última visita</span>
+              <strong style={{ color: '#0f172a', fontWeight: 700 }}>Hace 5 días</strong>
+            </div>
+            <div>
+              <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.7rem' }}>✂️ Estilista habitual</span>
+              <strong style={{ color: '#0f172a', fontWeight: 700 }}>{lineItems[0]?.empleado || 'Wendy'}</strong>
+            </div>
+          </div>
+
+          {/* PLAN BEAUTY CARD */}
+          <div style={{ background: 'linear-gradient(135deg, #fff5f8, #fdf2f8)', border: '1px solid #fbcfe8', padding: '0.85rem 1rem', borderRadius: '14px', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ color: '#be185d', fontSize: '0.9rem' }}>💎</span>
+                <strong style={{ color: '#be185d', fontSize: '0.85rem', fontWeight: 800 }}>Plan Beauty</strong>
+              </div>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem', display: 'block' }}>Lavados disponibles</span>
+            </div>
+            <div style={{ background: '#be185d', color: '#ffffff', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.9rem' }}>
+              {activePlans.length > 0 ? (activePlans[0].remaining_washes || 3) : 3}
+            </div>
+          </div>
+
+          {/* FINANCES & PERKS */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '0.4rem' }}>
+              <span style={{ color: '#64748b' }}>💳 Saldo pendiente</span>
+              <strong style={{ color: '#0f172a' }}>RD$0.00</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: '0.4rem' }}>
+              <span style={{ color: '#64748b' }}>🎂 Cumpleaños</span>
+              <strong style={{ color: '#be185d' }}>15 de agosto (15% OFF)</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: '#64748b' }}>🎁 Certificado de regalo</span>
+              <strong style={{ color: '#166534' }}>RD$500.00 disponible</strong>
+            </div>
+          </div>
+
+          {/* FULL HISTORY BUTTON */}
+          <button
+            onClick={() => setShowHistoryModal(true)}
+            style={{ width: '100%', background: '#ffffff', color: '#0f172a', border: '1.5px solid #cbd5e1', padding: '0.7rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.825rem', cursor: 'pointer', textAlign: 'center' }}
+            className="hover-bg-pink"
+          >
+            Ver historial del cliente
+          </button>
+
+          {/* PENDING TICKETS SECTION IF NO TICKET SELECTED */}
+          {pendingTickets.length > 0 && !selectedTicket && (
+            <div style={{ marginTop: '1.25rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
+              <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                🎟️ Tickets Pendientes en Turno ({pendingTickets.length})
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+                {pendingTickets.map(t => (
                   <div
                     key={t.id}
                     onClick={() => handleSelectTicket(t)}
-                    style={{
-                      background: '#f8fafc',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '12px',
-                      padding: '1rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                    }}
-                    className="hover-lift"
+                    style={{ padding: '0.5rem 0.75rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '0.775rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 800, fontSize: '0.85rem', color: '#be185d' }}>
-                        🎫 {t.ticket_number || `#${t.id.slice(-4)}`}
-                      </span>
-                      <span style={{ fontSize: '0.7rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '12px', fontWeight: 800 }}>
-                        PENDIENTE DE FACTURAR
-                      </span>
+                    <div>
+                      <strong style={{ color: '#be185d', display: 'block' }}>{t.ticket_number || `#${t.id.slice(-4)}`}</strong>
+                      <span style={{ color: '#0f172a', fontWeight: 600 }}>{t.client_name}</span>
                     </div>
-                    <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
-                      👤 {t.client_name}
-                    </h4>
-                    {t.plan_beauty_id && (
-                      <div style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 800, marginBottom: '0.35rem', display: 'inline-block' }}>
-                        ✨ Plan Beauty Activo
-                      </div>
-                    )}
-                    <p style={{ margin: '0 0 0.35rem', fontSize: '0.75rem', color: '#ec4899', fontWeight: 700 }}>
-                      📍 {t.salon_name || 'Sucursal San Vicente de Paúl'}
-                    </p>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#64748b', borderTop: '1px dashed #e2e8f0', paddingTop: '0.4rem', marginTop: '0.4rem' }}>
-                      <span>🕒 {new Date(t.visited_at).toLocaleDateString('es-DO')} {new Date(t.visited_at).toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })}</span>
-                      <ChevronRight size={16} style={{ color: '#be185d' }} />
-                    </div>
+                    <ChevronRight size={14} style={{ color: '#be185d' }} />
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        ) : (
-          /* STATE B: COLUMNA 1 SE TRANSFORMA EN REPLICA EXACTA DE LA TARJETA DE CLIENTE */
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', height: 'fit-content', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+            </div>
+          )}
+        </div>
+
+        {/* ================= COLUMN 2: SERVICES CATALOG & LINE ITEMS TABLE ================= */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          
+          {/* TOP: QUICK ACCESS FAVORITES CAROUSEL & SEARCH */}
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.03)' }}>
             
-            {/* BOTÓN VOLVER ATRÁS */}
-            <button
-              onClick={handleVolverAtras}
-              style={{ width: '100%', background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.65rem 1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}
-            >
-              <ArrowLeft size={16} />
-              <span>⬅️ Volver Atrás (Guarda Borrador)</span>
-            </button>
-
-            {/* HEADER CLIENTE CON AVATAR E ID (EXACTO A IMAGEN 1) */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.25rem' }}>
-              <div style={{ width: '54px', height: '54px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem', fontWeight: 800, color: '#0f172a', border: '1px solid #e2e8f0', flexShrink: 0 }}>
-                {(clientFound?.nombre || selectedTicket.client_name || 'C').charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a', lineHeight: 1.2 }}>
-                  {clientFound?.nombre || selectedTicket.client_name}
-                </h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                  <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-                    ID: {clientFound?.cedula || selectedTicket.client_id || '223-0027553-8'}
-                  </span>
-                  <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '1px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800 }}>
-                    SELF
-                  </span>
-                </div>
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ color: '#be185d' }}>❤️</span> Agrega servicios (Favoritos)
+              </h3>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '12px', border: '1px solid #86efac' }}>
+                ⚡ Top Accesos Rápidos
+              </span>
             </div>
 
-            {/* MEMBRESÍA ACTIVA CAJA VERDE (EXACTO A IMAGEN 1) */}
-            {(activePlans.length > 0 || selectedTicket?.plan_beauty_id) ? (
-              <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '1rem 1.25rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#166534', letterSpacing: '0.5px', textTransform: 'uppercase', display: 'block' }}>
-                  MEMBRESÍA ACTIVA
-                </span>
-                <h4 style={{ margin: '0.2rem 0 0', fontSize: '1.1rem', fontWeight: 900, color: '#065f46' }}>
-                  {activePlans[0]?.title || 'Plan Beauty'}
-                </h4>
-              </div>
-            ) : (
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.875rem 1rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block' }}>
-                  ESTADO DE MEMBRESÍA
-                </span>
-                <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
-                  Sin suscripción Plan Beauty activa
-                </p>
-              </div>
-            )}
-
-            {/* DATOS DE CONTACTO (EXACTO A IMAGEN 1) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.25rem', fontSize: '0.875rem', color: '#334155', fontWeight: 600 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span style={{ color: '#94a3b8', fontSize: '1rem' }}>📞</span>
-                <span>{clientFound?.telefono || clientFound?.phone || '8293676453'}</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span style={{ color: '#94a3b8', fontSize: '1rem' }}>✉️</span>
-                <span>{clientFound?.email || 'melissa_rpt@hotmail.com'}</span>
-              </div>
-            </div>
-
-            {/* BOTÓN NEGRO: VER HISTORIAL COMPLETO (EXACTO A IMAGEN 1) */}
-            <button
-              onClick={() => setShowHistoryModal(true)}
-              style={{ width: '100%', background: '#000000', color: '#ffffff', border: 'none', padding: '0.8rem', borderRadius: '10px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', textAlign: 'center' }}
-            >
-              Ver Historial Completo
-            </button>
-          </div>
-        )}
-
-        {/* COLUMN 2: POS SERVICES & BILLING EDITOR */}
-        {selectedTicket ? (
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
-            
-            {/* CLIENT & TICKET BANNER */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '2px solid #f1f5f9', paddingBottom: '0.75rem' }}>
-              <div>
-                <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>Facturando Venta en Proceso:</span>
-                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>
-                  {selectedTicket.client_name} ({selectedTicket.ticket_number})
-                </h3>
-              </div>
-
-              <div style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '0.4rem 0.875rem', borderRadius: '20px', fontWeight: 800, fontSize: '0.75rem' }}>
-                EN CURSO DE FACTURACIÓN
-              </div>
-            </div>
-
-            {/* AUTOMATIC PLAN BEAUTY BADGE */}
-            {activePlans.length > 0 && (
-              <div style={{ background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', border: '1px solid #86efac', padding: '0.875rem 1.25rem', borderRadius: '12px', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <Star size={22} style={{ color: '#16a34a' }} />
-                  <div>
-                    <strong style={{ color: '#166534', fontSize: '0.9rem' }}>Socio Plan Beauty Activo</strong>
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#15803d' }}>
-                      {activePlans[0].title} - Lavados y beneficios disponibles detectados automáticamente
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TOP 7 ACCESOS RÁPIDOS INTELEVENTES CALCULADOS EN TIEMPO REAL */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  ⚡ Accesos Rápidos Inteligentes (Top 7)
-                </h4>
-                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: '12px', border: '1px solid #86efac' }}>
-                  📊 Calculados en tiempo real
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                {availableServices.slice(0, 7).map((s) => (
+            {/* FAVORITES ICON CATEGORIES CAROUSEL */}
+            <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', paddingBottom: '0.5rem', marginBottom: '1rem', scrollbarWidth: 'thin' }}>
+              {availableServices.slice(0, 10).map((s, idx) => {
+                const icons = ['🧴', '💨', '🎨', '💆‍♀️', '🧴', '✂️', '🦶', '💅', '💅', '💅'];
+                const icon = icons[idx % icons.length];
+                return (
                   <button
                     key={s.id || s.nombre}
                     onClick={() => addServiceToLineItems(s)}
-                    style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.5rem 0.875rem', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    style={{
+                      minWidth: '82px',
+                      background: '#fffdfd',
+                      border: '1px solid #fce7f3',
+                      borderRadius: '12px',
+                      padding: '0.6rem 0.5rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      flexShrink: 0
+                    }}
                     className="hover-lift"
-                    title="Agregar servicio al ticket con 1 clic"
                   >
-                    <span>+ {s.nombre}</span>
-                    <span style={{ color: '#be185d', fontSize: '0.8rem', fontWeight: 800 }}>RD$ {Number(s.precio || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontSize: '1.3rem' }}>{icon}</span>
+                    <span style={{ fontSize: '0.725rem', fontWeight: 800, color: '#0f172a', textAlign: 'center', lineHeight: 1.1, height: '24px', display: 'flex', alignItems: 'center' }}>
+                      {s.nombre}
+                    </span>
                   </button>
-                ))}
-              </div>
-            </div>
-
-            {/* LINE ITEMS TABLE (PRECIO EDITABLE CON RESTRICCIÓN DE DESCUENTO) */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                  🛒 Servicios Agregados ({lineItems.length})
-                </h4>
-                <span style={{ fontSize: '0.75rem', background: '#eff6ff', color: '#1d4ed8', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, border: '1px solid #bfdbfe' }}>
-                  💡 Cajero puede aumentar precio libremente • Descuentos requieren PIN Admin
-                </span>
-              </div>
-
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                <thead>
-                  <tr style={{ background: '#f1f5f9', color: '#334155', textAlign: 'left' }}>
-                    <th style={{ padding: '10px 12px', borderRadius: '8px 0 0 8px' }}>Servicio</th>
-                    <th style={{ padding: '10px 12px' }}>Estilista / Colaborador</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Precio Base</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Precio Aplicado (RD$)</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', borderRadius: '0 8px 8px 0' }}>Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lineItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                        No se han agregado servicios a este ticket. Selecciona de los accesos rápidos arriba.
-                      </td>
-                    </tr>
-                  ) : (
-                    lineItems.map((item, idx) => (
-                      <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 700, color: '#0f172a' }}>{item.nombre}</td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <select
-                            value={item.empleado_id || item.empleado}
-                            onChange={(e) => {
-                              const selectedVal = e.target.value;
-                              const empObj = employees.find(emp => emp.id.toString() === selectedVal || emp.nombre === selectedVal);
-                              const updated = [...lineItems];
-                              updated[idx].empleado = empObj?.nombre || selectedVal;
-                              updated[idx].empleado_id = empObj?.id || selectedVal;
-                              updated[idx].empleado_nombre = empObj?.nombre || selectedVal;
-                              setLineItems(updated);
-                            }}
-                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}
-                          >
-                            {employees.map(emp => (
-                              <option key={emp.id} value={emp.id}>{emp.nombre} ({emp.cargo || 'Colaborador'})</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', color: '#64748b' }}>
-                          RD$ {item.precioBase}
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                          <input
-                            type="number"
-                            value={item.precioAplicado}
-                            onChange={(e) => handlePriceChange(idx, e.target.value)}
-                            style={{ width: '100px', textAlign: 'right', padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 700, color: item.precioAplicado > item.precioBase ? '#be185d' : '#0f172a' }}
-                          />
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          <button onClick={() => removeLineItem(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
-                            <X size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                );
+              })}
             </div>
 
             {/* CHECKOUT & REAL-TIME DEVUELTA SECTION */}
@@ -1326,13 +1227,7 @@ const VisitRecorder = () => {
             </div>
 
           </div>
-        ) : (
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
-            <Scissors size={48} style={{ margin: '0 auto 1rem', opacity: 0.4 }} />
-            <h3 style={{ margin: 0, color: '#334155', fontWeight: 700 }}>Selecciona o Genera un Ticket para Iniciar la Facturación</h3>
-            <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>El flujo de facturación se administra a partir de los tickets pendientes de la sucursal.</p>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* MODAL: GENERAR NUEVO TICKET CON BÚSQUEDA INTEGRADA DE CLIENTE */}
