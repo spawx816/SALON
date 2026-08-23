@@ -686,7 +686,7 @@ const VisitRecorder = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', background: '#0f172a', color: '#ffffff', padding: '1rem 1.5rem', borderRadius: '16px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, letterSpacing: '-0.5px' }}>
-            Módulo de Facturación POS <span>SALON PRO</span>
+            Módulo de Facturación POS <span>PLAN BEAUTY RD</span>
           </h2>
           <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
             Gestión de Tickets Pendientes y Ventas en Proceso
@@ -1555,7 +1555,7 @@ const VisitRecorder = () => {
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '420px', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
             <div style={{ border: '2px dashed #ec4899', padding: '1.25rem', borderRadius: '12px', background: '#fffdfd', textAlign: 'center', marginBottom: '1.25rem' }}>
               <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#be185d', letterSpacing: '-0.5px' }}>
-                PLAN BEAUTY <span>SALON PRO</span>
+                PLAN BEAUTY <span>RD</span>
               </h2>
               <p style={{ margin: '0.2rem 0 0.75rem', fontSize: '0.75rem', fontWeight: 700, color: '#ec4899', textTransform: 'uppercase' }}>
                 📍 {printableTicketData.salonName}

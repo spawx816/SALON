@@ -1047,7 +1047,7 @@ export const dataService = {
         env: 'TEST',
         latency: 0,
         error: e.message,
-        message: 'No se pudo contactar con la API de Salon Pro.'
+        message: 'No se pudo contactar con la API de Plan Beauty RD.'
       };
     }
   },

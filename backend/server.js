@@ -1732,7 +1732,7 @@ app.post('/api/auth/send-employee-otp', async (req, res) => {
       });
 
       await transporter.sendMail({
-        from: cfg.smtp_from || '"Plan Beauty SALON PRO" <hola@planbeautyrd.com>',
+        from: cfg.smtp_from || '"Plan Beauty RD" <hola@planbeautyrd.com>',
         to: employeeEmail,
         subject: `🔒 Código de Seguridad Consumo Nómina: ${code}`,
         text: `Hola ${employeeName || ''}, tu código de autorización para consumo en salón a las ${new Date().toLocaleTimeString('es-DO')} es: ${code}`,
