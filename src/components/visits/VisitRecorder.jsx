@@ -959,7 +959,7 @@ const VisitRecorder = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1600px', margin: '0 auto', padding: '1rem 1.5rem', paddingBottom: '5rem', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+    <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '1rem 1.25rem', paddingBottom: '5rem', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
       
       {/* HEADER / PAGE TITLE BAR */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
@@ -1015,10 +1015,10 @@ const VisitRecorder = () => {
       </div>
 
       {/* MAIN 3-COLUMN GRID LAYOUT MATCHING MOCKUP */}
-      <div style={{ display: 'grid', gridTemplateColumns: '275px 1fr 335px', gap: '1rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr) 320px', gap: '1.1rem', alignItems: 'start', width: '100%' }}>
         
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', width: '100%', boxSizing: 'border-box' }}>
           <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
             Buscar cliente
           </h3>
@@ -1249,10 +1249,10 @@ const VisitRecorder = () => {
         </div>
 
         {/* ================= COLUMN 2: SERVICES CATALOG & SELECTED LINE ITEMS ================= */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0, overflow: 'hidden', width: '100%', boxSizing: 'border-box' }}>
           
           {/* TOP CARD: AGREGA SERVICIOS (FAVORITES & SEARCH) */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
@@ -1264,26 +1264,26 @@ const VisitRecorder = () => {
             </div>
 
             {/* FAVORITES ICON CAROUSEL WRAPPER WITH NAVIGATION ARROWS */}
-            <div style={{ position: 'relative', marginBottom: '0.85rem' }}>
+            <div style={{ position: 'relative', marginBottom: '0.85rem', width: '100%' }}>
               
               {/* LEFT SCROLL ARROW */}
               <button
                 onClick={() => scrollFavorites('left')}
                 style={{
                   position: 'absolute',
-                  left: '-6px',
+                  left: '2px',
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  background: '#ffffff',
-                  border: '1px solid #e4e4e7',
+                  background: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid #fbcfe8',
                   borderRadius: '50%',
-                  width: '28px',
-                  height: '28px',
-                  boxShadow: '0 3px 8px rgba(0,0,0,0.12)',
+                  width: '26px',
+                  height: '26px',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '1rem',
+                  fontSize: '0.9rem',
                   color: '#be185d',
                   cursor: 'pointer',
                   zIndex: 10,
@@ -1302,11 +1302,13 @@ const VisitRecorder = () => {
                   display: 'flex', 
                   gap: '0.5rem', 
                   overflowX: 'auto', 
-                  padding: '0.2rem 1.4rem 0.5rem 1.4rem', 
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: '#fbcfe8 transparent',
+                  padding: '0.2rem 1.75rem 0.35rem 1.75rem', 
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
                   scrollBehavior: 'smooth',
-                  WebkitOverflowScrolling: 'touch'
+                  WebkitOverflowScrolling: 'touch',
+                  width: '100%',
+                  boxSizing: 'border-box'
                 }}
               >
                 {[
