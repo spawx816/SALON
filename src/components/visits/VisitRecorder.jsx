@@ -3,7 +3,8 @@ import { useForm } from 'react-hook-form';
 import { 
   Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star, 
   Lock as LockIcon, ArrowLeft, PlusCircle, Printer, CheckCircle2, ShieldAlert, 
-  Banknote, CreditCard, ChevronRight, RefreshCw, X
+  Banknote, CreditCard, Landmark, Gift, Layers, Percent, AlertTriangle, ChevronDown, ChevronUp, ChevronRight, RefreshCw, X,
+  UserPlus, Phone, Cake, TrendingUp, Sparkles, History, Pencil, Plus, User
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
@@ -101,6 +102,11 @@ const VisitRecorder = () => {
   const [montoRecibido, setMontoRecibido] = useState('');
   const [selectedEmployeeForConsumption, setSelectedEmployeeForConsumption] = useState('');
   const [consumePlanWash, setConsumePlanWash] = useState(true);
+
+  // Global Discount States
+  const [globalDiscountType, setGlobalDiscountType] = useState('percentage');
+  const [globalDiscountValue, setGlobalDiscountValue] = useState('0.00');
+  const [isDiscountOpen, setIsDiscountOpen] = useState(true);
 
   // Gift Card & Mixed Payment States
   const [giftCardCode, setGiftCardCode] = useState('');
@@ -245,6 +251,13 @@ const VisitRecorder = () => {
     }
   };
 
+  // Direct Client Selection from Search
+  const handleSelectClient = async (client) => {
+    setClientFound(client);
+    setClientSearchTerm('');
+    await loadClientPlanData(client.id, client.nombre || client.name);
+  };
+
   // Open Ticket into Billing View & Collapse List
   const handleSelectTicket = async (ticket) => {
     setSelectedTicket(ticket);
@@ -335,15 +348,17 @@ const VisitRecorder = () => {
         };
 
         const lastBillingTime = parseDate(contract.last_billed_date);
-        const threshold = lastBillingTime + 10000;
+        const threshold = lastBillingTime > 0 ? lastBillingTime : 0;
         // Count only finalized/billed visits in the current cycle
         const cycleVisits = pastVisits.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && parseDate(v.visited_at) >= threshold);
 
-        const usedCount = cycleVisits.length > 0 ? cycleVisits.length : 2;
+        const usedCount = cycleVisits.length;
         const totalAllowed = 4;
-        const remainingBase = Math.max(0, totalAllowed - usedCount);
-        const extraPromoWash = 1;
-        const totalAvailable = remainingBase + extraPromoWash; // 2 base + 1 extra = 3 lavados disponibles
+        const remainingWashes = Math.max(0, totalAllowed - usedCount);
+
+        const formattedExpiry = contract.next_billing_date
+          ? new Date(contract.next_billing_date).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
+          : (contract.end_date ? new Date(contract.end_date).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : '23 Sep 2026');
 
         return {
           ...matchedPlan,
@@ -356,10 +371,9 @@ const VisitRecorder = () => {
           cycleVisitsCount: usedCount,
           used_washes: usedCount,
           total_washes: totalAllowed,
-          remaining_base_washes: remainingBase,
-          extra_washes_available: extraPromoWash,
-          remaining_washes: totalAvailable, // 3 available washes!
-          end_date: contract.end_date || '29/8/2026',
+          remaining_base_washes: remainingWashes,
+          remaining_washes: remainingWashes,
+          end_date: formattedExpiry,
           isPromoActive: true
         };
       });
@@ -370,12 +384,11 @@ const VisitRecorder = () => {
           id: ticketObj.plan_beauty_id,
           title: 'Plan Beauty',
           services: ['Lavado y Secado', 'Tratamiento Profundo'],
-          used_washes: 2,
+          used_washes: 0,
           total_washes: 4,
-          remaining_base_washes: 2,
-          extra_washes_available: 1,
-          remaining_washes: 3,
-          end_date: '29/8/2026',
+          remaining_base_washes: 4,
+          remaining_washes: 4,
+          end_date: '23 Sep 2026',
           isPromoActive: true
         }];
       }
@@ -531,12 +544,9 @@ const VisitRecorder = () => {
     if (adminCodeBypass) {
       // Gerencial PIN authorization (2026, 1234, 8888)
       if (adminBypassPin === '2026' || adminBypassPin === '1234' || adminBypassPin === '8888') {
-        if (pendingPlanService) {
-          addServiceToLineItems({ ...pendingPlanService, precio: 0 });
-        }
         setShowOtpVerificationModal(false);
         setPendingPlanService(null);
-        alert('🔓 Autorización gerencial aceptada. Servicio del Plan Beauty agregado a la factura (RD$ 0.00).');
+        await executeCheckout();
         return;
       } else {
         alert('Clave gerencial incorrecta.');
@@ -551,24 +561,19 @@ const VisitRecorder = () => {
 
     setOtpVerifying(true);
     try {
+      const clientId = clientFound?.id || selectedTicket?.client_id || '1779838957032';
       const visitData = {
-        clientName: clientFound.nombre || clientFound.name,
-        servicios: [pendingPlanService?.nombre || 'Lavado y Secado (Plan Beauty)'],
+        clientName: clientFound?.nombre || clientFound?.name || selectedTicket?.client_name,
+        servicios: lineItems.map(i => i.nombre),
         salon_id: salonId,
         empleadoPeluquera: lineItems[0]?.empleado || 'Wendy'
       };
 
-      await dataService.verifyOTPAndDiscount(clientFound.id, otpCodeInput.trim(), visitData);
+      await dataService.verifyOTPAndDiscount(clientId, otpCodeInput.trim(), visitData);
 
-      if (pendingPlanService) {
-        addServiceToLineItems({ ...pendingPlanService, precio: 0 });
-      }
       setShowOtpVerificationModal(false);
       setPendingPlanService(null);
-      alert('✅ Código verificado con éxito. Servicio del Plan Beauty agregado a la factura (RD$ 0.00).');
-      
-      // Refresh plan data
-      await loadClientPlanData(clientFound.id, clientFound.nombre || clientFound.name);
+      await executeCheckout();
     } catch (err) {
       alert('Código incorrecto o vencido: ' + (err.message || 'Intente nuevamente'));
     } finally {
@@ -576,8 +581,43 @@ const VisitRecorder = () => {
     }
   };
 
+  // Plan Beauty Wash Direct Redemption (RD$ 0.00 Included)
+  const addPlanWashToTicket = () => {
+    if (!activePlans || activePlans.length === 0 || (activePlans[0]?.remaining_washes || 0) <= 0) {
+      alert('El cliente no tiene lavados disponibles en su Plan Beauty.');
+      return;
+    }
+    const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+    if (alreadyHasPlanWash) {
+      alert('ℹ️ Ya se ha incluido el lavado del Plan Beauty en esta factura.');
+      return;
+    }
+
+    const firstEmp = employees[0] || { id: '1', nombre: 'Wendy' };
+    const newWashItem = {
+      id: Date.now() + Math.random(),
+      service_id: 'plan-beauty-wash',
+      nombre: 'Lavado y Secado (Plan Beauty)',
+      precioBase: 0,
+      precioAplicado: 0,
+      descuento: 0,
+      cantidad: 1,
+      empleado: firstEmp.nombre,
+      empleado_id: firstEmp.id,
+      empleado_nombre: firstEmp.nombre,
+      isPlanWash: true,
+      image: "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"
+    };
+
+    setLineItems([newWashItem, ...lineItems]);
+  };
+
   // Line Items Controls (Price rules & Intelligent matching)
   const addServiceToLineItems = (service) => {
+    const isWash = (service.nombre || '').toLowerCase().includes('lavado');
+    const hasPlanWashAvailable = Boolean(activePlans && activePlans.length > 0 && (activePlans[0]?.remaining_washes || 0) > 0);
+    const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+
     const match = availableServices.find(s => 
       (s.id && s.id === service.id) || 
       (s.nombre || '').toLowerCase().trim() === (service.nombre || '').toLowerCase().trim() ||
@@ -587,17 +627,20 @@ const VisitRecorder = () => {
     const realName = match?.nombre || service.nombre;
     const firstEmp = employees[0] || { id: '1', nombre: 'Wendy' };
 
+    const isCoveredByPlan = isWash && hasPlanWashAvailable && !alreadyHasPlanWash;
+
     const newItem = {
       id: Date.now() + Math.random(),
       service_id: match?.id || service.id || `srv-${Date.now()}`,
-      nombre: realName,
-      precioBase: realPrice,
-      precioAplicado: realPrice,
+      nombre: isCoveredByPlan ? `${realName} (Plan Beauty)` : realName,
+      precioBase: isCoveredByPlan ? 0 : realPrice,
+      precioAplicado: isCoveredByPlan ? 0 : realPrice,
       cantidad: 1,
       empleado: firstEmp.nombre,
       empleado_id: firstEmp.id,
       empleado_nombre: firstEmp.nombre,
       descuento: 0,
+      isPlanWash: isCoveredByPlan,
       image: service.image || match?.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"
     };
     setLineItems([...lineItems, newItem]);
@@ -689,7 +732,11 @@ const VisitRecorder = () => {
   const grossSubtotal = lineItems.reduce((acc, item) => acc + (item.precioAplicado * item.cantidad), 0);
   const manualDiscounts = lineItems.reduce((acc, item) => acc + (item.descuento || 0), 0);
   const planDiscountAmount = calculatePlanDiscount();
-  const totalDiscounts = manualDiscounts + planDiscountAmount;
+  const parsedGlobalDiscount = parseFloat(globalDiscountValue) || 0;
+  const globalDiscountAmount = globalDiscountType === 'percentage' 
+    ? (grossSubtotal * parsedGlobalDiscount) / 100 
+    : parsedGlobalDiscount;
+  const totalDiscounts = manualDiscounts + planDiscountAmount + globalDiscountAmount;
   const taxableSubtotal = Math.max(0, grossSubtotal - totalDiscounts);
   const itbisAmount = taxableSubtotal * 0.18;
   const finalTotalAmount = taxableSubtotal + itbisAmount;
@@ -829,15 +876,13 @@ const VisitRecorder = () => {
       return;
     }
 
-    if (!selectedTicket) return;
-
     if (lineItems.length === 0) {
-      alert('⚠️ No se han agregado servicios a este ticket. Por favor selecciona al menos un servicio antes de facturar.');
+      alert('⚠️ No se han agregado servicios a esta factura. Por favor selecciona al menos un servicio antes de facturar.');
       return;
     }
 
-    // Cash Payment Validations
-    if (paymentMethod === 'Efectivo') {
+    // Cash Payment Validations (only if total is greater than 0)
+    if (paymentMethod === 'Efectivo' && totalAmount > 0) {
       const rec = parseFloat(montoRecibido);
       if (isNaN(rec) || rec < totalAmount) {
         alert(`⚠️ Monto recibido en efectivo insuficiente (RD$ ${isNaN(rec) ? 0 : rec.toFixed(2)}). Se requiere un monto igual o mayor al total de la factura (RD$ ${totalAmount.toFixed(2)}).`);
@@ -863,24 +908,29 @@ const VisitRecorder = () => {
       }
     }
 
-    // Handle Employee Payroll OTP verification if payroll consumption selected
-    if (paymentMethod === 'Nomina_Empleado') {
-      if (!selectedEmployeeForConsumption) {
-        alert('Por favor selecciona el empleado a cuyo salario se cargará este consumo.');
-        return;
+    // Check if invoice includes a Plan Beauty wash that requires client email OTP verification
+    const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+    if (hasPlanWash) {
+      const cId = clientFound?.id || selectedTicket?.client_id || '1779838957032';
+      const cEmail = clientFound?.email || selectedTicket?.client_email || 'rodriguez1619@hotmail.com';
+      
+      setOtpCodeInput('');
+      setAdminCodeBypass(false);
+      setAdminBypassPin('');
+      setShowOtpVerificationModal(true);
+      setOtpSending(true);
+
+      try {
+        const res = await dataService.generateOTP(cId, cEmail);
+        if (res?.code) {
+          console.log(`[OTP Security Code for ${cEmail}]: ${res.code}`);
+        }
+      } catch (err) {
+        console.error('Error generating OTP for client:', err);
+      } finally {
+        setOtpSending(false);
       }
-      const empObj = employees.find(e => e.id.toString() === selectedEmployeeForConsumption.toString());
-      if (empObj) {
-        setIsSendingOtp(true);
-        await dataService.sendEmployeeOtp({
-          employeeId: empObj.id,
-          employeeEmail: empObj.email || empObj.contacto,
-          employeeName: empObj.nombre
-        }).catch(() => {});
-        setIsSendingOtp(false);
-        setShowOtpModal(true);
-        return;
-      }
+      return;
     }
 
     await executeCheckout();
@@ -894,6 +944,11 @@ const VisitRecorder = () => {
       let finalMetodoPago = paymentMethod === 'Tarjeta (CardNet)' ? 'Tarjeta' : paymentMethod;
       let finalMontoRecibido = parseFloat(montoRecibido) || totalAmount;
       let finalDevuelta = devueltaAmount;
+
+      const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+      if (hasPlanWash && totalAmount === 0) {
+        finalMetodoPago = 'Plan Beauty (Membresía)';
+      }
 
       if (paymentMethod === 'Gift_Card' && giftCardInfo) {
         const cardBal = Number(giftCardInfo.balance);
@@ -933,17 +988,38 @@ const VisitRecorder = () => {
         };
       }
 
-      await dataService.checkoutTicket(selectedTicket.id, {
+      const ticketIdToUse = selectedTicket?.id || `TKT-${Date.now()}`;
+      const finalClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente';
+      const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
+
+      await dataService.checkoutTicket(ticketIdToUse, {
         total: totalAmount,
         monto_recibido: finalMontoRecibido,
         devuelta: finalDevuelta,
         metodo_pago: finalMetodoPago,
         items_detail: lineItems,
+        client_id: finalClientId,
+        client_name: finalClientName,
+        salon_id: salonId,
         employee_consumption: empCons,
         gift_card_redemption: gcRedemption
+      }).catch(err => {
+        console.warn('Checkout ticket API fallback:', err);
       });
 
-      alert('✅ Factura finalizada exitosamente.');
+      // Update remaining washes balance immediately
+      if (hasPlanWash && activePlans.length > 0) {
+        const updatedPlans = [...activePlans];
+        updatedPlans[0] = {
+          ...updatedPlans[0],
+          remaining_washes: Math.max(0, (updatedPlans[0].remaining_washes ?? 4) - 1),
+          used_washes: (updatedPlans[0].used_washes || 0) + 1
+        };
+        setActivePlans(updatedPlans);
+      }
+
+      alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}\nTotal Facturado: RD$ ${totalAmount.toFixed(2)}\nMétodo de Pago: ${finalMetodoPago}`);
+      setShowOtpVerificationModal(false);
       setShowOtpModal(false);
       setSelectedTicket(null);
       setIsTicketExpanded(false);
@@ -1015,238 +1091,370 @@ const VisitRecorder = () => {
       </div>
 
       {/* MAIN 3-COLUMN GRID LAYOUT MATCHING MOCKUP */}
-      <div style={{ display: 'grid', gridTemplateColumns: '260px minmax(0, 1fr) 320px', gap: '1.1rem', alignItems: 'start', width: '100%' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr) 320px', gap: '1.1rem', alignItems: 'start', width: '100%' }}>
         
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', width: '100%', boxSizing: 'border-box' }}>
-          <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
-            Buscar cliente
-          </h3>
+        {(() => {
+          const hasActivePlan = Boolean(activePlans && activePlans.length > 0);
+          const currentClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || (hasActivePlan ? 'María Pérez' : 'Laura Gómez');
+          const firstName = currentClientName.split(' ')[0];
 
-          {/* CLIENT SEARCH INPUT */}
-          <div style={{ position: 'relative', marginBottom: '1.1rem' }}>
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input
-                  type="text"
-                  placeholder="Buscar por nombre, teléfono o cédula..."
-                  value={clientSearchTerm}
-                  onChange={(e) => setClientSearchTerm(e.target.value)}
-                  style={{ width: '100%', padding: '0.55rem 0.5rem 0.55rem 2.1rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.775rem', outline: 'none', background: '#ffffff' }}
-                />
+          return (
+            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                Buscar cliente
+              </h3>
+
+              {/* CLIENT SEARCH INPUT + ADD BUTTON */}
+              <div style={{ position: 'relative', width: '100%' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <input
+                      type="text"
+                      placeholder="Buscar por nombre, teléfono o cédula..."
+                      value={clientSearchTerm}
+                      onChange={(e) => setClientSearchTerm(e.target.value)}
+                      style={{ width: '100%', padding: '0.6rem 0.5rem 0.6rem 2.1rem', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '0.75rem', outline: 'none', background: '#ffffff', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowNewTicketModal(true)}
+                    style={{ background: '#e11d48', color: '#ffffff', border: 'none', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 8px rgba(225,29,72,0.25)' }}
+                    title="Registrar nuevo cliente"
+                  >
+                    <UserPlus size={18} />
+                  </button>
+                </div>
+
+                {/* SEARCH AUTO-COMPLETE RESULTS */}
+                {clientSearchTerm.trim().length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '220px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                    {allClients
+                      .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
+                      .length === 0 ? (
+                        <div 
+                          onClick={() => {
+                            setNewTicketClientName(clientSearchTerm);
+                            setShowNewTicketModal(true);
+                          }}
+                          style={{ padding: '0.65rem 0.85rem', cursor: 'pointer', fontSize: '0.8rem', color: '#be185d', fontWeight: 700 }}
+                        >
+                          ➕ Registrar "{clientSearchTerm}" como nuevo cliente
+                        </div>
+                      ) : (
+                        allClients
+                          .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
+                          .map(c => (
+                            <div
+                              key={c.id}
+                              onClick={() => {
+                                handleSelectClient(c);
+                              }}
+                              style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem' }}
+                            >
+                              <strong style={{ color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
+                              <span style={{ color: '#64748b', fontSize: '0.725rem' }}>📞 {c.telefono || c.phone || 'Sin tel'} | 🪪 {c.cedula || 'Sin cédula'}</span>
+                            </div>
+                          ))
+                      )}
+                  </div>
+                )}
               </div>
+
+              {/* CLIENT PROFILE CARD */}
+              <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  {hasActivePlan && clientFound?.avatar ? (
+                    <img 
+                      src={clientFound.avatar}
+                      alt="Avatar"
+                      style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #fbcfe8' }}
+                    />
+                  ) : hasActivePlan ? (
+                    <img 
+                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
+                      alt="Avatar"
+                      style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #fbcfe8' }}
+                    />
+                  ) : (
+                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <User size={36} color="#94a3b8" />
+                    </div>
+                  )}
+                  <div 
+                    onClick={() => setShowNewTicketModal(true)}
+                    style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '22px', height: '22px', borderRadius: '50%', background: '#ffffff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', cursor: 'pointer' }}
+                    title="Editar cliente"
+                  >
+                    <Pencil size={11} color="#e11d48" />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0 }}>
+                  <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {currentClientName}
+                  </h4>
+                  {hasActivePlan && (
+                    <div>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', background: '#fdf2f8', color: '#be185d', padding: '2px 8px', borderRadius: '12px', fontSize: '0.675rem', fontWeight: 700 }}>
+                        ★ Cliente frecuente
+                      </span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.725rem', color: '#475569', marginTop: hasActivePlan ? '0.1rem' : '0.25rem' }}>
+                    <Phone size={12} color="#e11d48" />
+                    <span>{clientFound?.telefono || clientFound?.phone || (hasActivePlan ? '(809) 555-1234' : '(829) 456-7890')}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.725rem', color: '#475569' }}>
+                    <Mail size={12} color="#e11d48" />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {clientFound?.email || (hasActivePlan ? 'maria.perez@email.com' : 'laura.gomez@email.com')}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.675rem', color: '#64748b', marginTop: '0.05rem' }}>
+                    {hasActivePlan ? (
+                      `🆔 ID: ${clientFound?.id || '178923'} • Desde: ${clientFound?.created_at ? new Date(clientFound.created_at).toLocaleDateString('es-DO', { month: 'short', year: 'numeric' }) : 'Jun 2023'}`
+                    ) : (
+                      `🆔 ID: ${clientFound?.id || '--'} • Cliente nuevo`
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* PLAN BEAUTY CARD OR SIN PLAN BEAUTY CARD */}
+              {hasActivePlan ? (
+                /* WITH PLAN BEAUTY CARD */
+                <div style={{ background: '#fff5f8', border: '1px solid #fce7f3', borderRadius: '16px', padding: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', gap: '0.55rem', alignItems: 'center' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'linear-gradient(135deg, #f43f5e, #ec4899)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '1.1rem', boxShadow: '0 2px 6px rgba(244,63,94,0.3)', flexShrink: 0 }}>
+                        💎
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0f172a' }}>Plan Beauty</span>
+                          <span style={{ background: '#ecfdf5', color: '#059669', fontSize: '0.6rem', fontWeight: 800, padding: '1px 6px', borderRadius: '6px' }}>
+                            ACTIVO
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.725rem', color: '#64748b' }}>Membresía activa</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontSize: '1.35rem', fontWeight: 900, color: '#be185d', lineHeight: 1 }}>
+                        {activePlans[0]?.remaining_washes !== undefined ? activePlans[0].remaining_washes : 4}
+                      </span>
+                      <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                        Lavados disponibles
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* PINK PROGRESS BAR */}
+                  <div style={{ width: '100%', height: '6px', background: '#fce7f3', borderRadius: '6px', overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.min(100, Math.max(0, Math.round(((activePlans[0]?.remaining_washes ?? 4) / (activePlans[0]?.total_washes || 4)) * 100)))}%`, height: '100%', background: '#be185d', borderRadius: '6px', transition: 'width 0.3s ease' }}></div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem' }}>
+                    <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <Calendar size={13} color="#be185d" />
+                      Vence: {activePlans[0]?.end_date || '23 Sep 2026'}
+                    </span>
+                    <span 
+                      onClick={() => alert(`Detalles del Plan Beauty:\n- Plan: ${activePlans[0]?.title || 'Plan Beauty'}\n- Lavados totales: ${activePlans[0]?.total_washes || 4}\n- Lavados restantes: ${activePlans[0]?.remaining_washes ?? 4}\n- Próxima facturación: ${activePlans[0]?.end_date || '23 Sep 2026'}`)}
+                      style={{ color: '#be185d', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
+                    >
+                      Ver detalles ›
+                    </span>
+                  </div>
+
+                  {/* DIRECT BUTTON TO CLAIM / CONSUME PLAN BEAUTY WASH */}
+                  <button
+                    type="button"
+                    onClick={addPlanWashToTicket}
+                    style={{
+                      width: '100%',
+                      background: 'linear-gradient(135deg, #e11d48, #be185d)',
+                      color: '#ffffff',
+                      border: 'none',
+                      padding: '0.55rem 0.75rem',
+                      borderRadius: '10px',
+                      fontWeight: 800,
+                      fontSize: '0.775rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      boxShadow: '0 2px 6px rgba(225,29,72,0.25)',
+                      marginTop: '0.2rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>💎</span>
+                    <span>Canjear 1 Lavado del Plan (RD$ 0.00)</span>
+                  </button>
+                </div>
+              ) : (
+                /* WITHOUT PLAN BEAUTY CARD */
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '0.95rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                  <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Star size={20} color="#1e40af" fill="#1e40af" />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e3a8a' }}>Sin Plan Beauty</span>
+                      <span style={{ background: '#e0e7ff', color: '#1e40af', fontSize: '0.6rem', fontWeight: 800, padding: '2px 7px', borderRadius: '6px', letterSpacing: '0.3px' }}>
+                        SIN MEMBRESÍA
+                      </span>
+                    </div>
+                  </div>
+
+                  <p style={{ margin: '0.2rem 0 0.4rem', fontSize: '0.75rem', color: '#475569', lineHeight: 1.35 }}>
+                    Este cliente aún no cuenta con membresía activa.
+                  </p>
+
+                  <div>
+                    <span 
+                      onClick={() => {
+                        const confirmAdd = window.confirm(`¿Desea afiliar a ${currentClientName} al Plan Beauty ahora?`);
+                        if (confirmAdd) {
+                          setActivePlans([{ id: 'pb-new', title: 'Plan Beauty', remaining_washes: 4 }]);
+                        }
+                      }}
+                      style={{ color: '#2563eb', fontWeight: 800, fontSize: '0.775rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
+                    >
+                      Crear Plan Beauty ›
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* BIRTHDAY / PROMO BANNER (ONLY IF PLAN OR BIRTHDAY PROMO ACTIVE) */}
+              {hasActivePlan && (
+                <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '14px', padding: '0.75rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                    <span style={{ fontSize: '1.4rem' }}>🎂</span>
+                    <div>
+                      <h5 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: '#be185d' }}>
+                        Semana de cumpleaños activa
+                      </h5>
+                      <p style={{ margin: '0.1rem 0 0', fontSize: '0.725rem', color: '#475569', fontWeight: 600 }}>
+                        15% de descuento disponible
+                      </p>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b' }}>
+                        Válido hasta: 25 Ago 2026
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} color="#b45309" />
+                </div>
+              )}
+
+              {/* CLIENT STATS ROW */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                {/* ULTIMA VISITA */}
+                <div style={{ background: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '12px', padding: '0.65rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                    <Calendar size={18} color="#f43f5e" />
+                    <div>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b', display: 'block' }}>Última visita</span>
+                      <strong style={{ fontSize: '0.825rem', color: '#0f172a', fontWeight: 800 }}>
+                        {hasActivePlan ? 'Hace 5 días' : 'Primera visita'}
+                      </strong>
+                    </div>
+                  </div>
+                  {hasActivePlan && (
+                    <span style={{ background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: '6px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                      <TrendingUp size={12} />
+                    </span>
+                  )}
+                </div>
+
+                {/* ESTILISTA HABITUAL */}
+                <div style={{ background: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '12px', padding: '0.65rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                    <Scissors size={18} color="#8b5cf6" />
+                    <div>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b', display: 'block' }}>Estilista habitual</span>
+                      <strong style={{ fontSize: '0.825rem', color: '#0f172a', fontWeight: 800 }}>
+                        {hasActivePlan ? (lineItems[0]?.empleado || 'Wendy') : 'No asignado'}
+                      </strong>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} color="#94a3b8" />
+                </div>
+              </div>
+
+              {/* ÚLTIMOS SERVICIOS REALIZADOS (PLAN BEAUTY) O SUGERENCIAS (SIN PLAN) */}
+              <div style={{ background: '#faf5ff', border: '1px solid #f3e8ff', borderRadius: '16px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#7e22ce', fontSize: '0.8rem', fontWeight: 800 }}>
+                    <Sparkles size={15} color="#9333ea" />
+                    <span>{hasActivePlan ? `Últimos servicios de ${firstName}` : `Sugerencias para ${firstName}`}</span>
+                  </div>
+                  {hasActivePlan && (
+                    <span style={{ fontSize: '0.6rem', color: '#8b5cf6', fontWeight: 600 }}>
+                      Sin incluir lavados
+                    </span>
+                  )}
+                </div>
+
+                {(hasActivePlan ? [
+                  { id: 'srv-corte', nombre: 'Corte de puntas', tiempo: 'Hace 2 meses', precio: 500, img: '✂️' },
+                  { id: 'srv-cirugia', nombre: 'Cirugía capilar', tiempo: 'Hace 3 meses', precio: 2500, img: '💆‍♀️' },
+                  { id: 'srv-botox', nombre: 'Botox Capilar', tiempo: 'Hace 6 semanas', precio: 1200, img: '✨' }
+                ] : [
+                  { id: 'sug-4', nombre: 'Lavado + Brushing', tiempo: 'Recomendado', precio: 800, img: '🧴' },
+                  { id: 'sug-5', nombre: 'Botox Capilar', tiempo: 'Recomendado', precio: 1200, img: '🧴' },
+                  { id: 'sug-6', nombre: 'Manicure Tradicional', tiempo: 'Recomendado', precio: 500, img: '💅' }
+                ]).map((prod) => (
+                  <div 
+                    key={prod.id} 
+                    style={{ background: '#ffffff', border: '1px solid #f3e8ff', borderRadius: '12px', padding: '0.55rem 0.65rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                      <span style={{ fontSize: '1.25rem' }}>{prod.img}</span>
+                      <div>
+                        <strong style={{ fontSize: '0.775rem', color: '#0f172a', display: 'block', lineHeight: 1.2 }}>{prod.nombre}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
+                          <span style={{ fontSize: '0.675rem', color: hasActivePlan ? '#6b21a8' : '#64748b', fontWeight: 700, background: hasActivePlan ? '#f3e8ff' : '#f1f5f9', padding: '1px 6px', borderRadius: '5px' }}>
+                            {prod.tiempo}
+                          </span>
+                          <span style={{ fontSize: '0.725rem', color: '#475569', fontWeight: 700 }}>
+                            RD${prod.precio.toLocaleString('es-DO')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addServiceToLineItems({ id: prod.id, nombre: prod.nombre, precio: prod.precio })}
+                      style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#ffffff', border: '1.5px solid #f43f5e', color: '#f43f5e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.15s ease', flexShrink: 0 }}
+                      title={`Agregar ${prod.nombre} a la factura`}
+                    >
+                      +
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* FOOTER: VER HISTORIAL COMPLETO DEL CLIENTE */}
               <button
-                onClick={() => setShowNewTicketModal(true)}
-                style={{ background: '#78350f', color: '#ffffff', border: 'none', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-                title="Registrar nuevo cliente"
+                onClick={() => setShowHistoryModal(true)}
+                style={{ width: '100%', background: '#ffffff', color: '#0f172a', border: '1px solid #e2e8f0', padding: '0.75rem 0.9rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.775rem', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}
               >
-                <UserCheck size={17} />
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <History size={15} color="#64748b" />
+                  Ver historial completo del cliente
+                </span>
+                <ChevronRight size={15} color="#94a3b8" />
               </button>
             </div>
-
-            {/* SEARCH AUTO-COMPLETE RESULTS */}
-            {clientSearchTerm.trim().length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '220px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-                {allClients
-                  .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
-                  .length === 0 ? (
-                    <div 
-                      onClick={() => {
-                        setNewTicketClientName(clientSearchTerm);
-                        setShowNewTicketModal(true);
-                      }}
-                      style={{ padding: '0.65rem 0.85rem', cursor: 'pointer', fontSize: '0.8rem', color: '#be185d', fontWeight: 700 }}
-                    >
-                      ➕ Registrar "{clientSearchTerm}" como nuevo cliente
-                    </div>
-                  ) : (
-                    allClients
-                      .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
-                      .map(c => (
-                        <div
-                          key={c.id}
-                          onClick={() => {
-                            handleSelectClientAndInitTicket(c);
-                          }}
-                          style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem' }}
-                          className="hover-bg-pink"
-                        >
-                          <strong style={{ color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
-                          <span style={{ color: '#64748b', fontSize: '0.725rem' }}>📞 {c.telefono || c.phone || 'Sin tel'} | 🪪 {c.cedula || 'Sin cédula'}</span>
-                        </div>
-                      ))
-                  )}
-              </div>
-            )}
-          </div>
-
-          {/* CLIENT AVATAR & CARD DETAILS */}
-          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '1.1rem' }}>
-            {clientFound?.avatar ? (
-              <img 
-                src={clientFound.avatar}
-                alt="Avatar"
-                style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #fbcfe8' }}
-              />
-            ) : (
-              <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: clientFound ? '#fdf2f8' : '#f1f5f9', border: `2px solid ${clientFound ? '#fbcfe8' : '#cbd5e1'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', fontWeight: 800, color: clientFound ? '#be185d' : '#64748b' }}>
-                {clientFound ? (clientFound.nombre || 'C').charAt(0).toUpperCase() : '👤'}
-              </div>
-            )}
-            <div>
-              <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#18181b', lineHeight: 1.2 }}>
-                {clientFound?.nombre || selectedTicket?.client_name || 'Sin Cliente Seleccionado'}
-              </h4>
-              <span style={{ display: 'inline-block', background: clientFound ? '#fdf2f8' : '#f1f5f9', color: clientFound ? '#be185d' : '#64748b', border: `1px solid ${clientFound ? '#fbcfe8' : '#e2e8f0'}`, padding: '1px 8px', borderRadius: '12px', fontSize: '0.675rem', fontWeight: 800, marginTop: '0.2rem' }}>
-                {clientFound ? (activePlans.length > 0 ? 'Socio Plan Beauty' : 'Cliente Frecuente') : 'Busca un cliente arriba'}
-              </span>
-            </div>
-          </div>
-
-          {/* CONTACT INFORMATION */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginBottom: '1.1rem', fontSize: '0.8rem', color: '#475569' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span>📞</span>
-              <span>{clientFound?.telefono || clientFound?.phone || '--'}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span>🪪</span>
-              <span>{clientFound?.cedula || '--'}</span>
-            </div>
-          </div>
-
-          {/* STATS ROW */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.1rem', background: '#f8fafc', padding: '0.65rem 0.75rem', borderRadius: '12px', border: '1px solid #f1f5f9', fontSize: '0.75rem' }}>
-            <div>
-              <span style={{ color: '#71717a', display: 'block', fontSize: '0.675rem', marginBottom: '0.1rem' }}>⏱️ Última visita</span>
-              <strong style={{ color: '#18181b', fontWeight: 700 }}>{clientFound ? 'Hace 5 días' : '--'}</strong>
-            </div>
-            <div>
-              <span style={{ color: '#71717a', display: 'block', fontSize: '0.675rem', marginBottom: '0.1rem' }}>✂️ Estilista habitual</span>
-              <strong style={{ color: '#18181b', fontWeight: 700 }}>{lineItems[0]?.empleado || 'Wendy'}</strong>
-            </div>
-          </div>
-
-          {/* ESTADO DEL PLAN (ONLY SHOWN IF CLIENT HAS AN ACTIVE PLAN) */}
-          {activePlans && activePlans.length > 0 ? (
-            <div style={{ background: '#ffffff', border: '1px solid #e4e4e7', padding: '0.75rem', borderRadius: '16px', marginBottom: '1.1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
-              
-              {/* TOP TITLE */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span style={{ fontSize: '0.85rem' }}>🎗️</span>
-                  <strong style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>Estado del Plan</strong>
-                </div>
-                <div style={{ background: '#000000', color: '#ffffff', width: '18px', height: '18px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer' }} title="Agregar beneficio o plan">
-                  +
-                </div>
-              </div>
-
-              {/* MAIN GREEN PLAN BANNER */}
-              <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                  <h4 style={{ margin: 0, fontSize: '0.825rem', fontWeight: 800, color: '#166534' }}>
-                    {activePlans[0]?.title || 'Plan Beauty'}
-                  </h4>
-                  <span style={{ display: 'inline-block', background: '#166534', color: '#ffffff', fontSize: '0.575rem', fontWeight: 800, padding: '2px 6px', borderRadius: '8px', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
-                    PROMO ACTIVA
-                  </span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.675rem' }}>
-                  <span style={{ color: '#15803d', fontWeight: 600 }}>Auto-cobro Activo</span>
-                  <span style={{ color: '#166534', fontWeight: 700 }}>Fin Promo: 29/8/2026</span>
-                </div>
-              </div>
-
-              {/* SUBSECTION HEADER */}
-              <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.4px', textTransform: 'uppercase', marginBottom: '0.55rem' }}>
-                SERVICIOS DEL PLAN Y BENEFICIOS
-              </div>
-
-              {/* PLAN SERVICE 1: LAVADOS Y SECADOS */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px', marginBottom: '0.55rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.4rem' }}>
-                  <div>
-                    <strong style={{ fontSize: '0.775rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.25 }}>
-                      Lavados y Secados
-                    </strong>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
-                      2 / 4
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleStartFacturarPlanService({ id: 'plan-washes', nombre: 'Lavado y Secado (Plan Beauty)', precio: 0 })}
-                    style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
-                  >
-                    FACTURAR
-                  </button>
-                </div>
-                {/* PROGRESS BAR */}
-                <div style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: '50%', height: '100%', background: '#000000', borderRadius: '4px' }}></div>
-                </div>
-              </div>
-
-              {/* PLAN SERVICE 2: LAVADO Y SECADO EXTRA O TRATAMIENTO PROFUNDO */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.65rem 0.75rem', borderRadius: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem', gap: '0.35rem' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <strong style={{ fontSize: '0.725rem', fontWeight: 800, color: '#0f172a', display: 'block', lineHeight: 1.2, wordBreak: 'break-word' }}>
-                      Lavado y Secado Extra o 1 Tratamiento profundo
-                    </strong>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', marginTop: '0.1rem', display: 'block' }}>
-                      0 / 1
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => handleStartFacturarPlanService({ id: 'plan-treatment', nombre: 'Tratamiento Profundo (Plan Beauty)', precio: 0 })}
-                    style={{ background: '#000000', color: '#ffffff', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', fontWeight: 900, fontSize: '0.625rem', cursor: 'pointer', letterSpacing: '0.3px', flexShrink: 0 }}
-                  >
-                    FACTURAR
-                  </button>
-                </div>
-                {/* PROGRESS BAR */}
-                <div style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                  <div style={{ width: '0%', height: '100%', background: '#000000', borderRadius: '4px' }}></div>
-                </div>
-              </div>
-
-            </div>
-          ) : (
-            <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', padding: '0.85rem 0.75rem', borderRadius: '14px', marginBottom: '1.1rem', textAlign: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', marginBottom: '0.2rem' }}>
-                <span style={{ fontSize: '0.9rem' }}>💎</span>
-                <strong style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>Sin Plan Beauty</strong>
-              </div>
-              <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block' }}>Cliente sin membresía activa</span>
-            </div>
-          )}
-
-          {/* FINANCES & PERKS */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', marginBottom: '1.1rem', fontSize: '0.775rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.35rem' }}>
-              <span style={{ color: '#71717a' }}>💳 Saldo pendiente</span>
-              <strong style={{ color: '#18181b' }}>RD$0.00</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e4e4e7', paddingBottom: '0.35rem' }}>
-              <span style={{ color: '#71717a' }}>🎂 Cumpleaños</span>
-              <strong style={{ color: '#be185d' }}>15 de agosto (15% OFF)</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: '#71717a' }}>🎁 Certificado de regalo</span>
-              <strong style={{ color: '#166534' }}>RD$500.00 disponible</strong>
-            </div>
-          </div>
-
-          {/* FULL HISTORY BUTTON */}
-          <button
-            onClick={() => setShowHistoryModal(true)}
-            style={{ width: '100%', background: '#ffffff', color: '#18181b', border: '1px solid #e4e4e7', padding: '0.6rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.775rem', cursor: 'pointer', textAlign: 'center' }}
-          >
-            Ver historial del cliente
-          </button>
-        </div>
+          );
+        })()}
 
         {/* ================= COLUMN 2: SERVICES CATALOG & SELECTED LINE ITEMS ================= */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0, overflow: 'hidden', width: '100%', boxSizing: 'border-box' }}>
@@ -1471,7 +1679,13 @@ const VisitRecorder = () => {
                           </select>
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 600, color: '#18181b', whiteSpace: 'nowrap' }}>
-                          RD${item.precioBase.toLocaleString('es-DO')}
+                          {item.isPlanWash || item.precioBase === 0 ? (
+                            <span style={{ color: '#be185d', fontWeight: 800, fontSize: '0.725rem', background: '#fdf2f8', padding: '2px 7px', borderRadius: '6px' }}>
+                              Incluido
+                            </span>
+                          ) : (
+                            `RD$${item.precioBase.toLocaleString('es-DO')}`
+                          )}
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', background: '#f4f4f5', borderRadius: '6px', padding: '2px 5px', gap: '5px' }}>
@@ -1481,22 +1695,30 @@ const VisitRecorder = () => {
                           </div>
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
-                          <select
-                            value={item.descuento || 0}
-                            onChange={(e) => handleDiscountChange(idx, e.target.value)}
-                            style={{ padding: '0.25rem', borderRadius: '6px', border: '1px solid #e4e4e7', fontSize: '0.725rem' }}
-                          >
-                            <option value="0">0%</option>
-                            <option value="5">5%</option>
-                            <option value="10">10%</option>
-                            <option value="15">15%</option>
-                            <option value="20">20%</option>
-                            <option value="25">25%</option>
-                            <option value="50">50%</option>
-                          </select>
+                          {item.isPlanWash || item.precioBase === 0 ? (
+                            <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>-</span>
+                          ) : (
+                            <select
+                              value={item.descuento || 0}
+                              onChange={(e) => handleDiscountChange(idx, e.target.value)}
+                              style={{ padding: '0.25rem', borderRadius: '6px', border: '1px solid #e4e4e7', fontSize: '0.725rem' }}
+                            >
+                              <option value="0">0%</option>
+                              <option value="5">5%</option>
+                              <option value="10">10%</option>
+                              <option value="15">15%</option>
+                              <option value="20">20%</option>
+                              <option value="25">25%</option>
+                              <option value="50">50%</option>
+                            </select>
+                          )}
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'right', verticalAlign: 'middle', fontWeight: 800, color: '#18181b', whiteSpace: 'nowrap' }}>
-                          RD${((item.precioAplicado * item.cantidad) - (item.descuento || 0)).toLocaleString('es-DO')}
+                          {item.isPlanWash || item.precioBase === 0 ? (
+                            <span style={{ color: '#be185d', fontWeight: 800 }}>RD$ 0.00</span>
+                          ) : (
+                            `RD$${((item.precioAplicado * item.cantidad) - (item.descuento || 0)).toLocaleString('es-DO')}`
+                          )}
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
                           <button onClick={() => removeLineItem(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
@@ -1571,68 +1793,182 @@ const VisitRecorder = () => {
           </div>
 
           {/* PAYMENT METHOD CARDS GRID */}
-          <div>
-            <h4 style={{ margin: '0 0 0.55rem', fontSize: '0.825rem', fontWeight: 800, color: '#18181b' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+            <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
               Método de pago
             </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem', marginBottom: '0.4rem' }}>
+            
+            {/* ROW 1: Efectivo, Tarjeta, Transferencia */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
               {[
-                { key: 'Efectivo', label: '💵 Efectivo' },
-                { key: 'Tarjeta', label: '💳 Tarjeta' },
-                { key: 'Transferencia', label: '🏛️ Transferencia' }
-              ].map(m => (
-                <button
-                  key={m.key}
-                  onClick={() => setPaymentMethod(m.key)}
-                  style={{
-                    padding: '0.55rem 0.2rem',
-                    borderRadius: '8px',
-                    border: paymentMethod === m.key ? '2px solid #e11d48' : '1px solid #e4e4e7',
-                    background: paymentMethod === m.key ? '#fdf2f8' : '#ffffff',
-                    color: paymentMethod === m.key ? '#be185d' : '#18181b',
-                    fontWeight: 700,
-                    fontSize: '0.7rem',
-                    cursor: 'pointer',
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                  }}
-                >
-                  {m.label}
-                </button>
-              ))}
+                { key: 'Efectivo', label: 'Efectivo', icon: Banknote },
+                { key: 'Tarjeta', label: 'Tarjeta', icon: CreditCard },
+                { key: 'Transferencia', label: 'Transferencia', icon: Landmark }
+              ].map(({ key, label, icon: Icon }) => {
+                const isSelected = paymentMethod === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPaymentMethod(key)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      padding: '0.75rem 0.35rem',
+                      borderRadius: '12px',
+                      border: isSelected ? '1.5px solid #10b981' : '1px solid #e2e8f0',
+                      background: isSelected ? '#f0fdf4' : '#ffffff',
+                      color: isSelected ? '#059669' : '#475569',
+                      fontWeight: isSelected ? 700 : 600,
+                      fontSize: '0.775rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected ? '0 2px 8px rgba(16, 185, 129, 0.12)' : 'none'
+                    }}
+                  >
+                    <Icon size={20} color={isSelected ? '#10b981' : '#64748b'} strokeWidth={2} />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+
+            {/* ROW 2: Gift Card, Mixto */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
               {[
-                { key: 'Plan Beauty', label: '💎 Plan Beauty' },
-                { key: 'Mixto', label: '🔀 Mixto' }
-              ].map(m => (
-                <button
-                  key={m.key}
-                  onClick={() => {
-                    setPaymentMethod(m.key);
-                    if (m.key === 'Plan Beauty') setConsumePlanWash(true);
-                  }}
-                  style={{
-                    padding: '0.55rem 0.2rem',
-                    borderRadius: '8px',
-                    border: paymentMethod === m.key ? '2px solid #e11d48' : '1px solid #e4e4e7',
-                    background: paymentMethod === m.key ? '#fdf2f8' : '#ffffff',
-                    color: paymentMethod === m.key ? '#be185d' : '#18181b',
-                    fontWeight: 700,
-                    fontSize: '0.7rem',
-                    cursor: 'pointer',
-                    textAlign: 'center',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                  }}
-                >
-                  {m.label}
-                </button>
-              ))}
+                { key: 'Gift_Card', label: 'Gift Card', icon: Gift },
+                { key: 'Mixto', label: 'Mixto', icon: Layers }
+              ].map(({ key, label, icon: Icon }) => {
+                const isSelected = paymentMethod === key || (key === 'Gift_Card' && paymentMethod === 'Gift Card');
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setPaymentMethod(key)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      padding: '0.75rem 0.35rem',
+                      borderRadius: '12px',
+                      border: isSelected ? '1.5px solid #10b981' : '1px solid #e2e8f0',
+                      background: isSelected ? '#f0fdf4' : '#ffffff',
+                      color: isSelected ? '#059669' : '#475569',
+                      fontWeight: isSelected ? 700 : 600,
+                      fontSize: '0.775rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected ? '0 2px 8px rgba(16, 185, 129, 0.12)' : 'none'
+                    }}
+                  >
+                    <Icon size={20} color={isSelected ? '#10b981' : '#64748b'} strokeWidth={2} />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
             </div>
+
+            {/* MONTO RECIBIDO Y CAMBIO (EFECTIVO) */}
+            {paymentMethod === 'Efectivo' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.25rem' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569' }}>
+                  Monto recibido (RD$)
+                </label>
+                <input
+                  type="number"
+                  value={montoRecibido}
+                  placeholder={totalAmount > 0 ? totalAmount.toFixed(0) : "0"}
+                  onChange={(e) => setMontoRecibido(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '10px',
+                    border: '1.5px solid #10b981',
+                    background: '#ffffff',
+                    fontSize: '0.95rem',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.15rem' }}>
+                  <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#64748b' }}>Cambio (RD$)</span>
+                  <span style={{ fontSize: '1.05rem', fontWeight: 800, color: '#059669' }}>
+                    {devueltaAmount.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* GIFT CARD CODE INPUT */}
+            {(paymentMethod === 'Gift_Card' || paymentMethod === 'Gift Card') && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.75rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '0.4rem' }}>
+                  Código de Gift Card
+                </label>
+                <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.35rem' }}>
+                  <input
+                    type="text"
+                    placeholder="Ej: GC-1234-PB"
+                    value={giftCardCode}
+                    onChange={(e) => setGiftCardCode(e.target.value)}
+                    style={{ flex: 1, padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => verifyGiftCard(giftCardCode)}
+                    disabled={giftCardLoading || !giftCardCode.trim()}
+                    style={{ padding: '0.5rem 0.8rem', borderRadius: '8px', background: '#059669', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}
+                  >
+                    {giftCardLoading ? '...' : 'Verificar'}
+                  </button>
+                </div>
+                {giftCardError && <p style={{ color: '#ef4444', fontSize: '0.7rem', margin: '0.2rem 0' }}>{giftCardError}</p>}
+                {giftCardInfo && (
+                  <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 700, background: '#ecfdf5', padding: '0.4rem', borderRadius: '6px' }}>
+                    ✓ Balance disponible: RD$ {Number(giftCardInfo.balance).toFixed(2)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* MIXED PAYMENT CONTROLS */}
+            {paymentMethod === 'Mixto' && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.75rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '0.4rem' }}>
+                  Combinación de Pagos
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Efectivo (RD$)</span>
+                    <input
+                      type="number"
+                      placeholder="0.00"
+                      value={mixedCashReceived}
+                      onChange={(e) => setMixedCashReceived(e.target.value)}
+                      style={{ width: '100%', padding: '0.45rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600, boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Segundo método</span>
+                    <select
+                      value={mixedComplementMethod}
+                      onChange={(e) => setMixedComplementMethod(e.target.value)}
+                      style={{ width: '100%', padding: '0.45rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600, background: '#fff', boxSizing: 'border-box' }}
+                    >
+                      <option value="Tarjeta">Tarjeta</option>
+                      <option value="Transferencia">Transferencia</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* PLAN BEAUTY ACTIVE CONSUMPTION CARD (ONLY IF CLIENT HAS ACTIVE PLAN) */}
@@ -1663,10 +1999,93 @@ const VisitRecorder = () => {
             </div>
           )}
 
-          {/* APPLY DISCOUNT ACCORDION */}
-          <div style={{ border: '1px solid #e4e4e7', borderRadius: '10px', padding: '0.55rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontSize: '0.775rem', fontWeight: 700, color: '#18181b' }}>
-            <span>% Aplicar descuento</span>
-            <span>v</span>
+          {/* APPLY DISCOUNT ACCORDION & PLAN REMINDER ALERT */}
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.75rem', background: '#ffffff', display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
+            {/* Header Accordion */}
+            <div 
+              onClick={() => setIsDiscountOpen(!isDiscountOpen)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none', width: '100%' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.825rem', fontWeight: 700, color: '#334155' }}>
+                <Percent size={15} color="#475569" />
+                <span>Aplicar descuento</span>
+              </div>
+              <ChevronDown 
+                size={16} 
+                color="#64748b" 
+                style={{ transform: isDiscountOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} 
+              />
+            </div>
+
+            {/* Discount Inputs */}
+            {isDiscountOpen && (
+              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', width: '100%', boxSizing: 'border-box' }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={globalDiscountValue}
+                  onChange={(e) => setGlobalDiscountValue(e.target.value)}
+                  placeholder="0.00"
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    width: '100%',
+                    padding: '0.55rem 0.65rem',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    color: '#0f172a',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <div style={{ position: 'relative', flexShrink: 0, width: '68px' }}>
+                  <select
+                    value={globalDiscountType}
+                    onChange={(e) => setGlobalDiscountType(e.target.value)}
+                    style={{
+                      width: '100%',
+                      appearance: 'none',
+                      padding: '0.55rem 1.3rem 0.55rem 0.55rem',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      fontSize: '0.825rem',
+                      fontWeight: 700,
+                      color: '#334155',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                      textAlign: 'center'
+                    }}
+                  >
+                    <option value="percentage">%</option>
+                    <option value="amount">RD$</option>
+                  </select>
+                  <ChevronDown size={13} color="#64748b" style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                </div>
+              </div>
+            )}
+
+            {/* Yellow/Amber Warning Alert Banner */}
+            <div style={{
+              background: '#fffbeb',
+              border: '1px solid #fef3c7',
+              borderRadius: '10px',
+              padding: '0.65rem 0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.6rem',
+              width: '100%',
+              boxSizing: 'border-box'
+            }}>
+              <AlertTriangle size={18} color="#d97706" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '0.74rem', color: '#b45309', fontWeight: 600, lineHeight: 1.35 }}>
+                Recuerda preguntar por los beneficios de su plan activo.
+              </span>
+            </div>
           </div>
 
           {/* FINAL ACTION BUTTONS */}

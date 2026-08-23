@@ -523,7 +523,6 @@ app.get('/api/security/requests', async (req, res) => {
       SELECT r.*, c.nombre as client_name, v.code as active_code
       FROM security_requests r
       LEFT JOIN clients c ON r.client_id = c.id
-      LEFT JOIN verification_codes v ON r.client_id = v.client_id AND v.is_used = 0 AND v.expires_at > NOW()
       WHERE r.created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
       ORDER BY r.created_at DESC
     `);
@@ -532,6 +531,7 @@ app.get('/api/security/requests', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // === AUTHENTICATION / PASSWORD RECOVERY ===
 app.post('/api/auth/forgot-password', async (req, res) => {
