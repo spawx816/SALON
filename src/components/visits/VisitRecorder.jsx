@@ -401,15 +401,32 @@ const VisitRecorder = () => {
       
       setSelectedTicket(newTicketObj);
       await fetchPendingTickets();
+
+      // Trigger Physical Ticket Voucher Print Dialog
+      setPrintableTicketData({
+        ticketNumber: res.ticketNumber || newTicketObj.ticket_number,
+        salonName: res.salonName || 'Sucursal San Vicente de Paúl',
+        clientName: clientObj.nombre || clientObj.name,
+        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
+      });
+      setShowPrintModal(true);
     } catch (err) {
       console.error('Error creating ticket on client select:', err);
-      setSelectedTicket({
+      const fallbackTicket = {
         id: `ticket-${Date.now()}`,
         ticket_number: `#${Math.floor(100000 + Math.random() * 900000)}`,
         client_id: clientObj.id,
         client_name: clientObj.nombre || clientObj.name,
         status: 'En Edición'
+      };
+      setSelectedTicket(fallbackTicket);
+      setPrintableTicketData({
+        ticketNumber: fallbackTicket.ticket_number,
+        salonName: 'Sucursal San Vicente de Paúl',
+        clientName: clientObj.nombre || clientObj.name,
+        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
       });
+      setShowPrintModal(true);
     }
   };
 
@@ -1370,7 +1387,24 @@ const VisitRecorder = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <span>⌨️ Atajos de teclado: <strong style={{ color: '#18181b' }}>F1 Ver atajos</strong></span>
           <span>📄 Última factura: <strong style={{ color: '#18181b' }}>#000784</strong></span>
-          <span style={{ cursor: 'pointer', color: '#be185d', fontWeight: 700 }}>🖨️ Reimprimir</span>
+          <span 
+            onClick={() => {
+              if (selectedTicket || clientFound) {
+                setPrintableTicketData({
+                  ticketNumber: selectedTicket?.ticket_number || '#000785',
+                  salonName: 'Sucursal San Vicente de Paúl',
+                  clientName: clientFound?.nombre || selectedTicket?.client_name || 'Cliente General',
+                  createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
+                });
+                setShowPrintModal(true);
+              } else {
+                alert('Selecciona un cliente o ticket activo para reimprimir.');
+              }
+            }}
+            style={{ cursor: 'pointer', color: '#be185d', fontWeight: 700 }}
+          >
+            🖨️ Reimprimir
+          </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <span>🔒 Abrir caja: <strong style={{ color: '#18181b' }}>RD$2,500.00</strong></span>
