@@ -276,12 +276,20 @@ const VisitRecorder = () => {
 
   const fetchTopServices = async () => {
     try {
-      const top = await dataService.getTopServices();
-      if (Array.isArray(top) && top.length > 0) {
-        setAvailableServices(top);
+      const servs = await dataService.getServices().catch(() => []);
+      if (Array.isArray(servs) && servs.length > 0) {
+        setAvailableServices(servs);
+      } else {
+        const top = await dataService.getTopServices().catch(() => []);
+        if (Array.isArray(top) && top.length > 0) {
+          setAvailableServices(top);
+        } else {
+          setAvailableServices(DEFAULT_TOP_SERVICES);
+        }
       }
     } catch (e) {
-      console.error('Error cargando accesos rápidos Top 7:', e);
+      console.error('Error cargando servicios catálogo:', e);
+      setAvailableServices(DEFAULT_TOP_SERVICES);
     }
   };
 
@@ -665,19 +673,13 @@ const VisitRecorder = () => {
 
       if (planesConContrato.length > 0) {
         setSelectedPlanId(planesConContrato[0].id.toString());
-        setAvailableServices(planesConContrato[0].services.length > 0 
-          ? planesConContrato[0].services.map((s, idx) => typeof s === 'string' ? { id: `plan-${idx}`, nombre: s, precio: 0 } : s) 
-          : DEFAULT_TOP_SERVICES
-        );
       } else {
         setSelectedPlanId('none');
-        setAvailableServices(DEFAULT_TOP_SERVICES);
       }
     } catch (err) {
       console.error('Error in loadClientPlanData:', err);
       setActivePlans([]);
       setSelectedPlanId('none');
-      setAvailableServices(DEFAULT_TOP_SERVICES);
     }
   };
 
