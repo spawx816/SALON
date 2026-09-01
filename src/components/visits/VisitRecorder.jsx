@@ -4329,27 +4329,13 @@ const VisitRecorder = () => {
       {/* ================= MODAL: PLAN DETAILS MODAL ================= */}
       {showPlanDetailsModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.25rem' }}>
-          <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+          <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '460px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
             
             {/* MODAL HEADER */}
-            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#faf5ff' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'radial-gradient(circle, #f5d0fe 0%, #fae8ff 100%)', padding: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img 
-                    src={getClientAvatar(clientFound)}
-                    alt="Avatar"
-                    style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
-                  />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
-                    {clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente'}
-                  </h3>
-                  <span style={{ fontSize: '0.75rem', color: '#9333ea', fontWeight: 700 }}>
-                    ⭐ Plan Beauty Activo
-                  </span>
-                </div>
-              </div>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff' }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#0f172a', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                DETALLE PLAN BEAUTY
+              </h3>
 
               <button
                 type="button"
@@ -4361,61 +4347,70 @@ const VisitRecorder = () => {
             </div>
 
             {/* MODAL BODY */}
-            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div style={{ padding: '1.5rem 1.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem', background: '#ffffff' }}>
               
-              {/* HIGHLIGHT STAT CARD */}
-              <div style={{ background: '#faf5ff', border: '1.5px solid #f3e8ff', borderRadius: '18px', padding: '1.25rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem' }}>
-                <span style={{ fontSize: '2.8rem', fontWeight: 900, color: '#9333ea', lineHeight: 1 }}>
-                  {getBenefitsCount()}
-                </span>
-                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#6b7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                  Beneficios Disponibles de 4 en Ciclo
-                </span>
-                <span style={{ fontSize: '0.775rem', color: '#64748b', marginTop: '0.2rem' }}>
-                  Próxima fecha de renovación: <strong style={{ color: '#0f172a' }}>{getRenewalDateText()}</strong>
-                </span>
-              </div>
+              {/* SECTION: BENEFICIOS DISPONIBLES */}
+              <div>
+                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+                  Beneficios disponibles
+                </h4>
 
-              {/* CLIENT DETAILS INFO */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.725rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Datos del Titular
-                </span>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.825rem' }}>
-                  <div>
-                    <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Cédula / Identificación:</span>
-                    <strong style={{ color: '#0f172a' }}>{clientFound?.cedula || 'N/A'}</strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {/* ITEM 1: LAVADOS Y SECADOS */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                      ✓
+                    </div>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
+                      {getBenefitsCount()}/4 Lavados y Secados
+                    </span>
                   </div>
-                  <div>
-                    <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Teléfono:</span>
-                    <strong style={{ color: '#0f172a' }}>{clientFound?.telefono || 'N/A'}</strong>
-                  </div>
-                  <div style={{ gridColumn: 'span 2' }}>
-                    <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Correo electrónico:</span>
-                    <strong style={{ color: '#0f172a' }}>{clientFound?.email || 'N/A'}</strong>
+
+                  {/* ITEM 2: EXTRA O TRATAMIENTO */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                      ✓
+                    </div>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
+                      1 Lavado y secado extra o 1 uso de tratamiento profundo
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* INCLUDED SERVICES */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Servicios Incluidos en su Membresía
-                </span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  {['Lavado y Secado Profesional', 'Tratamiento Hidratante', 'Acceso a Tarifas Exclusivas'].map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#ffffff', border: '1px solid #f1f5f9', padding: '0.6rem 0.85rem', borderRadius: '10px' }}>
-                      <CheckCircle2 size={16} color="#16a34a" />
-                      <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#334155' }}>{item}</span>
-                    </div>
-                  ))}
+              {/* SECTION: REGALOS */}
+              <div style={{ paddingTop: '0.35rem' }}>
+                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+                  Regalos
+                </h4>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>🎁</span>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
+                    Regalo de cumpleaños disponible
+                  </span>
+                </div>
+              </div>
+
+              {/* SECTION: BENEFICIOS RENOVADOS */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', paddingTop: '0.35rem' }}>
+                <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0, marginTop: '2px' }}>
+                  ✓
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+                    Beneficios renovados
+                  </span>
+                  <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: 600, marginTop: '3px' }}>
+                    {getRenewalDateText()}
+                  </span>
                 </div>
               </div>
 
             </div>
 
             {/* MODAL FOOTER */}
-            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
               <button
                 type="button"
                 onClick={() => {
@@ -4424,7 +4419,7 @@ const VisitRecorder = () => {
                 }}
                 style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
               >
-                <span>+ Canjear Lavado del Plan</span>
+                <span>+ Canjear Lavado</span>
               </button>
               <button
                 type="button"
