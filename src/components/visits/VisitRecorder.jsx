@@ -527,6 +527,7 @@ const VisitRecorder = () => {
 
   // Open Ticket into Billing View & Collapse List
   const handleSelectTicket = async (ticket) => {
+    if (!ticket) return;
     setSelectedTicket(ticket);
     setIsTicketExpanded(true);
 
@@ -544,18 +545,64 @@ const VisitRecorder = () => {
       }
     } catch (e) {}
 
-    setLineItems(items.length > 0 ? items : (draft.lineItems || []));
+    let rawItems = (Array.isArray(items) && items.length > 0) ? items : (draft.lineItems || []);
+
+    if ((!rawItems || rawItems.length === 0) && ticket.servicios) {
+      let rawServicios = [];
+      try {
+        rawServicios = typeof ticket.servicios === 'string' ? JSON.parse(ticket.servicios) : ticket.servicios;
+      } catch (e) {}
+      if (Array.isArray(rawServicios)) {
+        rawItems = rawServicios.map((s, idx) => {
+          const sName = typeof s === 'string' ? s : (s.nombre || s.name || s.servicio || 'Servicio');
+          const matchedCatalog = (availableServices || []).find(as => (as.nombre || '').toLowerCase() === sName.toLowerCase());
+          const price = typeof s === 'object' && s.precio ? Number(s.precio) : (matchedCatalog?.precio || 500);
+          return {
+            id: `item-${Date.now()}-${idx}`,
+            nombre: sName,
+            name: sName,
+            servicio: sName,
+            precio: price,
+            precioBase: price,
+            precioAplicado: price,
+            cantidad: 1,
+            descuento: 0,
+            aplica_itbis: matchedCatalog?.aplica_itbis || 0,
+            empleado_id: ticket.empleado_peluquera_id || ticket.empleado_peluquera || '',
+            empleado_nombre: ticket.empleado_peluquera || ''
+          };
+        });
+      }
+    }
+
+    const sanitizedItems = (Array.isArray(rawItems) ? rawItems : []).map((it, idx) => {
+      const p = Number(it.precioAplicado || it.precioBase || it.precio || 0);
+      return {
+        ...it,
+        id: it.id || `item-${Date.now()}-${idx}`,
+        nombre: it.nombre || it.name || it.servicio || 'Servicio',
+        precioBase: Number(it.precioBase !== undefined ? it.precioBase : p),
+        precioAplicado: Number(it.precioAplicado !== undefined ? it.precioAplicado : p),
+        cantidad: Number(it.cantidad || 1),
+        descuento: Number(it.descuento || 0),
+        aplica_itbis: it.aplica_itbis === 1 || it.aplica_itbis === true ? 1 : 0,
+        empleado_id: it.empleado_id || it.empleado || '',
+        empleado_nombre: it.empleado_nombre || it.empleado || ''
+      };
+    });
+
+    setLineItems(sanitizedItems);
 
     // Automatic Plan Beauty & Client Profile Detection ONLY for registered clients
     const isGuest = !ticket.client_id || ticket.client_id === 'INVITADO' || String(ticket.client_id).startsWith('INVITADO');
 
     if (!isGuest && ticket.client_id) {
-      const match = allClients.find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
-      setClientFound(match || { id: ticket.client_id, nombre: ticket.client_name });
+      const match = (allClients || []).find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
+      setClientFound(match || { id: ticket.client_id, nombre: ticket.client_name || 'Cliente' });
       await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
       await loadClientVisitsHistory(ticket.client_id);
     } else {
-      setClientFound(ticket.client_name ? { id: 'INVITADO', nombre: ticket.client_name, es_invitado: true } : null);
+      setClientFound({ id: 'INVITADO', nombre: ticket.client_name || 'Cliente General', name: ticket.client_name || 'Cliente General', es_invitado: true });
       setActivePlans([]);
       setClientVisitsHistory([]);
     }
@@ -2281,7 +2328,7 @@ const VisitRecorder = () => {
                               Incluido
                             </span>
                           ) : (
-                            `RD$${item.precioBase.toLocaleString('es-DO')}`
+                            `RD$ ${(Number(item.precioBase || item.precioAplicado || item.precio || 0)).toLocaleString('es-DO')}`
                           )}
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
@@ -2338,7 +2385,7 @@ const VisitRecorder = () => {
                           {item.isPlanWash || item.precioBase === 0 ? (
                             <span style={{ color: '#be185d', fontWeight: 800 }}>RD$ 0.00</span>
                           ) : (
-                            `RD$${((item.precioAplicado * item.cantidad) - (item.descuento || 0)).toLocaleString('es-DO')}`
+                            `RD$ ${(((Number(item.precioAplicado || item.precioBase || 0) * (Number(item.cantidad) || 1)) - (Number(item.descuento) || 0))).toLocaleString('es-DO', { minimumFractionDigits: 2 })}`
                           )}
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
