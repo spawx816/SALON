@@ -1738,56 +1738,6 @@ const VisitRecorder = () => {
                       </div>
                     )}
                   </div>
-
-                  {/* EMPTY STATE / QUICK GENERAL CLIENT ENTRY */}
-                  <div style={{ background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: '20px', padding: '1.5rem 1.2rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.65rem', flex: 1 }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                      <User size={24} />
-                    </div>
-                    <div>
-                      <h4 style={{ margin: '0 0 0.2rem 0', fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>
-                        Cliente General / Ocasional
-                      </h4>
-                      <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
-                        Coloca el nombre del cliente aunque no esté registrado:
-                      </p>
-                    </div>
-
-                    {/* DIRECT NAME INPUT FOR GENERAL CLIENT */}
-                    <form 
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        handleQuickGeneralClient(quickGeneralName);
-                        setQuickGeneralName('');
-                      }}
-                      style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.15rem' }}
-                    >
-                      <input
-                        type="text"
-                        placeholder="Ej: María Pérez, Carlos Gómez..."
-                        value={quickGeneralName}
-                        onChange={(e) => setQuickGeneralName(e.target.value)}
-                        style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, boxSizing: 'border-box', textAlign: 'center' }}
-                      />
-                      <button
-                        type="submit"
-                        style={{ width: '100%', background: '#0f172a', color: '#ffffff', border: 'none', padding: '0.55rem', borderRadius: '10px', fontSize: '0.775rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
-                      >
-                        <span>⚡ Facturar con este nombre</span>
-                      </button>
-                    </form>
-
-                    <div style={{ width: '100%', borderTop: '1px solid #e2e8f0', margin: '0.35rem 0 0', paddingTop: '0.65rem' }}>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/registro-cliente')}
-                        style={{ width: '100%', background: '#fdf2f8', color: '#be185d', border: '1.5px solid #fbcfe8', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
-                      >
-                        <UserPlus size={14} />
-                        <span>+ Registrar Nuevo Cliente Formal</span>
-                      </button>
-                    </div>
-                  </div>
                 </div>
               ) : (
                 /* EXACT CLIENT PROFILE CARD MATCHING USER MOCKUP */
