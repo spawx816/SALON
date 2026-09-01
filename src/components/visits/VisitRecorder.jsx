@@ -1785,6 +1785,14 @@ const VisitRecorder = () => {
                       </div>
                     )}
                   </div>
+
+                  {/* SIMPLE CLEAN STATE */}
+                  <div style={{ padding: '3.5rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '1.75rem', opacity: 0.6 }}>🎫</span>
+                    <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#94a3b8' }}>
+                      Ticket no se ha seleccionado
+                    </span>
+                  </div>
                 </div>
               ) : (
                 /* EXACT CLIENT PROFILE CARD MATCHING USER MOCKUP */
