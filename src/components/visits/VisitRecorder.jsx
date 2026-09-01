@@ -196,10 +196,28 @@ const VisitRecorder = () => {
     return 'Sin suscripción activa';
   };
 
+  const getRegularWashesCount = () => {
+    if (activePlans && activePlans.length > 0) {
+      const plan = activePlans[0];
+      const remaining = plan.remaining_washes !== undefined ? plan.remaining_washes : plan.remaining_base_washes;
+      return remaining !== undefined ? remaining : 3;
+    }
+    return 0;
+  };
+
+  const getExtraBenefitsCount = () => {
+    if (activePlans && activePlans.length > 0) {
+      const plan = activePlans[0];
+      return (plan.promoServices && plan.promoServices.length > 0) || plan.isPromoActive !== false ? 1 : 0;
+    }
+    return 0;
+  };
+
   const getBenefitsCount = () => {
     if (activePlans && activePlans.length > 0) {
-      const remaining = activePlans[0]?.remaining_washes !== undefined ? activePlans[0].remaining_washes : activePlans[0]?.remaining_base_washes;
-      return remaining !== undefined ? remaining : 0;
+      const regular = getRegularWashesCount();
+      const extra = getExtraBenefitsCount();
+      return regular + extra;
     }
     return 0;
   };
@@ -4376,7 +4394,7 @@ const VisitRecorder = () => {
                       ✓
                     </div>
                     <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
-                      {getBenefitsCount()}/4 Lavados y Secados
+                      {getRegularWashesCount()}/{getTotalBenefitsCount()} Lavados y Secados
                     </span>
                   </div>
 
