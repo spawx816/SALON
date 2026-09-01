@@ -423,7 +423,7 @@ const VisitRecorder = () => {
       const res = await dataService.createPendingTicket({
         clientId,
         clientName: finalName,
-        servicios: ['Ticket en Construcción'],
+        servicios: [],
         empleadoPeluquera: 'Sin asignar',
         salon_id: salonId
       });
@@ -553,43 +553,53 @@ const VisitRecorder = () => {
         rawServicios = typeof ticket.servicios === 'string' ? JSON.parse(ticket.servicios) : ticket.servicios;
       } catch (e) {}
       if (Array.isArray(rawServicios)) {
-        rawItems = rawServicios.map((s, idx) => {
-          const sName = typeof s === 'string' ? s : (s.nombre || s.name || s.servicio || 'Servicio');
-          const matchedCatalog = (availableServices || []).find(as => (as.nombre || '').toLowerCase() === sName.toLowerCase());
-          const price = typeof s === 'object' && s.precio ? Number(s.precio) : (matchedCatalog?.precio || 500);
-          return {
-            id: `item-${Date.now()}-${idx}`,
-            nombre: sName,
-            name: sName,
-            servicio: sName,
-            precio: price,
-            precioBase: price,
-            precioAplicado: price,
-            cantidad: 1,
-            descuento: 0,
-            aplica_itbis: matchedCatalog?.aplica_itbis || 0,
-            empleado_id: ticket.empleado_peluquera_id || ticket.empleado_peluquera || '',
-            empleado_nombre: ticket.empleado_peluquera || ''
-          };
-        });
+        rawItems = rawServicios
+          .filter(s => {
+            const sName = typeof s === 'string' ? s : (s.nombre || s.name || s.servicio || '');
+            return sName && sName !== 'Ticket en Construcción' && sName !== 'Servicio en preparación';
+          })
+          .map((s, idx) => {
+            const sName = typeof s === 'string' ? s : (s.nombre || s.name || s.servicio || 'Servicio');
+            const matchedCatalog = (availableServices || []).find(as => (as.nombre || '').toLowerCase() === sName.toLowerCase());
+            const price = typeof s === 'object' && s.precio ? Number(s.precio) : (matchedCatalog?.precio || 500);
+            return {
+              id: `item-${Date.now()}-${idx}`,
+              nombre: sName,
+              name: sName,
+              servicio: sName,
+              precio: price,
+              precioBase: price,
+              precioAplicado: price,
+              cantidad: 1,
+              descuento: 0,
+              aplica_itbis: matchedCatalog?.aplica_itbis || 0,
+              empleado_id: ticket.empleado_peluquera_id || ticket.empleado_peluquera || '',
+              empleado_nombre: ticket.empleado_peluquera || ''
+            };
+          });
       }
     }
 
-    const sanitizedItems = (Array.isArray(rawItems) ? rawItems : []).map((it, idx) => {
-      const p = Number(it.precioAplicado || it.precioBase || it.precio || 0);
-      return {
-        ...it,
-        id: it.id || `item-${Date.now()}-${idx}`,
-        nombre: it.nombre || it.name || it.servicio || 'Servicio',
-        precioBase: Number(it.precioBase !== undefined ? it.precioBase : p),
-        precioAplicado: Number(it.precioAplicado !== undefined ? it.precioAplicado : p),
-        cantidad: Number(it.cantidad || 1),
-        descuento: Number(it.descuento || 0),
-        aplica_itbis: it.aplica_itbis === 1 || it.aplica_itbis === true ? 1 : 0,
-        empleado_id: it.empleado_id || it.empleado || '',
-        empleado_nombre: it.empleado_nombre || it.empleado || ''
-      };
-    });
+    const sanitizedItems = (Array.isArray(rawItems) ? rawItems : [])
+      .filter(it => {
+        const n = it.nombre || it.name || it.servicio || '';
+        return n && n !== 'Ticket en Construcción' && n !== 'Servicio en preparación';
+      })
+      .map((it, idx) => {
+        const p = Number(it.precioAplicado || it.precioBase || it.precio || 0);
+        return {
+          ...it,
+          id: it.id || `item-${Date.now()}-${idx}`,
+          nombre: it.nombre || it.name || it.servicio || 'Servicio',
+          precioBase: Number(it.precioBase !== undefined ? it.precioBase : p),
+          precioAplicado: Number(it.precioAplicado !== undefined ? it.precioAplicado : p),
+          cantidad: Number(it.cantidad || 1),
+          descuento: Number(it.descuento || 0),
+          aplica_itbis: it.aplica_itbis === 1 || it.aplica_itbis === true ? 1 : 0,
+          empleado_id: it.empleado_id || it.empleado || '',
+          empleado_nombre: it.empleado_nombre || it.empleado || ''
+        };
+      });
 
     setLineItems(sanitizedItems);
 
