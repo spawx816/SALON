@@ -330,6 +330,15 @@ const setupDB = async () => {
     } catch (e) {}
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS ticket_sequences (
+        salon_id INT PRIMARY KEY,
+        prefix VARCHAR(10) NOT NULL DEFAULT 'SD',
+        last_sequence INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS billing_codes (
         id INT AUTO_INCREMENT PRIMARY KEY,
         contract_id VARCHAR(50),
@@ -1645,6 +1654,43 @@ app.get('/api/visits/client/:clientId', async (req, res) => {
   }
 });
 
+// Monotonic Ticket Sequence Generator (Never repeats or reuses numbers when tickets are deleted/cancelled)
+const getNextTicketNumber = async (salonId = 1, prefix = 'SD') => {
+  const sId = parseInt(salonId) || 1;
+
+  try {
+    // 1. Ensure record exists in ticket_sequences
+    await pool.query(`
+      INSERT INTO ticket_sequences (salon_id, prefix, last_sequence)
+      VALUES (?, ?, 0)
+      ON DUPLICATE KEY UPDATE prefix = VALUES(prefix)
+    `, [sId, prefix]);
+
+    // 2. Find maximum numeric sequence in visits table to prevent collision with historical records
+    const [maxRows] = await pool.query(
+      `SELECT MAX(CAST(SUBSTRING_INDEX(ticket_number, '-', -1) AS UNSIGNED)) as max_num 
+       FROM visits 
+       WHERE salon_id = ? AND ticket_number LIKE ?`,
+      [sId, `${prefix}-%`]
+    );
+    const maxInVisits = Number(maxRows[0]?.max_num) || 0;
+
+    // 3. Get current sequence from ticket_sequences
+    const [seqRows] = await pool.query('SELECT last_sequence FROM ticket_sequences WHERE salon_id = ?', [sId]);
+    let currentSeq = Number(seqRows[0]?.last_sequence) || 0;
+
+    let nextSeq = Math.max(currentSeq, maxInVisits) + 1;
+
+    // 4. Update sequence table monotonically
+    await pool.query('UPDATE ticket_sequences SET last_sequence = ? WHERE salon_id = ?', [nextSeq, sId]);
+
+    return `${prefix}-${String(nextSeq).padStart(4, '0')}`;
+  } catch (err) {
+    console.error('[TICKET SEQUENCE ERROR]:', err);
+    return `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
+  }
+};
+
 // Create new ticket (Pending status, physical print generation)
 app.post('/api/visits/ticket', async (req, res) => {
   try {
@@ -1669,10 +1715,8 @@ app.post('/api/visits/ticket', async (req, res) => {
       prefix = salonName.split(' ').filter(w => w.length > 2).map(w => w[0]).join('').slice(0, 3).toUpperCase() || 'TK';
     }
 
-    // Generate sequence ticket number for branch
-    const [countRows] = await pool.query("SELECT COUNT(*) as cnt FROM visits WHERE salon_id = ?", [sId]);
-    const seqNum = (countRows[0].cnt + 1).toString().padStart(4, '0');
-    const ticketNumber = `${prefix}-${seqNum}`;
+    // Generate guaranteed monotonic sequence ticket number (never repeats on cancel)
+    const ticketNumber = await getNextTicketNumber(sId, prefix);
 
     await pool.query(
       `INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, status, ticket_number, visited_at)
@@ -1729,14 +1773,7 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
     const [existing] = await pool.query('SELECT id FROM visits WHERE id = ?', [id]);
 
     if (existing.length === 0) {
-      // Find highest ticket number or generate new ticket number (SD-XXXX)
-      const [lastTkt] = await pool.query("SELECT ticket_number FROM visits WHERE ticket_number LIKE 'SD-%' ORDER BY id DESC LIMIT 1");
-      let nextNum = 291;
-      if (lastTkt.length > 0 && lastTkt[0].ticket_number) {
-        const parsed = parseInt(lastTkt[0].ticket_number.replace('SD-', ''), 10);
-        if (!isNaN(parsed)) nextNum = parsed + 1;
-      }
-      const ticketNum = `SD-${String(nextNum).padStart(4, '0')}`;
+      const ticketNum = await getNextTicketNumber(salon_id || 1, 'SD');
 
       await pool.query(
         `INSERT INTO visits 
@@ -2093,9 +2130,10 @@ app.post('/api/visits', async (req, res) => {
   try {
     const id = Date.now().toString();
     const { clientId, clientName, servicios, empleadoPeluquera, empleadoManicurista, proximaFecha, autoReminder, salon_id } = req.body;
+    const ticketNumber = await getNextTicketNumber(salon_id || 1, 'SD');
     await pool.query(
-      "INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_manicurista, proxima_fecha, recordatorio_auto, salon_id, status, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())",
-      [id, clientId, clientName, JSON.stringify(servicios || []), empleadoPeluquera, empleadoManicurista, proximaFecha || null, autoReminder ? 1 : 0, salon_id || 1]
+      "INSERT INTO visits (id, ticket_number, client_id, client_name, servicios, empleado_peluquera, empleado_manicurista, proxima_fecha, recordatorio_auto, salon_id, status, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())",
+      [id, ticketNumber, clientId, clientName, JSON.stringify(servicios || []), empleadoPeluquera, empleadoManicurista, proximaFecha || null, autoReminder ? 1 : 0, salon_id || 1]
     );
 
     // Trigger Survey
@@ -2104,7 +2142,7 @@ app.post('/api/visits', async (req, res) => {
       sendSurveyEmail(clientId, clientName, clientData[0].email);
     }
 
-    res.json({ id, success: true });
+    res.json({ id, ticketNumber, success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
