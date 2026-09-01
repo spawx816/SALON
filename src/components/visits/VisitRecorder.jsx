@@ -145,6 +145,11 @@ const VisitRecorder = () => {
   const [showPlanDetailsModal, setShowPlanDetailsModal] = useState(false);
   const [showRecommendationsModal, setShowRecommendationsModal] = useState(false);
 
+  // General / Guest Client Custom Naming States
+  const [quickGeneralName, setQuickGeneralName] = useState('');
+  const [isEditingGeneralName, setIsEditingGeneralName] = useState(false);
+  const [tempGeneralName, setTempGeneralName] = useState('');
+
   // Helper to calculate days until client's birthday
   const getBirthdayCountdown = (client) => {
     const dobStr = client?.fecha_nacimiento || client?.fechaNacimiento || client?.dob;
@@ -504,6 +509,20 @@ const VisitRecorder = () => {
     setClientSearchTerm('');
     await loadClientPlanData(client.id, client.nombre || client.name);
     await loadClientVisitsHistory(client.id || client.nombre || client.name);
+  };
+
+  // Instant Custom General Client Selection
+  const handleQuickGeneralClient = (nameToUse) => {
+    const finalName = (nameToUse || clientSearchTerm || 'Cliente General').trim();
+    setClientFound({
+      id: 'INVITADO',
+      nombre: finalName || 'Cliente General',
+      name: finalName || 'Cliente General',
+      es_invitado: true
+    });
+    setActivePlans([]);
+    setClientVisitsHistory([]);
+    setClientSearchTerm('');
   };
 
   // Open Ticket into Billing View & Collapse List
@@ -1616,7 +1635,13 @@ const VisitRecorder = () => {
         
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
         {(() => {
-          const hasActivePlan = Boolean(activePlans && activePlans.length > 0);
+          const isGuestClient = Boolean(
+            clientFound?.id === 'INVITADO' || 
+            clientFound?.es_invitado || 
+            selectedTicket?.client_id === 'INVITADO' || 
+            String(clientFound?.id || '').startsWith('INVITADO')
+          );
+          const hasActivePlan = Boolean(!isGuestClient && activePlans && activePlans.length > 0);
           const currentClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || '';
           const isClientSelected = Boolean(clientFound || selectedTicket);
           const avatarUrl = getClientAvatar(clientFound);
@@ -1641,6 +1666,7 @@ const VisitRecorder = () => {
                       setSelectedTicket(null);
                       setActivePlans([]);
                       setClientVisitsHistory([]);
+                      setIsEditingGeneralName(false);
                     }}
                     style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#64748b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', borderRadius: '8px', padding: '0.25rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
                     title="Cambiar cliente"
@@ -1668,6 +1694,20 @@ const VisitRecorder = () => {
                     {/* SEARCH RESULTS DROPDOWN */}
                     {clientSearchTerm.trim().length > 0 && (
                       <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '14px', marginTop: '6px', zIndex: 100, maxHeight: '240px', overflowY: 'auto', boxShadow: '0 15px 25px -5px rgba(0, 0, 0, 0.12)' }}>
+                        {/* QUICK ACTION: USE AS GENERAL CLIENT */}
+                        <div
+                          onClick={() => {
+                            handleQuickGeneralClient(clientSearchTerm);
+                            setClientSearchTerm('');
+                          }}
+                          style={{ padding: '0.75rem 1rem', cursor: 'pointer', background: '#fdf2f8', borderBottom: '1.5px solid #fbcfe8', display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#be185d', fontWeight: 800, fontSize: '0.825rem' }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = '#fce7f3'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = '#fdf2f8'}
+                        >
+                          <span>⚡</span>
+                          <span>Facturar a <strong>"{clientSearchTerm.trim()}"</strong> (Cliente General)</span>
+                        </div>
+
                         {allClients
                           .filter(c => {
                             const term = clientSearchTerm.toLowerCase();
@@ -1708,34 +1748,61 @@ const VisitRecorder = () => {
                           );
                         }).length === 0 && (
                           <div style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
-                            No se encontraron clientes con "{clientSearchTerm}"
+                            No hay clientes registrados con "{clientSearchTerm}"
                           </div>
                         )}
                       </div>
                     )}
                   </div>
 
-                  {/* EMPTY STATE PLACEHOLDER */}
-                  <div style={{ background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: '20px', padding: '2.5rem 1.2rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', flex: 1 }}>
-                    <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                      <User size={28} />
+                  {/* EMPTY STATE / QUICK GENERAL CLIENT ENTRY */}
+                  <div style={{ background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: '20px', padding: '1.5rem 1.2rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.65rem', flex: 1 }}>
+                    <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                      <User size={24} />
                     </div>
                     <div>
-                      <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.925rem', fontWeight: 800, color: '#1e293b' }}>
-                        Ningún cliente seleccionado
+                      <h4 style={{ margin: '0 0 0.2rem 0', fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>
+                        Cliente General / Ocasional
                       </h4>
-                      <p style={{ margin: 0, fontSize: '0.775rem', color: '#64748b' }}>
-                        Busca un cliente arriba o selecciona un ticket pendiente
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
+                        Coloca el nombre del cliente aunque no esté registrado:
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/registro-cliente')}
-                      style={{ marginTop: '0.5rem', background: '#be185d', color: '#ffffff', border: 'none', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.775rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+
+                    {/* DIRECT NAME INPUT FOR GENERAL CLIENT */}
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleQuickGeneralClient(quickGeneralName);
+                        setQuickGeneralName('');
+                      }}
+                      style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.15rem' }}
                     >
-                      <UserPlus size={14} />
-                      <span>+ Registrar Nuevo Cliente</span>
-                    </button>
+                      <input
+                        type="text"
+                        placeholder="Ej: María Pérez, Carlos Gómez..."
+                        value={quickGeneralName}
+                        onChange={(e) => setQuickGeneralName(e.target.value)}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, boxSizing: 'border-box', textAlign: 'center' }}
+                      />
+                      <button
+                        type="submit"
+                        style={{ width: '100%', background: '#0f172a', color: '#ffffff', border: 'none', padding: '0.55rem', borderRadius: '10px', fontSize: '0.775rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
+                      >
+                        <span>⚡ Facturar con este nombre</span>
+                      </button>
+                    </form>
+
+                    <div style={{ width: '100%', borderTop: '1px solid #e2e8f0', margin: '0.35rem 0 0', paddingTop: '0.65rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/registro-cliente')}
+                        style={{ width: '100%', background: '#fdf2f8', color: '#be185d', border: '1.5px solid #fbcfe8', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
+                      >
+                        <UserPlus size={14} />
+                        <span>+ Registrar Nuevo Cliente Formal</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1781,18 +1848,57 @@ const VisitRecorder = () => {
                     />
                   </div>
 
-                  {/* CLIENT FULL NAME */}
-                  <h3 style={{
-                    margin: '0 0 0.45rem 0',
-                    fontSize: '1.3rem',
-                    fontWeight: 800,
-                    color: '#18181b',
-                    textAlign: 'center',
-                    letterSpacing: '-0.02em',
-                    lineHeight: 1.2
-                  }}>
-                    {currentClientName}
-                  </h3>
+                  {/* CLIENT FULL NAME (WITH INLINE EDITING FOR GENERAL CLIENTS) */}
+                  {isEditingGeneralName ? (
+                    <div style={{ display: 'flex', gap: '0.35rem', margin: '0 0 0.5rem 0' }}>
+                      <input
+                        type="text"
+                        value={tempGeneralName}
+                        onChange={(e) => setTempGeneralName(e.target.value)}
+                        placeholder="Nombre del cliente..."
+                        style={{ flex: 1, padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1.5px solid #be185d', fontSize: '0.85rem', fontWeight: 700 }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const n = tempGeneralName.trim() || 'Cliente General';
+                          setClientFound(prev => ({ ...(prev || {}), id: 'INVITADO', nombre: n, name: n, es_invitado: true }));
+                          setIsEditingGeneralName(false);
+                        }}
+                        style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '0.4rem 0.65rem', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
+                      >
+                        ✔
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', margin: '0 0 0.45rem 0' }}>
+                      <h3 style={{
+                        margin: 0,
+                        fontSize: '1.3rem',
+                        fontWeight: 800,
+                        color: '#18181b',
+                        textAlign: 'center',
+                        letterSpacing: '-0.02em',
+                        lineHeight: 1.2
+                      }}>
+                        {currentClientName || 'Cliente General'}
+                      </h3>
+                      {isGuestClient && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTempGeneralName(currentClientName || '');
+                            setIsEditingGeneralName(true);
+                          }}
+                          title="Editar nombre del cliente general"
+                          style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', borderRadius: '6px', padding: '2px 5px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
+                        >
+                          <Edit3 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* PLAN STATUS PILL BADGE */}
                   <div style={{ textAlign: 'center', marginBottom: '0.25rem' }}>
@@ -1800,16 +1906,16 @@ const VisitRecorder = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.35rem',
-                      background: '#fdf4ff',
-                      border: '1px solid #fce7f3',
-                      color: '#c026d3',
+                      background: isGuestClient ? '#f1f5f9' : '#fdf4ff',
+                      border: isGuestClient ? '1px solid #e2e8f0' : '1px solid #fce7f3',
+                      color: isGuestClient ? '#475569' : '#c026d3',
                       fontSize: '0.8rem',
                       fontWeight: 700,
                       padding: '0.3rem 0.9rem',
                       borderRadius: '9999px'
                     }}>
-                      <span style={{ fontSize: '0.85rem' }}>⭐</span>
-                      <span>{hasActivePlan ? 'Beauty Activo' : 'Cliente Registrado'}</span>
+                      <span style={{ fontSize: '0.85rem' }}>{isGuestClient ? '👤' : (hasActivePlan ? '⭐' : '🌟')}</span>
+                      <span>{isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Beauty Activo' : 'Cliente Registrado')}</span>
                     </div>
                   </div>
 
@@ -1983,6 +2089,35 @@ const VisitRecorder = () => {
                     </span>
                     <ArrowRight size={18} />
                   </div>
+
+                  {/* FOOTER ACTION: REGISTER GENERAL CLIENT FORMALLY */}
+                  {isGuestClient && (
+                    <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #f3f4f6' }}>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/registro-cliente?name=${encodeURIComponent(currentClientName || '')}`)}
+                        style={{
+                          width: '100%',
+                          background: '#be185d',
+                          border: 'none',
+                          color: '#ffffff',
+                          borderRadius: '12px',
+                          padding: '0.65rem 0.85rem',
+                          fontWeight: 800,
+                          fontSize: '0.825rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.4rem',
+                          boxShadow: '0 4px 12px rgba(190, 24, 93, 0.25)'
+                        }}
+                      >
+                        <UserPlus size={16} />
+                        <span>+ Registrar Nuevo Cliente</span>
+                      </button>
+                    </div>
+                  )}
 
                 </div>
               )}
