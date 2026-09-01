@@ -2525,12 +2525,18 @@ app.post('/api/services', async (req, res) => {
       return res.status(400).json({ error: 'El nombre del servicio es obligatorio.' });
     }
 
+    const trimmedName = nombre.trim();
+    const [existing] = await pool.query('SELECT id, nombre FROM services WHERE LOWER(TRIM(nombre)) = LOWER(?)', [trimmedName]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: `Ya existe un ítem registrado con el nombre "${existing[0].nombre}". No se permiten duplicados.` });
+    }
+
     const [result] = await pool.query(
       `INSERT INTO services 
         (nombre, descripcion, categoria, precio, activo, genera_comision, tipo_comision, comision_valor, aplica_itbis, orden_visualizacion, imagen_url)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        nombre.trim(),
+        trimmedName,
         descripcion || '',
         categoria || 'General',
         parseFloat(precio) || 0,
@@ -2559,6 +2565,16 @@ app.put('/api/services/:id', async (req, res) => {
       aplica_itbis, orden_visualizacion, imagen_url
     } = req.body;
 
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({ error: 'El nombre del servicio es obligatorio.' });
+    }
+
+    const trimmedName = nombre.trim();
+    const [existing] = await pool.query('SELECT id, nombre FROM services WHERE LOWER(TRIM(nombre)) = LOWER(?) AND id != ?', [trimmedName, id]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: `Ya existe otro ítem registrado con el nombre "${existing[0].nombre}". No se permiten duplicados.` });
+    }
+
     await pool.query(
       `UPDATE services SET
         nombre = ?,
@@ -2574,7 +2590,7 @@ app.put('/api/services/:id', async (req, res) => {
         imagen_url = ?
        WHERE id = ?`,
       [
-        nombre ? nombre.trim() : 'Servicio',
+        trimmedName,
         descripcion || '',
         categoria || 'General',
         parseFloat(precio) || 0,
@@ -2589,7 +2605,7 @@ app.put('/api/services/:id', async (req, res) => {
       ]
     );
 
-    res.json({ success: true, message: 'Servicio actualizado exitosamente. Las facturas anteriores conservan su precio histórico.' });
+    res.json({ success: true, message: 'Servicio actualizado exitosamente' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -102,8 +102,9 @@ const ServiceManagement = () => {
 
   const handleSaveService = async (e) => {
     e.preventDefault();
-    if (!formData.nombre.trim()) {
-      alert('El nombre del servicio es obligatorio.');
+    const cleanName = formData.nombre.trim();
+    if (!cleanName) {
+      alert('El nombre del servicio o ítem es obligatorio.');
       return;
     }
     if (isNaN(parseFloat(formData.precio)) || parseFloat(formData.precio) < 0) {
@@ -111,13 +112,24 @@ const ServiceManagement = () => {
       return;
     }
 
+    // Check duplicate name (case-insensitive & trimmed)
+    const isDuplicate = services.some(s => 
+      s.nombre.trim().toLowerCase() === cleanName.toLowerCase() && 
+      (!editingService || String(s.id) !== String(editingService.id))
+    );
+
+    if (isDuplicate) {
+      alert(`⚠️ Ya existe un ítem registrado con el nombre "${cleanName}".\n\nNo se permiten nombres duplicados en el catálogo.`);
+      return;
+    }
+
     setLoading(true);
     try {
       if (editingService) {
-        await dataService.updateService(editingService.id, formData);
+        await dataService.updateService(editingService.id, { ...formData, nombre: cleanName });
         alert('✅ Servicio actualizado exitosamente.');
       } else {
-        await dataService.createService(formData);
+        await dataService.createService({ ...formData, nombre: cleanName });
         alert('✅ Nuevo servicio registrado exitosamente.');
       }
       setShowModal(false);
