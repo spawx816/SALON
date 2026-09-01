@@ -1588,22 +1588,6 @@ const VisitRecorder = () => {
             </span>
           </button>
 
-          {selectedTicket && (
-            <div style={{ background: '#fdf2f8', border: '1.5px solid #fbcfe8', padding: '0.5rem 0.85rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#be185d' }}>
-                🎫 Ticket: {selectedTicket.ticket_number || `SD-${String(selectedTicket.id).slice(-4)}`}
-              </span>
-              <button
-                type="button"
-                onClick={() => { setSelectedTicket(null); setLineItems([]); setClientFound(null); }}
-                style={{ background: '#be185d', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', cursor: 'pointer' }}
-                title="Deseleccionar ticket actual"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
           <button
             type="button"
             onClick={() => navigate('/facturas')}
