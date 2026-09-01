@@ -1972,11 +1972,51 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
     );
     if (openRegisters.length > 0) {
       const activeRegId = openRegisters[0].id;
-      await pool.query(
-        `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
-         VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
-        [activeRegId, metodo_pago || 'Efectivo', total || 0, `Cobro Ticket ${id}`, id]
-      );
+      const rawMetodo = (metodo_pago || '').toString();
+
+      if (rawMetodo.toLowerCase().includes('mixto')) {
+        let ef = 0, tj = 0, tr = 0;
+        const efMatch = rawMetodo.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+        const tjMatch = rawMetodo.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+        const trMatch = rawMetodo.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+
+        if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
+        if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
+        if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
+
+        if (ef === 0 && tj === 0 && tr === 0) {
+          ef = Number(total || 0) / 2;
+          tj = Number(total || 0) / 2;
+        }
+
+        if (ef > 0) {
+          await pool.query(
+            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+             VALUES (?, 'Ingreso_Venta', 'Efectivo', ?, ?, ?, NOW())`,
+            [activeRegId, ef, `Cobro Ticket ${id} (Parte Efectivo)`, id]
+          );
+        }
+        if (tj > 0) {
+          await pool.query(
+            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+             VALUES (?, 'Ingreso_Venta', 'Tarjeta', ?, ?, ?, NOW())`,
+            [activeRegId, tj, `Cobro Ticket ${id} (Parte Tarjeta)`, id]
+          );
+        }
+        if (tr > 0) {
+          await pool.query(
+            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+             VALUES (?, 'Ingreso_Venta', 'Transferencia', ?, ?, ?, NOW())`,
+            [activeRegId, tr, `Cobro Ticket ${id} (Parte Transferencia)`, id]
+          );
+        }
+      } else {
+        await pool.query(
+          `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+           VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
+          [activeRegId, metodo_pago || 'Efectivo', total || 0, `Cobro Ticket ${id}`, id]
+        );
+      }
     }
 
     res.json({ success: true });
@@ -2230,8 +2270,24 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
       const amt = Number(m.amount) || 0;
       if (m.type === 'Ingreso_Venta') {
         const method = (m.payment_method || '').toLowerCase();
-        if (method.includes('efectivo')) efectivoTotal += amt;
+        if (method.includes('mixto')) {
+          let ef = 0, tj = 0, tr = 0;
+          const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+          const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+          const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+          if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
+          if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
+          if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
+          if (ef === 0 && tj === 0 && tr === 0) {
+            ef = amt / 2;
+          }
+          efectivoTotal += ef;
+        } else if (method.includes('efectivo')) {
+          efectivoTotal += amt;
+        }
       } else if (m.type === 'Gasto_Imprevisto') {
+        gastosTotal += amt;
+      } else if (m.type === 'Prestamo_Empleado') {
         gastosTotal += amt;
       } else if (m.type === 'Retiro_Efectivo') {
         retirosTotal += amt;
@@ -2300,13 +2356,36 @@ app.get('/api/cash-registers/:id/movements', async (req, res) => {
       const amt = Number(m.amount) || 0;
       if (m.type === 'Ingreso_Venta') {
         const method = (m.payment_method || '').toLowerCase();
-        if (method.includes('efectivo')) efectivoTotal += amt;
-        else if (method.includes('tarjeta')) tarjetaTotal += amt;
-        else if (method.includes('transferencia')) transferenciaTotal += amt;
-        else if (method.includes('gift card') || method.includes('gift_card')) giftCardTotal += amt;
-        else if (method.includes('consumo')) consumoTotal += amt;
-        else if (method.includes('plan beauty') || method.includes('plan_beauty')) planBeautyTotal += amt;
-        else otrosTotal += amt;
+        if (method.includes('mixto')) {
+          let ef = 0, tj = 0, tr = 0;
+          const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+          const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+          const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+          if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
+          if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
+          if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
+          if (ef === 0 && tj === 0 && tr === 0) {
+            ef = amt / 2;
+            tj = amt / 2;
+          }
+          efectivoTotal += ef;
+          tarjetaTotal += tj;
+          transferenciaTotal += tr;
+        } else if (method.includes('efectivo')) {
+          efectivoTotal += amt;
+        } else if (method.includes('tarjeta')) {
+          tarjetaTotal += amt;
+        } else if (method.includes('transferencia')) {
+          transferenciaTotal += amt;
+        } else if (method.includes('gift card') || method.includes('gift_card')) {
+          giftCardTotal += amt;
+        } else if (method.includes('consumo')) {
+          consumoTotal += amt;
+        } else if (method.includes('plan beauty') || method.includes('plan_beauty')) {
+          planBeautyTotal += amt;
+        } else {
+          otrosTotal += amt;
+        }
       } else if (m.type === 'Gasto_Imprevisto') {
         gastosTotal += amt;
       } else if (m.type === 'Prestamo_Empleado') {

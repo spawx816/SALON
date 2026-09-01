@@ -1354,6 +1354,15 @@ const VisitRecorder = () => {
       }
     }
 
+    // Mixed Payment Validation
+    if (paymentMethod === 'Mixto') {
+      const cash = parseFloat(mixedCashReceived);
+      if (isNaN(cash) || cash <= 0 || cash >= totalAmount) {
+        alert(`⚠️ Para Pago Mixto, debes ingresar un monto en Efectivo mayor a 0 y menor al total (RD$ ${totalAmount.toFixed(2)}). El resto se cobrará por ${mixedComplementMethod}.`);
+        return;
+      }
+    }
+
     // Gift Card & Mixed Payment Validations
     if (paymentMethod === 'Gift_Card') {
       if (!giftCardInfo) {
@@ -1417,11 +1426,11 @@ const VisitRecorder = () => {
       }
 
       if (paymentMethod === 'Mixto') {
-        const cash = parseFloat(mixedCashReceived) || 0;
+        const cash = parseFloat(mixedCashReceived) || (totalAmount / 2);
         const complement = Math.max(0, totalAmount - cash);
         finalMetodoPago = `Mixto (Efectivo: RD$ ${cash.toFixed(2)} + ${mixedComplementMethod}: RD$ ${complement.toFixed(2)})`;
-        finalMontoRecibido = parseFloat(montoRecibido) || totalAmount;
-        finalDevuelta = devueltaAmount;
+        finalMontoRecibido = totalAmount;
+        finalDevuelta = 0;
       }
 
       if (paymentMethod === 'Gift_Card' && giftCardInfo) {
@@ -2677,36 +2686,50 @@ const VisitRecorder = () => {
             )}
 
             {/* MIXED PAYMENT CONTROLS */}
-            {paymentMethod === 'Mixto' && (
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.75rem' }}>
-                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '0.4rem' }}>
-                  Combinación de Pagos
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
-                  <div>
-                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Efectivo (RD$)</span>
-                    <input
-                      type="number"
-                      placeholder="0.00"
-                      value={mixedCashReceived}
-                      onChange={(e) => setMixedCashReceived(e.target.value)}
-                      style={{ width: '100%', padding: '0.45rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600, boxSizing: 'border-box' }}
-                    />
+            {paymentMethod === 'Mixto' && (() => {
+              const cashVal = parseFloat(mixedCashReceived) || 0;
+              const complementVal = Math.max(0, finalTotalAmount - cashVal);
+              return (
+                <div style={{ background: '#f8fafc', border: '1.5px solid #cbd5e1', borderRadius: '12px', padding: '0.85rem' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', display: 'block', marginBottom: '0.5rem' }}>
+                    🔀 Desglose de Pago Mixto
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '2px' }}>
+                        💵 Efectivo (RD$)
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="0.00"
+                        value={mixedCashReceived}
+                        onChange={(e) => setMixedCashReceived(e.target.value)}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 800, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '2px' }}>
+                        Segundo método
+                      </span>
+                      <select
+                        value={mixedComplementMethod}
+                        onChange={(e) => setMixedComplementMethod(e.target.value)}
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 800, background: '#fff', boxSizing: 'border-box' }}
+                      >
+                        <option value="Tarjeta">Tarjeta</option>
+                        <option value="Transferencia">Transferencia</option>
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Segundo método</span>
-                    <select
-                      value={mixedComplementMethod}
-                      onChange={(e) => setMixedComplementMethod(e.target.value)}
-                      style={{ width: '100%', padding: '0.45rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600, background: '#fff', boxSizing: 'border-box' }}
-                    >
-                      <option value="Tarjeta">Tarjeta</option>
-                      <option value="Transferencia">Transferencia</option>
-                    </select>
+
+                  {/* REALTIME PREVIEW OF BOTH PARTS */}
+                  <div style={{ marginTop: '0.6rem', padding: '0.5rem 0.65rem', background: '#ffffff', borderRadius: '8px', border: '1px dashed #cbd5e1', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>💵 Efectivo: <strong style={{ color: '#166534' }}>RD$ {cashVal.toFixed(2)}</strong></span>
+                    <span>💳 {mixedComplementMethod}: <strong style={{ color: '#0284c7' }}>RD$ {complementVal.toFixed(2)}</strong></span>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
 
