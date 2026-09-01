@@ -314,11 +314,21 @@ const setupDB = async () => {
         concept TEXT,
         user_id VARCHAR(50),
         user_name VARCHAR(255),
+        employee_id VARCHAR(50),
+        employee_name VARCHAR(255),
         visit_id VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (cash_register_id) REFERENCES cash_registers(id) ON DELETE CASCADE
       )
     `);
+
+    try {
+      await pool.query('ALTER TABLE cash_register_movements ADD COLUMN employee_id VARCHAR(50)');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE cash_register_movements ADD COLUMN employee_name VARCHAR(255)');
+    } catch (e) {}
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS billing_codes (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2244,6 +2254,7 @@ app.get('/api/cash-registers/:id/movements', async (req, res) => {
     let otrosTotal = 0;
 
     let gastosTotal = 0;
+    let prestamosTotal = 0;
     let retirosTotal = 0;
     let entradasTotal = 0;
 
@@ -2259,6 +2270,9 @@ app.get('/api/cash-registers/:id/movements', async (req, res) => {
         else if (method.includes('plan beauty') || method.includes('plan_beauty')) planBeautyTotal += amt;
         else otrosTotal += amt;
       } else if (m.type === 'Gasto_Imprevisto') {
+        gastosTotal += amt;
+      } else if (m.type === 'Prestamo_Empleado') {
+        prestamosTotal += amt;
         gastosTotal += amt;
       } else if (m.type === 'Retiro_Efectivo') {
         retirosTotal += amt;
@@ -2281,6 +2295,7 @@ app.get('/api/cash-registers/:id/movements', async (req, res) => {
         planBeautyTotal,
         otrosTotal,
         gastosTotal,
+        prestamosTotal,
         retirosTotal,
         entradasTotal,
         montoEstimadoEnCaja
@@ -2294,19 +2309,27 @@ app.get('/api/cash-registers/:id/movements', async (req, res) => {
 app.post('/api/cash-registers/:id/movements', async (req, res) => {
   try {
     const { id } = req.params;
-    const { type, amount, concept, user_id, user_name, payment_method } = req.body;
+    const { type, amount, concept, user_id, user_name, payment_method, employee_id, employee_name } = req.body;
 
     if (!type || !amount || Number(amount) <= 0) {
       return res.status(400).json({ error: 'Tipo y monto válido son requeridos.' });
     }
 
-    const [result] = await pool.query(
-      `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_id, user_name, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [id, type, payment_method || 'Efectivo', amount, concept || '', user_id || 'SYS', user_name || 'Cajero']
-    );
-
-    res.json({ success: true, movementId: result.insertId, message: 'Movimiento registrado exitosamente' });
+    try {
+      const [result] = await pool.query(
+        `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_id, user_name, employee_id, employee_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [id, type, payment_method || 'Efectivo', amount, concept || '', user_id || 'SYS', user_name || 'Cajero', employee_id || null, employee_name || null]
+      );
+      res.json({ success: true, movementId: result.insertId, message: 'Movimiento registrado exitosamente' });
+    } catch (colErr) {
+      const [result] = await pool.query(
+        `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_id, user_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [id, type, payment_method || 'Efectivo', amount, concept || '', user_id || 'SYS', user_name || 'Cajero']
+      );
+      res.json({ success: true, movementId: result.insertId, message: 'Movimiento registrado exitosamente' });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

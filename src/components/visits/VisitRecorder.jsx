@@ -129,6 +129,7 @@ const VisitRecorder = () => {
   const [newMovementType, setNewMovementType] = useState('Gasto_Imprevisto');
   const [newMovementAmount, setNewMovementAmount] = useState('');
   const [newMovementConcept, setNewMovementConcept] = useState('');
+  const [movementEmployeeId, setMovementEmployeeId] = useState('');
 
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [montoRecibido, setMontoRecibido] = useState('');
@@ -1183,23 +1184,32 @@ const VisitRecorder = () => {
       alert('Por favor ingresa un monto válido mayor a 0.');
       return;
     }
+    if (newMovementType === 'Prestamo_Empleado' && !movementEmployeeId) {
+      alert('Por favor selecciona el empleado beneficiario del préstamo.');
+      return;
+    }
     if (!newMovementConcept.trim()) {
       alert('Por favor especifica las observaciones o concepto del movimiento.');
       return;
     }
+
+    const selectedEmp = employees.find(emp => String(emp.id) === String(movementEmployeeId));
 
     setLoading(true);
     try {
       await dataService.addCashRegisterMovement(activeRegister.id, {
         type: newMovementType,
         amount: amt,
-        concept: newMovementConcept.trim(),
+        concept: selectedEmp ? `[Préstamo: ${selectedEmp.nombre || selectedEmp.name}] ${newMovementConcept.trim()}` : newMovementConcept.trim(),
+        employee_id: selectedEmp ? selectedEmp.id : null,
+        employee_name: selectedEmp ? (selectedEmp.nombre || selectedEmp.name) : null,
         user_id: currentUser?.id || 'EMP',
         user_name: currentUser?.nombre || 'Cajero'
       });
       alert('✅ Movimiento de caja registrado exitosamente.');
       setNewMovementAmount('');
       setNewMovementConcept('');
+      setMovementEmployeeId('');
       await fetchRegisterMovements(activeRegister.id);
       setMovementActiveTab('resumen');
     } catch (err) {
@@ -3731,6 +3741,9 @@ const VisitRecorder = () => {
                       <div>🛒 Total Ventas en Efectivo: <strong>+ RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                       <div>📥 Entradas Adicionales de Caja: <strong>+ RD$ {(registerSummary?.entradasTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                       <div>💸 Gastos Imprevistos en Efectivo: <strong>- RD$ {(registerSummary?.gastosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                      {(registerSummary?.prestamosTotal > 0) && (
+                        <div>🤝 De los cuales Préstamos a Empleados: <strong style={{ color: '#be185d' }}>- RD$ {(registerSummary.prestamosTotal).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                      )}
                       <div>📤 Retiros de Efectivo / Sangrías: <strong>- RD$ {(registerSummary?.retirosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                     </div>
                   )}
@@ -3818,14 +3831,50 @@ const VisitRecorder = () => {
                   </label>
                   <select
                     value={newMovementType}
-                    onChange={(e) => setNewMovementType(e.target.value)}
+                    onChange={(e) => {
+                      setNewMovementType(e.target.value);
+                      if (e.target.value === 'Prestamo_Empleado' && !newMovementConcept) {
+                        setNewMovementConcept('Préstamo / Adelanto de nómina');
+                      }
+                    }}
                     style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700, fontSize: '0.85rem' }}
                   >
                     <option value="Gasto_Imprevisto">💸 Gasto imprevisto (Salida de dinero)</option>
+                    <option value="Prestamo_Empleado">🤝 Préstamo a empleado (Salida de dinero / Gasto)</option>
                     <option value="Retiro_Efectivo">📤 Retiro de efectivo / Sangría (Salida de caja)</option>
                     <option value="Entrada_Adicional">📥 Entrada adicional (Ingreso a caja)</option>
                   </select>
                 </div>
+
+                {/* SELECTOR DE EMPLEADO (SI ES PRÉSTAMO) */}
+                {newMovementType === 'Prestamo_Empleado' && (
+                  <div style={{ marginBottom: '0.875rem', background: '#fdf2f8', border: '1.5px solid #fbcfe8', borderRadius: '14px', padding: '0.85rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#be185d' }}>
+                        Empleado beneficiario del préstamo *:
+                      </label>
+                      <span style={{ fontSize: '0.7rem', color: '#be185d', fontWeight: 700 }}>
+                        {employees.length} empleados registrados
+                      </span>
+                    </div>
+                    <select
+                      value={movementEmployeeId}
+                      onChange={(e) => setMovementEmployeeId(e.target.value)}
+                      required={newMovementType === 'Prestamo_Empleado'}
+                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #be185d', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
+                    >
+                      <option value="">-- Seleccionar Empleado --</option>
+                      {employees.map((emp) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.nombre || emp.name} {emp.rol ? `· (${emp.rol})` : ''} {emp.cedula ? `· [${emp.cedula}]` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: '0.72rem', color: '#831843', marginTop: '4px', display: 'block' }}>
+                      💡 Este préstamo se registrará como salida de caja y quedará vinculado al expediente del empleado.
+                    </span>
+                  </div>
+                )}
 
                 <div style={{ marginBottom: '0.875rem' }}>
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
@@ -3833,10 +3882,12 @@ const VisitRecorder = () => {
                   </label>
                   <input
                     type="number"
+                    step="0.01"
                     placeholder="0.00"
                     value={newMovementAmount}
                     onChange={(e) => setNewMovementAmount(e.target.value)}
                     style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '1.05rem' }}
+                    required
                   />
                 </div>
 
@@ -3846,10 +3897,11 @@ const VisitRecorder = () => {
                   </label>
                   <textarea
                     rows={3}
-                    placeholder="Ej: Compra de insumos de limpieza de emergencia..."
+                    placeholder="Ej: Préstamo para emergencia médica / adelanto de quincena..."
                     value={newMovementConcept}
                     onChange={(e) => setNewMovementConcept(e.target.value)}
                     style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
+                    required
                   />
                 </div>
 
@@ -3939,9 +3991,17 @@ const VisitRecorder = () => {
                 <div>👤 Consumo Empleados: <strong>RD$ {(registerSummary?.consumoTotal || 0).toFixed(2)}</strong></div>
               </div>
 
-              <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px dashed #cbd5e1', display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                <span style={{ color: '#dc2626', fontWeight: 700 }}>💸 Total Gastos de la Jornada:</span>
-                <strong style={{ color: '#dc2626' }}>- RD$ {(registerSummary?.gastosTotal || 0).toFixed(2)}</strong>
+              <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px dashed #cbd5e1', display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.8rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#dc2626', fontWeight: 700 }}>💸 Total Salidas / Gastos de Caja:</span>
+                  <strong style={{ color: '#dc2626' }}>- RD$ {(registerSummary?.gastosTotal || 0).toFixed(2)}</strong>
+                </div>
+                {(registerSummary?.prestamosTotal > 0) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#be185d', paddingLeft: '0.5rem' }}>
+                    <span>🤝 Incluye Préstamos a Empleados:</span>
+                    <strong>- RD$ {(registerSummary.prestamosTotal).toFixed(2)}</strong>
+                  </div>
+                )}
               </div>
 
               <div style={{ marginTop: '0.4rem', paddingTop: '0.4rem', borderTop: '1px solid #cbd5e1', display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
