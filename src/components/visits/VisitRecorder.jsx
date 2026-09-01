@@ -160,13 +160,13 @@ const VisitRecorder = () => {
           const diffTime = nextBday - today;
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           if (diffDays === 0 || diffDays === 365) {
-            return { isToday: true, label: '¡Felicidades en su día! 🎂🎉', text: '¡Hoy es su cumpleaños! 🎉' };
+            return { isToday: true, isAvailable: true, label: '¡Felicidades en su día! 🎂🎉', text: '¡Hoy es su cumpleaños! 🎉' };
           }
-          return { isToday: false, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días` };
+          return { isToday: false, isAvailable: diffDays <= 30, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días` };
         }
       } catch (e) {}
     }
-    return { isToday: false, label: 'Faltan 14 días para su cumpleaños', text: 'Cumpleaños en 14 días' };
+    return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado' };
   };
 
   const getLastVisitText = () => {
@@ -177,26 +177,38 @@ const VisitRecorder = () => {
         const diffMs = Date.now() - new Date(vDate).getTime();
         const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
         if (diffDays === 0) return 'Última visita hoy';
-        if (diffDays === 1) return 'Última visita hace 1 día';
+        if (diffDays === 1) return 'Última visita ayer';
         return `Última visita hace ${diffDays} días`;
       }
     }
-    return 'Última visita hace 12 días';
+    return 'Primera visita (Sin historial)';
   };
 
   const getRenewalDateText = () => {
     if (activePlans && activePlans.length > 0) {
-      return activePlans[0]?.end_date || activePlans[0]?.next_billing_date || '23 Sep 2026';
+      const plan = activePlans[0];
+      if (plan?.end_date) return plan.end_date;
+      if (plan?.next_billing_date) {
+        return new Date(plan.next_billing_date).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+      return 'En ciclo activo';
     }
-    return '23 Sep 2026';
+    return 'Sin suscripción activa';
   };
 
   const getBenefitsCount = () => {
     if (activePlans && activePlans.length > 0) {
-      const remaining = activePlans[0]?.remaining_washes ?? activePlans[0]?.remaining_base_washes;
-      return remaining !== undefined ? remaining : 2;
+      const remaining = activePlans[0]?.remaining_washes !== undefined ? activePlans[0].remaining_washes : activePlans[0]?.remaining_base_washes;
+      return remaining !== undefined ? remaining : 0;
     }
-    return 2;
+    return 0;
+  };
+
+  const getTotalBenefitsCount = () => {
+    if (activePlans && activePlans.length > 0) {
+      return activePlans[0]?.total_washes || 4;
+    }
+    return 4;
   };
 
   const getClientAvatar = (client) => {
@@ -492,6 +504,8 @@ const VisitRecorder = () => {
     const isGuest = !ticket.client_id || ticket.client_id === 'INVITADO' || String(ticket.client_id).startsWith('INVITADO');
 
     if (!isGuest && ticket.client_id) {
+      const match = allClients.find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
+      setClientFound(match || { id: ticket.client_id, nombre: ticket.client_name });
       await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
       await loadClientVisitsHistory(ticket.client_id);
     } else {
