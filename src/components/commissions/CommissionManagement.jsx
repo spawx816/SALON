@@ -9,9 +9,10 @@ import { dataService } from '../../utils/dataService';
 const CommissionManagement = () => {
   const [activeTab, setActiveTab] = useState('esquemas'); // 'esquemas' | 'registro'
 
-  // Categories, Schemes & Rules Data
+  // Categories, Schemes, Services & Rules Data
   const [categories, setCategories] = useState([]);
   const [schemes, setSchemes] = useState([]);
+  const [allServices, setAllServices] = useState([]);
   const [selectedSchemeId, setSelectedSchemeId] = useState(null);
   const [schemeRules, setSchemeRules] = useState([]);
 
@@ -40,9 +41,10 @@ const CommissionManagement = () => {
 
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [ruleForm, setRuleForm] = useState({
-    rule_type: 'categoria', // 'categoria' | 'servicio'
+    rule_type: 'servicio', // 'servicio' | 'categoria'
     category_name: '',
     service_name: '',
+    service_id: '',
     tipo_calculo: 'Porcentaje', // 'Porcentaje' | 'Monto_Fijo'
     valor: '',
     prioridad: 1
@@ -67,16 +69,18 @@ const CommissionManagement = () => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [cats, schs, emps, sals] = await Promise.all([
+      const [cats, schs, emps, sals, servs] = await Promise.all([
         dataService.getCommissionCategories(),
         dataService.getCommissionSchemes(),
         dataService.getEmployees(),
-        dataService.getSalons()
+        dataService.getSalons(),
+        dataService.getServices().catch(() => [])
       ]);
       setCategories(cats || []);
       setSchemes(schs || []);
       setEmployees(emps || []);
       setSalons(sals || []);
+      setAllServices(Array.isArray(servs) ? servs : []);
 
       if (schs && schs.length > 0 && !selectedSchemeId) {
         setSelectedSchemeId(schs[0].id);
@@ -193,10 +197,12 @@ const CommissionManagement = () => {
   // --- HANDLERS: REGLAS DE ESQUEMA ---
   const handleOpenRuleModal = () => {
     if (!selectedSchemeId) return alert('Selecciona primero un esquema');
+    const firstService = allServices[0];
     setRuleForm({
-      rule_type: 'categoria',
+      rule_type: 'servicio',
       category_name: categories[0]?.nombre || '',
-      service_name: '',
+      service_name: firstService ? firstService.nombre : '',
+      service_id: firstService ? firstService.id : '',
       tipo_calculo: 'Porcentaje',
       valor: '',
       prioridad: 1
@@ -972,12 +978,48 @@ const CommissionManagement = () => {
                 </div>
               ) : (
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Nombre del Servicio (Excepción) *</label>
-                  <input
-                    type="text" required placeholder="Ej: Keratina, Alisado Brasileño..."
-                    value={ruleForm.service_name} onChange={e => setRuleForm({ ...ruleForm, service_name: e.target.value })}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
-                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#334155' }}>
+                      Servicio / Ítem del Catálogo *
+                    </label>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#be185d', background: '#fdf2f8', padding: '2px 8px', borderRadius: '9999px', border: '1px solid #fce7f3' }}>
+                      {allServices.length} ítems registrados
+                    </span>
+                  </div>
+                  {allServices.length > 0 ? (
+                    <select
+                      value={ruleForm.service_name}
+                      onChange={e => {
+                        const selected = allServices.find(s => s.nombre === e.target.value);
+                        setRuleForm({
+                          ...ruleForm,
+                          service_name: e.target.value,
+                          service_id: selected?.id || ''
+                        });
+                      }}
+                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #be185d', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
+                      required
+                    >
+                      <option value="">-- Selecciona un Servicio / Ítem --</option>
+                      {allServices.map(s => (
+                        <option key={s.id} value={s.nombre}>
+                          {s.nombre} {s.precio ? `· RD$ ${Number(s.precio).toLocaleString('es-DO')}` : ''} {s.categoria ? `· [${s.categoria}]` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej: Keratina, Alisado Brasileño..."
+                      value={ruleForm.service_name}
+                      onChange={e => setRuleForm({ ...ruleForm, service_name: e.target.value })}
+                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                    />
+                  )}
+                  <span style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                    💡 Selecciona el ítem al que deseas aplicar esta comisión específica o monto fijo.
+                  </span>
                 </div>
               )}
 
