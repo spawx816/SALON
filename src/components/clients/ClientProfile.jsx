@@ -1006,7 +1006,7 @@ const ClientProfile = () => {
                       return isNaN(time) ? new Date(d).getTime() : time;
                     };
                     const lastBillingTime = parseDate(contract?.last_billed_date);
-                    const threshold = lastBillingTime + 10000;
+                    const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
                     const cycleVisits = visits.filter(v => parseDate(v.visited_at) >= threshold);
                     
                     const usageMap = {};
@@ -1017,7 +1017,14 @@ const ClientProfile = () => {
                       }
                       if (Array.isArray(sList)) {
                         sList.forEach(s => {
-                          usageMap[s] = (usageMap[s] || 0) + 1;
+                          if (typeof s === 'string') {
+                            const cleanS = s.trim();
+                            usageMap[cleanS] = (usageMap[cleanS] || 0) + 1;
+                            const noNum = cleanS.replace(/^\d+\s*/, '').trim();
+                            if (noNum && noNum !== cleanS) {
+                              usageMap[noNum] = (usageMap[noNum] || 0) + 1;
+                            }
+                          }
                         });
                       }
                     });
@@ -1109,7 +1116,7 @@ const ClientProfile = () => {
                                 }
                               }
 
-                              const currentUsage = usageMap[service] || 0;
+                              const currentUsage = usageMap[service] || usageMap[baseName] || usageMap[(baseName || '').trim()] || 0;
                               const percentage = isUnlimited ? 100 : Math.min(100, (currentUsage / quota) * 100);
                               const isBtnDisabled = (percentage >= 100 && !isUnlimited) || client.status === 'Cancelled' || contract?.status === 'Pending_Retry';
 
@@ -1119,7 +1126,7 @@ const ClientProfile = () => {
                                     <div>
                                       <span style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block' }}>{baseName}</span>
                                       <span style={{ fontSize: '0.7rem', fontWeight: 800, color: percentage >= 100 && !isUnlimited ? '#ef4444' : 'var(--text-primary)' }}>
-                                        {currentUsage} / {isUnlimited ? '∞' : quota}
+                                        {currentUsage} / {isUnlimited ? '∞' : quota} usados ({isUnlimited ? 'Ilimitados' : Math.max(0, quota - currentUsage)} disponibles)
                                       </span>
                                     </div>
                                     <button 

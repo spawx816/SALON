@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
-  Sparkles, Star, UserPlus, Clock, Phone, Percent
+  Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -17,6 +17,7 @@ import Dashboard from './components/admin/Dashboard';
 import ClientDashboard from './components/clients/ClientDashboard';
 import ClientRegistration from './components/clients/ClientRegistration';
 import VisitRecorder from './components/visits/VisitRecorder';
+import InvoiceHistory from './components/admin/InvoiceHistory';
 import SatisfactionSurvey from './components/surveys/SatisfactionSurvey';
 import GiftCertificates from './components/surveys/GiftCertificates';
 import ClientServices from './components/clients/ClientServices';
@@ -260,17 +261,20 @@ const AppContent = () => {
               {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
                 <SidebarLink to="/lista-clientes" icon={Users} label={t('menu.clients')} active={location.pathname === '/lista-clientes'} onClick={closeMobileMenu} />
               )}
-              {(isAdmin || (user?.permissions && (user.permissions.process_billing || user.permissions.register_visits))) && (
+              {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits))) && (
                 <SidebarLink to="/visitas" icon={Calendar} label="Facturar" active={location.pathname === '/visitas'} onClick={closeMobileMenu} />
+              )}
+              {(isAdmin || (user?.permissions && (user.permissions.view_invoices || user.permissions.process_payments))) && (
+                <SidebarLink to="/facturas" icon={Receipt} label="Historial de Facturas" active={location.pathname === '/facturas'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
                 <SidebarLink to="/registro-cliente" icon={UserPlus} label="Registrar Cliente" active={location.pathname === '/registro-cliente'} onClick={closeMobileMenu} />
               )}
-              {(isAdmin || (user?.permissions && (user.permissions.process_billing || user.permissions.register_visits))) && (
+              {(isAdmin || (user?.permissions && (user.permissions.manage_services || user.permissions.process_payments))) && (
                 <SidebarLink to="/servicios" icon={Sparkles} label="Gestión de Servicios" active={location.pathname === '/servicios'} onClick={closeMobileMenu} />
               )}
-              {(isAdmin || (user?.permissions && (user.permissions.process_billing || user.permissions.register_visits))) && (
-                <SidebarLink to="/comisiones" icon={Percent} label="Comisiones y Nómina" active={location.pathname === '/comisiones'} onClick={closeMobileMenu} />
+              {(isAdmin || (user?.permissions && (user.permissions.manage_commissions || user.permissions.manage_staff))) && (
+                <SidebarLink to="/comisiones" icon={Percent} label="Comisiones" active={location.pathname === '/comisiones'} onClick={closeMobileMenu} />
               )}
               
               <div style={{ margin: '1.5rem 0.75rem 0.5rem', height: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
@@ -305,6 +309,8 @@ const AppContent = () => {
             user?.permissions?.manage_plans || 
             user?.permissions?.process_payments || 
             user?.permissions?.view_analytics || 
+            user?.permissions?.manage_salons || 
+            user?.permissions?.manage_marketing || 
             user?.role_name?.toLowerCase()?.includes('recep')) && (
             <>
               <p className="nav-group-title">{t('menu.admin')}</p>
@@ -317,7 +323,7 @@ const AppContent = () => {
                 <SidebarLink to="/admin/asistencia" icon={Clock} label="Control Asistencia" active={location.pathname === '/admin/asistencia'} onClick={closeMobileMenu} />
               )}
               
-              {isAdmin && (
+              {(isAdmin || user?.permissions?.manage_salons) && (
                 <SidebarLink to="/sucursales" icon={MapPin} label="Sucursales" active={location.pathname === '/sucursales'} onClick={closeMobileMenu} />
               )}
               
@@ -329,7 +335,7 @@ const AppContent = () => {
                 <SidebarLink to="/pagos" icon={CreditCard} label={t('menu.payments')} active={location.pathname === '/pagos'} onClick={closeMobileMenu} />
               )}
               
-              {isAdmin && (
+              {(isAdmin || user?.permissions?.manage_marketing) && (
                 <SidebarLink to="/marketing" icon={Mail} label={t('menu.marketing')} active={location.pathname === '/marketing'} onClick={closeMobileMenu} />
               )}
               
@@ -354,51 +360,8 @@ const AppContent = () => {
 
       {/* Main Content Area */}
       <main className="main-surface">
-        <header className="top-header">
-          <div className="breadcrumb">
-            <Link to="/" className="workspace" style={{ transition: 'color 0.2s' }}>{t('workspace')}</Link>
-            <span className="separator">/</span>
-            <Link to={location.pathname} className="current" style={{ transition: 'color 0.2s', cursor: 'pointer', textDecoration: 'none' }}>
-               {location.pathname === '/' ? t('menu.dashboard') : location.pathname.substring(1).replace(/-/g, ' ')}
-            </Link>
-          </div>
 
-          <div className="header-actions">
-            <button 
-              onClick={() => changeLanguage(lang === 'es' ? 'en' : 'es')}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: '99px',
-                padding: '0.25rem 0.75rem',
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                color: 'var(--text-secondary)',
-                textTransform: 'uppercase'
-              }}
-            >
-              {lang === 'es' ? '🇬🇧 EN' : '🇪🇸 ES'}
-            </button>
-            <div className="search-bar">
-              <Search size={16} />
-              <input type="text" placeholder={t('search.placeholder')} />
-            </div>
-            <button 
-              onClick={() => setIsGiftCardModalOpen(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', borderRadius: '10px',
-                background: '#09090b', color: 'white', border: 'none', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer'
-              }}
-            >
-              <Gift size={14} />
-              <span>Validar Gift Card</span>
-            </button>
-            <NotificationBell />
-          </div>
-        </header>
-
-        <div className="content-area hide-scrollbar" style={{ background: 'var(--bg-canvas)' }}>
+        <div className="content-area hide-scrollbar" style={{ background: location.pathname === '/visitas' ? '#ffffff' : 'var(--bg-canvas)', padding: location.pathname === '/visitas' ? '0' : undefined }}>
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={location.pathname}
@@ -414,6 +377,7 @@ const AppContent = () => {
                 <Route path="/registro-cliente" element={isClient ? <Navigate to="/" /> : <ClientRegistration />} />
                 <Route path="/lista-clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
                 <Route path="/visitas" element={isClient ? <Navigate to="/" /> : <VisitRecorder />} />
+                <Route path="/facturas" element={isClient ? <Navigate to="/" /> : <InvoiceHistory />} />
                 <Route path="/servicios" element={isClient ? <Navigate to="/" /> : <ServiceManagement />} />
                 <Route path="/comisiones" element={isClient ? <Navigate to="/" /> : <CommissionManagement />} />
                 <Route path="/encuesta" element={(isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />} />

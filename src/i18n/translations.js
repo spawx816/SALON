@@ -127,6 +127,7 @@ export const translations = {
     'reg.city': 'Ciudad',
     'reg.city.ph': 'Ej: Santo Domingo',
     'reg.note': 'El perfil estará disponible al instante en todas las estaciones del salón.',
+    'reg.error.required': 'Este campo es obligatorio',
     'reg.btn.create': 'Crear Perfil',
     'reg.btn.next': 'Siguiente',
     'reg.btn.back': 'Atrás',

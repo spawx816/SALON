@@ -171,8 +171,7 @@ const ClientDashboard = () => {
     };
 
     const lastBillingTime = parseDate(cContract.last_billed_date);
-    // Margen de 10 segundos
-    const threshold = lastBillingTime + 10000;
+    const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
     
     const cycleVisits = pastVisits.filter(v => {
       const vTime = parseDate(v.visited_at);
@@ -186,7 +185,16 @@ const ClientDashboard = () => {
         srvs = typeof v.servicios === 'string' ? JSON.parse(v.servicios) : (v.servicios || []);
       } catch(e) { srvs = []; }
       
-      srvs.forEach(s => { usageMap[s] = (usageMap[s] || 0) + 1; });
+      srvs.forEach(s => { 
+        if (typeof s === 'string') {
+          const cleanS = s.trim();
+          usageMap[cleanS] = (usageMap[cleanS] || 0) + 1;
+          const noNum = cleanS.replace(/^\d+\s*/, '').trim();
+          if (noNum && noNum !== cleanS) {
+            usageMap[noNum] = (usageMap[noNum] || 0) + 1;
+          }
+        }
+      });
     });
 
     const peel = (data) => {
@@ -203,16 +211,21 @@ const ClientDashboard = () => {
       return current;
     };
 
-    const servicesList = peel(cContract.contract_services) || [];
-    const limits = peel(cContract.master_usage_limits) || {};
+    const effectiveBaseServices = peel(cContract.contract_services) || [];
+    const servicesList = Array.isArray(effectiveBaseServices) && effectiveBaseServices.length > 0
+      ? effectiveBaseServices 
+      : (cContract.plan_services || []);
     
     const stats = (Array.isArray(servicesList) ? servicesList : []).map(serviceName => {
+      const limits = peel(cContract.plan_limits) || {};
       let quota = parseInt(limits.services, 10) || 4;
       if (!limits.services) {
         const match = String(serviceName).match(/^(\d+)\s/);
         if (match) quota = parseInt(match[1], 10);
       }
-      const used = usageMap[serviceName] || 0;
+      const cleanName = String(serviceName).trim();
+      const baseName = cleanName.replace(/^\d+\s*/, '').trim();
+      const used = usageMap[cleanName] || usageMap[baseName] || 0;
       const remaining = Math.max(0, quota - used);
       return {
         name: serviceName,
@@ -235,7 +248,9 @@ const ClientDashboard = () => {
     if (isPromoActive) {
       const promoServices = peel(cContract.contract_promo_services) || [];
       (Array.isArray(promoServices) ? promoServices : []).forEach(pName => {
-        const pUsed = usageMap[pName] || 0;
+        const cleanPName = String(pName).trim();
+        const basePName = cleanPName.replace(/^\d+\s*/, '').trim();
+        const pUsed = usageMap[cleanPName] || usageMap[basePName] || 0;
         const pTotal = 1;
         stats.push({
           name: pName,

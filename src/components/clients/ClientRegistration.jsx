@@ -8,8 +8,8 @@ import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCedula, validateName, cleanPhone } from '../../utils/formUtils';
 
-const ClientRegistration = () => {
-  const { register, handleSubmit, formState: { errors }, reset, trigger } = useForm();
+const ClientRegistration = ({ initialClient = null, onClientSaved = null, submitButtonText = null, isModal = false }) => {
+  const { register, handleSubmit, formState: { errors }, reset, trigger, setValue } = useForm();
   const { t } = useTranslation();
   const { showNotification } = useNotification();
   const { user } = useAuth();
@@ -24,6 +24,21 @@ const ClientRegistration = () => {
     loadSalons();
   }, []);
 
+  useEffect(() => {
+    if (initialClient) {
+      setValue('nombre', initialClient.nombre || initialClient.name || '');
+      setValue('telefono', initialClient.telefono || '');
+      setValue('email', initialClient.email || '');
+      setValue('cedula', initialClient.cedula || '');
+      setValue('fechaNacimiento', initialClient.fechaNacimiento || initialClient.fecha_nacimiento || '');
+      setValue('salon_id', initialClient.salon_id || '1');
+      setValue('calle', initialClient.calle || initialClient.direccion || '');
+      setValue('numero', initialClient.numero || '');
+      setValue('sector', initialClient.sector || '');
+      setValue('ciudad', initialClient.ciudad || 'Santo Domingo');
+    }
+  }, [initialClient, setValue]);
+
   const nextStep = async () => {
     const isValid = await trigger(["nombre", "telefono", "email", "cedula", "salon_id"]);
     if (isValid) {
@@ -33,19 +48,36 @@ const ClientRegistration = () => {
 
   const onSubmit = async (data) => {
     try {
-      // Determine source based on user role
       const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
       const source = isAdmin ? 'Admin' : 'Reception';
-      
-      await dataService.saveClient({ ...data, registration_source: source });
+
+      let saved = null;
+      if (initialClient && initialClient.id) {
+        saved = await dataService.updateClient(initialClient.id, {
+          ...initialClient,
+          ...data
+        });
+      } else {
+        saved = await dataService.saveClient({ ...data, registration_source: source });
+      }
+
+      const finalClient = saved || { ...(initialClient || {}), ...data };
       showNotification(t('reg.alert.success'));
-      reset();
-      setStep(1);
+
+      if (onClientSaved) {
+        onClientSaved(finalClient);
+      } else {
+        reset();
+        setStep(1);
+      }
     } catch (err) {
-      if (err.message.includes('Duplicate entry')) {
+      if (err.message && err.message.includes('Duplicate entry')) {
         showNotification(`Ups, la Cédula "${data.cedula}" ya se encuentra registrada.`, 'error');
       } else {
-        showNotification('Error de servidor: ' + err.message, 'error');
+        showNotification('Error de servidor: ' + (err.message || err), 'error');
+        if (onClientSaved) {
+          onClientSaved({ ...(initialClient || {}), ...data });
+        }
       }
     }
   };
@@ -243,7 +275,7 @@ const ClientRegistration = () => {
                 </button>
               ) : (
                 <button type="button" onClick={handleSubmit(onSubmit)} className="btn-primary">
-                  Crear Perfil
+                  {submitButtonText || 'Crear Perfil'}
                   <ArrowRight size={18} />
                 </button>
               )}

@@ -28,6 +28,7 @@ const RoleManagement = () => {
   const [users, setUsers] = useState([]);
   const [staff, setStaff] = useState([]);
   const [salons, setSalons] = useState([]);
+  const [schemes, setSchemes] = useState([]);
   
   // States for New User
   const [newUser, setNewUser] = useState({ 
@@ -38,7 +39,7 @@ const RoleManagement = () => {
   
   const [newStaff, setNewStaff] = useState({ 
     nombre: '', cedula: '', contacto: '', posicion: '', email: '',
-    direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
+    direccion: '', localidad: '', salon_id: '', commission_scheme_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
     profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
   });
   const [editingStaff, setEditingStaff] = useState(null);
@@ -76,10 +77,12 @@ const RoleManagement = () => {
       const u = await dataService.getUsers();
       const s = await dataService.getStaffRecords();
       const sal = await dataService.getSalons();
+      const sch = await dataService.getCommissionSchemes();
       setRoles(r || []);
       setUsers(u || []);
       setStaff(s || []);
       setSalons(sal || []);
+      setSchemes(sch || []);
       if (r && r.length > 0 && !newUser.role_id) setNewUser(prev => ({ ...prev, role_id: r[0].id }));
     } catch (err) {
       console.error("Error loading management data:", err);
@@ -244,6 +247,7 @@ const RoleManagement = () => {
       direccion: member.direccion,
       localidad: member.localidad,
       salon_id: member.salon_id || '',
+      commission_scheme_id: member.commission_scheme_id || '',
       fecha_entrada: member.fecha_entrada ? new Date(member.fecha_entrada).toISOString().split('T')[0] : '',
       fecha_salida: member.fecha_salida ? new Date(member.fecha_salida).toISOString().split('T')[0] : '',
       status: member.status,
@@ -398,17 +402,43 @@ const RoleManagement = () => {
     }));
   };
 
-  const PERMISSION_LABELS = {
-    view_analytics: 'Ver Analítica y Reportes',
-    view_contracts: 'Ver Contratos y Suscripciones',
-    manage_staff: 'Gestionar Personal y Roles',
-    manage_plans: 'Crear y Editar Planes',
-    manage_clients: 'Gestionar Base de Datos de Clientes',
-    record_visits: 'Registrar Visitas y Servicios',
-    process_payments: 'Procesar Cobros y Facturación',
-    manage_surveys: 'Gestionar Encuestas',
-    manage_attendance: 'Gestionar Control de Asistencia'
-  };
+  const PERMISSION_GROUPS = [
+    {
+      title: '🧾 Facturación, Ventas y Operaciones',
+      permissions: [
+        { key: 'process_payments', label: 'Punto de Venta (POS) & Cobros' },
+        { key: 'view_invoices', label: 'Historial de Facturas & Ventas' },
+        { key: 'void_invoices', label: 'Anular Facturas & Auditoría' },
+        { key: 'record_visits', label: 'Registrar Visitas y Servicios' },
+        { key: 'manage_services', label: 'Gestión de Servicios y Precios' },
+        { key: 'manage_commissions', label: 'Comisiones y Nómina de Personal' }
+      ]
+    },
+    {
+      title: '👥 Clientes y Membresías',
+      permissions: [
+        { key: 'manage_clients', label: 'Gestionar Base de Clientes' },
+        { key: 'view_contracts', label: 'Ver Contratos y Suscripciones' },
+        { key: 'manage_plans', label: 'Crear y Editar Planes de Belleza' }
+      ]
+    },
+    {
+      title: '⚙️ Administración, Personal y Reportes',
+      permissions: [
+        { key: 'view_analytics', label: 'Ver Analítica y Reportes Financieros' },
+        { key: 'manage_attendance', label: 'Control de Asistencia y Horarios' },
+        { key: 'manage_staff', label: 'Gestionar Personal y Roles del Sistema' },
+        { key: 'manage_surveys', label: 'Gestionar Encuestas de Satisfacción' },
+        { key: 'manage_marketing', label: 'Marketing y Envío de Correos' },
+        { key: 'manage_salons', label: 'Gestionar Sucursales / Localidades' }
+      ]
+    }
+  ];
+
+  const PERMISSION_LABELS = PERMISSION_GROUPS.reduce((acc, g) => {
+    g.permissions.forEach(p => { acc[p.key] = p.label; });
+    return acc;
+  }, {});
 
   const filteredStaff = staff.filter(member => {
     if (searchTerm && !member.nombre.toLowerCase().includes(searchTerm.toLowerCase()) && !(member.cedula || '').includes(searchTerm)) return false;
@@ -1085,6 +1115,21 @@ const RoleManagement = () => {
                       {salons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
+
+                  <div className="input-group">
+                    <label>Esquema de Comisión (Asignación Automática)</label>
+                    <select 
+                      className="input-field" 
+                      value={newStaff.commission_scheme_id || ''} 
+                      onChange={e => setNewStaff({...newStaff, commission_scheme_id: e.target.value})}
+                    >
+                      <option value="">Sin Esquema Específico (Usar por defecto)</option>
+                      {schemes.map(sch => (
+                        <option key={sch.id} value={sch.id}>{sch.nombre} ({sch.tipo})</option>
+                      ))}
+                    </select>
+                  </div>
+
                   <div className="input-group">
                     <label>Fecha de Entrada</label>
                     <input 
@@ -1449,22 +1494,37 @@ const RoleManagement = () => {
                   />
                 </div>
 
-                <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '1rem', display: 'block' }}>Permisos del Rol</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '2rem' }}>
-                   {Object.keys(PERMISSION_LABELS).map(key => (
-                     <div 
-                      key={key} 
-                      onClick={() => togglePermission(key)}
-                      style={{ 
-                        padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem',
-                        background: (roleForm.permisos && roleForm.permisos[key]) ? '#f0fdf4' : 'var(--bg-canvas)',
-                        borderColor: (roleForm.permisos && roleForm.permisos[key]) ? '#22c55e' : 'var(--border-subtle)'
-                      }}
-                     >
-                       {(roleForm.permisos && roleForm.permisos[key]) ? <CheckCircle2 size={20} color="#22c55e" /> : <XCircle size={20} color="#d1d5db" />}
-                       <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>{PERMISSION_LABELS[key]}</span>
-                     </div>
-                   ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '2rem' }}>
+                  {PERMISSION_GROUPS.map((group, gIdx) => (
+                    <div key={gIdx} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                      <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', fontWeight: 800, color: '#334155', letterSpacing: '0.3px' }}>
+                        {group.title}
+                      </h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.65rem' }}>
+                        {group.permissions.map(p => {
+                          const isGranted = Boolean(roleForm.permisos && roleForm.permisos[p.key]);
+                          return (
+                            <div 
+                              key={p.key} 
+                              onClick={() => togglePermission(p.key)}
+                              style={{ 
+                                padding: '0.75rem 0.9rem', borderRadius: '10px', border: '1px solid', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.65rem',
+                                background: isGranted ? '#f0fdf4' : '#ffffff',
+                                borderColor: isGranted ? '#22c55e' : '#cbd5e1',
+                                boxShadow: isGranted ? '0 2px 4px rgba(34,197,94,0.1)' : 'none',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              {isGranted ? <CheckCircle2 size={18} color="#16a34a" /> : <XCircle size={18} color="#94a3b8" />}
+                              <span style={{ fontSize: '0.8rem', fontWeight: isGranted ? 700 : 500, color: isGranted ? '#14532d' : '#334155' }}>
+                                {p.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <button type="submit" className="btn-primary" style={{ width: '100%', padding: '1.25rem' }}>

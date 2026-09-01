@@ -92,13 +92,27 @@ export const dataService = {
 
   getVisitsByClient: async (clientIdOrName) => {
     try {
-      const clean = encodeURIComponent(String(clientIdOrName).trim());
+      const clean = encodeURIComponent(String(clientIdOrName || '').trim());
       const res = await fetch(`${API_URL}/visits/client/${clean}`);
       if (!res.ok) return [];
       return await res.json();
     } catch (e) {
       return [];
     }
+  },
+
+  checkoutTicket: async (ticketId, payload) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId, ...payload })
+      });
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Checkout ticket API error:', e);
+    }
+    return { success: true };
   },
 
   saveClient: async (client) => {
@@ -223,11 +237,79 @@ export const dataService = {
     }
   },
 
+  voidVisit: async (visitId, voidData) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/${visitId}/void`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(voidData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al anular la factura.');
+      return data;
+    } catch (e) {
+      console.error("Error en voidVisit:", e);
+      throw e;
+    }
+  },
+
+  deletePendingTicket: async (ticketId) => {
+    try {
+      let res = await fetch(`${API_URL}/visits/${ticketId}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        // Fallback to POST /delete
+        res = await fetch(`${API_URL}/visits/${ticketId}/delete`, {
+          method: 'POST'
+        });
+      }
+      const text = await res.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
+      }
+      if (!res.ok) {
+        throw new Error(parsed.error || parsed.message || `Error del servidor (${res.status})`);
+      }
+      return parsed;
+    } catch (e) {
+      console.error("Error en deletePendingTicket:", e);
+      throw e;
+    }
+  },
+
+  clearAllPendingTickets: async (salonId = 'all') => {
+    try {
+      let res = await fetch(`${API_URL}/visits/pending/all?salon_id=${salonId}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        res = await fetch(`${API_URL}/visits/pending/clear-all`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ salon_id: salonId })
+        });
+      }
+      const text = await res.text();
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (e) { throw new Error(`Respuesta no válida (${res.status})`); }
+      if (!res.ok) throw new Error(parsed.error || parsed.message);
+      return parsed;
+    } catch (e) {
+      console.error("Error en clearAllPendingTickets:", e);
+      throw e;
+    }
+  },
+
   getActiveCashRegister: async (salonId = 1) => {
     try {
       const res = await fetch(`${API_URL}/cash-registers/active?salon_id=${salonId}`);
       if (!res.ok) return null;
-      return await res.json();
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return null; }
     } catch (e) {
       return null;
     }
@@ -240,7 +322,17 @@ export const dataService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      return await res.json();
+      const text = await res.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
+      }
+      if (!res.ok) {
+        throw new Error(parsed.error || parsed.message || `Error del servidor (${res.status})`);
+      }
+      return parsed;
     } catch (e) {
       throw e;
     }
@@ -253,7 +345,17 @@ export const dataService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      return await res.json();
+      const text = await res.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
+      }
+      if (!res.ok) {
+        throw new Error(parsed.error || parsed.message || `Error del servidor (${res.status})`);
+      }
+      return parsed;
     } catch (e) {
       throw e;
     }
@@ -263,7 +365,8 @@ export const dataService = {
     try {
       const res = await fetch(`${API_URL}/cash-registers/${registerId}/movements`);
       if (!res.ok) return { movements: [], summary: {} };
-      return await res.json();
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { return { movements: [], summary: {} }; }
     } catch (e) {
       return { movements: [], summary: {} };
     }
@@ -276,7 +379,17 @@ export const dataService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       });
-      return await res.json();
+      const text = await res.text();
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
+      }
+      if (!res.ok) {
+        throw new Error(parsed.error || parsed.message || `Error del servidor (${res.status})`);
+      }
+      return parsed;
     } catch (e) {
       throw e;
     }
@@ -375,6 +488,105 @@ export const dataService = {
     } catch (e) {
       console.error('Error fetching commissions:', e);
       return { commissions: [], metrics: {} };
+    }
+  },
+
+  getCommissionCategories: async () => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/categories`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching categories:', e);
+      return [];
+    }
+  },
+
+  saveCommissionCategory: async (catData) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/categories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(catData)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  deleteCommissionCategory: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/categories/${id}`, { method: 'DELETE' });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  getCommissionSchemes: async () => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/schemes`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching schemes:', e);
+      return [];
+    }
+  },
+
+  saveCommissionScheme: async (schemeData) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/schemes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(schemeData)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  deleteCommissionScheme: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/schemes/${id}`, { method: 'DELETE' });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  getSchemeRules: async (schemeId) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/schemes/${schemeId}/rules`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching scheme rules:', e);
+      return [];
+    }
+  },
+
+  saveSchemeRule: async (schemeId, ruleData) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/schemes/${schemeId}/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ruleData)
+      });
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
+  deleteSchemeRule: async (ruleId) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/rules/${ruleId}`, { method: 'DELETE' });
+      return await res.json();
+    } catch (e) {
+      throw e;
     }
   },
 
@@ -551,6 +763,9 @@ export const dataService = {
     }
     const cleanCode = String(code || '').trim();
     if (cleanCode === '2026' || cleanCode === '1234' || cleanCode === '8888') {
+      if (visitData) {
+        try { await dataService.saveVisit({ ...visitData, clientId }); } catch(err) { console.error(err); }
+      }
       return { success: true, verified: true };
     }
     try {
@@ -559,6 +774,9 @@ export const dataService = {
         const parsed = JSON.parse(stored);
         if (parsed.code === cleanCode && Date.now() <= parsed.expiresAt) {
           sessionStorage.removeItem(`otp_${clientId}`);
+          if (visitData) {
+            try { await dataService.saveVisit({ ...visitData, clientId }); } catch(err) { console.error(err); }
+          }
           return { success: true, verified: true };
         }
       }

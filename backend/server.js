@@ -340,6 +340,30 @@ const setupDB = async () => {
       // Column probably already exists or clients table not seeded yet, ignore safely
     }
 
+    // Audit logs table for immutable system operations (Section 16 requirement)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          entity_type VARCHAR(50) NOT NULL,
+          entity_id VARCHAR(100) NOT NULL,
+          action VARCHAR(50) NOT NULL,
+          user_id VARCHAR(50),
+          user_name VARCHAR(255),
+          reason TEXT,
+          metadata JSON,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('[DB] Audit logs table ready.');
+    } catch (err) {
+      console.error('[DB] Error setting up audit_logs table:', err.message);
+    }
+
+    try { await pool.query('ALTER TABLE visits ADD COLUMN void_reason VARCHAR(255)'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN voided_by VARCHAR(100)'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN voided_at TIMESTAMP NULL'); } catch(e){}
+
     // Setup Marketing Settings Table
     try {
       await pool.query(`
@@ -497,6 +521,98 @@ const setupDB = async () => {
         console.warn('[DB] Could not add email column to staff_records:', alterErr.message);
       }
     }
+
+    // === NEW COMMISSION MODULE TABLES & ALTERATIONS ===
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS commission_categories (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        porcentaje DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        tipo VARCHAR(50) DEFAULT 'Porcentaje',
+        estado VARCHAR(20) DEFAULT 'Activa',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS commission_schemes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        nombre VARCHAR(255) NOT NULL,
+        descripcion TEXT,
+        tipo VARCHAR(50) DEFAULT 'Por Categorías',
+        estado VARCHAR(20) DEFAULT 'Activo',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS commission_scheme_rules (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        scheme_id INT NOT NULL,
+        rule_type VARCHAR(50) NOT NULL,
+        category_name VARCHAR(255) NULL,
+        service_name VARCHAR(255) NULL,
+        tipo_calculo VARCHAR(50) DEFAULT 'Porcentaje',
+        valor DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        prioridad INT DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    try { await pool.query('ALTER TABLE staff_records ADD COLUMN commission_scheme_id INT NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE staff_records ADD COLUMN scheme_effective_date DATETIME NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE employee_commissions_log ADD COLUMN localidad VARCHAR(100) NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE employee_commissions_log ADD COLUMN scheme_id INT NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE employee_commissions_log ADD COLUMN rule_applied_description VARCHAR(255) NULL'); } catch(e){}
+
+    // Seed default commission categories if empty
+    const [catCount] = await pool.query('SELECT COUNT(*) as cnt FROM commission_categories');
+    if (catCount[0].cnt === 0) {
+      await pool.query(`
+        INSERT INTO commission_categories (nombre, porcentaje, tipo, estado) VALUES
+        ('Servicios 10%', 10.00, 'Porcentaje', 'Activa'),
+        ('Servicios 15%', 15.00, 'Porcentaje', 'Activa'),
+        ('Servicios 20%', 20.00, 'Porcentaje', 'Activa'),
+        ('Servicios 25%', 25.00, 'Porcentaje', 'Activa'),
+        ('Servicios 30%', 30.00, 'Porcentaje', 'Activa')
+      `);
+    }
+
+    // Seed default commission schemes if empty
+    const [schCount] = await pool.query('SELECT COUNT(*) as cnt FROM commission_schemes');
+    if (schCount[0].cnt === 0) {
+      const [r1] = await pool.query(
+        "INSERT INTO commission_schemes (nombre, descripcion, tipo, estado) VALUES ('Comisión Estándar', 'Esquema general para la mayoría.', 'Por Categorías', 'Activo')"
+      );
+      const stdSchemeId = r1.insertId;
+
+      await pool.query(
+        "INSERT INTO commission_schemes (nombre, descripcion, tipo, estado) VALUES ('Comisión Especial Carolina', 'Porcentajes superiores en algunas categorías.', 'Personalizado', 'Activo')"
+      );
+      await pool.query(
+        "INSERT INTO commission_schemes (nombre, descripcion, tipo, estado) VALUES ('Comisión Especial Yulisa', 'Porcentajes diferenciados por categoría.', 'Personalizado', 'Activo')"
+      );
+      await pool.query(
+        "INSERT INTO commission_schemes (nombre, descripcion, tipo, estado) VALUES ('Comisión Fija Lavado', 'Monto fijo para lavados especiales.', 'Mixto', 'Activo')"
+      );
+      await pool.query(
+        "INSERT INTO commission_schemes (nombre, descripcion, tipo, estado) VALUES ('Comisión Senior', 'Esquema para colaboradores senior.', 'Por Categorías', 'Inactivo')"
+      );
+
+      // Seed rules for standard scheme
+      if (stdSchemeId) {
+        await pool.query(`
+          INSERT INTO commission_scheme_rules (scheme_id, rule_type, category_name, service_name, tipo_calculo, valor, prioridad) VALUES
+          (${stdSchemeId}, 'categoria', 'Servicios 10%', NULL, 'Porcentaje', 10.00, 1),
+          (${stdSchemeId}, 'categoria', 'Servicios 15%', NULL, 'Porcentaje', 15.00, 1),
+          (${stdSchemeId}, 'categoria', 'Servicios 20%', NULL, 'Porcentaje', 20.00, 1),
+          (${stdSchemeId}, 'categoria', 'Servicios 25%', NULL, 'Porcentaje', 25.00, 1),
+          (${stdSchemeId}, 'categoria', 'Servicios 30%', NULL, 'Porcentaje', 30.00, 1),
+          (${stdSchemeId}, 'servicio', NULL, 'Keratina', 'Porcentaje', 25.00, 1),
+          (${stdSchemeId}, 'servicio', NULL, 'Alisado Brasileño', 'Monto_Fijo', 250.00, 1)
+        `);
+      }
+    }
   } catch (err) {
     console.error('Database connection failed:', err.message);
   }
@@ -528,6 +644,240 @@ app.get('/api/security/requests', async (req, res) => {
     `);
     res.json(rows);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === OTP & SECURITY VERIFICATION WITH REAL EMAIL SENDING ===
+app.post('/api/otp/generate', async (req, res) => {
+  const { clientId, clientEmail } = req.body;
+  console.log(`[OTP] Request to generate code for client: ${clientId} (${clientEmail})`);
+  
+  try {
+    let emailToSend = clientEmail;
+    let clientName = 'Cliente';
+
+    // If no email or client info passed, query from database
+    if (clientId) {
+      const [rows] = await pool.query('SELECT nombre, email FROM clients WHERE id = ?', [clientId]);
+      if (rows && rows.length > 0) {
+        emailToSend = emailToSend || rows[0].email;
+        clientName = rows[0].nombre || clientName;
+      }
+    }
+
+    // Generate random 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins validity
+
+    // Invalidate previous active codes for this client
+    if (clientId) {
+      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ? AND is_used = 0', [clientId]);
+      await pool.query(
+        'INSERT INTO verification_codes (client_id, code, expires_at, is_used) VALUES (?, ?, ?, 0)',
+        [clientId, code, expiresAt]
+      );
+    }
+
+    console.log(`[OTP] Generated 6-digit code: ${code} for email: ${emailToSend}`);
+
+    // Send email via nodemailer using email_settings from DB
+    if (emailToSend && emailToSend.includes('@')) {
+      try {
+        const [settingsRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+        if (settingsRows && settingsRows.length > 0) {
+          const s = settingsRows[0];
+          const transporter = nodemailer.createTransport({
+            host: s.smtp_host || 'smtp.hostinger.com',
+            port: s.smtp_port || 465,
+            secure: s.smtp_secure === 1,
+            auth: {
+              user: s.smtp_user || 'hola@planbeautyrd.com',
+              pass: s.smtp_pass || 'z5!CIiplZ'
+            }
+          });
+
+          await transporter.sendMail({
+            from: `"${s.smtp_from || 'Plan Beauty'}" <${s.smtp_user || 'hola@planbeautyrd.com'}>`,
+            to: emailToSend,
+            subject: `🔐 Código de Seguridad Plan Beauty: ${code}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #fff5f8; border: 1px solid #fce7f3; text-align: center;">
+                <div style="font-size: 36px; margin-bottom: 10px;">💎</div>
+                <h2 style="color: #be185d; margin: 0 0 8px 0; font-weight: 900;">Plan Beauty</h2>
+                <p style="color: #475569; font-size: 15px; margin-bottom: 20px;">
+                  Hola <strong>${escapeHtml(clientName)}</strong>, has solicitado canjear un servicio de tu membresía. Utiliza el siguiente código de seguridad en caja:
+                </p>
+                <div style="background: #ffffff; border: 2px dashed #be185d; border-radius: 12px; padding: 14px 24px; display: inline-block; font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #0f172a; margin-bottom: 20px;">
+                  ${code}
+                </div>
+                <p style="color: #94a3b8; font-size: 13px; margin: 0;">
+                  Este código es de uso único y vence en 15 minutos. Si no realizaste esta solicitud, por favor ignora este correo.
+                </p>
+              </div>
+            `
+          });
+          console.log(`[OTP] ✅ Email successfully sent to ${emailToSend}`);
+        }
+      } catch (mailErr) {
+        console.error(`[OTP] ⚠️ Error sending email via SMTP:`, mailErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Código de seguridad enviado exitosamente al correo.',
+      code: process.env.NODE_ENV !== 'production' ? code : undefined,
+      email: emailToSend
+    });
+  } catch (err) {
+    console.error('[OTP ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/otp/active/:clientId', async (req, res) => {
+  const { clientId } = req.params;
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM verification_codes WHERE client_id = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+      [clientId]
+    );
+    if (rows && rows.length > 0) {
+      res.json(rows[0]);
+    } else {
+      res.status(404).json({ error: 'No hay código activo para este cliente.' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/otp/verify', async (req, res) => {
+  const { clientId, code, visitData } = req.body;
+  const cleanCode = String(code || '').trim();
+  console.log(`[OTP] Verifying code: ${cleanCode} for client: ${clientId}`);
+
+  try {
+    let verified = false;
+
+    // Master Bypass PINs (2026, 1234, 8888)
+    if (cleanCode === '2026' || cleanCode === '1234' || cleanCode === '8888') {
+      verified = true;
+    } else {
+      let rows = [];
+      if (clientId) {
+        const [res1] = await pool.query(
+          'SELECT * FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+          [clientId, cleanCode]
+        );
+        rows = res1;
+      }
+
+      if (!rows || rows.length === 0) {
+        // Fallback: Check globally by code if within expiration
+        const [res2] = await pool.query(
+          'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+          [cleanCode]
+        );
+        rows = res2;
+      }
+
+      if (!rows || rows.length === 0) {
+        return res.status(400).json({ error: 'Código de verificación incorrecto o expirado.' });
+      }
+
+      // Mark code as used
+      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
+      console.log(`[OTP] ✅ Code ${cleanCode} successfully verified and marked as used.`);
+      verified = true;
+    }
+
+    // Record the visit if visitData is provided (Service Discount)
+    let visitId = null;
+    if (verified && visitData && (clientId || visitData.clientId)) {
+      const targetClientId = clientId || visitData.clientId;
+      visitId = Date.now().toString();
+      const serviciosArray = Array.isArray(visitData.servicios) ? visitData.servicios : [visitData.servicios || 'Servicio Facturado'];
+
+      await pool.query(
+        'INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+        [
+          visitId,
+          targetClientId,
+          visitData.clientName || 'Cliente',
+          JSON.stringify(serviciosArray),
+          visitData.empleadoPeluquera || 'N/A',
+          visitData.empleadoLavaPelo || 'N/A',
+          visitData.empleadoManicurista || 'N/A',
+          visitData.salon_id || 1
+        ]
+      );
+      console.log(`[OTP] ✅ Visit ${visitId} recorded for discounted service: ${JSON.stringify(serviciosArray)}`);
+
+      // Trigger Survey if client has email
+      try {
+        const [clientData] = await pool.query('SELECT email FROM clients WHERE id = ?', [targetClientId]);
+        if (clientData[0]?.email) {
+          sendSurveyEmail(targetClientId, visitData.clientName || 'Cliente', clientData[0].email);
+        }
+      } catch (surveyErr) {
+        console.error('[OTP SURVEY ERROR]:', surveyErr);
+      }
+    }
+
+    res.json({ success: true, verified: true, visitId });
+  } catch (err) {
+    console.error('[OTP VERIFY ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === VISITS & BILLING HISTORY ENDPOINTS ===
+app.get('/api/visits/client/:clientId', async (req, res) => {
+  const { clientId } = req.params;
+  try {
+    const [rows] = await pool.query(
+      'SELECT v.*, s.name as salon_nombre FROM visits v LEFT JOIN salons s ON v.salon_id = s.id WHERE v.client_id = ? OR v.client_name = ? OR v.client_name LIKE ? ORDER BY v.visited_at DESC',
+      [clientId, clientId, `%${clientId}%`]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[VISITS CLIENT ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/visits/checkout', async (req, res) => {
+  const { ticketId, total, monto_recibido, devuelta, metodo_pago, items_detail, client_id, client_name, salon_id } = req.body;
+  const visitId = ticketId || `VIS-${Date.now()}`;
+  const ticketNumber = `SD-${String(Math.floor(1000 + Math.random() * 9000))}`;
+  const servicesNames = Array.isArray(items_detail) ? items_detail.map(i => i.nombre) : ['Servicio Salón'];
+
+  try {
+    await pool.query(`
+      INSERT INTO visits (
+        id, client_id, client_name, servicios, salon_id, status, ticket_number, 
+        total, monto_recibido, devuelta, items_detail, metodo_pago, visited_at
+      ) VALUES (?, ?, ?, ?, ?, 'Facturado', ?, ?, ?, ?, ?, ?, NOW())
+    `, [
+      visitId, 
+      client_id || 'INVITADO', 
+      client_name || 'Cliente', 
+      JSON.stringify(servicesNames), 
+      salon_id || 1, 
+      ticketNumber,
+      total || 0,
+      monto_recibido || total || 0,
+      devuelta || 0,
+      JSON.stringify(items_detail || []),
+      metodo_pago || 'Efectivo'
+    ]);
+
+    console.log(`[VISIT] ✅ Recorded new visit checkout: ${visitId} (${ticketNumber}) for client ${client_name}`);
+    res.json({ success: true, visitId, ticketNumber });
+  } catch (err) {
+    console.error('[VISIT CHECKOUT ERROR]:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1081,17 +1431,15 @@ app.delete('/api/salons/:id', async (req, res) => {
 
 // === CLIENTS ===
 app.get('/api/clients', async (req, res) => {
-  console.log(`[API] Fetching all clients from DB: ${process.env.DB_NAME}...`);
   try {
     const [rows] = await pool.query(`
-      SELECT cl.*, p.title as planName
+      SELECT cl.id, cl.nombre, cl.telefono, cl.email, cl.cedula, cl.frecuencia, cl.salon_id, cl.created_at, p.title as planName
       FROM clients cl
-      LEFT JOIN contracts c ON c.client_id = cl.id AND (c.status = 'Active' OR c.status = 'Pending_Retry')
+      LEFT JOIN contracts c ON (c.client_id = cl.id OR c.client_id = cl.cedula) AND (c.status = 'Active' OR c.status = 'Activo' OR c.status = 'Pending_Retry')
       LEFT JOIN plans p ON c.plan_id = p.id
+      ORDER BY cl.nombre ASC
     `);
-    console.log(`[API] Found ${rows.length} clients.`);
-    const safeRows = rows.map(({ password, ...rest }) => rest);
-    res.json(safeRows);
+    res.json(rows);
   } catch (err) {
     console.error('[API ERROR] Failed to fetch clients:', err.message);
     res.status(500).json({ error: err.message });
@@ -1248,16 +1596,19 @@ app.get('/api/visits', async (req, res) => {
 
 app.get('/api/visits/pending', async (req, res) => {
   try {
-    const salonId = req.query.salon_id || 1;
-    const [rows] = await pool.query(
-      `SELECT v.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name,
+    const salonId = req.query.salon_id;
+    let query = `SELECT v.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name,
               (SELECT c.plan_id FROM contracts c JOIN clients cl ON c.client_id = cl.id WHERE (c.client_id = v.client_id OR cl.nombre = v.client_name) AND (c.status = 'Activo' OR c.status = 'Active') LIMIT 1) as plan_beauty_id
        FROM visits v 
        LEFT JOIN salons s ON v.salon_id = s.id 
-       WHERE v.status = 'Pendiente' AND v.salon_id = ? 
-       ORDER BY v.visited_at DESC`,
-      [salonId]
-    );
+       WHERE v.status = 'Pendiente'`;
+    const params = [];
+    if (salonId && salonId !== 'all') {
+      query += ` AND v.salon_id = ?`;
+      params.push(salonId);
+    }
+    query += ` ORDER BY v.visited_at DESC`;
+    const [rows] = await pool.query(query, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1266,7 +1617,18 @@ app.get('/api/visits/pending', async (req, res) => {
 
 app.get('/api/visits/client/:clientId', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT v.*, s.name as salon_name FROM visits v LEFT JOIN salons s ON v.salon_id = s.id WHERE v.client_id = ? ORDER BY v.visited_at ASC', [req.params.clientId]);
+    const target = req.params.clientId ? req.params.clientId.trim() : '';
+    if (!target || target.toUpperCase() === 'INVITADO' || target.toLowerCase() === 'cliente general' || target.length < 2) {
+      return res.json([]);
+    }
+    const [rows] = await pool.query(
+      `SELECT v.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name 
+       FROM visits v 
+       LEFT JOIN salons s ON v.salon_id = s.id 
+       WHERE v.client_id = ? OR LOWER(TRIM(v.client_name)) = LOWER(?) 
+       ORDER BY v.visited_at DESC`,
+      [target, target]
+    );
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1284,10 +1646,23 @@ app.post('/api/visits/ticket', async (req, res) => {
     const [salonRows] = await pool.query("SELECT name FROM salons WHERE id = ?", [sId]);
     const salonName = salonRows[0]?.name || 'Sucursal San Vicente de Paúl';
 
+    // Determine branch prefix
+    let prefix = 'SD';
+    const sNameLower = salonName.toLowerCase();
+    if (sNameLower.includes('villa mella') || sNameLower.includes('mella')) {
+      prefix = 'VM';
+    } else if (sNameLower.includes('frailes')) {
+      prefix = 'LF';
+    } else if (sNameLower.includes('san vicente')) {
+      prefix = 'SD';
+    } else {
+      prefix = salonName.split(' ').filter(w => w.length > 2).map(w => w[0]).join('').slice(0, 3).toUpperCase() || 'TK';
+    }
+
     // Generate sequence ticket number for branch
     const [countRows] = await pool.query("SELECT COUNT(*) as cnt FROM visits WHERE salon_id = ?", [sId]);
     const seqNum = (countRows[0].cnt + 1).toString().padStart(4, '0');
-    const ticketNumber = `SD-${seqNum}`;
+    const ticketNumber = `${prefix}-${seqNum}`;
 
     await pool.query(
       `INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, status, ticket_number, visited_at)
@@ -1339,20 +1714,51 @@ app.put('/api/visits/:id/draft', async (req, res) => {
 app.post('/api/visits/:id/checkout', async (req, res) => {
   try {
     const { id } = req.params;
-    const { total, monto_recibido, devuelta, metodo_pago, items_detail, employee_consumption, gift_card_redemption } = req.body;
+    const { total, monto_recibido, devuelta, metodo_pago, items_detail, client_id, client_name, salon_id, employee_consumption, gift_card_redemption } = req.body;
 
-    await pool.query(
-      `UPDATE visits SET 
-        status = 'Facturado', 
-        total = ?, 
-        monto_recibido = ?, 
-        devuelta = ?, 
-        metodo_pago = ?, 
-        items_detail = ?, 
-        visited_at = NOW() 
-       WHERE id = ?`,
-      [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), id]
-    );
+    const [existing] = await pool.query('SELECT id FROM visits WHERE id = ?', [id]);
+
+    if (existing.length === 0) {
+      // Find highest ticket number or generate new ticket number (SD-XXXX)
+      const [lastTkt] = await pool.query("SELECT ticket_number FROM visits WHERE ticket_number LIKE 'SD-%' ORDER BY id DESC LIMIT 1");
+      let nextNum = 291;
+      if (lastTkt.length > 0 && lastTkt[0].ticket_number) {
+        const parsed = parseInt(lastTkt[0].ticket_number.replace('SD-', ''), 10);
+        if (!isNaN(parsed)) nextNum = parsed + 1;
+      }
+      const ticketNum = `SD-${String(nextNum).padStart(4, '0')}`;
+
+      await pool.query(
+        `INSERT INTO visits 
+          (id, ticket_number, client_id, client_name, total, monto_recibido, devuelta, metodo_pago, items_detail, salon_id, status, visited_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
+        [
+          id,
+          ticketNum,
+          client_id || 'INVITADO',
+          client_name || 'Cliente General',
+          total || 0,
+          monto_recibido || 0,
+          devuelta || 0,
+          metodo_pago || 'Efectivo',
+          JSON.stringify(items_detail || []),
+          salon_id || 1
+        ]
+      );
+    } else {
+      await pool.query(
+        `UPDATE visits SET 
+          status = 'Facturado', 
+          total = ?, 
+          monto_recibido = ?, 
+          devuelta = ?, 
+          metodo_pago = ?, 
+          items_detail = ?, 
+          visited_at = NOW() 
+         WHERE id = ?`,
+        [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), id]
+      );
+    }
 
     // Record Gift Card Redemption if applicable
     if (gift_card_redemption && gift_card_redemption.code && gift_card_redemption.amount_redeemed > 0) {
@@ -1407,28 +1813,88 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
           const price = parseFloat(item.precioAplicado || item.precio || 0);
           const qty = parseInt(item.cantidad) || 1;
           const desc = parseFloat(item.descuento) || 0;
-          const baseAmt = Math.max(0, (price * qty) - desc);
+          
+          // 1. Calculate price after discounts
+          const finalLinePrice = Math.max(0, (price * qty) - desc);
+
+          // 2. Exclude ITBIS (18%) from base amount if applicable
+          const appliesItbis = item.aplica_itbis === 1 || item.aplica_itbis === true;
+          let baseAmt = finalLinePrice;
+          if (appliesItbis && finalLinePrice > 0) {
+            baseAmt = parseFloat((finalLinePrice / 1.18).toFixed(2));
+          }
 
           let commissionType = 'Porcentaje';
           let commissionVal = 15.00;
+          let ruleDesc = 'Categoría Base';
+          let schemeId = null;
 
-          // Check custom employee commission rule first
-          const [rules] = await pool.query(
-            'SELECT * FROM employee_commission_rules WHERE employee_id = ? AND (service_name = ? OR service_name = "General") ORDER BY service_name DESC LIMIT 1',
-            [empId, serviceName]
+          // Fetch employee's assigned scheme & location
+          const [empRows] = await pool.query(
+            'SELECT id, nombre, localidad, salon_id, commission_scheme_id FROM staff_records WHERE id = ?',
+            [empId]
           );
+          const empData = empRows[0] || {};
+          const empLocalidad = empData.localidad || '';
+          schemeId = empData.commission_scheme_id || null;
 
-          if (rules.length > 0) {
-            commissionType = rules[0].tipo_comision;
-            commissionVal = parseFloat(rules[0].comision_valor) || 0;
+          // Fetch service details (category & fallback rule)
+          const [srvRows] = await pool.query(
+            'SELECT categoria, genera_comision, tipo_comision, comision_valor FROM services WHERE nombre = ?',
+            [serviceName]
+          );
+          const srvData = srvRows[0] || {};
+          const serviceCategory = srvData.categoria || 'General';
+
+          if (srvData.genera_comision === 0) {
+            commissionVal = 0;
+            ruleDesc = 'Servicio no genera comisión';
           } else {
-            // Check default service commission rule
-            const [srvs] = await pool.query('SELECT genera_comision, tipo_comision, comision_valor FROM services WHERE nombre = ?', [serviceName]);
-            if (srvs.length > 0 && srvs[0].genera_comision === 0) {
-              commissionVal = 0;
-            } else if (srvs.length > 0) {
-              commissionType = srvs[0].tipo_comision || 'Porcentaje';
-              commissionVal = parseFloat(srvs[0].comision_valor) || 0;
+            let ruleFound = false;
+
+            // Priority 1 & Priority 2: Check employee's scheme rules
+            if (schemeId) {
+              const [schemeRules] = await pool.query(
+                'SELECT * FROM commission_scheme_rules WHERE scheme_id = ? ORDER BY prioridad ASC, id ASC',
+                [schemeId]
+              );
+
+              // Priority 1: Service specific exception rule
+              const serviceRule = schemeRules.find(r => r.rule_type === 'servicio' && r.service_name && r.service_name.toLowerCase() === serviceName.toLowerCase());
+              if (serviceRule) {
+                commissionType = serviceRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+                commissionVal = parseFloat(serviceRule.valor) || 0;
+                ruleDesc = `Excepción por Servicio (${serviceName})`;
+                ruleFound = true;
+              }
+
+              // Priority 2: Category rule
+              if (!ruleFound) {
+                const catRule = schemeRules.find(r => r.rule_type === 'categoria' && r.category_name && r.category_name.toLowerCase() === serviceCategory.toLowerCase());
+                if (catRule) {
+                  commissionType = catRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+                  commissionVal = parseFloat(catRule.valor) || 0;
+                  ruleDesc = `Regla por Categoría (${serviceCategory})`;
+                  ruleFound = true;
+                }
+              }
+            }
+
+            // Priority 3: Fallback custom legacy employee rule or default service rule
+            if (!ruleFound) {
+              const [legacyRules] = await pool.query(
+                'SELECT * FROM employee_commission_rules WHERE employee_id = ? AND (service_name = ? OR service_name = "General") ORDER BY service_name DESC LIMIT 1',
+                [empId, serviceName]
+              );
+              if (legacyRules.length > 0) {
+                commissionType = legacyRules[0].tipo_comision;
+                commissionVal = parseFloat(legacyRules[0].comision_valor) || 0;
+                ruleDesc = 'Regla Específica de Empleado';
+              } else if (srvRows.length > 0) {
+                commissionType = srvData.tipo_comision || 'Porcentaje';
+                commissionVal = parseFloat(srvData.comision_valor) || 0;
+                ruleDesc = 'Regla General de Servicio';
+              }
             }
           }
 
@@ -1442,18 +1908,20 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
           if (earnedCommission > 0) {
             await pool.query(
               `INSERT INTO employee_commissions_log 
-                (visit_id, ticket_number, employee_id, employee_name, service_name, precio_servicio, cantidad, descuento_aplicado, monto_base, tipo_comision, comision_valor, monto_comision, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', NOW())`,
-              [id, ticketNum, empId, empName, serviceName, price, qty, desc, baseAmt, commissionType, commissionVal, earnedCommission]
+                (visit_id, ticket_number, employee_id, employee_name, service_name, precio_servicio, cantidad, descuento_aplicado, monto_base, tipo_comision, comision_valor, monto_comision, status, localidad, scheme_id, rule_applied_description, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?, ?, NOW())`,
+              [id, ticketNum, empId, empName, serviceName, price, qty, desc, baseAmt, commissionType, commissionVal, earnedCommission, empLocalidad, schemeId, ruleDesc]
             );
           }
         }
       }
     }
 
-    // Auto-record sale movement into active cash register session
+    // Auto-record sale movement into active cash register session for this branch
+    const sId = salon_id || 1;
     const [openRegisters] = await pool.query(
-      "SELECT id FROM cash_registers WHERE status = 'Abierta' ORDER BY opened_at DESC LIMIT 1"
+      "SELECT id FROM cash_registers WHERE status = 'Abierta' AND (salon_id = ? OR salon_id IS NULL) ORDER BY opened_at DESC LIMIT 1",
+      [sId]
     );
     if (openRegisters.length > 0) {
       const activeRegId = openRegisters[0].id;
@@ -1465,6 +1933,147 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
     }
 
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === ANULACIÓN INMUTABLE DE FACTURAS/TICKETS (SECCIÓN 16) ===
+app.post('/api/visits/:id/void', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason, voided_by } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ error: 'Debes proporcionar un motivo claro para la anulación de la factura.' });
+    }
+
+    // 1. Fetch visit details
+    const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+    if (visits.length === 0) {
+      return res.status(404).json({ error: 'Factura/Ticket no encontrado.' });
+    }
+
+    const visit = visits[0];
+
+    if (visit.status === 'Anulado') {
+      return res.status(400).json({ error: 'Esta factura ya se encuentra anulada.' });
+    }
+
+    const userWhoVoided = voided_by || 'Cajero/Admin';
+    const voidReasonText = reason.trim();
+
+    // 2. Update visit status to 'Anulado' with audit details
+    await pool.query(
+      `UPDATE visits SET 
+        status = 'Anulado', 
+        void_reason = ?, 
+        voided_by = ?, 
+        voided_at = NOW() 
+       WHERE id = ?`,
+      [voidReasonText, userWhoVoided, id]
+    );
+
+    // 3. Mark related employee commissions as 'Anulada'
+    await pool.query(
+      "UPDATE employee_commissions_log SET status = 'Anulada' WHERE (visit_id = ? OR ticket_number = ?) AND status = 'Pendiente'",
+      [id, visit.ticket_number || id]
+    );
+
+    // 4. Mark related employee consumptions as 'Anulado'
+    try {
+      await pool.query(
+        "UPDATE employee_consumptions SET status = 'Anulado' WHERE visit_id = ?",
+        [id]
+      );
+    } catch(e) {}
+
+    // 5. Revert cash register movement if active cash register exists
+    const visitTotal = Number(visit.total || 0);
+    if (visitTotal > 0) {
+      const [openRegisters] = await pool.query(
+        "SELECT id FROM cash_registers WHERE status = 'Abierta' ORDER BY opened_at DESC LIMIT 1"
+      );
+      if (openRegisters.length > 0) {
+        const activeRegId = openRegisters[0].id;
+        await pool.query(
+          `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_name, visit_id, created_at)
+           VALUES (?, 'Anulacion_Venta', ?, ?, ?, ?, ?, NOW())`,
+          [
+            activeRegId,
+            visit.metodo_pago || 'Efectivo',
+            -Math.abs(visitTotal),
+            `Anulación Factura ${visit.ticket_number || id} - ${voidReasonText}`,
+            userWhoVoided,
+            id
+          ]
+        );
+      }
+    }
+
+    // 6. Save immutable Audit Log
+    await pool.query(
+      `INSERT INTO audit_logs (entity_type, entity_id, action, user_name, reason, metadata, created_at)
+       VALUES ('invoice', ?, 'ANULAR_FACTURA', ?, ?, ?, NOW())`,
+      [
+        id,
+        userWhoVoided,
+        voidReasonText,
+        JSON.stringify({
+          ticket_number: visit.ticket_number || id,
+          client_name: visit.client_name,
+          total: visitTotal,
+          metodo_pago: visit.metodo_pago
+        })
+      ]
+    );
+
+    res.json({ success: true, message: 'Factura anulada correctamente con registro de auditoría.' });
+  } catch (err) {
+    console.error('[API VOID VISIT ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete pending ticket / visit (supports DELETE and POST)
+const handleDeleteVisit = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM visits WHERE id = ? AND status = "Pendiente"', [id]);
+    res.json({ success: true, message: 'Ticket descartado exitosamente' });
+  } catch (err) {
+    console.error('[API DELETE VISIT ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Delete all pending tickets / visits
+const handleClearAllPendingVisits = async (req, res) => {
+  try {
+    const salonId = req.query.salon_id || req.body?.salon_id;
+    let query = 'DELETE FROM visits WHERE status = "Pendiente"';
+    const params = [];
+    if (salonId && salonId !== 'all') {
+      query += ' AND salon_id = ?';
+      params.push(salonId);
+    }
+    const [result] = await pool.query(query, params);
+    res.json({ success: true, message: 'Todos los tickets pendientes fueron eliminados', affectedRows: result.affectedRows });
+  } catch (err) {
+    console.error('[API CLEAR ALL PENDING VISITS ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+app.delete('/api/visits/pending/all', handleClearAllPendingVisits);
+app.post('/api/visits/pending/clear-all', handleClearAllPendingVisits);
+app.delete('/api/visits/:id', handleDeleteVisit);
+app.post('/api/visits/:id/delete', handleDeleteVisit);
+
+app.get('/api/audit-logs', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100');
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2010,36 +2619,45 @@ app.delete('/api/services/:id', async (req, res) => {
   }
 });
 
-// === MÓDULO DE COMISIONES (SECTION 10) ===
+// === MÓDULO DE COMISIONES ===
 app.get('/api/commissions', async (req, res) => {
   try {
-    const { start_date, end_date, employee_id, status, service_name } = req.query;
+    const { start_date, end_date, employee_id, status, service_name, localidad } = req.query;
 
-    let query = 'SELECT * FROM employee_commissions_log WHERE 1=1';
+    let query = `
+      SELECT c.*, s.localidad as emp_localidad 
+      FROM employee_commissions_log c
+      LEFT JOIN staff_records s ON c.employee_id = s.id
+      WHERE 1=1
+    `;
     const params = [];
 
     if (start_date) {
-      query += ' AND created_at >= ?';
+      query += ' AND c.created_at >= ?';
       params.push(`${start_date} 00:00:00`);
     }
     if (end_date) {
-      query += ' AND created_at <= ?';
+      query += ' AND c.created_at <= ?';
       params.push(`${end_date} 23:59:59`);
     }
     if (employee_id) {
-      query += ' AND employee_id = ?';
+      query += ' AND c.employee_id = ?';
       params.push(employee_id);
     }
     if (status) {
-      query += ' AND status = ?';
+      query += ' AND c.status = ?';
       params.push(status);
     }
     if (service_name) {
-      query += ' AND service_name LIKE ?';
+      query += ' AND c.service_name LIKE ?';
       params.push(`%${service_name}%`);
     }
+    if (localidad) {
+      query += ' AND (c.localidad = ? OR s.localidad = ?)';
+      params.push(localidad, localidad);
+    }
 
-    query += ' ORDER BY created_at DESC';
+    query += ' ORDER BY c.created_at DESC';
 
     const [rows] = await pool.query(query, params);
 
@@ -2063,6 +2681,138 @@ app.get('/api/commissions', async (req, res) => {
         count: rows.length
       }
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Categorías de Comisión ---
+app.get('/api/commissions/categories', async (req, res) => {
+  try {
+    const [cats] = await pool.query('SELECT * FROM commission_categories ORDER BY id ASC');
+    for (let cat of cats) {
+      const [srvs] = await pool.query('SELECT COUNT(*) as count FROM services WHERE categoria = ?', [cat.nombre]);
+      cat.servicios_vinculados = srvs[0]?.count || 0;
+    }
+    res.json(cats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/commissions/categories', async (req, res) => {
+  try {
+    const { id, nombre, porcentaje, tipo, estado } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre de la categoría es obligatorio.' });
+    
+    if (id) {
+      await pool.query(
+        'UPDATE commission_categories SET nombre=?, porcentaje=?, tipo=?, estado=? WHERE id=?',
+        [nombre, parseFloat(porcentaje) || 0, tipo || 'Porcentaje', estado || 'Activa', id]
+      );
+    } else {
+      await pool.query(
+        'INSERT INTO commission_categories (nombre, porcentaje, tipo, estado) VALUES (?, ?, ?, ?)',
+        [nombre, parseFloat(porcentaje) || 0, tipo || 'Porcentaje', estado || 'Activa']
+      );
+    }
+    res.json({ success: true, message: 'Categoría guardada exitosamente' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/commissions/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM commission_categories WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Categoría eliminada' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Esquemas de Comisión ---
+app.get('/api/commissions/schemes', async (req, res) => {
+  try {
+    const [schemes] = await pool.query('SELECT * FROM commission_schemes ORDER BY id ASC');
+    for (let s of schemes) {
+      const [emps] = await pool.query('SELECT COUNT(*) as count FROM staff_records WHERE commission_scheme_id = ?', [s.id]);
+      s.colaboradores_asignados = emps[0]?.count || 0;
+    }
+    res.json(schemes);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/commissions/schemes', async (req, res) => {
+  try {
+    const { id, nombre, descripcion, tipo, estado } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre del esquema es obligatorio.' });
+
+    if (id) {
+      await pool.query(
+        'UPDATE commission_schemes SET nombre=?, descripcion=?, tipo=?, estado=? WHERE id=?',
+        [nombre, descripcion || '', tipo || 'Por Categorías', estado || 'Activo', id]
+      );
+    } else {
+      await pool.query(
+        'INSERT INTO commission_schemes (nombre, descripcion, tipo, estado) VALUES (?, ?, ?, ?)',
+        [nombre, descripcion || '', tipo || 'Por Categorías', estado || 'Activo']
+      );
+    }
+    res.json({ success: true, message: 'Esquema de comisión guardado exitosamente' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/commissions/schemes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM commission_schemes WHERE id = ?', [id]);
+    await pool.query('DELETE FROM commission_scheme_rules WHERE scheme_id = ?', [id]);
+    res.json({ success: true, message: 'Esquema y sus reglas eliminados' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Reglas por Esquema ---
+app.get('/api/commissions/schemes/:id/rules', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rules] = await pool.query('SELECT * FROM commission_scheme_rules WHERE scheme_id = ? ORDER BY rule_type DESC, prioridad ASC, id ASC', [id]);
+    res.json(rules);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/commissions/schemes/:id/rules', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rule_type, category_name, service_name, tipo_calculo, valor, prioridad } = req.body;
+    if (!rule_type) return res.status(400).json({ error: 'El tipo de regla es obligatorio.' });
+
+    await pool.query(
+      `INSERT INTO commission_scheme_rules (scheme_id, rule_type, category_name, service_name, tipo_calculo, valor, prioridad)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, rule_type, category_name || null, service_name || null, tipo_calculo || 'Porcentaje', parseFloat(valor) || 0, parseInt(prioridad) || 1]
+    );
+
+    res.json({ success: true, message: 'Regla agregada exitosamente' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/commissions/rules/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM commission_scheme_rules WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Regla eliminada' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2447,63 +3197,81 @@ app.post('/api/otp/generate', async (req, res) => {
   const code = Math.floor(100000 + Math.random() * 900000).toString();
 
   try {
-    // Invalidate old codes
-    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ?', [clientId]);
-    
-    // Insert new code with 15 mins expiration using MySQL's NOW()
-    await pool.query(
-      'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))',
-      [clientId, code]
-    );
+    let emailToSend = clientEmail;
+    let clientName = 'Cliente';
 
-    console.log(`[OTP] Generated code ${code} for client ${clientId} (${clientEmail})`);
+    // If clientEmail is missing or empty, look it up in DB
+    if (clientId) {
+      const [rows] = await pool.query('SELECT nombre, email FROM clients WHERE id = ?', [clientId]);
+      if (rows && rows.length > 0) {
+        emailToSend = emailToSend || rows[0].email;
+        clientName = rows[0].nombre || clientName;
+      }
+    }
+
+    // Invalidate old codes and insert new code with 15 mins expiration using MySQL's NOW()
+    if (clientId) {
+      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ?', [clientId]);
+      await pool.query(
+        'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))',
+        [clientId, code]
+      );
+    }
+
+    console.log(`[OTP] Generated code ${code} for client ${clientId} (${emailToSend})`);
     
     // --- SEND EMAIL ATTEMPT ---
-    try {
-      const [settings] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
-      if (settings.length > 0 && settings[0].smtp_host) {
-        const s = settings[0];
-        // We'll use a dynamic import for nodemailer or check if available
-        try {
-          const nodemailer = require('nodemailer');
-          const isPort465 = parseInt(s.smtp_port) === 465;
+    if (emailToSend && emailToSend.includes('@')) {
+      try {
+        const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+        if (settings.length > 0 && settings[0].smtp_host) {
+          const s = settings[0];
+          try {
+            const nodemailer = require('nodemailer');
+            const isPort465 = parseInt(s.smtp_port) === 465;
 
-          const transporter = nodemailer.createTransport({
-            host: s.smtp_host,
-            port: parseInt(s.smtp_port),
-            secure: isPort465,
-            auth: {
-              user: s.smtp_user,
-              pass: s.smtp_pass
-            },
-            tls: {
-              rejectUnauthorized: false
-            },
-            family: 4
-          });
+            const transporter = nodemailer.createTransport({
+              host: s.smtp_host,
+              port: parseInt(s.smtp_port) || 465,
+              secure: isPort465,
+              auth: {
+                user: s.smtp_user,
+                pass: s.smtp_pass
+              },
+              tls: {
+                rejectUnauthorized: false
+              },
+              family: 4
+            });
 
-          await transporter.sendMail({
-            from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
-            to: clientEmail,
-            subject: 'Tu Código de Seguridad - PLAN BEAUTY',
-            text: `Hola, tu código de seguridad para confirmar el servicio es: ${code}. Expira en 15 minutos.`,
-            html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-                    <h2 style="color: #09090b;">Verificación de Servicio</h2>
-                    <p>Hola, usa el siguiente código para autorizar el descuento de tu servicio en el salón:</p>
-                    <div style="font-size: 2rem; font-weight: bold; color: #09090b; margin: 20px 0;">${code}</div>
-                    <p style="color: #666; font-size: 0.8rem;">Este código expira en 15 minutos. Si no solicitaste este código, por favor ignora este correo.</p>
-                   </div>`
-          });
-          console.log(`[EMAIL] OTP sent successfully to ${clientEmail}`);
-        } catch (e) {
-          console.error('[EMAIL] Failed to send email:', e.message);
+            await transporter.sendMail({
+              from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+              to: emailToSend,
+              subject: `🔐 Tu Código de Seguridad - PLAN BEAUTY: ${code}`,
+              text: `Hola ${clientName}, tu código de seguridad para confirmar el servicio es: ${code}. Expira en 15 minutos.`,
+              html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                      <h2 style="color: #09090b;">Verificación de Servicio</h2>
+                      <p>Hola <strong>${escapeHtml(clientName)}</strong>, usa el siguiente código para autorizar el descuento de tu servicio en el salón:</p>
+                      <div style="font-size: 2rem; font-weight: bold; color: #09090b; margin: 20px 0;">${code}</div>
+                      <p style="color: #666; font-size: 0.8rem;">Este código expira en 15 minutos. Si no solicitaste este código, por favor ignora este correo.</p>
+                     </div>`
+            });
+            console.log(`[EMAIL] OTP sent successfully to ${emailToSend}`);
+          } catch (e) {
+            console.error('[EMAIL] Failed to send email:', e.message);
+          }
         }
+      } catch (err) {
+        console.error('[SETTINGS] Could not fetch email settings for OTP:', err.message);
       }
-    } catch (err) {
-      console.error('[SETTINGS] Could not fetch email settings for OTP:', err.message);
     }
     
-    res.json({ success: true, message: 'Código de verificación generado y enviado por correo.' });
+    res.json({
+      success: true,
+      message: 'Código de verificación generado y enviado por correo.',
+      code: process.env.NODE_ENV !== 'production' ? code : undefined,
+      email: emailToSend
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2554,53 +3322,7 @@ app.get('/api/security/requests', async (req, res) => {
   }
 });
 
-app.post('/api/otp/verify', async (req, res) => {
-  const { clientId, code, visitData } = req.body;
-  try {
-    const [rows] = await pool.query(
-      'SELECT id, expires_at FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0',
-      [clientId, code]
-    );
 
-    if (rows.length === 0) {
-      return res.status(400).json({ error: 'Código inválido o expirado.' });
-    }
-
-    const codeRecord = rows[0];
-    const expiresAtTime = codeRecord.expires_at instanceof Date 
-      ? codeRecord.expires_at.getTime() 
-      : new Date(codeRecord.expires_at).getTime();
-
-    if (Date.now() > expiresAtTime) {
-      return res.status(400).json({ error: 'Código inválido o expirado.' });
-    }
-
-    // Mark code as used
-    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [codeRecord.id]);
-
-    // Record the visit (Discount service)
-    const visitId = Date.now().toString();
-    await pool.query(
-      'INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-      [visitId, clientId, visitData.clientName, JSON.stringify(visitData.servicios), visitData.empleadoPeluquera || 'N/A', visitData.empleadoLavaPelo || 'N/A', visitData.empleadoManicurista || 'N/A', visitData.salon_id || 1]
-    );
-
-    // Trigger Survey
-    const [clientData] = await pool.query('SELECT email FROM clients WHERE id = ?', [clientId]);
-    console.log(`[OTP Verify] Client: ${clientId}, Email: ${clientData[0]?.email}, Name: ${visitData.clientName}`);
-    
-    if (clientData[0]?.email) {
-      console.log(`[OTP Verify] Sending survey email to ${clientData[0].email}...`);
-      sendSurveyEmail(clientId, visitData.clientName, clientData[0].email);
-    } else {
-      console.warn(`[OTP Verify] No email found for client ${clientId}, survey not sent.`);
-    }
-
-    res.json({ success: true, visitId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.post('/api/otp/verify-only', async (req, res) => {
   const { clientId, code } = req.body;
@@ -2948,6 +3670,9 @@ app.get('/api/contracts/client/:clientId', async (req, res) => {
   try {
     const { clientId } = req.params;
     const clean = clientId ? clientId.trim() : '';
+    if (!clean || clean.toUpperCase() === 'INVITADO' || clean.toLowerCase() === 'cliente general' || clean.length < 2) {
+      return res.json([]);
+    }
     const [rows] = await pool.query(`
       SELECT 
         c.*, 
@@ -2959,10 +3684,10 @@ app.get('/api/contracts/client/:clientId', async (req, res) => {
       FROM contracts c
       JOIN clients cl ON c.client_id = cl.id
       LEFT JOIN plans p ON (c.plan_id = p.id OR CAST(c.plan_id AS CHAR) = CAST(p.id AS CHAR))
-      WHERE (c.client_id = ? OR cl.cedula = ? OR TRIM(cl.nombre) = ? OR cl.nombre LIKE ?)
+      WHERE (c.client_id = ? OR cl.cedula = ? OR LOWER(TRIM(cl.nombre)) = LOWER(?))
         AND (c.status = 'Active' OR c.status = 'Activo')
       ORDER BY c.signed_at DESC
-    `, [clean, clean, clean, `%${clean}%`]);
+    `, [clean, clean, clean]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -4017,9 +4742,10 @@ app.get('/api/rrhh/staff', async (req, res) => {
 
 app.post('/api/rrhh/staff', async (req, res) => {
   try {
-    const { nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id } = req.body;
+    const { nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, commission_scheme_id } = req.body;
+    const schemeIdVal = commission_scheme_id ? parseInt(commission_scheme_id, 10) : null;
     const [result] = await pool.query(
-      'INSERT INTO staff_records (nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO staff_records (nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, commission_scheme_id, scheme_effective_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())',
       [
         nombre, 
         cedula, 
@@ -4034,7 +4760,8 @@ app.post('/api/rrhh/staff', async (req, res) => {
         hora_salida || null,
         dias_laborables || null,
         tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-        salon_id || null
+        salon_id || null,
+        schemeIdVal
       ]
     );
     res.json({ id: result.insertId, success: true });
@@ -4046,29 +4773,33 @@ app.post('/api/rrhh/staff', async (req, res) => {
 app.put('/api/rrhh/staff/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, fecha_salida, status, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id } = req.body;
-    await pool.query(
-      'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, email=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=?, profile_photo=?, hora_entrada=?, hora_salida=?, dias_laborables=?, tolerancia_minutos=?, salon_id=? WHERE id=?',
-      [
-        nombre, 
-        cedula, 
-        contacto, 
-        posicion, 
-        email || null,
-        direccion, 
-        localidad, 
-        fecha_entrada, 
-        fecha_salida || null, 
-        status || 'Activo',
-        profile_photo || null,
-        hora_entrada || null,
-        hora_salida || null,
-        dias_laborables || null,
-        tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-        salon_id || null,
-        id
-      ]
-    );
+    const { nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, fecha_salida, status, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, commission_scheme_id } = req.body;
+    
+    // Check if scheme changed
+    const [current] = await pool.query('SELECT commission_scheme_id FROM staff_records WHERE id = ?', [id]);
+    const schemeIdVal = commission_scheme_id ? parseInt(commission_scheme_id, 10) : null;
+    const schemeChanged = current[0] && current[0].commission_scheme_id !== schemeIdVal;
+
+    if (schemeChanged) {
+      await pool.query(
+        'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, email=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=?, profile_photo=?, hora_entrada=?, hora_salida=?, dias_laborables=?, tolerancia_minutos=?, salon_id=?, commission_scheme_id=?, scheme_effective_date=NOW() WHERE id=?',
+        [
+          nombre, cedula, contacto, posicion, email || null, direccion, localidad, fecha_entrada, fecha_salida || null, status || 'Activo',
+          profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
+          salon_id || null, schemeIdVal, id
+        ]
+      );
+    } else {
+      await pool.query(
+        'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, email=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=?, profile_photo=?, hora_entrada=?, hora_salida=?, dias_laborables=?, tolerancia_minutos=?, salon_id=?, commission_scheme_id=? WHERE id=?',
+        [
+          nombre, cedula, contacto, posicion, email || null, direccion, localidad, fecha_entrada, fecha_salida || null, status || 'Activo',
+          profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
+          salon_id || null, schemeIdVal, id
+        ]
+      );
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

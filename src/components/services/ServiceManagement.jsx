@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, Plus, Search, Edit3, Trash2, Power, CheckCircle2, XCircle, 
   Tag, DollarSign, Percent, ShieldCheck, ArrowUpDown, Filter, AlertCircle,
-  FileSpreadsheet, Upload, Download, FileText
+  FileSpreadsheet, Upload, Download, FileText, ShoppingBag, Scissors, Package, X, Save, Check, User
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
@@ -21,6 +21,7 @@ const ServiceManagement = () => {
     descripcion: '',
     categoria: 'Peluquería',
     precio: '',
+    tipo_item: 'Servicio',
     activo: 1,
     genera_comision: 1,
     tipo_comision: 'Porcentaje',
@@ -36,7 +37,7 @@ const ServiceManagement = () => {
   const [parsedItems, setParsedItems] = useState([]);
   const [bulkLoading, setBulkLoading] = useState(false);
 
-  const categories = ['Todas', 'Peluquería', 'Coloración', 'Tratamientos', 'Uñas', 'Estética', 'Productos', 'General'];
+  const [categoriesList, setCategoriesList] = useState(['Peluquería', 'Coloración', 'Tratamientos', 'Uñas', 'Estética', 'Productos', 'General']);
 
   useEffect(() => {
     loadServices();
@@ -45,8 +46,18 @@ const ServiceManagement = () => {
   const loadServices = async () => {
     setLoading(true);
     try {
-      const data = await dataService.getServices();
+      const [data, commCats] = await Promise.all([
+        dataService.getServices(),
+        dataService.getCommissionCategories().catch(() => [])
+      ]);
       setServices(data || []);
+
+      const commCatNames = Array.isArray(commCats) ? commCats.map(c => c.nombre).filter(Boolean) : [];
+      const serviceCatNames = Array.isArray(data) ? data.map(s => s.categoria).filter(Boolean) : [];
+      const defaultCats = ['Peluquería', 'Coloración', 'Tratamientos', 'Uñas', 'Estética', 'Productos', 'General'];
+
+      const combined = Array.from(new Set([...commCatNames, ...serviceCatNames, ...defaultCats])).filter(Boolean);
+      setCategoriesList(combined);
     } catch (e) {
       console.error('Error cargando servicios:', e);
     } finally {
@@ -59,12 +70,10 @@ const ServiceManagement = () => {
     setFormData({
       nombre: '',
       descripcion: '',
-      categoria: 'Peluquería',
+      categoria: categoriesList[0] || 'Peluquería',
       precio: '',
+      tipo_item: 'Servicio',
       activo: 1,
-      genera_comision: 1,
-      tipo_comision: 'Porcentaje',
-      comision_valor: '15',
       aplica_itbis: 0,
       orden_visualizacion: '0',
       imagen_url: ''
@@ -79,6 +88,7 @@ const ServiceManagement = () => {
       descripcion: service.descripcion || '',
       categoria: service.categoria || 'Peluquería',
       precio: service.precio || '',
+      tipo_item: service.tipo_item || (service.categoria === 'Productos' ? 'Producto' : 'Servicio'),
       activo: service.activo !== undefined ? service.activo : 1,
       genera_comision: service.genera_comision !== undefined ? service.genera_comision : 1,
       tipo_comision: service.tipo_comision || 'Porcentaje',
@@ -323,7 +333,8 @@ Depilación Facial Completa,Estética,600,20,0`;
             onChange={(e) => setSelectedCategory(e.target.value)}
             style={{ padding: '0.55rem 0.875rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700, background: '#ffffff' }}
           >
-            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            <option value="Todas">Todas</option>
+            {categoriesList.map(cat => <option key={cat} value={cat}>{cat}</option>)}
           </select>
         </div>
 
@@ -360,7 +371,6 @@ Depilación Facial Completa,Estética,600,20,0`;
                 <th style={{ padding: '0.875rem 1rem' }}>Servicio</th>
                 <th style={{ padding: '0.875rem 1rem' }}>Categoría</th>
                 <th style={{ padding: '0.875rem 1rem', textAlign: 'right' }}>Precio Base</th>
-                <th style={{ padding: '0.875rem 1rem', textAlign: 'center' }}>Comisión</th>
                 <th style={{ padding: '0.875rem 1rem', textAlign: 'center' }}>ITBIS</th>
                 <th style={{ padding: '0.875rem 1rem', textAlign: 'center' }}>Estado</th>
                 <th style={{ padding: '0.875rem 1rem', textAlign: 'center' }}>Acciones</th>
@@ -388,16 +398,7 @@ Depilación Facial Completa,Estética,600,20,0`;
                     RD$ {Number(s.precio).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                   </td>
 
-                  {/* Commission */}
-                  <td style={{ padding: '0.875rem 1rem', textAlign: 'center' }}>
-                    {s.genera_comision === 1 ? (
-                      <span style={{ background: '#fdf2f8', color: '#be185d', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
-                        {s.tipo_comision === 'Porcentaje' ? `${s.comision_valor}%` : `RD$ ${s.comision_valor}`}
-                      </span>
-                    ) : (
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>Sin comisión</span>
-                    )}
-                  </td>
+
 
                   {/* ITBIS */}
                   <td style={{ padding: '0.875rem 1rem', textAlign: 'center' }}>
@@ -460,19 +461,61 @@ Depilación Facial Completa,Estética,600,20,0`;
         )}
       </div>
 
-      {/* SINGLE ITEM CREATE / EDIT MODAL */}
+      {/* SINGLE ITEM CREATE / EDIT MODAL - MODERN DESIGN (MATCHING MOCKUP) */}
       {showModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '580px', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ margin: '0 0 1.25rem', fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
-              {editingService ? '✏️ Editar Servicio' : '✨ Agregar Nuevo Servicio al Catálogo'}
-            </h2>
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.55)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1100, padding: '1rem'
+        }}>
+          <div style={{
+            background: '#ffffff', width: '100%', maxWidth: '520px',
+            borderRadius: '24px', padding: '2rem',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            maxHeight: '92vh', overflowY: 'auto', position: 'relative'
+          }}>
+            
+            {/* CLOSE BUTTON */}
+            <button
+              type="button"
+              onClick={() => setShowModal(false)}
+              style={{
+                position: 'absolute', top: '1.25rem', right: '1.25rem',
+                border: 'none', background: '#f4f4f5', color: '#71717a',
+                width: '32px', height: '32px', borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', transition: 'all 0.2s'
+              }}
+            >
+              <X size={18} />
+            </button>
+
+            {/* MODAL HEADER */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div style={{
+                background: '#f3e8ff', color: '#9333ea', width: '52px', height: '52px',
+                borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0
+              }}>
+                <ShoppingBag size={26} />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.3px' }}>
+                  {editingService ? 'Editar Ítem' : 'Agregar Nuevo Ítem'}
+                </h2>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                  Crea un nuevo servicio o producto para tu catálogo.
+                </p>
+              </div>
+            </div>
 
             <form onSubmit={handleSaveService}>
               
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>
-                  Nombre del Servicio *:
+              {/* NOMBRE DEL ÍTEM */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.35rem' }}>
+                  Nombre del Ítem <span style={{ color: '#ec4899' }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -480,130 +523,201 @@ Depilación Facial Completa,Estética,600,20,0`;
                   placeholder="Ej: Corte de Dama Profesional"
                   value={formData.nombre}
                   onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                  style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                  style={{
+                    width: '100%', padding: '0.75rem 1rem', borderRadius: '12px',
+                    border: '1px solid #e4e4e7', fontSize: '0.9rem', fontWeight: 600,
+                    color: '#0f172a', background: '#fafafa', outline: 'none'
+                  }}
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+              {/* CATEGORÍA Y PRECIO */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>
-                    Categoría *:
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.35rem' }}>
+                    Categoría <span style={{ color: '#ec4899' }}>*</span>
                   </label>
                   <select
                     value={formData.categoria}
                     onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-                    style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                    style={{
+                      width: '100%', padding: '0.75rem 1rem', borderRadius: '12px',
+                      border: '1px solid #e4e4e7', fontSize: '0.88rem', fontWeight: 700,
+                      color: '#0f172a', background: '#fafafa', outline: 'none', cursor: 'pointer'
+                    }}
                   >
-                    {categories.filter(c => c !== 'Todas').map(cat => (
+                    {categoriesList.map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>
-                    Precio Base (RD$) *:
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.35rem' }}>
+                    Precio <span style={{ color: '#ec4899' }}>*</span>
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="1200"
-                    value={formData.precio}
-                    onChange={(e) => setFormData({ ...formData, precio: e.target.value })}
-                    style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800 }}
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #e4e4e7', borderRadius: '12px', background: '#fafafa', overflow: 'hidden' }}>
+                    <span style={{ padding: '0.75rem 0.85rem', background: '#f4f4f5', color: '#71717a', fontSize: '0.85rem', fontWeight: 800, borderRight: '1px solid #e4e4e7' }}>
+                      RD$
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="0.00"
+                      value={formData.precio}
+                      onChange={(e) => setFormData({ ...formData, precio: e.target.value })}
+                      style={{
+                        width: '100%', padding: '0.75rem', border: 'none', background: 'transparent',
+                        fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', outline: 'none'
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.25rem', display: 'block' }}>
+                    Precio base del ítem
+                  </span>
                 </div>
               </div>
 
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                  Descripción u Observaciones:
+              {/* TIPO DE ÍTEM (RADIO CARDS) */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.5rem' }}>
+                  Tipo de Ítem <span style={{ color: '#ec4899' }}>*</span>
                 </label>
-                <textarea
-                  rows={2}
-                  placeholder="Detalles sobre el procedimiento, duración o productos requeridos..."
-                  value={formData.descripcion}
-                  onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-                  style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
-                />
-              </div>
 
-              {/* Commission Config */}
-              <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                  <input
-                    type="checkbox"
-                    id="genera_comision"
-                    checked={formData.genera_comision === 1}
-                    onChange={(e) => setFormData({ ...formData, genera_comision: e.target.checked ? 1 : 0 })}
-                  />
-                  <label htmlFor="genera_comision" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}>
-                    👤 Este servicio genera comisión al colaborador
-                  </label>
-                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                  
+                  {/* CARD 1: SERVICIO */}
+                  <div
+                    onClick={() => setFormData({ ...formData, tipo_item: 'Servicio' })}
+                    style={{
+                      border: formData.tipo_item === 'Servicio' ? '2px solid #d946ef' : '1px solid #e4e4e7',
+                      background: formData.tipo_item === 'Servicio' ? '#fdf4ff' : '#ffffff',
+                      borderRadius: '16px', padding: '1rem 0.85rem', textAlign: 'center',
+                      cursor: 'pointer', transition: 'all 0.2s', position: 'relative'
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute', top: '0.75rem', right: '0.75rem',
+                      width: '18px', height: '18px', borderRadius: '50%',
+                      border: formData.tipo_item === 'Servicio' ? '5px solid #d946ef' : '2px solid #cbd5e1',
+                      background: '#ffffff'
+                    }}></div>
 
-                {formData.genera_comision === 1 && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.5rem' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#475569', marginBottom: '0.25rem' }}>
-                        Tipo de Comisión:
-                      </label>
-                      <select
-                        value={formData.tipo_comision}
-                        onChange={(e) => setFormData({ ...formData, tipo_comision: e.target.value })}
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
-                      >
-                        <option value="Porcentaje">Porcentaje (%)</option>
-                        <option value="Monto_Fijo">Monto Fijo (RD$)</option>
-                      </select>
+                    <div style={{
+                      width: '42px', height: '42px', borderRadius: '50%',
+                      background: '#fbcfe8', color: '#be185d', margin: '0 auto 0.6rem',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      <Scissors size={20} />
                     </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#475569', marginBottom: '0.25rem' }}>
-                        Valor de Comisión:
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="15"
-                        value={formData.comision_valor}
-                        onChange={(e) => setFormData({ ...formData, comision_valor: e.target.value })}
-                        style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 800 }}
-                      />
+                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#d946ef', marginBottom: '0.2rem' }}>
+                      Servicio
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#71717a', lineHeight: '1.25' }}>
+                      Mano de obra o procedimiento realizado
                     </div>
                   </div>
-                )}
+
+                  {/* CARD 2: PRODUCTO */}
+                  <div
+                    onClick={() => setFormData({ ...formData, tipo_item: 'Producto', categoria: 'Productos' })}
+                    style={{
+                      border: formData.tipo_item === 'Producto' ? '2px solid #d946ef' : '1px solid #e4e4e7',
+                      background: formData.tipo_item === 'Producto' ? '#fdf4ff' : '#ffffff',
+                      borderRadius: '16px', padding: '1rem 0.85rem', textAlign: 'center',
+                      cursor: 'pointer', transition: 'all 0.2s', position: 'relative'
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute', top: '0.75rem', right: '0.75rem',
+                      width: '18px', height: '18px', borderRadius: '50%',
+                      border: formData.tipo_item === 'Producto' ? '5px solid #d946ef' : '2px solid #cbd5e1',
+                      background: '#ffffff'
+                    }}></div>
+
+                    <div style={{
+                      width: '42px', height: '42px', borderRadius: '50%',
+                      background: '#f3e8ff', color: '#9333ea', margin: '0 auto 0.6rem',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      <Package size={20} />
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#9333ea', marginBottom: '0.2rem' }}>
+                      Producto
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#71717a', lineHeight: '1.25' }}>
+                      Artículo o producto físico para la venta
+                    </div>
+                  </div>
+
+                </div>
               </div>
 
-              {/* Tax ITBIS Config */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                <input
-                  type="checkbox"
-                  id="aplica_itbis"
-                  checked={formData.aplica_itbis === 1}
-                  onChange={(e) => setFormData({ ...formData, aplica_itbis: e.target.checked ? 1 : 0 })}
-                />
-                <label htmlFor="aplica_itbis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', cursor: 'pointer' }}>
-                  🧾 Aplicar ITBIS (18%) a este servicio durante la facturación
+              {/* ITBIS (18%) CARD SECTION */}
+              <div style={{
+                background: 'linear-gradient(135deg, #fdf4ff 0%, #faf5ff 100%)',
+                border: '1px solid #f0abfc', borderRadius: '18px',
+                padding: '1.1rem 1.25rem', marginBottom: '1.25rem', position: 'relative', overflow: 'hidden'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
+                  <div style={{ background: '#c084fc', color: '#ffffff', padding: '4px 7px', borderRadius: '7px', fontSize: '0.75rem', fontWeight: 900 }}>
+                    %
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
+                    ITBIS (18%)
+                  </h3>
+                </div>
+
+                <p style={{ margin: '0 0 0.85rem', fontSize: '0.78rem', color: '#64748b' }}>
+                  Indica si este ítem está sujeto al impuesto ITBIS.
+                </p>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.aplica_itbis === 1}
+                    onChange={(e) => setFormData({ ...formData, aplica_itbis: e.target.checked ? 1 : 0 })}
+                    style={{ width: '18px', height: '18px', accentColor: '#c084fc', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>
+                    Aplicar ITBIS (18%) a este ítem
+                  </span>
                 </label>
+                <span style={{ fontSize: '0.73rem', color: '#64748b', display: 'block', marginLeft: '1.75rem', marginTop: '0.15rem' }}>
+                  Este ítem tendrá el impuesto ITBIS del 18% en la facturación.
+                </span>
               </div>
 
-              {/* Modal Buttons */}
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
+
+
+              {/* FOOTER ACTION BUTTONS */}
+              <div style={{ display: 'flex', gap: '1rem', paddingTop: '0.5rem' }}>
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, cursor: 'pointer', color: '#475569' }}
+                  style={{
+                    flex: 1, padding: '0.85rem', borderRadius: '14px',
+                    border: '1px solid #e4e4e7', background: '#ffffff',
+                    fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', color: '#3f3f46'
+                  }}
                 >
                   Cancelar
                 </button>
+
                 <button
                   type="submit"
                   disabled={loading}
-                  style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}
+                  style={{
+                    flex: 1.3, padding: '0.85rem', borderRadius: '14px',
+                    border: 'none', background: 'linear-gradient(135deg, #a855f7 0%, #d946ef 50%, #ec4899 100%)',
+                    color: '#ffffff', fontWeight: 800, fontSize: '0.9rem',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                    boxShadow: '0 4px 15px rgba(217,70,239,0.35)'
+                  }}
                 >
-                  {editingService ? 'Actualizar Servicio' : 'Guardar Servicio'}
+                  <Save size={18} />
+                  <span>{editingService ? 'Guardar Cambios' : 'Guardar Ítem'}</span>
                 </button>
               </div>
 

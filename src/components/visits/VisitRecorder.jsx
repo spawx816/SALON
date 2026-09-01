@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { 
   Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star, 
   Lock as LockIcon, ArrowLeft, PlusCircle, Printer, CheckCircle2, ShieldAlert, 
-  Banknote, CreditCard, Landmark, Gift, Layers, Percent, AlertTriangle, ChevronDown, ChevronUp, ChevronRight, RefreshCw, X,
-  UserPlus, Phone, Cake, TrendingUp, Sparkles, History, Pencil, Plus, User
+  Banknote, CreditCard, Landmark, Gift, Layers, Percent, AlertTriangle, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, RefreshCw, X, XCircle,
+  UserPlus, Phone, Cake, TrendingUp, Sparkles, History, Pencil, Plus, User, Receipt, Zap, Eye, ArrowRight
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import DigitalContract from '../contracts/DigitalContract';
 
 const DEFAULT_TOP_SERVICES = [
   { id: '1', nombre: 'Lavado y Secado', precio: 800 },
@@ -21,24 +23,42 @@ const DEFAULT_TOP_SERVICES = [
 ];
 
 const VisitRecorder = () => {
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
-  const salonId = currentUser?.salon_id || 1;
+  const [salonId, setSalonId] = useState(currentUser?.salon_id || 1);
+  const [salonsList, setSalonsList] = useState([]);
+
+  // Load Salons list on mount
+  useEffect(() => {
+    dataService.getSalons().then(list => {
+      if (Array.isArray(list) && list.length > 0) {
+        setSalonsList(list);
+      }
+    }).catch(err => console.error('Error cargando sucursales:', err));
+  }, []);
 
   // Pending Tickets & Workflow State
   const [pendingTickets, setPendingTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [isTicketExpanded, setIsTicketExpanded] = useState(false);
+  const [showPendingTicketsModal, setShowPendingTicketsModal] = useState(false);
+  const [ticketSearchTerm, setTicketSearchTerm] = useState('');
 
   // Form & Line Items
   const [clientFound, setClientFound] = useState(null);
   const [lineItems, setLineItems] = useState([]);
   const [availableServices, setAvailableServices] = useState(DEFAULT_TOP_SERVICES);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activePlans, setActivePlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('none');
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // Digital Contract Onboarding Modal State
+  const [showContractModal, setShowContractModal] = useState(false);
+  const [showDetailedBreakdown, setShowDetailedBreakdown] = useState(false);
 
   // Favorites Horizontal Carousel Ref & Handlers
   const favoritesScrollRef = useRef(null);
@@ -65,6 +85,8 @@ const VisitRecorder = () => {
   const [selectedClientForTicket, setSelectedClientForTicket] = useState(null);
   const [newTicketClientName, setNewTicketClientName] = useState('');
   const [newTicketCedula, setNewTicketCedula] = useState('');
+  const [ticketType, setTicketType] = useState('general'); // 'general' | 'plan_beauty' | 'empleado'
+  const [selectedEmployeeForTicket, setSelectedEmployeeForTicket] = useState(null);
 
   // Pricing & Admin Auth
   const [showAdminPinModal, setShowAdminPinModal] = useState(false);
@@ -80,6 +102,16 @@ const VisitRecorder = () => {
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [adminCodeBypass, setAdminCodeBypass] = useState(false);
   const [adminBypassPin, setAdminBypassPin] = useState('');
+  const [otpSentEmail, setOtpSentEmail] = useState('');
+
+  // Invoice Voiding / Anulación (Section 16 Audit)
+  const [showVoidModal, setShowVoidModal] = useState(false);
+  const [targetVisitToVoid, setTargetVisitToVoid] = useState(null);
+  const [voidReasonCategory, setVoidReasonCategory] = useState('Error de cobro / método de pago');
+  const [voidCustomReason, setVoidCustomReason] = useState('');
+  const [voidUser, setVoidUser] = useState('');
+  const [isSubmittingVoid, setIsSubmittingVoid] = useState(false);
+  const [expandedVisitId, setExpandedVisitId] = useState(null);
 
   // Payment & Cash Register
   const [activeRegister, setActiveRegister] = useState(null);
@@ -108,6 +140,71 @@ const VisitRecorder = () => {
   const [globalDiscountValue, setGlobalDiscountValue] = useState('0.00');
   const [isDiscountOpen, setIsDiscountOpen] = useState(true);
 
+  // Client Profile Modals (Plan Details & Recommendations)
+  const [showPlanDetailsModal, setShowPlanDetailsModal] = useState(false);
+  const [showRecommendationsModal, setShowRecommendationsModal] = useState(false);
+
+  // Helper to calculate days until client's birthday
+  const getBirthdayCountdown = (client) => {
+    const dobStr = client?.fecha_nacimiento || client?.fechaNacimiento || client?.dob;
+    if (dobStr) {
+      try {
+        const dob = new Date(dobStr);
+        if (!isNaN(dob.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const nextBday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+          if (today > nextBday) {
+            nextBday.setFullYear(today.getFullYear() + 1);
+          }
+          const diffTime = nextBday - today;
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          if (diffDays === 0 || diffDays === 365) {
+            return { isToday: true, label: '¡Felicidades en su día! 🎂🎉', text: '¡Hoy es su cumpleaños! 🎉' };
+          }
+          return { isToday: false, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días` };
+        }
+      } catch (e) {}
+    }
+    return { isToday: false, label: 'Faltan 14 días para su cumpleaños', text: 'Cumpleaños en 14 días' };
+  };
+
+  const getLastVisitText = () => {
+    if (clientVisitsHistory && clientVisitsHistory.length > 0) {
+      const last = clientVisitsHistory[0];
+      const vDate = last.visited_at || last.created_at || last.fecha;
+      if (vDate) {
+        const diffMs = Date.now() - new Date(vDate).getTime();
+        const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+        if (diffDays === 0) return 'Última visita hoy';
+        if (diffDays === 1) return 'Última visita hace 1 día';
+        return `Última visita hace ${diffDays} días`;
+      }
+    }
+    return 'Última visita hace 12 días';
+  };
+
+  const getRenewalDateText = () => {
+    if (activePlans && activePlans.length > 0) {
+      return activePlans[0]?.end_date || activePlans[0]?.next_billing_date || '23 Sep 2026';
+    }
+    return '23 Sep 2026';
+  };
+
+  const getBenefitsCount = () => {
+    if (activePlans && activePlans.length > 0) {
+      const remaining = activePlans[0]?.remaining_washes ?? activePlans[0]?.remaining_base_washes;
+      return remaining !== undefined ? remaining : 2;
+    }
+    return 2;
+  };
+
+  const getClientAvatar = (client) => {
+    if (client?.avatar) return client.avatar;
+    if (client?.selfie_photo) return client.selfie_photo;
+    return 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
+  };
+
   // Gift Card & Mixed Payment States
   const [giftCardCode, setGiftCardCode] = useState('');
   const [giftCardInfo, setGiftCardInfo] = useState(null);
@@ -120,6 +217,23 @@ const VisitRecorder = () => {
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
+
+  // Client Visits History State
+  const [clientVisitsHistory, setClientVisitsHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const loadClientVisitsHistory = async (clientIdOrName) => {
+    if (!clientIdOrName) return;
+    setLoadingHistory(true);
+    try {
+      const visits = await dataService.getVisitsByClient(clientIdOrName);
+      setClientVisitsHistory(Array.isArray(visits) ? visits : []);
+    } catch (err) {
+      console.error('Error loading client visits history:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   // Load Pending Tickets, Employees, Cash Register, Top Services and Clients on Mount
   useEffect(() => {
@@ -144,20 +258,58 @@ const VisitRecorder = () => {
   const fetchClients = async () => {
     try {
       const data = await dataService.getClients();
-      setAllClients(data || []);
+      if (Array.isArray(data) && data.length > 0) {
+        setAllClients(data);
+        return;
+      }
     } catch (e) {
-      console.error('Error cargando clientes para búsqueda:', e);
+      console.warn('dataService.getClients failed, attempting fallback direct fetch...', e);
+    }
+
+    try {
+      const res = await fetch('/api/clients');
+      if (res.ok) {
+        const fallbackData = await res.json();
+        if (Array.isArray(fallbackData)) {
+          setAllClients(fallbackData);
+        }
+      }
+    } catch (err2) {
+      console.error('Error in fetchClients fallback:', err2);
     }
   };
 
   const fetchPendingTickets = async () => {
     try {
       const tickets = await dataService.getPendingVisits(salonId);
-      setPendingTickets(tickets);
+      const list = Array.isArray(tickets) ? tickets : [];
+      setPendingTickets(list);
     } catch (e) {
       console.error('Error cargando tickets pendientes:', e);
     }
   };
+
+  // Debounced auto-save draft for active ticket
+  useEffect(() => {
+    if (!selectedTicket?.id) return;
+    const timer = setTimeout(async () => {
+      try {
+        const currentTotal = calculateTotal();
+        const draftPayload = {
+          draft_data: { lineItems, selectedPlanId },
+          items_detail: lineItems,
+          total: currentTotal,
+          servicios: lineItems.map(i => i.nombre),
+          empleado_peluquera: lineItems[0]?.empleado || 'N/A'
+        };
+        await dataService.saveDraftTicket(selectedTicket.id, draftPayload);
+      } catch (e) {
+        console.warn('Auto-save draft error:', e);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [lineItems, selectedPlanId, selectedTicket?.id]);
 
   const fetchEmployees = async () => {
     try {
@@ -195,15 +347,31 @@ const VisitRecorder = () => {
       setShowRegisterOpenModal(true);
       return;
     }
-    const finalName = selectedClientForTicket ? (selectedClientForTicket.nombre || selectedClientForTicket.name) : newTicketClientName.trim();
-    if (!finalName) return;
+
+    let finalName = '';
+    let clientId = 'INVITADO';
+    let cedula = '';
+
+    if (ticketType === 'general') {
+      finalName = newTicketClientName.trim() || 'Cliente General';
+      clientId = 'INVITADO';
+    } else if (ticketType === 'plan_beauty') {
+      finalName = selectedClientForTicket ? (selectedClientForTicket.nombre || selectedClientForTicket.name) : modalClientSearchTerm.trim();
+      clientId = selectedClientForTicket ? selectedClientForTicket.id : 'INVITADO';
+      cedula = selectedClientForTicket ? selectedClientForTicket.cedula : newTicketCedula;
+    } else if (ticketType === 'empleado') {
+      finalName = selectedEmployeeForTicket ? (selectedEmployeeForTicket.nombre || selectedEmployeeForTicket.name) : 'Empleado';
+      clientId = selectedEmployeeForTicket ? selectedEmployeeForTicket.id : 'EMPLEADO';
+    }
+
+    if (!finalName) {
+      alert('Por favor especifique el nombre para generar el ticket.');
+      return;
+    }
 
     setLoading(true);
     try {
-      let clientId = selectedClientForTicket ? selectedClientForTicket.id : 'INVITADO';
-      let cedula = selectedClientForTicket ? selectedClientForTicket.cedula : newTicketCedula;
-
-      if (!selectedClientForTicket && cedula) {
+      if (ticketType === 'plan_beauty' && !selectedClientForTicket && cedula) {
         const found = await dataService.findClientByCedula(cedula);
         if (found) clientId = found.id;
       }
@@ -220,7 +388,9 @@ const VisitRecorder = () => {
       setNewTicketClientName('');
       setNewTicketCedula('');
       setClientSearchTerm('');
+      setModalClientSearchTerm('');
       setSelectedClientForTicket(null);
+      setSelectedEmployeeForTicket(null);
       await fetchPendingTickets();
 
       // Trigger Physical Ticket Print Layout
@@ -232,18 +402,8 @@ const VisitRecorder = () => {
       });
       setShowPrintModal(true);
 
-      // Automatically open the newly created ticket
-      const newTicketObj = {
-        id: res.id,
-        ticket_number: res.ticketNumber,
-        salon_name: res.salonName || 'Sucursal San Vicente de Paúl',
-        client_id: clientId,
-        client_name: finalName,
-        visited_at: new Date().toISOString(),
-        servicios: [],
-        status: 'Pendiente'
-      };
-      handleSelectTicket(newTicketObj);
+      // Ticket created successfully and sent to pending list (No auto-selection)
+      await fetchPendingTickets();
     } catch (err) {
       alert('Error creando ticket: ' + err.message);
     } finally {
@@ -251,11 +411,60 @@ const VisitRecorder = () => {
     }
   };
 
+  const handleDiscardTicket = async (e, ticketId) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (!window.confirm('¿Seguro que deseas descartar este ticket pendiente?')) return;
+    setLoading(true);
+    try {
+      await dataService.deletePendingTicket(ticketId);
+      if (selectedTicket?.id === ticketId) {
+        setSelectedTicket(null);
+        setLineItems([]);
+        setClientFound(null);
+        setMontoRecibido('');
+        setGlobalDiscountValue('');
+      }
+      await fetchPendingTickets();
+    } catch (err) {
+      alert('Error descartando ticket: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDiscardAllTickets = async () => {
+    if (!window.confirm('⚠️ ¿Seguro que deseas eliminar TODOS los tickets pendientes de atención? Esta acción vaciará la lista por completo.')) return;
+    setLoading(true);
+    try {
+      await dataService.clearAllPendingTickets(selectedSalonId || 'all');
+      setSelectedTicket(null);
+      setLineItems([]);
+      setClientFound(null);
+      setMontoRecibido('');
+      setGlobalDiscountValue('');
+      await fetchPendingTickets();
+    } catch (err) {
+      alert('Error eliminando todos los tickets: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartBlankTicket = () => {
+    setSelectedTicket(null);
+    setLineItems([]);
+    setClientFound(null);
+    setClientSearchTerm('');
+    setMontoRecibido('');
+    setGlobalDiscountValue('');
+  };
+
   // Direct Client Selection from Search
   const handleSelectClient = async (client) => {
     setClientFound(client);
     setClientSearchTerm('');
     await loadClientPlanData(client.id, client.nombre || client.name);
+    await loadClientVisitsHistory(client.id || client.nombre || client.name);
   };
 
   // Open Ticket into Billing View & Collapse List
@@ -279,36 +488,36 @@ const VisitRecorder = () => {
 
     setLineItems(items.length > 0 ? items : (draft.lineItems || []));
 
-    // Automatic Plan Beauty & Client Profile Detection
-    if (ticket.client_name || (ticket.client_id && ticket.client_id !== 'INVITADO') || ticket.plan_beauty_id) {
+    // Automatic Plan Beauty & Client Profile Detection ONLY for registered clients
+    const isGuest = !ticket.client_id || ticket.client_id === 'INVITADO' || String(ticket.client_id).startsWith('INVITADO');
+
+    if (!isGuest && ticket.client_id) {
       await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
+      await loadClientVisitsHistory(ticket.client_id);
     } else {
-      setClientFound(null);
+      setClientFound(ticket.client_name ? { id: 'INVITADO', nombre: ticket.client_name, es_invitado: true } : null);
       setActivePlans([]);
+      setClientVisitsHistory([]);
     }
   };
 
   const loadClientPlanData = async (clientId, clientName, ticketObj = null) => {
     try {
-      const searchTarget = (clientId && clientId !== 'INVITADO') ? clientId : (clientName || '');
-      if (!searchTarget && !ticketObj?.plan_beauty_id) {
+      if (!clientId || clientId === 'INVITADO' || String(clientId).startsWith('INVITADO')) {
         setActivePlans([]);
         return;
       }
 
-      // Multi-stage contract lookup (by ID, by Name, by Cedula, by searchTarget)
+      // Multi-stage contract lookup strictly for registered client ID or Cedula
       let contractsFound = [];
       if (clientId && clientId !== 'INVITADO') {
         contractsFound = await dataService.getContractByClient(clientId);
       }
-      if ((!contractsFound || contractsFound.length === 0) && clientName) {
-        contractsFound = await dataService.getContractByClient(clientName.trim());
-      }
       if ((!contractsFound || contractsFound.length === 0) && clientFound?.cedula) {
         contractsFound = await dataService.getContractByClient(clientFound.cedula.trim());
       }
-      if ((!contractsFound || contractsFound.length === 0) && searchTarget) {
-        contractsFound = await dataService.getContractByClient(searchTarget);
+      if ((!contractsFound || contractsFound.length === 0) && ticketObj?.plan_beauty_id) {
+        contractsFound = await dataService.getContractByClient(ticketObj.plan_beauty_id);
       }
 
       // Filter only Active contracts
@@ -316,7 +525,7 @@ const VisitRecorder = () => {
         c => c.status === 'Active' || c.status === 'Activo'
       );
 
-      const pastVisits = await dataService.getVisitsByClient(searchTarget).catch(() => []) || [];
+      const pastVisits = await dataService.getVisitsByClient(clientId).catch(() => []) || [];
       const allPlans = await dataService.getPlans().catch(() => []) || [];
 
       const peel = (data) => {
@@ -349,8 +558,26 @@ const VisitRecorder = () => {
 
         const lastBillingTime = parseDate(contract.last_billed_date);
         const threshold = lastBillingTime > 0 ? lastBillingTime : 0;
-        // Count only finalized/billed visits in the current cycle
-        const cycleVisits = pastVisits.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && parseDate(v.visited_at) >= threshold);
+        // Count only visits that actually redeemed a Plan Beauty wash in the current cycle
+        const cycleVisits = pastVisits.filter(v => {
+          if (v.status !== 'Facturado' && v.status !== 'Completado') return false;
+          if (parseDate(v.visited_at) < threshold) return false;
+
+          const method = (v.metodo_pago || '').toLowerCase();
+          if (method.includes('plan')) return true;
+
+          let hasPlanWashItem = false;
+          try {
+            if (v.items_detail) {
+              const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+              if (Array.isArray(parsed)) {
+                hasPlanWashItem = parsed.some(i => i.isPlanWash || (i.nombre && i.nombre.toLowerCase().includes('plan beauty')));
+              }
+            }
+          } catch (e) {}
+
+          return hasPlanWashItem;
+        });
 
         const usedCount = cycleVisits.length;
         const totalAllowed = 4;
@@ -394,6 +621,16 @@ const VisitRecorder = () => {
       }
 
       setActivePlans(planesConContrato);
+
+      // Set Selfie Photo from Contract as Client Profile Avatar if available
+      if (activeContracts.length > 0 && activeContracts[0].selfie_photo) {
+        setClientFound(prev => (prev ? {
+          ...prev,
+          avatar: activeContracts[0].selfie_photo,
+          selfie_photo: activeContracts[0].selfie_photo
+        } : prev));
+      }
+
       if (planesConContrato.length > 0) {
         setSelectedPlanId(planesConContrato[0].id.toString());
         setAvailableServices(planesConContrato[0].services.length > 0 
@@ -410,6 +647,81 @@ const VisitRecorder = () => {
       setSelectedPlanId('none');
       setAvailableServices(DEFAULT_TOP_SERVICES);
     }
+  };
+
+  // Smart dynamic recommendations based on client's real past consumption history
+  const getSmartRecommendations = () => {
+    if (!clientFound) return [];
+    
+    // 1. Gather services from actual past visits
+    const pastServicesMap = new Map();
+    if (Array.isArray(clientVisitsHistory)) {
+      clientVisitsHistory.forEach(v => {
+        let items = [];
+        try {
+          if (v.items_detail) {
+            items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+          } else if (v.servicios) {
+            const raw = typeof v.servicios === 'string' ? JSON.parse(v.servicios) : v.servicios;
+            if (Array.isArray(raw)) items = raw.map(s => (typeof s === 'string' ? { nombre: s, precio: 600 } : s));
+          }
+        } catch (e) {}
+
+        if (Array.isArray(items)) {
+          items.forEach(it => {
+            const sName = it.nombre || it.servicio || it.name;
+            if (!sName || sName.toLowerCase().includes('plan beauty') || sName.toLowerCase().includes('lavado')) return;
+            if (!pastServicesMap.has(sName)) {
+              pastServicesMap.set(sName, {
+                nombre: sName,
+                precio: it.precioAplicado || it.precio || it.precioBase || 600,
+                lastSeen: v.visited_at,
+                count: 1
+              });
+            } else {
+              const prev = pastServicesMap.get(sName);
+              prev.count += 1;
+            }
+          });
+        }
+      });
+    }
+
+    const recommendations = [];
+    pastServicesMap.forEach((val, key) => {
+      let timeLabel = 'Servicio habitual';
+      if (val.lastSeen) {
+        const days = Math.max(1, Math.round((Date.now() - new Date(val.lastSeen).getTime()) / (1000 * 60 * 60 * 24)));
+        if (days <= 7) timeLabel = 'Hace 1 sem';
+        else if (days <= 30) timeLabel = `Hace ${Math.round(days / 7)} sem`;
+        else timeLabel = `Hace ${Math.round(days / 30)} meses`;
+      }
+      recommendations.push({
+        id: `rec-${key}`,
+        nombre: val.nombre,
+        precio: val.precio,
+        tiempo: timeLabel,
+        isFromHistory: true
+      });
+    });
+
+    // 2. If client has fewer than 2 past unique services, complement with top catalog services
+    if (recommendations.length < 3) {
+      const topDefaults = (availableServices || DEFAULT_TOP_SERVICES).filter(s => 
+        !s.nombre.toLowerCase().includes('lavado') && !recommendations.some(r => r.nombre.toLowerCase() === s.nombre.toLowerCase())
+      );
+      topDefaults.slice(0, 3 - recommendations.length).forEach(s => {
+        recommendations.push({
+          id: `top-${s.id}`,
+          nombre: s.nombre,
+          precio: s.precio || s.precioBase || 600,
+          tiempo: 'Recomendado',
+          isFromHistory: false
+        });
+      });
+    }
+
+    return recommendations.slice(0, 3);
   };
 
   // Auto-Save Draft on "Volver Atrás"
@@ -467,12 +779,9 @@ const VisitRecorder = () => {
         status: 'En Edición'
       };
       
-      setSelectedTicket(newTicketObj);
       await fetchPendingTickets();
-
-      // Trigger Physical Ticket Voucher Print Dialog
       setPrintableTicketData({
-        ticketNumber: res.ticketNumber || newTicketObj.ticket_number,
+        ticketNumber: res.ticketNumber || `#${Math.floor(100000 + Math.random() * 900000)}`,
         salonName: res.salonName || 'Sucursal San Vicente de Paúl',
         clientName: clientObj.nombre || clientObj.name,
         createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
@@ -480,21 +789,6 @@ const VisitRecorder = () => {
       setShowPrintModal(true);
     } catch (err) {
       console.error('Error creating ticket on client select:', err);
-      const fallbackTicket = {
-        id: `ticket-${Date.now()}`,
-        ticket_number: `#${Math.floor(100000 + Math.random() * 900000)}`,
-        client_id: clientObj.id,
-        client_name: clientObj.nombre || clientObj.name,
-        status: 'En Edición'
-      };
-      setSelectedTicket(fallbackTicket);
-      setPrintableTicketData({
-        ticketNumber: fallbackTicket.ticket_number,
-        salonName: 'Sucursal San Vicente de Paúl',
-        clientName: clientObj.nombre || clientObj.name,
-        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
-      });
-      setShowPrintModal(true);
     }
   };
 
@@ -508,11 +802,15 @@ const VisitRecorder = () => {
     setOtpCodeInput('');
     setAdminCodeBypass(false);
     setAdminBypassPin('');
+    setOtpSentEmail('');
     setShowOtpVerificationModal(true);
     setOtpSending(true);
 
     try {
-      const res = await dataService.generateOTP(clientFound.id, clientFound.email);
+      const cId = clientFound?.id || selectedTicket?.client_id;
+      const cEmail = clientFound?.email || selectedTicket?.client_email;
+      const res = await dataService.generateOTP(cId, cEmail);
+      if (res?.email) setOtpSentEmail(res.email);
       if (res && res.error) {
         console.warn('Error sending OTP:', res.error);
       }
@@ -524,14 +822,18 @@ const VisitRecorder = () => {
   };
 
   const handleResendOtpCode = async () => {
-    if (!clientFound) return;
+    const cId = clientFound?.id || selectedTicket?.client_id;
+    const cEmail = clientFound?.email || selectedTicket?.client_email;
     setOtpSending(true);
     try {
-      const res = await dataService.generateOTP(clientFound.id, clientFound.email);
+      const res = await dataService.generateOTP(cId, cEmail);
       if (res && res.error) {
         alert('Error al reenviar código: ' + res.error);
       } else {
-        alert(`✉️ Nuevo código de seguridad enviado al correo del cliente (${clientFound.email || 'correo registrado'}).`);
+        setOtpCodeInput('');
+        if (res?.email) setOtpSentEmail(res.email);
+        const targetEmail = res?.email || cEmail || clientFound?.email || selectedTicket?.client_email;
+        alert(`✉️ Nuevo código de seguridad enviado ${targetEmail ? `al correo (${targetEmail})` : 'al correo del cliente'}.`);
       }
     } catch (err) {
       alert('Error enviando código: ' + err.message);
@@ -593,7 +895,6 @@ const VisitRecorder = () => {
       return;
     }
 
-    const firstEmp = employees[0] || { id: '1', nombre: 'Wendy' };
     const newWashItem = {
       id: Date.now() + Math.random(),
       service_id: 'plan-beauty-wash',
@@ -602,11 +903,10 @@ const VisitRecorder = () => {
       precioAplicado: 0,
       descuento: 0,
       cantidad: 1,
-      empleado: firstEmp.nombre,
-      empleado_id: firstEmp.id,
-      empleado_nombre: firstEmp.nombre,
-      isPlanWash: true,
-      image: "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"
+      empleado: '',
+      empleado_id: '',
+      empleado_nombre: '',
+      isPlanWash: true
     };
 
     setLineItems([newWashItem, ...lineItems]);
@@ -625,7 +925,6 @@ const VisitRecorder = () => {
     );
     const realPrice = match?.precio || match?.precioBase || service.precio || service.precioBase || 600;
     const realName = match?.nombre || service.nombre;
-    const firstEmp = employees[0] || { id: '1', nombre: 'Wendy' };
 
     const isCoveredByPlan = isWash && hasPlanWashAvailable && !alreadyHasPlanWash;
 
@@ -636,12 +935,12 @@ const VisitRecorder = () => {
       precioBase: isCoveredByPlan ? 0 : realPrice,
       precioAplicado: isCoveredByPlan ? 0 : realPrice,
       cantidad: 1,
-      empleado: firstEmp.nombre,
-      empleado_id: firstEmp.id,
-      empleado_nombre: firstEmp.nombre,
+      empleado: '',
+      empleado_id: '',
+      empleado_nombre: '',
       descuento: 0,
       isPlanWash: isCoveredByPlan,
-      image: service.image || match?.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"
+      aplica_itbis: match?.aplica_itbis !== undefined ? (match.aplica_itbis ? 1 : 0) : (service.aplica_itbis !== undefined ? (service.aplica_itbis ? 1 : 0) : 0)
     };
     setLineItems([...lineItems, newItem]);
   };
@@ -655,15 +954,26 @@ const VisitRecorder = () => {
 
   const handleEmployeeChange = (index, empVal) => {
     const updated = [...lineItems];
-    const emp = employees.find(e => e.id === empVal || e.nombre === empVal);
-    updated[index].empleado = emp ? emp.nombre : empVal;
-    updated[index].empleado_id = emp ? emp.id : empVal;
-    updated[index].empleado_nombre = emp ? emp.nombre : empVal;
+    if (!empVal) {
+      updated[index].empleado = '';
+      updated[index].empleado_id = '';
+      updated[index].empleado_nombre = '';
+    } else {
+      const emp = employees.find(e => String(e.id) === String(empVal) || e.nombre === empVal);
+      updated[index].empleado = emp ? emp.nombre : empVal;
+      updated[index].empleado_id = emp ? emp.id : empVal;
+      updated[index].empleado_nombre = emp ? emp.nombre : empVal;
+    }
     setLineItems(updated);
   };
 
   const handleDiscountChange = (index, discountPercent) => {
     const pct = parseFloat(discountPercent) || 0;
+    if (pct > 0 && !isAdminAuthorized) {
+      setPendingDiscountItem({ type: 'discount', index, pct });
+      setShowAdminPinModal(true);
+      return;
+    }
     const updated = [...lineItems];
     const item = updated[index];
     const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
@@ -694,14 +1004,30 @@ const VisitRecorder = () => {
       setShowAdminPinModal(false);
       if (pendingDiscountItem) {
         const updated = [...lineItems];
-        updated[pendingDiscountItem.index].precioAplicado = pendingDiscountItem.val;
+        if (pendingDiscountItem.type === 'discount') {
+          const { index, pct } = pendingDiscountItem;
+          const item = updated[index];
+          if (item) {
+            const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
+            updated[index].descuento = discountAmt;
+            updated[index].descuentoPercent = pct;
+          }
+        } else if (pendingDiscountItem.val !== undefined) {
+          updated[pendingDiscountItem.index].precioAplicado = pendingDiscountItem.val;
+        }
         setLineItems(updated);
         setPendingDiscountItem(null);
       }
       setAdminPin('');
     } else {
-      alert('Clave de Administrador incorrecta');
+      alert('Clave de Autorización de Administrador incorrecta');
     }
+  };
+
+  const handleItbisChange = (index, val) => {
+    const updated = [...lineItems];
+    updated[index].aplica_itbis = parseInt(val, 10) === 1 ? 1 : 0;
+    setLineItems(updated);
   };
 
   const removeLineItem = (index) => {
@@ -737,8 +1063,22 @@ const VisitRecorder = () => {
     ? (grossSubtotal * parsedGlobalDiscount) / 100 
     : parsedGlobalDiscount;
   const totalDiscounts = manualDiscounts + planDiscountAmount + globalDiscountAmount;
+  
+  // Calculate ITBIS dynamically: Exempt items (aplica_itbis === 0) do not compute ITBIS
+  const itbisAmount = lineItems.reduce((acc, item) => {
+    const itemAppliesItbis = item.aplica_itbis === 1 || item.aplica_itbis === true;
+    if (!itemAppliesItbis || item.isPlanWash || item.precioBase === 0) return acc;
+
+    const itemGross = item.precioAplicado * item.cantidad;
+    const itemManualDisc = item.descuento || 0;
+    const itemPropDiscount = grossSubtotal > 0 
+      ? (itemGross / grossSubtotal) * (planDiscountAmount + globalDiscountAmount)
+      : 0;
+    const itemTaxable = Math.max(0, itemGross - itemManualDisc - itemPropDiscount);
+    return acc + (itemTaxable * 0.18);
+  }, 0);
+
   const taxableSubtotal = Math.max(0, grossSubtotal - totalDiscounts);
-  const itbisAmount = taxableSubtotal * 0.18;
   const finalTotalAmount = taxableSubtotal + itbisAmount;
   const totalAmount = finalTotalAmount;
 
@@ -883,9 +1223,13 @@ const VisitRecorder = () => {
 
     // Cash Payment Validations (only if total is greater than 0)
     if (paymentMethod === 'Efectivo' && totalAmount > 0) {
-      const rec = parseFloat(montoRecibido);
-      if (isNaN(rec) || rec < totalAmount) {
-        alert(`⚠️ Monto recibido en efectivo insuficiente (RD$ ${isNaN(rec) ? 0 : rec.toFixed(2)}). Se requiere un monto igual o mayor al total de la factura (RD$ ${totalAmount.toFixed(2)}).`);
+      let rec = parseFloat(montoRecibido);
+      if (isNaN(rec) || rec === 0) {
+        // Default to exact amount if cashier left field empty
+        rec = totalAmount;
+        setMontoRecibido(totalAmount.toString());
+      } else if (rec < totalAmount) {
+        alert(`⚠️ Monto recibido en efectivo insuficiente (RD$ ${rec.toFixed(2)}). Se requiere un monto igual o mayor al total de la factura (RD$ ${totalAmount.toFixed(2)}).`);
         return;
       }
     }
@@ -911,19 +1255,21 @@ const VisitRecorder = () => {
     // Check if invoice includes a Plan Beauty wash that requires client email OTP verification
     const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
     if (hasPlanWash) {
-      const cId = clientFound?.id || selectedTicket?.client_id || '1779838957032';
-      const cEmail = clientFound?.email || selectedTicket?.client_email || 'rodriguez1619@hotmail.com';
+      const cId = clientFound?.id || selectedTicket?.client_id;
+      const cEmail = clientFound?.email || selectedTicket?.client_email;
       
       setOtpCodeInput('');
       setAdminCodeBypass(false);
       setAdminBypassPin('');
+      setOtpSentEmail('');
       setShowOtpVerificationModal(true);
       setOtpSending(true);
 
       try {
         const res = await dataService.generateOTP(cId, cEmail);
+        if (res?.email) setOtpSentEmail(res.email);
         if (res?.code) {
-          console.log(`[OTP Security Code for ${cEmail}]: ${res.code}`);
+          console.log(`[OTP Security Code]: ${res.code}`);
         }
       } catch (err) {
         console.error('Error generating OTP for client:', err);
@@ -947,7 +1293,15 @@ const VisitRecorder = () => {
 
       const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
       if (hasPlanWash && totalAmount === 0) {
-        finalMetodoPago = 'Plan Beauty (Membresía)';
+        finalMetodoPago = 'Plan Beauty';
+      }
+
+      if (paymentMethod === 'Mixto') {
+        const cash = parseFloat(mixedCashReceived) || 0;
+        const complement = Math.max(0, totalAmount - cash);
+        finalMetodoPago = `Mixto (Efectivo: RD$ ${cash.toFixed(2)} + ${mixedComplementMethod}: RD$ ${complement.toFixed(2)})`;
+        finalMontoRecibido = parseFloat(montoRecibido) || totalAmount;
+        finalDevuelta = devueltaAmount;
       }
 
       if (paymentMethod === 'Gift_Card' && giftCardInfo) {
@@ -1018,6 +1372,8 @@ const VisitRecorder = () => {
         setActivePlans(updatedPlans);
       }
 
+      await loadClientVisitsHistory(finalClientId || finalClientName);
+
       alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}\nTotal Facturado: RD$ ${totalAmount.toFixed(2)}\nMétodo de Pago: ${finalMetodoPago}`);
       setShowOtpVerificationModal(false);
       setShowOtpModal(false);
@@ -1034,21 +1390,83 @@ const VisitRecorder = () => {
     }
   };
 
-  return (
-    <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '1rem 1.25rem', paddingBottom: '5rem', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
-      
-      {/* HEADER / PAGE TITLE BAR */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.5px' }}>
-            Facturación
-          </h1>
-          <p style={{ margin: '0.2rem 0 0', fontSize: '0.9rem', color: '#64748b', fontWeight: 500 }}>
-            Crea y gestiona facturas de ventas
-          </p>
-        </div>
+  const handleConfirmVoidVisit = async () => {
+    if (!targetVisitToVoid) return;
+    const finalReason = voidReasonCategory === 'Otro' ? voidCustomReason.trim() : `${voidReasonCategory}${voidCustomReason ? `: ${voidCustomReason.trim()}` : ''}`;
+    if (!finalReason) {
+      alert('Por favor indica el motivo de la anulación.');
+      return;
+    }
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+    setIsSubmittingVoid(true);
+    try {
+      await dataService.voidVisit(targetVisitToVoid.id, {
+        reason: finalReason,
+        voided_by: voidUser.trim() || 'Cajero / Admin'
+      });
+
+      alert(`✅ Factura #${targetVisitToVoid.ticket_number || targetVisitToVoid.id} anulada exitosamente.\n\nSe ha generado el registro inmutable de auditoría y ajustado el cuadre de caja.`);
+      setShowVoidModal(false);
+      setTargetVisitToVoid(null);
+      setVoidCustomReason('');
+
+      // Refresh history & tickets
+      if (clientFound?.id || clientFound?.nombre) {
+        await loadClientVisitsHistory(clientFound.id || clientFound.nombre);
+      }
+      await fetchPendingTickets();
+      if (activeRegister) {
+        await fetchActiveRegisterMovements(activeRegister.id);
+      }
+    } catch (err) {
+      alert('Error al anular factura: ' + err.message);
+    } finally {
+      setIsSubmittingVoid(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '0', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#ffffff', minHeight: '100%' }}>
+      
+      {/* HEADER / PAGE CONTROL BAR - CLEAN & ORGANIZED */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1.25rem', width: '100%', boxSizing: 'border-box', gap: '0.75rem', flexWrap: 'wrap', borderBottom: '1px solid #e4e4e7', background: '#ffffff' }}>
+          {/* BRANCH / LOCALIDAD SELECTOR */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', background: '#f8fafc', padding: '0.4rem 0.75rem', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
+            <span style={{ fontSize: '0.9rem' }}>🏢</span>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Sucursal
+              </span>
+              <select
+                value={salonId}
+                onChange={(e) => {
+                  const newId = Number(e.target.value);
+                  setSalonId(newId);
+                  setSelectedTicket(null);
+                  setLineItems([]);
+                  setClientFound(null);
+                }}
+                disabled={currentUser?.rol !== 'admin' && currentUser?.rol !== 'Superadmin' && !!currentUser?.salon_id}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '0.85rem',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  cursor: (currentUser?.rol === 'admin' || currentUser?.rol === 'Superadmin' || !currentUser?.salon_id) ? 'pointer' : 'default',
+                  outline: 'none',
+                  padding: 0
+                }}
+              >
+                {salonsList.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {activeRegister ? (
             <div 
               onClick={() => setShowRegisterDetailsModal(true)}
@@ -1074,9 +1492,69 @@ const VisitRecorder = () => {
           )}
 
           <button
+            type="button"
+            onClick={() => setShowPendingTicketsModal(true)}
+            style={{
+              background: pendingTickets.length > 0 ? '#fff1f2' : '#ffffff',
+              color: pendingTickets.length > 0 ? '#be185d' : '#475569',
+              border: `1.5px solid ${pendingTickets.length > 0 ? '#fbcfe8' : '#cbd5e1'}`,
+              padding: '0.65rem 1.1rem',
+              borderRadius: '12px',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+            }}
+            title="Ver tickets pendientes en atención"
+          >
+            <span style={{ fontSize: '1rem' }}>🎫</span>
+            <span>Tickets Pendientes</span>
+            <span style={{
+              background: pendingTickets.length > 0 ? '#be185d' : '#94a3b8',
+              color: '#ffffff',
+              fontSize: '0.75rem',
+              fontWeight: 900,
+              padding: '2px 7px',
+              borderRadius: '20px',
+              marginLeft: '2px'
+            }}>
+              {pendingTickets.length}
+            </span>
+          </button>
+
+          {selectedTicket && (
+            <div style={{ background: '#fdf2f8', border: '1.5px solid #fbcfe8', padding: '0.5rem 0.85rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#be185d' }}>
+                🎫 Ticket: {selectedTicket.ticket_number || `SD-${String(selectedTicket.id).slice(-4)}`}
+              </span>
+              <button
+                type="button"
+                onClick={() => { setSelectedTicket(null); setLineItems([]); setClientFound(null); }}
+                style={{ background: '#be185d', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', cursor: 'pointer' }}
+                title="Deseleccionar ticket actual"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => navigate('/facturas')}
+            style={{ background: '#0f172a', color: '#ffffff', border: 'none', padding: '0.65rem 1.1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(15,23,42,0.18)' }}
+            title="Ver el registro general de todas las facturas y ventas con filtros"
+          >
+            <Receipt size={16} />
+            <span>Ver Facturas</span>
+          </button>
+
+          <button
             onClick={() => {
               if (!activeRegister) {
-                alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets si no existe una caja abierta.');
+                alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets si no existe una caja abierta en esta sucursal.');
                 setShowRegisterOpenModal(true);
                 return;
               }
@@ -1088,557 +1566,561 @@ const VisitRecorder = () => {
             <span>+ Generar Nuevo Ticket</span>
           </button>
         </div>
-      </div>
 
-      {/* MAIN 3-COLUMN GRID LAYOUT MATCHING MOCKUP */}
-      <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr) 320px', gap: '1.1rem', alignItems: 'start', width: '100%' }}>
+      {/* MAIN 3-COLUMN LAYOUT WITH SEAMLESS WHITE BACKGROUND & SINGLE DIVIDING LINES */}
+      <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr) 340px', gap: 0, alignItems: 'stretch', width: '100%', height: 'calc(100vh - 120px)', minHeight: '620px', boxSizing: 'border-box', background: '#ffffff' }}>
         
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
         {(() => {
           const hasActivePlan = Boolean(activePlans && activePlans.length > 0);
-          const currentClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || (hasActivePlan ? 'María Pérez' : 'Laura Gómez');
-          const firstName = currentClientName.split(' ')[0];
+          const currentClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || '';
+          const isClientSelected = Boolean(clientFound || selectedTicket);
+          const avatarUrl = getClientAvatar(clientFound);
+          const birthdayInfo = getBirthdayCountdown(clientFound);
+          const renewalDate = getRenewalDateText();
+          const lastVisitText = getLastVisitText();
+          const benefitsCount = getBenefitsCount();
 
           return (
-            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', width: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <div style={{ background: '#ffffff', borderRight: '1px solid #e4e4e7', padding: '1.25rem', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '0.85rem', overflowY: 'auto' }}>
               
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
-                Buscar cliente
-              </h3>
-
-              {/* CLIENT SEARCH INPUT + ADD BUTTON */}
-              <div style={{ position: 'relative', width: '100%' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                    <input
-                      type="text"
-                      placeholder="Buscar por nombre, teléfono o cédula..."
-                      value={clientSearchTerm}
-                      onChange={(e) => setClientSearchTerm(e.target.value)}
-                      style={{ width: '100%', padding: '0.6rem 0.5rem 0.6rem 2.1rem', borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '0.75rem', outline: 'none', background: '#ffffff', boxSizing: 'border-box' }}
-                    />
-                  </div>
+              {/* TOP HEADER & SEARCH */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                  Cliente
+                </h3>
+                {isClientSelected && (
                   <button
-                    onClick={() => setShowNewTicketModal(true)}
-                    style={{ background: '#e11d48', color: '#ffffff', border: 'none', borderRadius: '10px', width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 8px rgba(225,29,72,0.25)' }}
-                    title="Registrar nuevo cliente"
+                    type="button"
+                    onClick={() => {
+                      setClientFound(null);
+                      setSelectedTicket(null);
+                      setActivePlans([]);
+                      setClientVisitsHistory([]);
+                    }}
+                    style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#64748b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', borderRadius: '8px', padding: '0.25rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                    title="Cambiar cliente"
                   >
-                    <UserPlus size={18} />
+                    <span>Cambiar</span>
+                    <X size={13} />
                   </button>
-                </div>
-
-                {/* SEARCH AUTO-COMPLETE RESULTS */}
-                {clientSearchTerm.trim().length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '220px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-                    {allClients
-                      .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
-                      .length === 0 ? (
-                        <div 
-                          onClick={() => {
-                            setNewTicketClientName(clientSearchTerm);
-                            setShowNewTicketModal(true);
-                          }}
-                          style={{ padding: '0.65rem 0.85rem', cursor: 'pointer', fontSize: '0.8rem', color: '#be185d', fontWeight: 700 }}
-                        >
-                          ➕ Registrar "{clientSearchTerm}" como nuevo cliente
-                        </div>
-                      ) : (
-                        allClients
-                          .filter(c => (c.nombre || c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) || (c.telefono || c.phone || '').includes(clientSearchTerm) || (c.cedula || '').includes(clientSearchTerm))
-                          .map(c => (
-                            <div
-                              key={c.id}
-                              onClick={() => {
-                                handleSelectClient(c);
-                              }}
-                              style={{ padding: '0.6rem 0.85rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem' }}
-                            >
-                              <strong style={{ color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
-                              <span style={{ color: '#64748b', fontSize: '0.725rem' }}>📞 {c.telefono || c.phone || 'Sin tel'} | 🪪 {c.cedula || 'Sin cédula'}</span>
-                            </div>
-                          ))
-                      )}
-                  </div>
                 )}
               </div>
 
-              {/* CLIENT PROFILE CARD */}
-              <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
-                <div style={{ position: 'relative', flexShrink: 0 }}>
-                  {hasActivePlan && clientFound?.avatar ? (
-                    <img 
-                      src={clientFound.avatar}
-                      alt="Avatar"
-                      style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #fbcfe8' }}
+              {!isClientSelected ? (
+                /* EMPTY / SEARCH STATE: NO CLIENT SELECTED */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
+                  {/* CLIENT SEARCH INPUT */}
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      placeholder="Buscar por nombre, cédula o tel..."
+                      value={clientSearchTerm}
+                      onChange={(e) => setClientSearchTerm(e.target.value)}
+                      style={{ width: '100%', padding: '0.65rem 2.2rem 0.65rem 0.85rem', borderRadius: '12px', border: '1.5px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 600, outline: 'none', background: '#ffffff', boxSizing: 'border-box' }}
                     />
-                  ) : hasActivePlan ? (
-                    <img 
-                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"
-                      alt="Avatar"
-                      style={{ width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #fbcfe8' }}
-                    />
-                  ) : (
-                    <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <User size={36} color="#94a3b8" />
-                    </div>
-                  )}
-                  <div 
-                    onClick={() => setShowNewTicketModal(true)}
-                    style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '22px', height: '22px', borderRadius: '50%', background: '#ffffff', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', cursor: 'pointer' }}
-                    title="Editar cliente"
-                  >
-                    <Pencil size={11} color="#e11d48" />
-                  </div>
-                </div>
+                    <Search size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', minWidth: 0 }}>
-                  <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {currentClientName}
-                  </h4>
-                  {hasActivePlan && (
-                    <div>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', background: '#fdf2f8', color: '#be185d', padding: '2px 8px', borderRadius: '12px', fontSize: '0.675rem', fontWeight: 700 }}>
-                        ★ Cliente frecuente
-                      </span>
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.725rem', color: '#475569', marginTop: hasActivePlan ? '0.1rem' : '0.25rem' }}>
-                    <Phone size={12} color="#e11d48" />
-                    <span>{clientFound?.telefono || clientFound?.phone || (hasActivePlan ? '(809) 555-1234' : '(829) 456-7890')}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.725rem', color: '#475569' }}>
-                    <Mail size={12} color="#e11d48" />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {clientFound?.email || (hasActivePlan ? 'maria.perez@email.com' : 'laura.gomez@email.com')}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '0.675rem', color: '#64748b', marginTop: '0.05rem' }}>
-                    {hasActivePlan ? (
-                      `🆔 ID: ${clientFound?.id || '178923'} • Desde: ${clientFound?.created_at ? new Date(clientFound.created_at).toLocaleDateString('es-DO', { month: 'short', year: 'numeric' }) : 'Jun 2023'}`
-                    ) : (
-                      `🆔 ID: ${clientFound?.id || '--'} • Cliente nuevo`
+                    {/* SEARCH RESULTS DROPDOWN */}
+                    {clientSearchTerm.trim().length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '14px', marginTop: '6px', zIndex: 100, maxHeight: '240px', overflowY: 'auto', boxShadow: '0 15px 25px -5px rgba(0, 0, 0, 0.12)' }}>
+                        {allClients
+                          .filter(c => {
+                            const term = clientSearchTerm.toLowerCase();
+                            return (
+                              (c.nombre || c.name || '').toLowerCase().includes(term) ||
+                              (c.cedula || '').includes(term) ||
+                              (c.telefono || '').includes(term)
+                            );
+                          })
+                          .slice(0, 8)
+                          .map((client) => (
+                            <div
+                              key={client.id}
+                              onClick={() => handleSelectClient(client)}
+                              style={{ padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '0.75rem', transition: 'background 0.15s' }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = '#fdf4ff'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
+                            >
+                              <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#fae8ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a855f7', fontWeight: 800, fontSize: '0.85rem', flexShrink: 0 }}>
+                                {(client.nombre || client.name || 'C').charAt(0)}
+                              </div>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <strong style={{ color: '#0f172a', display: 'block', fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {client.nombre || client.name}
+                                </strong>
+                                <span style={{ fontSize: '0.725rem', color: '#64748b' }}>
+                                  {client.cedula ? `🪪 ${client.cedula}` : ''} {client.telefono ? `📞 ${client.telefono}` : ''}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        {allClients.filter(c => {
+                          const term = clientSearchTerm.toLowerCase();
+                          return (
+                            (c.nombre || c.name || '').toLowerCase().includes(term) ||
+                            (c.cedula || '').includes(term) ||
+                            (c.telefono || '').includes(term)
+                          );
+                        }).length === 0 && (
+                          <div style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                            No se encontraron clientes con "{clientSearchTerm}"
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                </div>
-              </div>
 
-              {/* PLAN BEAUTY CARD OR SIN PLAN BEAUTY CARD */}
-              {hasActivePlan ? (
-                /* WITH PLAN BEAUTY CARD */
-                <div style={{ background: '#fff5f8', border: '1px solid #fce7f3', borderRadius: '16px', padding: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ display: 'flex', gap: '0.55rem', alignItems: 'center' }}>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'linear-gradient(135deg, #f43f5e, #ec4899)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '1.1rem', boxShadow: '0 2px 6px rgba(244,63,94,0.3)', flexShrink: 0 }}>
-                        💎
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                          <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0f172a' }}>Plan Beauty</span>
-                          <span style={{ background: '#ecfdf5', color: '#059669', fontSize: '0.6rem', fontWeight: 800, padding: '1px 6px', borderRadius: '6px' }}>
-                            ACTIVO
-                          </span>
-                        </div>
-                        <span style={{ fontSize: '0.725rem', color: '#64748b' }}>Membresía activa</span>
-                      </div>
+                  {/* EMPTY STATE PLACEHOLDER */}
+                  <div style={{ background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: '20px', padding: '2.5rem 1.2rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', flex: 1 }}>
+                    <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                      <User size={28} />
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: '1.35rem', fontWeight: 900, color: '#be185d', lineHeight: 1 }}>
-                        {activePlans[0]?.remaining_washes !== undefined ? activePlans[0].remaining_washes : 4}
-                      </span>
-                      <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
-                        Lavados disponibles
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* PINK PROGRESS BAR */}
-                  <div style={{ width: '100%', height: '6px', background: '#fce7f3', borderRadius: '6px', overflow: 'hidden' }}>
-                    <div style={{ width: `${Math.min(100, Math.max(0, Math.round(((activePlans[0]?.remaining_washes ?? 4) / (activePlans[0]?.total_washes || 4)) * 100)))}%`, height: '100%', background: '#be185d', borderRadius: '6px', transition: 'width 0.3s ease' }}></div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem' }}>
-                    <span style={{ color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <Calendar size={13} color="#be185d" />
-                      Vence: {activePlans[0]?.end_date || '23 Sep 2026'}
-                    </span>
-                    <span 
-                      onClick={() => alert(`Detalles del Plan Beauty:\n- Plan: ${activePlans[0]?.title || 'Plan Beauty'}\n- Lavados totales: ${activePlans[0]?.total_washes || 4}\n- Lavados restantes: ${activePlans[0]?.remaining_washes ?? 4}\n- Próxima facturación: ${activePlans[0]?.end_date || '23 Sep 2026'}`)}
-                      style={{ color: '#be185d', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
-                    >
-                      Ver detalles ›
-                    </span>
-                  </div>
-
-                  {/* DIRECT BUTTON TO CLAIM / CONSUME PLAN BEAUTY WASH */}
-                  <button
-                    type="button"
-                    onClick={addPlanWashToTicket}
-                    style={{
-                      width: '100%',
-                      background: 'linear-gradient(135deg, #e11d48, #be185d)',
-                      color: '#ffffff',
-                      border: 'none',
-                      padding: '0.55rem 0.75rem',
-                      borderRadius: '10px',
-                      fontWeight: 800,
-                      fontSize: '0.775rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.35rem',
-                      boxShadow: '0 2px 6px rgba(225,29,72,0.25)',
-                      marginTop: '0.2rem',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <span>💎</span>
-                    <span>Canjear 1 Lavado del Plan (RD$ 0.00)</span>
-                  </button>
-                </div>
-              ) : (
-                /* WITHOUT PLAN BEAUTY CARD */
-                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '0.95rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                  <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
-                    <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Star size={20} color="#1e40af" fill="#1e40af" />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                      <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e3a8a' }}>Sin Plan Beauty</span>
-                      <span style={{ background: '#e0e7ff', color: '#1e40af', fontSize: '0.6rem', fontWeight: 800, padding: '2px 7px', borderRadius: '6px', letterSpacing: '0.3px' }}>
-                        SIN MEMBRESÍA
-                      </span>
-                    </div>
-                  </div>
-
-                  <p style={{ margin: '0.2rem 0 0.4rem', fontSize: '0.75rem', color: '#475569', lineHeight: 1.35 }}>
-                    Este cliente aún no cuenta con membresía activa.
-                  </p>
-
-                  <div>
-                    <span 
-                      onClick={() => {
-                        const confirmAdd = window.confirm(`¿Desea afiliar a ${currentClientName} al Plan Beauty ahora?`);
-                        if (confirmAdd) {
-                          setActivePlans([{ id: 'pb-new', title: 'Plan Beauty', remaining_washes: 4 }]);
-                        }
-                      }}
-                      style={{ color: '#2563eb', fontWeight: 800, fontSize: '0.775rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.2rem' }}
-                    >
-                      Crear Plan Beauty ›
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* BIRTHDAY / PROMO BANNER (ONLY IF PLAN OR BIRTHDAY PROMO ACTIVE) */}
-              {hasActivePlan && (
-                <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '14px', padding: '0.75rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-                    <span style={{ fontSize: '1.4rem' }}>🎂</span>
                     <div>
-                      <h5 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: '#be185d' }}>
-                        Semana de cumpleaños activa
-                      </h5>
-                      <p style={{ margin: '0.1rem 0 0', fontSize: '0.725rem', color: '#475569', fontWeight: 600 }}>
-                        15% de descuento disponible
+                      <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.925rem', fontWeight: 800, color: '#1e293b' }}>
+                        Ningún cliente seleccionado
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '0.775rem', color: '#64748b' }}>
+                        Busca un cliente arriba o selecciona un ticket pendiente
                       </p>
-                      <span style={{ fontSize: '0.675rem', color: '#64748b' }}>
-                        Válido hasta: 25 Ago 2026
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} color="#b45309" />
-                </div>
-              )}
-
-              {/* CLIENT STATS ROW */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                {/* ULTIMA VISITA */}
-                <div style={{ background: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '12px', padding: '0.65rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                    <Calendar size={18} color="#f43f5e" />
-                    <div>
-                      <span style={{ fontSize: '0.675rem', color: '#64748b', display: 'block' }}>Última visita</span>
-                      <strong style={{ fontSize: '0.825rem', color: '#0f172a', fontWeight: 800 }}>
-                        {hasActivePlan ? 'Hace 5 días' : 'Primera visita'}
-                      </strong>
-                    </div>
-                  </div>
-                  {hasActivePlan && (
-                    <span style={{ background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: '6px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                      <TrendingUp size={12} />
-                    </span>
-                  )}
-                </div>
-
-                {/* ESTILISTA HABITUAL */}
-                <div style={{ background: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '12px', padding: '0.65rem 0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                    <Scissors size={18} color="#8b5cf6" />
-                    <div>
-                      <span style={{ fontSize: '0.675rem', color: '#64748b', display: 'block' }}>Estilista habitual</span>
-                      <strong style={{ fontSize: '0.825rem', color: '#0f172a', fontWeight: 800 }}>
-                        {hasActivePlan ? (lineItems[0]?.empleado || 'Wendy') : 'No asignado'}
-                      </strong>
-                    </div>
-                  </div>
-                  <ChevronRight size={16} color="#94a3b8" />
-                </div>
-              </div>
-
-              {/* ÚLTIMOS SERVICIOS REALIZADOS (PLAN BEAUTY) O SUGERENCIAS (SIN PLAN) */}
-              <div style={{ background: '#faf5ff', border: '1px solid #f3e8ff', borderRadius: '16px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#7e22ce', fontSize: '0.8rem', fontWeight: 800 }}>
-                    <Sparkles size={15} color="#9333ea" />
-                    <span>{hasActivePlan ? `Últimos servicios de ${firstName}` : `Sugerencias para ${firstName}`}</span>
-                  </div>
-                  {hasActivePlan && (
-                    <span style={{ fontSize: '0.6rem', color: '#8b5cf6', fontWeight: 600 }}>
-                      Sin incluir lavados
-                    </span>
-                  )}
-                </div>
-
-                {(hasActivePlan ? [
-                  { id: 'srv-corte', nombre: 'Corte de puntas', tiempo: 'Hace 2 meses', precio: 500, img: '✂️' },
-                  { id: 'srv-cirugia', nombre: 'Cirugía capilar', tiempo: 'Hace 3 meses', precio: 2500, img: '💆‍♀️' },
-                  { id: 'srv-botox', nombre: 'Botox Capilar', tiempo: 'Hace 6 semanas', precio: 1200, img: '✨' }
-                ] : [
-                  { id: 'sug-4', nombre: 'Lavado + Brushing', tiempo: 'Recomendado', precio: 800, img: '🧴' },
-                  { id: 'sug-5', nombre: 'Botox Capilar', tiempo: 'Recomendado', precio: 1200, img: '🧴' },
-                  { id: 'sug-6', nombre: 'Manicure Tradicional', tiempo: 'Recomendado', precio: 500, img: '💅' }
-                ]).map((prod) => (
-                  <div 
-                    key={prod.id} 
-                    style={{ background: '#ffffff', border: '1px solid #f3e8ff', borderRadius: '12px', padding: '0.55rem 0.65rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                      <span style={{ fontSize: '1.25rem' }}>{prod.img}</span>
-                      <div>
-                        <strong style={{ fontSize: '0.775rem', color: '#0f172a', display: 'block', lineHeight: 1.2 }}>{prod.nombre}</strong>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
-                          <span style={{ fontSize: '0.675rem', color: hasActivePlan ? '#6b21a8' : '#64748b', fontWeight: 700, background: hasActivePlan ? '#f3e8ff' : '#f1f5f9', padding: '1px 6px', borderRadius: '5px' }}>
-                            {prod.tiempo}
-                          </span>
-                          <span style={{ fontSize: '0.725rem', color: '#475569', fontWeight: 700 }}>
-                            RD${prod.precio.toLocaleString('es-DO')}
-                          </span>
-                        </div>
-                      </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => addServiceToLineItems({ id: prod.id, nombre: prod.nombre, precio: prod.precio })}
-                      style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#ffffff', border: '1.5px solid #f43f5e', color: '#f43f5e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.15s ease', flexShrink: 0 }}
-                      title={`Agregar ${prod.nombre} a la factura`}
+                      onClick={() => navigate('/registro-cliente')}
+                      style={{ marginTop: '0.5rem', background: '#be185d', color: '#ffffff', border: 'none', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.775rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
                     >
-                      +
+                      <UserPlus size={14} />
+                      <span>+ Registrar Nuevo Cliente</span>
                     </button>
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                /* EXACT CLIENT PROFILE CARD MATCHING USER MOCKUP */
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #ede9fe',
+                  borderRadius: '24px',
+                  padding: '1.35rem 1.15rem 1.15rem',
+                  boxShadow: '0 10px 25px -5px rgba(147, 51, 234, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.02)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 0,
+                  boxSizing: 'border-box'
+                }}>
+                  {/* CLIENT PHOTO / AVATAR WITH PINK-PURPLE HALO RING */}
+                  <div style={{
+                    width: '94px',
+                    height: '94px',
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle, #f5d0fe 0%, #fae8ff 100%)',
+                    padding: '4px',
+                    margin: '0 auto 0.75rem auto',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(245, 208, 254, 0.5)'
+                  }}>
+                    <img 
+                      src={avatarUrl}
+                      alt={currentClientName}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        borderRadius: '50%',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
+                      }}
+                    />
+                  </div>
 
-              {/* FOOTER: VER HISTORIAL COMPLETO DEL CLIENTE */}
-              <button
-                onClick={() => setShowHistoryModal(true)}
-                style={{ width: '100%', background: '#ffffff', color: '#0f172a', border: '1px solid #e2e8f0', padding: '0.75rem 0.9rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.775rem', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <History size={15} color="#64748b" />
-                  Ver historial completo del cliente
-                </span>
-                <ChevronRight size={15} color="#94a3b8" />
-              </button>
+                  {/* CLIENT FULL NAME */}
+                  <h3 style={{
+                    margin: '0 0 0.45rem 0',
+                    fontSize: '1.3rem',
+                    fontWeight: 800,
+                    color: '#18181b',
+                    textAlign: 'center',
+                    letterSpacing: '-0.02em',
+                    lineHeight: 1.2
+                  }}>
+                    {currentClientName}
+                  </h3>
+
+                  {/* PLAN STATUS PILL BADGE */}
+                  <div style={{ textAlign: 'center', marginBottom: '0.25rem' }}>
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      background: '#fdf4ff',
+                      border: '1px solid #fce7f3',
+                      color: '#c026d3',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      padding: '0.3rem 0.9rem',
+                      borderRadius: '9999px'
+                    }}>
+                      <span style={{ fontSize: '0.85rem' }}>⭐</span>
+                      <span>{hasActivePlan ? 'Beauty Activo' : 'Cliente Registrado'}</span>
+                    </div>
+                  </div>
+
+                  {/* MIDDLE CARD: 2 BENEFICIOS DISPONIBLES & VER DETALLES */}
+                  <div style={{
+                    background: '#fbf8fe',
+                    border: '1px solid #f3e8ff',
+                    borderRadius: '20px',
+                    padding: '1.25rem 1rem',
+                    margin: '1.1rem 0 0.85rem 0',
+                    textAlign: 'center',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '0.3rem'
+                  }}>
+                    <span style={{
+                      fontSize: '2.85rem',
+                      fontWeight: 900,
+                      color: '#9333ea',
+                      lineHeight: 1
+                    }}>
+                      {benefitsCount}
+                    </span>
+
+                    <span style={{
+                      fontSize: '0.725rem',
+                      fontWeight: 800,
+                      color: '#6b7280',
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase'
+                    }}>
+                      BENEFICIOS DISPONIBLES
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPlanDetailsModal(true)}
+                      style={{
+                        marginTop: '0.55rem',
+                        background: '#ffffff',
+                        border: '1.5px solid #a855f7',
+                        color: '#7c3aed',
+                        padding: '0.45rem 1.35rem',
+                        borderRadius: '9999px',
+                        fontSize: '0.825rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        boxShadow: '0 2px 6px rgba(168, 85, 247, 0.12)',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#7c3aed';
+                        e.currentTarget.style.color = '#ffffff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#ffffff';
+                        e.currentTarget.style.color = '#7c3aed';
+                      }}
+                    >
+                      <Eye size={16} />
+                      <span>Ver detalles</span>
+                    </button>
+                  </div>
+
+                  {/* DETAIL LIST ROW 1: BENEFICIOS RENOVADOS */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.85rem',
+                    padding: '0.85rem 0.25rem',
+                    borderTop: '1px solid #f3f4f6'
+                  }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      background: '#dcfce7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <CheckCircle2 size={22} color="#16a34a" />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
+                        Beneficios renovados
+                      </span>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500, marginTop: '2px' }}>
+                        {renewalDate}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* DETAIL LIST ROW 2: CUMPLEAÑOS */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.85rem',
+                    padding: '0.85rem 0.25rem',
+                    borderTop: '1px solid #f3f4f6'
+                  }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      background: '#ffe4e6',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <Cake size={20} color="#e11d48" />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
+                        {birthdayInfo.text || 'Cumpleaños en 14 días'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* DETAIL LIST ROW 3: ÚLTIMA VISITA */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.85rem',
+                    padding: '0.85rem 0.25rem',
+                    borderTop: '1px solid #f3f4f6'
+                  }}>
+                    <div style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      background: '#e0f2fe',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0
+                    }}>
+                      <ClockIcon size={20} color="#0284c7" />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
+                        {lastVisitText}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* FOOTER LINK: RECOMENDACIONES */}
+                  <div 
+                    onClick={() => setShowRecommendationsModal(true)}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '0.95rem 0.25rem 0.25rem',
+                      borderTop: '1px solid #f3f4f6',
+                      color: '#7c3aed',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                  >
+                    <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>
+                      Recomendaciones
+                    </span>
+                    <ArrowRight size={18} />
+                  </div>
+
+                </div>
+              )}
+
             </div>
           );
         })()}
 
         {/* ================= COLUMN 2: SERVICES CATALOG & SELECTED LINE ITEMS ================= */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0, overflow: 'hidden', width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0, overflow: 'hidden', width: '100%', height: '100%', boxSizing: 'border-box', borderRight: '1px solid #e4e4e7', background: '#ffffff' }}>
           
-          {/* TOP CARD: AGREGA SERVICIOS (FAVORITES & SEARCH) */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
-                Agrega servicios
-              </h3>
-              <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#be185d', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                ❤️ Favoritos
-              </span>
-            </div>
-
-            {/* FAVORITES ICON CAROUSEL WRAPPER WITH NAVIGATION ARROWS */}
-            <div style={{ position: 'relative', marginBottom: '0.85rem', width: '100%' }}>
-              
-              {/* LEFT SCROLL ARROW */}
-              <button
-                onClick={() => scrollFavorites('left')}
-                style={{
-                  position: 'absolute',
-                  left: '2px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'rgba(255, 255, 255, 0.95)',
-                  border: '1px solid #fbcfe8',
-                  borderRadius: '50%',
-                  width: '26px',
-                  height: '26px',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.9rem',
-                  color: '#be185d',
-                  cursor: 'pointer',
-                  zIndex: 10,
-                  fontWeight: 900
-                }}
-                title="Desplazar a la izquierda"
-              >
-                ‹
-              </button>
-
-              {/* HORIZONTALLY SCROLLABLE ITEMS */}
-              <div 
-                ref={favoritesScrollRef}
-                onWheel={handleFavoritesWheel}
-                style={{ 
-                  display: 'flex', 
-                  gap: '0.5rem', 
-                  overflowX: 'auto', 
-                  padding: '0.2rem 1.75rem 0.35rem 1.75rem', 
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none',
-                  scrollBehavior: 'smooth',
-                  WebkitOverflowScrolling: 'touch',
-                  width: '100%',
-                  boxSizing: 'border-box'
-                }}
-              >
-                {[
-                  { name: 'Lavado', icon: '🧴' },
-                  { name: 'Lavado + Blower', icon: '💨' },
-                  { name: 'Color', icon: '🎨' },
-                  { name: 'Cirugía Capilar', icon: '💆‍♀️' },
-                  { name: 'Botox Capilar', icon: '🧴' },
-                  { name: 'Corte', icon: '✂️' },
-                  { name: 'Pedicure', icon: '🦶' },
-                  { name: 'Manicure', icon: '💅' },
-                  { name: 'Gel', icon: '💅' },
-                  { name: 'Uñas Acrílicas', icon: '💅' },
-                  { name: 'Secado Express', icon: '💨' },
-                  { name: 'Tratamiento Profundo', icon: '✨' },
-                  { name: 'Maquillaje Social', icon: '💄' }
-                ].map((s, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => addServiceToLineItems({ id: `fav-${idx}`, nombre: s.name, precio: 600 })}
-                    style={{
-                      minWidth: '76px',
-                      height: '76px',
-                      background: '#ffffff',
-                      border: '1px solid #fecdd3',
-                      borderRadius: '14px',
-                      padding: '0.5rem 0.3rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.25rem',
-                      cursor: 'pointer',
-                      flexShrink: 0,
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <span style={{ fontSize: '1.35rem' }}>{s.icon}</span>
-                    <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textAlign: 'center', lineHeight: 1.15 }}>
-                      {s.name}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* RIGHT SCROLL ARROW */}
-              <button
-                onClick={() => scrollFavorites('right')}
-                style={{
-                  position: 'absolute',
-                  right: '-6px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: '#ffffff',
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '50%',
-                  width: '28px',
-                  height: '28px',
-                  boxShadow: '0 3px 8px rgba(0,0,0,0.12)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '1rem',
-                  color: '#be185d',
-                  cursor: 'pointer',
-                  zIndex: 10,
-                  fontWeight: 900
-                }}
-                title="Desplazar a la derecha"
-              >
-                ›
-              </button>
-            </div>
-
-            {/* SEARCH INPUT */}
+          {/* TOP SECTION: AGREGA SERVICIOS (SEARCH DRIVEN + QUICK ACCESS) */}
+          <div style={{ background: '#ffffff', borderBottom: '1px solid #e4e4e7', padding: '1rem 1.25rem', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
+              Agrega servicios
+            </h3>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
                 placeholder="Buscar servicio por nombre..."
                 value={searchTerm}
+                onFocus={() => setIsSearchFocused(true)}
+                onBlur={() => setTimeout(() => setIsSearchFocused(false), 250)}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                style={{ width: '100%', padding: '0.55rem 2.1rem 0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #e4e4e7', fontSize: '0.8rem', outline: 'none' }}
+                style={{ width: '100%', padding: '0.65rem 2.2rem 0.65rem 0.85rem', borderRadius: '12px', border: isSearchFocused ? '2px solid #be185d' : '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 600, outline: 'none', background: '#ffffff', transition: 'all 0.2s ease' }}
               />
-              <Search size={16} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <Search size={18} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: isSearchFocused ? '#be185d' : '#94a3b8' }} />
 
-              {/* DROPDOWN OPTIONS */}
-              {searchTerm.trim().length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '10px', marginTop: '4px', zIndex: 50, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+              {/* DROPDOWN SERVICES LIST - ONLY SHOWN WHEN SEARCHING / FOCUSED */}
+              {(isSearchFocused || searchTerm.trim().length > 0) && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '14px', marginTop: '6px', zIndex: 100, maxHeight: '260px', overflowY: 'auto', boxShadow: '0 15px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' }}>
                   {availableServices
-                    .filter(s => s.nombre.toLowerCase().includes(searchTerm.toLowerCase()))
-                    .map(s => (
+                    .filter(s => !searchTerm.trim() || (s.nombre || '').toLowerCase().includes(searchTerm.toLowerCase()))
+                    .map((s, idx) => (
                       <div
-                        key={s.id}
-                        onClick={() => {
+                        key={s.id || idx}
+                        onMouseDown={() => {
                           addServiceToLineItems(s);
                           setSearchTerm('');
                         }}
-                        style={{ padding: '0.55rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between' }}
+                        style={{ padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.825rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                       >
-                        <strong>{s.nombre}</strong>
-                        <span style={{ color: '#be185d', fontWeight: 700 }}>RD$ {s.precio}</span>
+                        <div>
+                          <strong style={{ color: '#0f172a', display: 'block', fontWeight: 700 }}>{s.nombre}</strong>
+                          <span style={{ fontSize: '0.725rem', color: '#64748b' }}>
+                            {s.categoria || 'Servicio'} {s.aplica_itbis === 0 ? '(Exento ITBIS)' : '(18% ITBIS)'}
+                          </span>
+                        </div>
+                        <strong style={{ color: '#be185d', fontSize: '0.9rem', fontWeight: 800 }}>
+                          RD$ {(s.precio || s.precioBase || 0).toLocaleString('es-DO')}
+                        </strong>
                       </div>
                     ))}
+                  {availableServices.filter(s => !searchTerm.trim() || (s.nombre || '').toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                    <div style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                      No se encontraron servicios con ese nombre.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
+
+            {/* QUICK ACCESS CHIPS: PRODUCTOS Y SERVICIOS MÁS USADOS */}
+            <div style={{ marginTop: '0.85rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.45rem' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Zap size={13} style={{ color: '#be185d' }} /> Acceso rápido (Más usados)
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => scrollFavorites('left')}
+                    style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', cursor: 'pointer', padding: 0 }}
+                    title="Desplazar a la izquierda"
+                  >
+                    <ChevronLeft size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollFavorites('right')}
+                    style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', cursor: 'pointer', padding: 0 }}
+                    title="Desplazar a la derecha"
+                  >
+                    <ChevronRight size={13} />
+                  </button>
+                </div>
+              </div>
+              <div 
+                ref={favoritesScrollRef}
+                onWheel={(e) => {
+                  if (favoritesScrollRef.current) {
+                    favoritesScrollRef.current.scrollLeft += (e.deltaY || e.deltaX) * 1.2;
+                  }
+                }}
+                className="hide-scrollbar" 
+                style={{ 
+                  display: 'flex', 
+                  gap: '0.45rem', 
+                  overflowX: 'auto', 
+                  paddingBottom: '0.35rem', 
+                  scrollBehavior: 'smooth',
+                  WebkitOverflowScrolling: 'touch',
+                  touchAction: 'pan-x',
+                  width: '100%',
+                  maxWidth: '100%'
+                }}
+              >
+                {(availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES).slice(0, 15).map((srv, idx) => {
+                  const nameLower = (srv.nombre || '').toLowerCase();
+                  let iconEmoji = '✨';
+                  if (nameLower.includes('lavado')) iconEmoji = '🧴';
+                  else if (nameLower.includes('corte')) iconEmoji = '✂️';
+                  else if (nameLower.includes('tinte')) iconEmoji = '🎨';
+                  else if (nameLower.includes('tratamiento') || nameLower.includes('ampolla')) iconEmoji = '💆‍♀️';
+                  else if (nameLower.includes('manicura') || nameLower.includes('uñas')) iconEmoji = '💅';
+                  else if (nameLower.includes('pedicura')) iconEmoji = '🦶';
+                  else if (nameLower.includes('maquillaje')) iconEmoji = '💄';
+                  else if (nameLower.includes('shampoo') || nameLower.includes('aceite') || nameLower.includes('crema')) iconEmoji = '🛍️';
+
+                  return (
+                    <button
+                      key={srv.id || idx}
+                      type="button"
+                      onClick={() => addServiceToLineItems(srv)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.45rem 0.85rem',
+                        borderRadius: '99px',
+                        background: '#f8fafc',
+                        border: '1px solid #cbd5e1',
+                        color: '#0f172a',
+                        fontSize: '0.775rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.15s ease',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                        flexShrink: 0
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#be185d';
+                        e.currentTarget.style.color = '#ffffff';
+                        e.currentTarget.style.borderColor = '#be185d';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px -1px rgba(190, 24, 93, 0.25)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#f8fafc';
+                        e.currentTarget.style.color = '#0f172a';
+                        e.currentTarget.style.borderColor = '#cbd5e1';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                      }}
+                    >
+                      <span style={{ fontSize: '0.85rem' }}>{iconEmoji}</span>
+                      <span>{srv.nombre}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
-          {/* BOTTOM CARD: SERVICIOS SELECCIONADOS TABLE */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-            <h3 style={{ margin: '0 0 0.85rem', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
-              Servicios seleccionados
-            </h3>
+          {/* BOTTOM SECTION: SERVICIOS SELECCIONADOS TABLE WITH INTERNAL SCROLLBAR */}
+          <div style={{ background: '#ffffff', padding: '1.25rem', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexShrink: 0 }}>
+              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
+                Servicios seleccionados ({lineItems.length})
+              </h3>
+            </div>
 
-            <div style={{ overflowX: 'auto' }}>
+            <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, border: '1px solid #f4f4f5', borderRadius: '12px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                <thead>
+                <thead style={{ position: 'sticky', top: 0, background: '#ffffff', zIndex: 5 }}>
                   <tr style={{ borderBottom: '1px solid #e4e4e7', textAlign: 'left', color: '#71717a', fontSize: '0.7rem', textTransform: 'uppercase' }}>
                     <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700 }}>Servicio</th>
                     <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700 }}>Empleado</th>
                     <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'right' }}>Precio</th>
                     <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'center' }}>Cant.</th>
+                    <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'center' }}>ITBIS</th>
                     <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'center' }}>Desc.</th>
                     <th style={{ padding: '0.45rem 0.6rem', fontWeight: 700, textAlign: 'right' }}>Total</th>
                     <th style={{ padding: '0.45rem 0.4rem', width: '26px' }}></th>
@@ -1647,7 +2129,7 @@ const VisitRecorder = () => {
                 <tbody>
                   {lineItems.length === 0 ? (
                     <tr>
-                      <td colSpan="7" style={{ padding: '2rem', textAlign: 'center', color: '#a1a1aa' }}>
+                      <td colSpan="8" style={{ padding: '2rem', textAlign: 'center', color: '#a1a1aa' }}>
                         No hay servicios agregados. Selecciona del catálogo o favoritos arriba.
                       </td>
                     </tr>
@@ -1655,26 +2137,28 @@ const VisitRecorder = () => {
                     lineItems.map((item, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid #f4f4f5' }}>
                         <td style={{ padding: '0.65rem', verticalAlign: 'middle' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                            <img 
-                              src={item.image || "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=100&auto=format&fit=crop&q=80"}
-                              alt={item.nombre}
-                              style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover' }}
-                            />
-                            <div>
-                              <strong style={{ color: '#18181b', display: 'block', fontSize: '0.8rem' }}>{item.nombre}</strong>
-                              <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Servicio</span>
-                            </div>
-                          </div>
+                          <strong style={{ color: '#18181b', display: 'block', fontSize: '0.8rem', fontWeight: 600 }}>{item.nombre}</strong>
                         </td>
                         <td style={{ padding: '0.65rem', verticalAlign: 'middle' }}>
                           <select
-                            value={item.empleado_id || item.empleado}
+                            value={item.empleado_id || item.empleado || ''}
                             onChange={(e) => handleEmployeeChange(idx, e.target.value)}
-                            style={{ padding: '0.3rem 0.4rem', borderRadius: '8px', border: '1px solid #e4e4e7', fontSize: '0.75rem', background: '#ffffff', fontWeight: 600, width: '95px' }}
+                            style={{
+                              padding: '0.35rem 0.45rem',
+                              borderRadius: '8px',
+                              border: !item.empleado_id && !item.empleado ? '1.5px dashed #cbd5e1' : '1px solid #e4e4e7',
+                              fontSize: '0.75rem',
+                              background: !item.empleado_id && !item.empleado ? '#fff7ed' : '#ffffff',
+                              color: !item.empleado_id && !item.empleado ? '#9a3412' : '#0f172a',
+                              fontWeight: 700,
+                              width: '120px',
+                              cursor: 'pointer',
+                              outline: 'none'
+                            }}
                           >
+                            <option value="">Seleccionar...</option>
                             {employees.map(emp => (
-                              <option key={emp.id} value={emp.id || emp.nombre}>{emp.nombre}</option>
+                              <option key={emp.id} value={emp.id}>{emp.nombre}</option>
                             ))}
                           </select>
                         </td>
@@ -1693,6 +2177,30 @@ const VisitRecorder = () => {
                             <span style={{ fontWeight: 800, fontSize: '0.775rem', minWidth: '12px' }}>{item.cantidad}</span>
                             <button onClick={() => updateQuantity(idx, 1)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: 800, fontSize: '0.8rem' }}>+</button>
                           </div>
+                        </td>
+                        <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
+                          {item.isPlanWash || item.precioBase === 0 ? (
+                            <span style={{ color: '#94a3b8', fontSize: '0.725rem', fontWeight: 700 }}>Exento</span>
+                          ) : (
+                            <select
+                              value={item.aplica_itbis === 1 || item.aplica_itbis === true ? '1' : '0'}
+                              onChange={(e) => handleItbisChange(idx, e.target.value)}
+                              style={{
+                                padding: '0.25rem 0.35rem',
+                                borderRadius: '6px',
+                                border: item.aplica_itbis === 1 || item.aplica_itbis === true ? '1px solid #fbcfe8' : '1px solid #e4e4e7',
+                                background: item.aplica_itbis === 1 || item.aplica_itbis === true ? '#fdf2f8' : '#f8fafc',
+                                color: item.aplica_itbis === 1 || item.aplica_itbis === true ? '#be185d' : '#64748b',
+                                fontSize: '0.725rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                outline: 'none'
+                              }}
+                            >
+                              <option value="0">Exento</option>
+                              <option value="1">18% ITBIS</option>
+                            </select>
+                          )}
                         </td>
                         <td style={{ padding: '0.65rem', textAlign: 'center', verticalAlign: 'middle' }}>
                           {item.isPlanWash || item.precioBase === 0 ? (
@@ -1733,7 +2241,7 @@ const VisitRecorder = () => {
             </div>
 
             {/* ADD NOTE BUTTON */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem', flexShrink: 0 }}>
               <button
                 onClick={() => {
                   const note = prompt('Ingrese una nota para este ticket:', '');
@@ -1748,13 +2256,13 @@ const VisitRecorder = () => {
         </div>
 
         {/* ================= COLUMN 3: INVOICE SUMMARY & PAYMENT METHODS ================= */}
-        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e4e4e7', padding: '1.1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+        <div style={{ background: '#ffffff', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.1rem', height: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
           
           {/* FACTURA HEADER */}
           <div style={{ borderBottom: '1px solid #e4e4e7', paddingBottom: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
-                Factura {selectedTicket?.ticket_number || `#000${Math.floor(700 + Math.random() * 100)}`}
+                Factura {selectedTicket?.ticket_number || 'SD-NUEVA'}
               </h3>
               <span style={{ fontSize: '0.9rem', color: '#71717a', cursor: 'pointer' }}>⚙️</span>
             </div>
@@ -1874,37 +2382,89 @@ const VisitRecorder = () => {
             </div>
 
             {/* MONTO RECIBIDO Y CAMBIO (EFECTIVO) */}
-            {paymentMethod === 'Efectivo' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.25rem' }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569' }}>
-                  Monto recibido (RD$)
-                </label>
-                <input
-                  type="number"
-                  value={montoRecibido}
-                  placeholder={totalAmount > 0 ? totalAmount.toFixed(0) : "0"}
-                  onChange={(e) => setMontoRecibido(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.65rem 0.85rem',
-                    borderRadius: '10px',
-                    border: '1.5px solid #10b981',
-                    background: '#ffffff',
-                    fontSize: '0.95rem',
-                    fontWeight: 700,
-                    color: '#0f172a',
-                    outline: 'none',
-                    boxSizing: 'border-box'
-                  }}
-                />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.15rem' }}>
-                  <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#64748b' }}>Cambio (RD$)</span>
-                  <span style={{ fontSize: '1.05rem', fontWeight: 800, color: '#059669' }}>
-                    {devueltaAmount.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+            {(paymentMethod === 'Efectivo' || !paymentMethod) && (() => {
+              const receivedNum = parseFloat(montoRecibido) || 0;
+              const hasTyped = montoRecibido.trim() !== '';
+              const diff = receivedNum - finalTotalAmount;
+              const isMissing = hasTyped && diff < -0.01;
+              const isExact = hasTyped && Math.abs(diff) <= 0.01;
+              const hasChange = hasTyped && diff > 0.01;
+
+              return (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.45rem',
+                  marginTop: '0.35rem',
+                  background: isMissing ? '#fef2f2' : '#f0fdf4',
+                  padding: '0.75rem',
+                  borderRadius: '12px',
+                  border: isMissing ? '1.5px solid #ef4444' : '1.5px solid #10b981',
+                  transition: 'all 0.2s ease'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '0.78rem', fontWeight: 800, color: isMissing ? '#991b1b' : '#065f46' }}>
+                      💵 Monto recibido en Efectivo (RD$) *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setMontoRecibido(finalTotalAmount > 0 ? finalTotalAmount.toFixed(2) : '')}
+                      style={{ background: isMissing ? '#dc2626' : '#059669', color: '#ffffff', border: 'none', padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      Monto Exacto
+                    </button>
+                  </div>
+                  <input
+                    type="number"
+                    value={montoRecibido}
+                    placeholder={`Ej: ${finalTotalAmount > 0 ? finalTotalAmount.toFixed(0) : "0"}`}
+                    onChange={(e) => setMontoRecibido(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '8px',
+                      border: isMissing ? '1.5px solid #ef4444' : '1.5px solid #059669',
+                      background: '#ffffff',
+                      fontSize: '1.05rem',
+                      fontWeight: 800,
+                      color: '#0f172a',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.2rem', borderTop: `1px dashed ${isMissing ? '#fca5a5' : '#a7f3d0'}` }}>
+                    {isMissing ? (
+                      <>
+                        <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          ⚠️ Falta dinero por cobrar:
+                        </span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#dc2626' }}>
+                          RD$ {Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </>
+                    ) : hasChange ? (
+                      <>
+                        <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#047857' }}>
+                          💵 Devuelta / Cambio (RD$):
+                        </span>
+                        <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#047857' }}>
+                          RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '0.825rem', fontWeight: 700, color: '#047857' }}>
+                          {isExact ? '✓ Monto exacto (Sin devuelta)' : 'Devuelta / Cambio (RD$)'}
+                        </span>
+                        <span style={{ fontSize: '1.05rem', fontWeight: 900, color: '#047857' }}>
+                          RD$ 0.00
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* GIFT CARD CODE INPUT */}
             {(paymentMethod === 'Gift_Card' || paymentMethod === 'Gift Card') && (
@@ -1971,122 +2531,7 @@ const VisitRecorder = () => {
             )}
           </div>
 
-          {/* PLAN BEAUTY ACTIVE CONSUMPTION CARD (ONLY IF CLIENT HAS ACTIVE PLAN) */}
-          {activePlans && activePlans.length > 0 && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', padding: '0.75rem', borderRadius: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                <span style={{ fontSize: '0.775rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  💎 Plan Beauty Activo
-                </span>
-                <span style={{ fontSize: '0.7rem', color: '#15803d', fontWeight: 700 }}>
-                  Lavados disponibles: {activePlans[0]?.remaining_washes || 3}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#166534' }}>
-                <span>¿Desea consumir un lavado?</span>
-                <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px', cursor: 'pointer' }}>
-                  <input 
-                    type="checkbox" 
-                    checked={consumePlanWash}
-                    onChange={(e) => setConsumePlanWash(e.target.checked)}
-                    style={{ opacity: 0, width: 0, height: 0 }} 
-                  />
-                  <span style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, background: consumePlanWash ? '#166534' : '#cbd5e1', borderRadius: '20px', transition: '0.2s' }}>
-                    <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: consumePlanWash ? '19px' : '3px', bottom: '3px', background: '#ffffff', borderRadius: '50%', transition: '0.2s' }}></span>
-                  </span>
-                </label>
-              </div>
-            </div>
-          )}
 
-          {/* APPLY DISCOUNT ACCORDION & PLAN REMINDER ALERT */}
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.75rem', background: '#ffffff', display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
-            {/* Header Accordion */}
-            <div 
-              onClick={() => setIsDiscountOpen(!isDiscountOpen)}
-              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none', width: '100%' }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.825rem', fontWeight: 700, color: '#334155' }}>
-                <Percent size={15} color="#475569" />
-                <span>Aplicar descuento</span>
-              </div>
-              <ChevronDown 
-                size={16} 
-                color="#64748b" 
-                style={{ transform: isDiscountOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} 
-              />
-            </div>
-
-            {/* Discount Inputs */}
-            {isDiscountOpen && (
-              <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', width: '100%', boxSizing: 'border-box' }}>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={globalDiscountValue}
-                  onChange={(e) => setGlobalDiscountValue(e.target.value)}
-                  placeholder="0.00"
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    width: '100%',
-                    padding: '0.55rem 0.65rem',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    fontSize: '0.875rem',
-                    fontWeight: 600,
-                    color: '#0f172a',
-                    outline: 'none',
-                    boxSizing: 'border-box'
-                  }}
-                />
-                <div style={{ position: 'relative', flexShrink: 0, width: '68px' }}>
-                  <select
-                    value={globalDiscountType}
-                    onChange={(e) => setGlobalDiscountType(e.target.value)}
-                    style={{
-                      width: '100%',
-                      appearance: 'none',
-                      padding: '0.55rem 1.3rem 0.55rem 0.55rem',
-                      borderRadius: '8px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      fontSize: '0.825rem',
-                      fontWeight: 700,
-                      color: '#334155',
-                      cursor: 'pointer',
-                      outline: 'none',
-                      boxSizing: 'border-box',
-                      textAlign: 'center'
-                    }}
-                  >
-                    <option value="percentage">%</option>
-                    <option value="amount">RD$</option>
-                  </select>
-                  <ChevronDown size={13} color="#64748b" style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-                </div>
-              </div>
-            )}
-
-            {/* Yellow/Amber Warning Alert Banner */}
-            <div style={{
-              background: '#fffbeb',
-              border: '1px solid #fef3c7',
-              borderRadius: '10px',
-              padding: '0.65rem 0.8rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.6rem',
-              width: '100%',
-              boxSizing: 'border-box'
-            }}>
-              <AlertTriangle size={18} color="#d97706" style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: '0.74rem', color: '#b45309', fontWeight: 600, lineHeight: 1.35 }}>
-                Recuerda preguntar por los beneficios de su plan activo.
-              </span>
-            </div>
-          </div>
 
           {/* FINAL ACTION BUTTONS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -2139,12 +2584,12 @@ const VisitRecorder = () => {
       <div style={{ position: 'fixed', bottom: 0, left: '260px', right: 0, background: '#ffffff', borderTop: '1px solid #e4e4e7', padding: '0.55rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 90, fontSize: '0.75rem', color: '#64748b' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <span>⌨️ Atajos de teclado: <strong style={{ color: '#18181b' }}>F1 Ver atajos</strong></span>
-          <span>📄 Última factura: <strong style={{ color: '#18181b' }}>#000784</strong></span>
+          <span>📄 Última factura: <strong style={{ color: '#18181b' }}>{clientVisitsHistory[0]?.ticket_number || 'SD-0290'}</strong></span>
           <span 
             onClick={() => {
-              if (selectedTicket || clientFound) {
+              if (selectedTicket || clientFound || clientVisitsHistory.length > 0) {
                 setPrintableTicketData({
-                  ticketNumber: selectedTicket?.ticket_number || '#000785',
+                  ticketNumber: selectedTicket?.ticket_number || clientVisitsHistory[0]?.ticket_number || 'SD-0290',
                   salonName: 'Sucursal San Vicente de Paúl',
                   clientName: clientFound?.nombre || selectedTicket?.client_name || 'Cliente General',
                   createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
@@ -2165,120 +2610,332 @@ const VisitRecorder = () => {
         </div>
       </div>
 
-      {/* MODAL: GENERAR NUEVO TICKET CON BÚSQUEDA INTEGRADA DE CLIENTE */}
+      {/* MODAL: GENERAR NUEVO TICKET CON BÚSQUEDA INTEGRADA Y TABS */}
       {showNewTicketModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '500px', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>🎟️ Generar Ticket de Servicio</h3>
-            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
-              La búsqueda del cliente forma parte de la generación del ticket. Busca un cliente registrado o escribe el nombre.
-            </p>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', position: 'relative' }}>
+            
+            {/* HEADER WITH CLOSE BUTTON */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#fdf2f8', border: '1px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', color: '#be185d' }}>
+                  🎟️
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>
+                    Generar ticket de servicio
+                  </h3>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                    Selecciona el tipo de ticket y completa la información para generar e imprimir.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewTicketModal(false)}
+                style={{ background: '#f1f5f9', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <form onSubmit={handleCreateNewTicket}>
-              {/* Búsqueda Predictiva de Cliente Integrada */}
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                  🔍 Buscar Cliente Registrado (Cédula, Nombre o Teléfono):
+              {/* TIPO DE TICKET SELECTOR (3 TABS) */}
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', letterSpacing: '0.5px' }}>
+                  TIPO DE TICKET
                 </label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="text"
-                    placeholder="Escribe para buscar cliente..."
-                    value={modalClientSearchTerm}
-                    onChange={(e) => {
-                      setModalClientSearchTerm(e.target.value);
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.65rem' }}>
+                  
+                  {/* TAB 1: CLIENTE GENERAL */}
+                  <div
+                    onClick={() => {
+                      setTicketType('general');
+                      setSelectedClientForTicket(null);
+                      setSelectedEmployeeForTicket(null);
+                    }}
+                    style={{
+                      padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
+                      border: ticketType === 'general' ? '2px solid #ec4899' : '1.5px solid #e2e8f0',
+                      background: ticketType === 'general' ? '#fff5f8' : '#ffffff',
+                      boxShadow: ticketType === 'general' ? '0 4px 12px rgba(236,72,153,0.12)' : 'none',
+                      transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                    }}
+                  >
+                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: ticketType === 'general' ? '#fbcfe8' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+                      👤
+                    </div>
+                    <div style={{ overflow: 'hidden' }}>
+                      <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'general' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        Cliente general
+                      </strong>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
+                        Ticket sin perfil
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* TAB 2: PLAN BEAUTY */}
+                  <div
+                    onClick={() => {
+                      setTicketType('plan_beauty');
+                      setSelectedEmployeeForTicket(null);
+                    }}
+                    style={{
+                      padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
+                      border: ticketType === 'plan_beauty' ? '2px solid #ec4899' : '1.5px solid #e2e8f0',
+                      background: ticketType === 'plan_beauty' ? '#fff5f8' : '#ffffff',
+                      boxShadow: ticketType === 'plan_beauty' ? '0 4px 12px rgba(236,72,153,0.12)' : 'none',
+                      transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                    }}
+                  >
+                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: ticketType === 'plan_beauty' ? '#fbcfe8' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+                      💎
+                    </div>
+                    <div style={{ overflow: 'hidden' }}>
+                      <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'plan_beauty' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        Plan Beauty
+                      </strong>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
+                        Cliente registrado
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* TAB 3: EMPLEADO */}
+                  <div
+                    onClick={() => {
+                      setTicketType('empleado');
                       setSelectedClientForTicket(null);
                     }}
-                    style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
-                  />
-
-                  {modalClientSearchTerm.trim().length > 0 && !selectedClientForTicket && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-                      {allClients
-                        .filter(c => {
-                          const term = modalClientSearchTerm.toLowerCase();
-                          const n = (c.nombre || c.name || '').toLowerCase();
-                          const cd = (c.cedula || '').toLowerCase();
-                          const ph = (c.telefono || c.phone || '').toLowerCase();
-                          return n.includes(term) || cd.includes(term) || ph.includes(term);
-                        })
-                        .slice(0, 5)
-                        .map((cli) => (
-                          <div
-                            key={cli.id}
-                            onClick={() => {
-                              setSelectedClientForTicket(cli);
-                              setModalClientSearchTerm(cli.nombre || cli.name);
-                              setNewTicketClientName(cli.nombre || cli.name);
-                              setNewTicketCedula(cli.cedula || '');
-                            }}
-                            style={{ padding: '0.6rem 0.8rem', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '0.85rem' }}
-                            className="hover-lift"
-                          >
-                            <strong style={{ color: '#0f172a' }}>{cli.nombre || cli.name}</strong>
-                            <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem' }}>
-                              {cli.cedula ? `Cédula: ${cli.cedula}` : ''} {cli.telefono ? `Tel: ${cli.telefono}` : ''}
-                            </span>
-                          </div>
-                        ))}
+                    style={{
+                      padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
+                      border: ticketType === 'empleado' ? '2px solid #ec4899' : '1.5px solid #e2e8f0',
+                      background: ticketType === 'empleado' ? '#fff5f8' : '#ffffff',
+                      boxShadow: ticketType === 'empleado' ? '0 4px 12px rgba(236,72,153,0.12)' : 'none',
+                      transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                    }}
+                  >
+                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: ticketType === 'empleado' ? '#fbcfe8' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+                      💼
                     </div>
-                  )}
+                    <div style={{ overflow: 'hidden' }}>
+                      <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'empleado' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        Empleado
+                      </strong>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
+                        Descuento nómina
+                      </span>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
-              {/* Indicador de cliente seleccionado o campo manual */}
-              {selectedClientForTicket ? (
-                <div style={{ background: '#f0fdf4', border: '1px solid #86efac', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              {/* INNER FORM PANEL BASED ON SELECTED TAB */}
+              <div style={{ background: '#fdfbfd', border: '1px solid #f1f5f9', borderRadius: '18px', padding: '1.25rem', marginBottom: '1.25rem' }}>
+                {ticketType === 'general' && (
                   <div>
-                    <strong style={{ color: '#166534', fontSize: '0.85rem' }}>✅ Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}</strong>
-                    {selectedClientForTicket.cedula && (
-                      <p style={{ margin: 0, fontSize: '0.75rem', color: '#15803d' }}>Cédula: {selectedClientForTicket.cedula}</p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedClientForTicket(null);
-                      setModalClientSearchTerm('');
-                    }}
-                    style={{ background: 'transparent', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
-                  >
-                    Cambiar
-                  </button>
-                </div>
-              ) : (
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                    O escribe Nombre del Cliente (Invitado / General):
-                  </label>
-                  <input
-                    type="text"
-                    required={!selectedClientForTicket}
-                    placeholder="Ej: Maria Rodriguez"
-                    value={newTicketClientName}
-                    onChange={(e) => setNewTicketClientName(e.target.value)}
-                    style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600 }}
-                  />
-                </div>
-              )}
+                    <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+                      <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#fdf2f8', border: '1px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontSize: '1.4rem' }}>
+                        👤
+                      </div>
+                      <h4 style={{ margin: '0 0 0.2rem', fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                        Cliente general
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                        Escribe el nombre del cliente como aparecerá en el ticket.
+                      </p>
+                    </div>
 
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 800, color: '#64748b', marginBottom: '0.4rem', letterSpacing: '0.5px' }}>
+                        NOMBRE DEL CLIENTE
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '1rem', color: '#ec4899' }}>
+                          👤
+                        </span>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ej: María Rodríguez"
+                          value={newTicketClientName}
+                          onChange={(e) => setNewTicketClientName(e.target.value)}
+                          style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 2.6rem', borderRadius: '12px', border: '2px solid #ec4899', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', outline: 'none', background: '#ffffff' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', borderRadius: '12px', padding: '0.65rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#be185d', fontSize: '0.775rem', fontWeight: 600 }}>
+                      <span>ⓘ</span>
+                      <span>Este ticket no se asociará a ningún perfil de cliente.</span>
+                    </div>
+                  </div>
+                )}
+
+                {ticketType === 'plan_beauty' && (
+                  <div>
+                    <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+                      <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#faf5ff', border: '1px solid #e9d5ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontSize: '1.4rem' }}>
+                        💎
+                      </div>
+                      <h4 style={{ margin: '0 0 0.2rem', fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                        Plan Beauty
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                        Busca un cliente registrado con membresía Plan Beauty.
+                      </p>
+                    </div>
+
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 800, color: '#64748b', marginBottom: '0.4rem', letterSpacing: '0.5px' }}>
+                        BUSCAR CLIENTE REGISTRADO (CÉDULA, NOMBRE O TELÉFONO)
+                      </label>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '1rem', color: '#a855f7' }}>
+                          🔍
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="Escribe para buscar cliente..."
+                          value={modalClientSearchTerm}
+                          onChange={(e) => {
+                            setModalClientSearchTerm(e.target.value);
+                            setSelectedClientForTicket(null);
+                          }}
+                          style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 2.6rem', borderRadius: '12px', border: '2px solid #a855f7', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', outline: 'none', background: '#ffffff' }}
+                        />
+
+                        {modalClientSearchTerm.trim().length > 0 && !selectedClientForTicket && (
+                          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', marginTop: '4px' }}>
+                            {allClients
+                              .filter(c => {
+                                const term = modalClientSearchTerm.toLowerCase();
+                                const n = (c.nombre || c.name || '').toLowerCase();
+                                const cd = (c.cedula || '').toLowerCase();
+                                const ph = (c.telefono || c.phone || '').toLowerCase();
+                                return n.includes(term) || cd.includes(term) || ph.includes(term);
+                              })
+                              .slice(0, 5)
+                              .map((cli) => (
+                                <div
+                                  key={cli.id}
+                                  onClick={() => {
+                                    setSelectedClientForTicket(cli);
+                                    setModalClientSearchTerm(cli.nombre || cli.name);
+                                    setNewTicketClientName(cli.nombre || cli.name);
+                                    setNewTicketCedula(cli.cedula || '');
+                                  }}
+                                  style={{ padding: '0.6rem 0.8rem', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '0.85rem' }}
+                                  className="hover-lift"
+                                >
+                                  <strong style={{ color: '#0f172a' }}>{cli.nombre || cli.name}</strong>
+                                  <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem' }}>
+                                    {cli.cedula ? `Cédula: ${cli.cedula}` : ''} {cli.telefono ? `Tel: ${cli.telefono}` : ''}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedClientForTicket && (
+                      <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', padding: '0.75rem', borderRadius: '12px', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ color: '#7e22ce', fontSize: '0.85rem' }}>
+                            ✅ Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}
+                          </strong>
+                          {selectedClientForTicket.cedula && (
+                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#6b21a8' }}>
+                              Cédula: {selectedClientForTicket.cedula}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedClientForTicket(null);
+                            setModalClientSearchTerm('');
+                          }}
+                          style={{ background: 'transparent', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
+                        >
+                          Cambiar
+                        </button>
+                      </div>
+                    )}
+
+                    <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: '12px', padding: '0.65rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#7e22ce', fontSize: '0.775rem', fontWeight: 600 }}>
+                      <span>ⓘ</span>
+                      <span>Este ticket se asociará al perfil y membresía del cliente seleccionado.</span>
+                    </div>
+                  </div>
+                )}
+
+                {ticketType === 'empleado' && (
+                  <div>
+                    <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+                      <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontSize: '1.4rem' }}>
+                        💼
+                      </div>
+                      <h4 style={{ margin: '0 0 0.2rem', fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                        Empleado
+                      </h4>
+                      <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
+                        Selecciona el empleado para consumo o descuento por nómina.
+                      </p>
+                    </div>
+
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 800, color: '#64748b', marginBottom: '0.4rem', letterSpacing: '0.5px' }}>
+                        SELECCIONAR EMPLEADO
+                      </label>
+                      <select
+                        value={selectedEmployeeForTicket?.id || ''}
+                        onChange={(e) => {
+                          const emp = employees.find(emp => String(emp.id) === String(e.target.value));
+                          setSelectedEmployeeForTicket(emp || null);
+                        }}
+                        style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '12px', border: '2px solid #3b82f6', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', outline: 'none', background: '#ffffff' }}
+                      >
+                        <option value="">-- Selecciona un Empleado --</option>
+                        {employees.map(emp => (
+                          <option key={emp.id} value={emp.id}>
+                            {emp.nombre || emp.name} {emp.cargo ? `(${emp.cargo})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '0.65rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#1d4ed8', fontSize: '0.775rem', fontWeight: 600 }}>
+                      <span>ⓘ</span>
+                      <span>Se aplicará el descuento correspondiente según la política de empleados.</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* FOOTER BUTTONS */}
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                 <button
                   type="button"
                   onClick={() => setShowNewTicketModal(false)}
-                  style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+                  style={{ flex: 1, padding: '0.8rem', borderRadius: '14px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer' }}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800 }}
+                  style={{ flex: 1.5, padding: '0.8rem', borderRadius: '14px', border: 'none', background: 'linear-gradient(135deg, #f43f5e 0%, #8b5cf6 100%)', color: '#ffffff', fontWeight: 800, fontSize: '0.875rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', boxShadow: '0 4px 14px rgba(244, 63, 94, 0.35)', opacity: loading ? 0.7 : 1 }}
                 >
-                  {loading ? 'Generando...' : 'Imprimir & Guardar'}
+                  <span>🖨️</span>
+                  <span>{loading ? 'Generando...' : 'Generar e imprimir ticket'}</span>
                 </button>
               </div>
             </form>
+
           </div>
         </div>
       )}
@@ -2324,14 +2981,14 @@ const VisitRecorder = () => {
         </div>
       )}
 
-      {/* MODAL: AUTORIZACIÓN PIN ADMINISTRADOR (REDUCCIÓN PRECIO BASE) */}
+      {/* MODAL: AUTORIZACIÓN PIN ADMINISTRADOR (DESCUENTO / PRECIO BASE) */}
       {showAdminPinModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '400px', borderRadius: '16px', padding: '1.5rem' }}>
             <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
               <ShieldAlert size={36} style={{ color: '#be185d', marginBottom: '0.5rem' }} />
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Autorización de Administrador</h3>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>Se requiere PIN para reducir precio por debajo de tarifa base</p>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>Se requiere PIN de administrador para aplicar este descuento</p>
             </div>
 
             <div style={{ marginBottom: '1.25rem' }}>
@@ -2341,19 +2998,20 @@ const VisitRecorder = () => {
                 value={adminPin}
                 onChange={(e) => setAdminPin(e.target.value)}
                 style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px' }}
+                autoFocus
               />
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button
-                onClick={() => { setShowAdminPinModal(false); setPendingDiscountItem(null); }}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+                onClick={() => { setShowAdminPinModal(false); setPendingDiscountItem(null); setAdminPin(''); }}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700, cursor: 'pointer' }}
               >
                 Cancelar
               </button>
               <button
                 onClick={verifyAdminPin}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800 }}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}
               >
                 Autorizar
               </button>
@@ -2468,34 +3126,227 @@ const VisitRecorder = () => {
               <div style={{ background: '#f8fafc', padding: '0.875rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
                 <strong style={{ color: '#0f172a', fontSize: '0.95rem' }}>{clientFound?.nombre || selectedTicket?.client_name}</strong>
                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                  Cédula: {clientFound?.cedula || selectedTicket?.client_id} | Tel: {clientFound?.telefono || clientFound?.phone || '8293676453'}
+                  Cédula: {clientFound?.cedula || selectedTicket?.client_id || 'Sin cédula'} | Tel: {clientFound?.telefono || clientFound?.phone || '8097667889'}
                 </p>
               </div>
 
-              <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                Registro de Visitas Previas
-              </h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
+                  Registro de Visitas Previas ({clientVisitsHistory.length})
+                </h4>
+                <button
+                  onClick={() => loadClientVisitsHistory(clientFound?.id || clientFound?.nombre)}
+                  style={{ background: 'none', border: 'none', color: '#be185d', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                >
+                  🔄 Actualizar
+                </button>
+              </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <strong style={{ fontSize: '0.85rem', color: '#0f172a', display: 'block' }}>Ticket SD-0042 - Lavado y Secado</strong>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>21/08/2026 - Sucursal San Vicente de Paúl</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+                {loadingHistory ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b', fontSize: '0.85rem' }}>
+                    Cargando historial de visitas...
                   </div>
-                  <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
-                    RD$ 800.00 (Facturado)
-                  </span>
-                </div>
+                ) : clientVisitsHistory.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1', color: '#64748b', fontSize: '0.85rem' }}>
+                    No se registran visitas previas en el sistema para este cliente.
+                  </div>
+                ) : (
+                  clientVisitsHistory.map((visit, index) => {
+                    let sNames = [];
+                    if (visit.items_detail) {
+                      try {
+                        const parsed = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                          sNames = parsed.map(i => i.nombre || i.service_name || i.servicio).filter(Boolean);
+                        }
+                      } catch (e) {}
+                    }
 
-                <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <strong style={{ fontSize: '0.85rem', color: '#0f172a', display: 'block' }}>Ticket SD-0028 - Plan Beauty Lavado Incluido</strong>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>14/08/2026 - Sucursal San Vicente de Paúl</span>
-                  </div>
-                  <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
-                    Plan Beauty (RD$ 0.00)
-                  </span>
-                </div>
+                    if (sNames.length === 0 && visit.servicios) {
+                      try {
+                        if (Array.isArray(visit.servicios)) sNames = visit.servicios;
+                        else if (typeof visit.servicios === 'string' && visit.servicios.startsWith('[')) sNames = JSON.parse(visit.servicios);
+                        else if (visit.servicios && visit.servicios !== 'Servicio en preparación') sNames = [String(visit.servicios)];
+                      } catch (e) {}
+                    }
+
+                    const displayServiceText = sNames.length > 0 ? sNames.join(' + ') : 'Servicios Varios / Lavado';
+                    const isPlanRedemption = (visit.metodo_pago && visit.metodo_pago.toLowerCase().includes('plan')) || Number(visit.total) === 0;
+                    const isVoided = visit.status === 'Anulado';
+
+                    const itemsList = (() => {
+                      if (!visit.items_detail) return [];
+                      try {
+                        const parsed = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+                        return Array.isArray(parsed) ? parsed : [];
+                      } catch (e) {
+                        return [];
+                      }
+                    })();
+
+                    const staffNamesList = (() => {
+                      const names = new Set();
+                      const isInvalidName = (n) => !n || ['n/a', 'sin asignar', 'no asignado', 'null', 'undefined', 'general', ''].includes(String(n).trim().toLowerCase());
+                      if (!isInvalidName(visit.empleado_peluquera)) names.add(visit.empleado_peluquera.trim());
+                      if (!isInvalidName(visit.empleado_manicurista)) names.add(visit.empleado_manicurista.trim());
+                      itemsList.forEach(item => {
+                        const emp = item.empleado_nombre || item.employee_name || item.empleado;
+                        if (!isInvalidName(emp)) names.add(String(emp).trim());
+                      });
+                      return Array.from(names);
+                    })();
+
+                    const vDate = new Date(visit.visited_at || Date.now());
+                    const formattedDate = vDate.toLocaleDateString('es-DO');
+                    const formattedTime = vDate.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' });
+                    const recAmt = Number(visit.monto_recibido || 0);
+                    const devAmt = Number(visit.devuelta || 0);
+                    const isExpanded = expandedVisitId === (visit.id || index);
+
+                    return (
+                      <div 
+                        key={visit.id || index}
+                        style={{ 
+                          background: isVoided ? '#fef2f2' : '#ffffff', 
+                          border: isVoided ? '1px solid #fecaca' : '1px solid #e2e8f0', 
+                          padding: '0.85rem 1.1rem', 
+                          borderRadius: '14px', 
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.55rem',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.03)' 
+                        }}
+                      >
+                        {/* HEADER: Ticket Number & Total / Badges */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1, paddingRight: '0.5rem' }}>
+                            <strong style={{ fontSize: '0.9rem', color: isVoided ? '#991b1b' : '#0f172a', display: 'block', textDecoration: isVoided ? 'line-through' : 'none', fontWeight: 800 }}>
+                              {visit.ticket_number || `Ticket #${String(visit.id).slice(-4)}`} - {displayServiceText}
+                            </strong>
+                            <span style={{ fontSize: '0.735rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.15rem' }}>
+                              <span>📅 {formattedDate}</span>
+                              <span>•</span>
+                              <span>⌚ {formattedTime}</span>
+                              <span>•</span>
+                              <span>🏬 {visit.salon_nombre || 'Sucursal San Vicente'}</span>
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                            {isVoided ? (
+                              <span style={{ background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', padding: '3px 8px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 800 }}>
+                                🚫 ANULADA
+                              </span>
+                            ) : isPlanRedemption ? (
+                              <span style={{ background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                                💎 Plan Beauty (RD$ 0.00)
+                              </span>
+                            ) : (
+                              <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', padding: '4px 10px', borderRadius: '8px', fontSize: '0.825rem', fontWeight: 900 }}>
+                                RD$ {Number(visit.total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+
+                            {!isVoided && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTargetVisitToVoid(visit);
+                                  setShowVoidModal(true);
+                                }}
+                                style={{ background: '#fff1f2', color: '#be185d', border: '1px solid #fbcfe8', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                                title="Anular esta factura con trazabilidad de auditoría"
+                              >
+                                <XCircle size={12} />
+                                Anular
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* DETALLES DE CLIENTE, PAGO Y PERSONAL QUE ATENDIÓ */}
+                        <div style={{ background: isVoided ? '#fff5f5' : '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '10px', padding: '0.55rem 0.75rem', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.3rem', color: '#475569' }}>
+                          {/* CLIENTE */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.25rem' }}>
+                            <span style={{ fontWeight: 700, color: '#334155' }}>👤 Cliente:</span>
+                            <span style={{ fontWeight: 800, color: '#0f172a' }}>
+                              {visit.client_name || clientFound?.nombre || 'Cliente General'}
+                            </span>
+                          </div>
+
+                          {/* PERSONAL */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ fontWeight: 700, color: '#334155' }}>💇‍♀️ Atendido por:</span>
+                            <span style={{ fontWeight: 600, color: '#0f172a' }}>
+                              {staffNamesList.length > 0 ? staffNamesList.join(', ') : 'Personal del Salón'}
+                            </span>
+                          </div>
+
+                          {/* PAGO Y DEVUELTA */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.25rem', marginTop: '0.1rem' }}>
+                            <span>💳 Método: <strong style={{ color: '#0f172a' }}>{visit.metodo_pago || 'Efectivo'}</strong></span>
+                            {recAmt > 0 && (
+                              <span>💵 Recibido: <strong style={{ color: '#0f172a' }}>RD$ {recAmt.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></span>
+                            )}
+                            {devAmt > 0 && (
+                              <span>🔄 Devuelta/Cambio: <strong style={{ color: '#059669' }}>RD$ {devAmt.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></span>
+                            )}
+                          </div>
+
+                          {isVoided && (
+                            <div style={{ color: '#dc2626', fontWeight: 600, borderTop: '1px dashed #fecaca', paddingTop: '0.25rem', marginTop: '0.1rem' }}>
+                              Motivo de anulación: {visit.void_reason || 'Sin motivo'} (Autorizó: {visit.voided_by || 'Admin'})
+                            </div>
+                          )}
+                        </div>
+
+                        {/* BOTÓN DESGLOSE DE SERVICIOS */}
+                        {itemsList.length > 0 && (
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => setExpandedVisitId(isExpanded ? null : (visit.id || index))}
+                              style={{ background: 'transparent', border: 'none', color: '#be185d', fontSize: '0.725rem', fontWeight: 700, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                            >
+                              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                              <span>{isExpanded ? 'Ocultar desglose de servicios' : `Ver desglose detallado (${itemsList.length} ítems)`}</span>
+                            </button>
+
+                            {isExpanded && (
+                              <div style={{ marginTop: '0.5rem', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.5rem', overflowX: 'auto' }}>
+                                <table style={{ width: '100%', fontSize: '0.725rem', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                  <thead>
+                                    <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
+                                      <th style={{ padding: '0.3rem' }}>Servicio</th>
+                                      <th style={{ padding: '0.3rem' }}>Atendido Por</th>
+                                      <th style={{ padding: '0.3rem', textAlign: 'right' }}>Precio</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {itemsList.map((item, iIdx) => (
+                                      <tr key={iIdx} style={{ borderBottom: iIdx === itemsList.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '0.3rem', fontWeight: 700, color: '#0f172a' }}>
+                                          {item.nombre || item.service_name || item.servicio}
+                                        </td>
+                                        <td style={{ padding: '0.3rem', color: '#475569' }}>
+                                          {item.empleado_nombre || item.employee_name || item.empleado || 'Personal Salón'}
+                                        </td>
+                                        <td style={{ padding: '0.3rem', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
+                                          RD$ {Number(item.precioAplicado || item.precio || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 
@@ -2504,275 +3355,523 @@ const VisitRecorder = () => {
                 onClick={() => setShowHistoryModal(false)}
                 style={{ background: '#000000', color: '#ffffff', border: 'none', padding: '0.65rem 1.5rem', borderRadius: '8px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer' }}
               >
-                Cerrar Historial
+                Cerrar
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: DETALLES DE CAJA Y MOVIMIENTOS EN TIEMPO REAL */}
-      {showRegisterDetailsModal && activeRegister && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1070 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '640px', borderRadius: '20px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <CheckCircle2 size={24} style={{ color: '#10b981' }} />
+      {/* MODAL DE ANULACIÓN DE FACTURA (SECCIÓN 16 AUDITORÍA) */}
+      {showVoidModal && targetVisitToVoid && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '500px', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', border: '1px solid #cbd5e1' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '0.5rem', borderRadius: '12px', color: '#dc2626' }}>
+                  <AlertTriangle size={24} />
+                </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
-                    Caja de Jornada {activeRegister.register_number}
+                    Anular Factura #{targetVisitToVoid.ticket_number || targetVisitToVoid.id}
                   </h3>
                   <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    {activeRegister.salon_name || 'Sucursal San Vicente de Paúl'} • Apertura: {new Date(activeRegister.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    Trazabilidad de Auditoría Inmutable (Sección 16)
                   </span>
                 </div>
               </div>
-              <button onClick={() => setShowRegisterDetailsModal(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+              <button onClick={() => setShowVoidModal(false)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }}>
                 <X size={20} />
               </button>
             </div>
 
-            {/* TAB SELECTION */}
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+            <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '12px', padding: '0.85rem', marginBottom: '1.25rem', fontSize: '0.8rem', color: '#9f1239', lineHeight: 1.4 }}>
+              <strong>⚠️ ADVERTENCIA DE CONTROL FINANCIERO:</strong>
+              <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.2rem' }}>
+                <li>La factura se marcará como <strong>ANULADA</strong> sin borrar sus datos.</li>
+                <li>Se registrará automáticamente la reversión en la caja activa.</li>
+                <li>Las comisiones de los empleados asociados quedarán anuladas.</li>
+              </ul>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Motivo Principal de Anulación *
+                </label>
+                <select
+                  value={voidReasonCategory}
+                  onChange={(e) => setVoidReasonCategory(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', outline: 'none', background: '#f8fafc' }}
+                >
+                  <option value="Error de cobro / método de pago">Error de cobro / método de pago</option>
+                  <option value="Cobro duplicado">Cobro duplicado</option>
+                  <option value="Error en digitación de servicios">Error en digitación de servicios</option>
+                  <option value="Cliente solicitó cancelación del servicio">Cliente solicitó cancelación del servicio</option>
+                  <option value="Otro">Otro (Especificar en detalle)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Detalles Adicionales del Motivo
+                </label>
+                <textarea
+                  rows={3}
+                  value={voidCustomReason}
+                  onChange={(e) => setVoidCustomReason(e.target.value)}
+                  placeholder="Escribe aquí los detalles del error o aclaración contable..."
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', outline: 'none', resize: 'none' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                  Usuario / Autorizado por
+                </label>
+                <input
+                  type="text"
+                  value={voidUser}
+                  onChange={(e) => setVoidUser(e.target.value)}
+                  placeholder="Ej: Administrator / Nombre Cajero"
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', outline: 'none' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowVoidModal(false)}
+                disabled={isSubmittingVoid}
+                style={{ background: '#f1f5f9', color: '#475569', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmVoidVisit}
+                disabled={isSubmittingVoid}
+                style={{ background: '#dc2626', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '10px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '0 4px 12px rgba(220, 38, 38, 0.25)' }}
+              >
+                {isSubmittingVoid ? 'Anulando...' : 'Confirmar Anulación de Factura'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CAJA DE JORNADA (REDESIGNED TO MATCH EXACT SPECIFICATION) */}
+      {showRegisterDetailsModal && activeRegister && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1070, padding: '1rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '680px', borderRadius: '24px', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+            
+            {/* HEADER */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.85rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div style={{ width: '44px', height: '44px', borderRadius: '14px', background: '#fdf2f8', border: '1px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#be185d' }}>
+                  <LockIcon size={20} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>
+                      Caja de Jornada
+                    </h2>
+                    <span style={{ background: '#f3e8ff', color: '#7e22ce', fontSize: '0.725rem', fontWeight: 800, padding: '3px 10px', borderRadius: '99px' }}>
+                      {activeRegister.register_number || `CAJA-SD-20260827-3547`}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.2rem' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
+                      {activeRegister.salon_name || 'Abatte Peluquería San Vicente'} • Apertura: {new Date(activeRegister.opened_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span style={{ background: '#dcfce7', color: '#15803d', fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '99px', textTransform: 'uppercase' }}>
+                      ABIERTA
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRegisterDetailsModal(false)}
+                style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', cursor: 'pointer', transition: 'all 0.15s ease' }}
+                title="Cerrar ventana"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* NAVIGATION TABS */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #e2e8f0', marginBottom: '1.25rem', marginTop: '0.5rem' }}>
               {[
-                { id: 'resumen', label: '📊 Desglose de Ingresos' },
-                { id: 'nuevo', label: '✍️ Registrar Movimiento' },
-                { id: 'historial', label: '📋 Historial Movimientos' }
+                { id: 'resumen', label: 'Desglose de ingresos', icon: '🍰' },
+                { id: 'nuevo', label: 'Registrar movimiento', icon: '📷' }
               ].map(tab => (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setMovementActiveTab(tab.id)}
                   style={{
-                    flex: 1,
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '8px',
+                    padding: '0.85rem 0.5rem',
                     border: 'none',
-                    background: movementActiveTab === tab.id ? '#ffffff' : 'transparent',
-                    color: movementActiveTab === tab.id ? '#be185d' : '#475569',
-                    fontWeight: 800,
-                    fontSize: '0.78rem',
+                    borderBottom: movementActiveTab === tab.id ? '2px solid #be185d' : '2px solid transparent',
+                    background: 'transparent',
+                    color: movementActiveTab === tab.id ? '#be185d' : '#64748b',
+                    fontWeight: movementActiveTab === tab.id ? 800 : 600,
+                    fontSize: '0.825rem',
                     cursor: 'pointer',
-                    boxShadow: movementActiveTab === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.4rem',
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  {tab.label}
+                  <span>{tab.icon}</span>
+                  <span>{tab.label}</span>
                 </button>
               ))}
             </div>
 
-            {/* TAB CONTENT */}
-            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.25rem' }}>
-              {movementActiveTab === 'resumen' && (
+            {/* TAB 1: DESGLOSE DE INGRESOS */}
+            {movementActiveTab === 'resumen' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                
+                {/* SECTION 1: INGRESOS DE LA JORNADA */}
                 <div>
-                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                    💰 Resumen en Tiempo Real por Método de Pago
-                  </h4>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
-                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.75rem', borderRadius: '10px' }}>
-                      <span style={{ fontSize: '0.7rem', color: '#166534', fontWeight: 800 }}>💵 EFECTIVO EN VENTAS:</span>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#15803d' }}>
-                        RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', padding: '0.75rem', borderRadius: '10px' }}>
-                      <span style={{ fontSize: '0.7rem', color: '#075985', fontWeight: 800 }}>💳 TARJETA (CARDNET):</span>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0369a1' }}>
-                        RD$ {(registerSummary?.tarjetaTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', padding: '0.75rem', borderRadius: '10px' }}>
-                      <span style={{ fontSize: '0.7rem', color: '#6b21a8', fontWeight: 800 }}>🏦 TRANSFERENCIA:</span>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#7e22ce' }}>
-                        RD$ {(registerSummary?.transferenciaTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', padding: '0.75rem', borderRadius: '10px' }}>
-                      <span style={{ fontSize: '0.7rem', color: '#9d174d', fontWeight: 800 }}>🎁 GIFT CARD:</span>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#be185d' }}>
-                        RD$ {(registerSummary?.giftCardTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', padding: '0.75rem', borderRadius: '10px' }}>
-                      <span style={{ fontSize: '0.7rem', color: '#9a3412', fontWeight: 800 }}>👤 CONSUMO EMPLEADOS:</span>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#c2410c' }}>
-                        RD$ {(registerSummary?.consumoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '0.75rem', borderRadius: '10px' }}>
-                      <span style={{ fontSize: '0.7rem', color: '#065f46', fontWeight: 800 }}>✨ PLAN BEAUTY:</span>
-                      <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#047857' }}>
-                        RD$ {(registerSummary?.planBeautyTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>
+                      Ingresos de la jornada
+                    </h3>
+                    <span style={{ fontSize: '0.75rem', color: '#be185d', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      🕒 Actualizado en tiempo real
+                    </span>
                   </div>
 
-                  <h4 style={{ margin: '1rem 0 0.5rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                    ⚙️ Movimientos Manuales Registrados
-                  </h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
-                    <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
-                      <span style={{ fontSize: '0.65rem', color: '#991b1b', fontWeight: 800 }}>💸 GASTOS:</span>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#dc2626' }}>
-                        - RD$ {(registerSummary?.gastosTotal || 0).toFixed(2)}
-                      </div>
-                    </div>
-                    <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
-                      <span style={{ fontSize: '0.65rem', color: '#9f1239', fontWeight: 800 }}>📤 RETIROS:</span>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#e11d48' }}>
-                        - RD$ {(registerSummary?.retirosTotal || 0).toFixed(2)}
-                      </div>
-                    </div>
-                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
-                      <span style={{ fontSize: '0.65rem', color: '#166534', fontWeight: 800 }}>📥 ENTRADAS:</span>
-                      <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#16a34a' }}>
-                        + RD$ {(registerSummary?.entradasTotal || 0).toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    {/* CARD LEFT: DINERO RECIBIDO */}
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1rem', background: '#ffffff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <div>
+                        <h4 style={{ margin: '0 0 0.85rem', fontSize: '0.75rem', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          💵 DINERO RECIBIDO
+                        </h4>
 
-                  {/* ESTIMADO EN CAJA */}
-                  <div style={{ background: '#0f172a', color: '#ffffff', padding: '1rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700, display: 'block' }}>ESTIMADO TOTAL EN CAJA FÍSICA:</span>
-                      <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Inicial ({registerSummary?.montoInicial || activeRegister.monto_inicial}) + Efectivo + Entradas - Gastos - Retiros</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.8rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#475569' }}>💵 Efectivo en ventas</span>
+                            <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#475569' }}>💳 Tarjeta (Cardnet)</span>
+                            <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.tarjetaTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#475569' }}>🏦 Transferencia</span>
+                            <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.transferenciaTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#475569' }}>🎁 Gift Card</span>
+                            <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.giftCardTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '0.75rem', marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#166534' }}>Total dinero recibido</span>
+                        <strong style={{ fontSize: '0.9rem', fontWeight: 900, color: '#15803d' }}>
+                          RD$ {((registerSummary?.efectivoTotal || 0) + (registerSummary?.tarjetaTotal || 0) + (registerSummary?.transferenciaTotal || 0) + (registerSummary?.giftCardTotal || 0)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#34d399' }}>
-                      RD$ {(registerSummary?.montoEstimadoEnCaja || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+
+                    {/* CARD RIGHT: OPERACIONES SIN EFECTIVO */}
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1rem', background: '#ffffff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                      <div>
+                        <h4 style={{ margin: '0 0 0.85rem', fontSize: '0.75rem', fontWeight: 800, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          ⚙️ OPERACIONES SIN EFECTIVO
+                        </h4>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.8rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#475569' }}>💎 Plan Beauty</span>
+                            <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.planBeautyTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#475569' }}>👤 Consumo empleados</span>
+                            <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.consumoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '12px', padding: '0.75rem', marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#9a3412' }}>Total operaciones sin efectivo</span>
+                        <strong style={{ fontSize: '0.9rem', fontWeight: 900, color: '#c2410c' }}>
+                          RD$ {((registerSummary?.planBeautyTotal || 0) + (registerSummary?.consumoTotal || 0)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
                     </div>
                   </div>
                 </div>
-              )}
 
-              {movementActiveTab === 'nuevo' && (
-                <form onSubmit={handleSaveManualMovement}>
-                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                    ✍️ Registrar Movimiento Manual de Caja
-                  </h4>
-
-                  <div style={{ marginBottom: '0.875rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                      Tipo de Movimiento:
-                    </label>
-                    <select
-                      value={newMovementType}
-                      onChange={(e) => setNewMovementType(e.target.value)}
-                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800 }}
-                    >
-                      <option value="Gasto_Imprevisto">💸 Gasto Imprevisto (Salida de dinero)</option>
-                      <option value="Retiro_Efectivo">📤 Retiro de Efectivo / Sangría (Salida de caja)</option>
-                      <option value="Entrada_Adicional">📥 Entrada Adicional de Dinero (Ingreso a caja)</option>
-                    </select>
-                  </div>
-
-                  <div style={{ marginBottom: '0.875rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                      Monto del Movimiento (RD$):
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="0.00"
-                      value={newMovementAmount}
-                      onChange={(e) => setNewMovementAmount(e.target.value)}
-                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '1rem' }}
-                    />
-                  </div>
-
-                  <div style={{ marginBottom: '1.25rem' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
-                      Observaciones / Concepto del Movimiento:
-                    </label>
-                    <textarea
-                      rows={3}
-                      placeholder="Ej: Compra de insumos de limpieza de emergencia, retiro por seguridad a caja fuerte..."
-                      value={newMovementConcept}
-                      onChange={(e) => setNewMovementConcept(e.target.value)}
-                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
-                    />
-                  </div>
-
-                  <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '1.25rem', fontSize: '0.75rem', color: '#64748b' }}>
-                    👤 Registrado por: <strong>{currentUser?.nombre || activeRegister.employee_name || 'Cajero Principal'}</strong> | 🕒 Timestamp: <strong>{new Date().toLocaleTimeString()}</strong>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer' }}
-                  >
-                    💾 Guardar Movimiento en Caja
-                  </button>
-                </form>
-              )}
-
-              {movementActiveTab === 'historial' && (
-                <div>
-                  <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>
-                    📋 Historial de Movimientos de la Jornada ({registerMovements.length})
-                  </h4>
-
-                  {registerMovements.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8', fontSize: '0.85rem' }}>
-                      No hay movimientos registrados en esta sesión de caja.
+                {/* SECTION 2: CAJA ESPERADA (EFECTIVO EN CAJA) */}
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', background: '#faf5ff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
+                      👛
                     </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {registerMovements.map(m => (
-                        <div key={m.id} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.75rem 1rem', borderRadius: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.2rem' }}>
-                              <span style={{
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                fontSize: '0.65rem',
-                                fontWeight: 800,
-                                background: m.type === 'Ingreso_Venta' ? '#dcfce7' : m.type === 'Entrada_Adicional' ? '#dbeafe' : '#fef2f2',
-                                color: m.type === 'Ingreso_Venta' ? '#15803d' : m.type === 'Entrada_Adicional' ? '#1e40af' : '#b91c1c'
-                              }}>
-                                {m.type === 'Ingreso_Venta' ? `Venta (${m.payment_method})` : m.type.replace('_', ' ')}
-                              </span>
-                              <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                            <span style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 600 }}>{m.concept || 'Movimiento de Caja'}</span>
-                            <span style={{ display: 'block', fontSize: '0.68rem', color: '#94a3b8' }}>Por: {m.user_name || 'Cajero'}</span>
-                          </div>
-                          <strong style={{ fontSize: '0.95rem', fontWeight: 900, color: m.type.includes('Gasto') || m.type.includes('Retiro') ? '#dc2626' : '#166534' }}>
-                            {m.type.includes('Gasto') || m.type.includes('Retiro') ? '-' : '+'} RD$ {Number(m.amount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                          </strong>
-                        </div>
-                      ))}
+                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>
+                      Caja esperada (efectivo en caja)
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', cursor: 'pointer' }} title="Fórmula: Inicial + Efectivo + Entradas - Gastos - Retiros">ℹ️</span>
+                  </div>
+
+                  {/* FORMULA PILLS */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem', overflowX: 'auto', paddingBottom: '0.35rem' }}>
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b', fontWeight: 700, display: 'block' }}>Inicial</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 800 }}>
+                        RD$ {(registerSummary?.montoInicial || activeRegister.monto_inicial || 1000).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>+</span>
+
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b', fontWeight: 700, display: 'block' }}>Efectivo en ventas</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 800 }}>
+                        RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>+</span>
+
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
+                      <span style={{ fontSize: '0.675rem', color: '#16a34a', fontWeight: 700, display: 'block' }}>Entradas</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#16a34a', fontWeight: 800 }}>
+                        RD$ {(registerSummary?.entradasTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>-</span>
+
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
+                      <span style={{ fontSize: '0.675rem', color: '#dc2626', fontWeight: 700, display: 'block' }}>Gastos</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#dc2626', fontWeight: 800 }}>
+                        RD$ {(registerSummary?.gastosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>-</span>
+
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
+                      <span style={{ fontSize: '0.675rem', color: '#dc2626', fontWeight: 700, display: 'block' }}>Retiros</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#dc2626', fontWeight: 800 }}>
+                        RD$ {(registerSummary?.retirosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>=</span>
+
+                    <div style={{ background: '#ffffff', border: '1.5px solid #d8b4fe', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '115px', flex: 1.2 }}>
+                      <span style={{ fontSize: '0.675rem', color: '#7e22ce', fontWeight: 800, display: 'block' }}>Total caja esperada</span>
+                      <strong style={{ fontSize: '1rem', color: '#7e22ce', fontWeight: 900 }}>
+                        RD$ {(registerSummary?.montoEstimadoEnCaja || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowDetailedBreakdown(!showDetailedBreakdown)}
+                      style={{ background: 'transparent', border: 'none', color: '#7e22ce', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      {showDetailedBreakdown ? 'Ocultar desglose ▲' : 'Ver desglose detallado ∨'}
+                    </button>
+                  </div>
+
+                  {showDetailedBreakdown && (
+                    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed #d8b4fe', display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.75rem', color: '#475569' }}>
+                      <div>💵 Monto Inicial de Apertura: <strong>RD$ {(registerSummary?.montoInicial || activeRegister.monto_inicial || 1000).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                      <div>🛒 Total Ventas en Efectivo: <strong>+ RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                      <div>📥 Entradas Adicionales de Caja: <strong>+ RD$ {(registerSummary?.entradasTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                      <div>💸 Gastos Imprevistos en Efectivo: <strong>- RD$ {(registerSummary?.gastosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                      <div>📤 Retiros de Efectivo / Sangrías: <strong>- RD$ {(registerSummary?.retirosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+
+                {/* SECTION 3: ARQUEO DE CAJA */}
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', background: '#ffffff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#f5f3ff', color: '#6d28d9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
+                      🛡️
+                    </div>
+                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>
+                      Arqueo de caja
+                    </h4>
+                  </div>
+                  <p style={{ margin: '0 0 1rem 0', fontSize: '0.75rem', color: '#64748b' }}>
+                    Ingresa el efectivo contado para verificar la diferencia.
+                  </p>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.3fr 1.1fr', gap: '1rem', alignItems: 'center' }}>
+                    {/* EFECTIVO ESPERADO */}
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '0.85rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, display: 'block' }}>Efectivo esperado</span>
+                        <strong style={{ fontSize: '1.05rem', color: '#0f172a', fontWeight: 900 }}>
+                          RD$ {(registerSummary?.montoEstimadoEnCaja || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+                        🧮
+                      </div>
+                    </div>
+
+                    {/* EFECTIVO CONTADO INPUT */}
+                    <div style={{ background: '#ffffff', border: '1.5px solid #cbd5e1', borderRadius: '14px', padding: '0.65rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b' }}>RD$</span>
+                      <input
+                        type="number"
+                        placeholder="0.00"
+                        value={closeRegisterAmount}
+                        onChange={(e) => setCloseRegisterAmount(e.target.value)}
+                        style={{ width: '100%', border: 'none', outline: 'none', fontSize: '1.15rem', fontWeight: 900, textAlign: 'right', color: '#0f172a', background: 'transparent' }}
+                      />
+                    </div>
+
+                    {/* DIFERENCIA */}
+                    {(() => {
+                      const declared = parseFloat(closeRegisterAmount) || 0;
+                      const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+                      const diff = closeRegisterAmount === '' ? 0 : declared - expected;
+                      const isSquare = Math.abs(diff) < 0.01;
+                      return (
+                        <div style={{ background: isSquare ? '#f0fdf4' : '#fef2f2', border: `1px solid ${isSquare ? '#bbf7d0' : '#fca5a5'}`, borderRadius: '14px', padding: '0.85rem 1rem' }}>
+                          <span style={{ fontSize: '0.7rem', color: isSquare ? '#166534' : '#991b1b', fontWeight: 700, display: 'block' }}>Diferencia</span>
+                          <strong style={{ fontSize: '1.05rem', color: isSquare ? '#15803d' : '#dc2626', fontWeight: 900, display: 'block' }}>
+                            RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          </strong>
+                          <span style={{ fontSize: '0.675rem', fontWeight: 800, color: isSquare ? '#15803d' : '#dc2626', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '2px' }}>
+                            {isSquare ? '✔ Caja cuadrada' : '⚠ Descuadre de caja'}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px', padding: '0.65rem 0.85rem', marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem', color: '#0369a1', fontWeight: 600 }}>
+                    <span>ℹ</span>
+                    <span>Si la diferencia es distinta de 0, deberás indicar el motivo antes de cerrar la caja.</span>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* TAB 2: REGISTRAR MOVIMIENTO */}
+            {movementActiveTab === 'nuevo' && (
+              <form onSubmit={handleSaveManualMovement} style={{ padding: '0.5rem 0' }}>
+                <h4 style={{ margin: '0 0 0.85rem', fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>
+                  📷 Registrar movimiento manual de caja
+                </h4>
+
+                <div style={{ marginBottom: '0.875rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                    Tipo de movimiento:
+                  </label>
+                  <select
+                    value={newMovementType}
+                    onChange={(e) => setNewMovementType(e.target.value)}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700, fontSize: '0.85rem' }}
+                  >
+                    <option value="Gasto_Imprevisto">💸 Gasto imprevisto (Salida de dinero)</option>
+                    <option value="Retiro_Efectivo">📤 Retiro de efectivo / Sangría (Salida de caja)</option>
+                    <option value="Entrada_Adicional">📥 Entrada adicional (Ingreso a caja)</option>
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: '0.875rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                    Monto (RD$):
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    value={newMovementAmount}
+                    onChange={(e) => setNewMovementAmount(e.target.value)}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 800, fontSize: '1.05rem' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                    Observaciones / Concepto:
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Ej: Compra de insumos de limpieza de emergencia..."
+                    value={newMovementConcept}
+                    onChange={(e) => setNewMovementConcept(e.target.value)}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{ width: '100%', padding: '0.85rem', borderRadius: '12px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer' }}
+                >
+                  💾 Guardar movimiento en caja
+                </button>
+              </form>
+            )}
+
+
 
             {/* FOOTER ACTIONS */}
-            <div style={{ marginTop: '1.25rem', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '0.75rem' }}>
-              <button
-                onClick={() => setShowRegisterDetailsModal(false)}
-                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
-              >
-                Cerrar Ventana
-              </button>
-              <button
-                onClick={() => {
-                  setShowRegisterDetailsModal(false);
-                  setShowConfirmCloseModal(true);
-                }}
-                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#dc2626', color: '#ffffff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
-              >
-                <LockIcon size={16} />
-                <span>Cerrar Caja de Jornada</span>
-              </button>
+            <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowRegisterDetailsModal(false)}
+                  style={{ width: '180px', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#334155', cursor: 'pointer', fontSize: '0.875rem' }}
+                >
+                  Cerrar ventana
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseCashRegister}
+                  disabled={loading || closeRegisterAmount === ''}
+                  style={{
+                    flex: 1,
+                    padding: '0.85rem 1.25rem',
+                    borderRadius: '12px',
+                    border: 'none',
+                    background: 'linear-gradient(to right, #be185d, #7c3aed)',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: '0.9rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    boxShadow: '0 4px 14px rgba(190, 24, 93, 0.35)',
+                    opacity: (loading || closeRegisterAmount === '') ? 0.6 : 1
+                  }}
+                >
+                  <LockIcon size={18} />
+                  <span>Cerrar caja de jornada</span>
+                </button>
+              </div>
+              <span style={{ fontSize: '0.725rem', color: '#64748b', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontWeight: 500 }}>
+                🔒 Una vez cerrada, esta jornada no podrá recibir nuevos movimientos.
+              </span>
             </div>
+
           </div>
         </div>
       )}
@@ -2913,7 +4012,7 @@ const VisitRecorder = () => {
                 Código enviado al correo registrado:
               </span>
               <strong style={{ fontSize: '0.85rem', color: '#be185d', wordBreak: 'break-all' }}>
-                ✉️ {clientFound?.email || 'melissa_rpt@hotmail.com'}
+                ✉️ {otpSentEmail || clientFound?.email || selectedTicket?.client_email || '(Sin correo registrado)'}
               </strong>
             </div>
 
@@ -2995,6 +4094,470 @@ const VisitRecorder = () => {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: PENDING TICKETS IN QUEUE ================= */}
+      {showPendingTicketsModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.25rem' }}>
+          <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '780px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            
+            {/* MODAL HEADER */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{ width: '38px', height: '38px', borderRadius: '12px', background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 800 }}>
+                  🎫
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a' }}>
+                      Tickets Pendientes en Atención
+                    </h3>
+                    <span style={{ background: '#be185d', color: '#ffffff', fontSize: '0.725rem', fontWeight: 900, padding: '2px 8px', borderRadius: '20px' }}>
+                      {pendingTickets.length} {pendingTickets.length === 1 ? 'ticket' : 'tickets'}
+                    </span>
+                  </div>
+                  <p style={{ margin: '0.15rem 0 0', fontSize: '0.775rem', color: '#64748b' }}>
+                    Selecciona una atención en curso para abrir su factura o inicia una nueva
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPendingTicketsModal(false)}
+                style={{ background: '#e2e8f0', border: 'none', color: '#64748b', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontWeight: 800, fontSize: '0.9rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* ACTION BAR INSIDE MODAL */}
+            <div style={{ padding: '0.75rem 1.5rem', background: '#ffffff', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  handleStartBlankTicket();
+                  setShowPendingTicketsModal(false);
+                }}
+                style={{ background: '#0f172a', color: '#ffffff', border: 'none', padding: '0.5rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <span>+ Factura Directa / En Blanco</span>
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={fetchPendingTickets}
+                  style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '0.5rem 0.85rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                >
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                  <span>Refrescar Lista</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SEARCH INPUT BAR INSIDE MODAL */}
+            <div style={{ padding: '0.65rem 1.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                <input
+                  type="text"
+                  placeholder="🔍 Escribe el # de ticket (ej: SD-0310) o nombre de cliente..."
+                  value={ticketSearchTerm}
+                  onChange={(e) => setTicketSearchTerm(e.target.value)}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '0.6rem 2.2rem 0.6rem 2.25rem',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    outline: 'none',
+                    background: '#ffffff',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                {ticketSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setTicketSearchTerm('')}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: '#cbd5e1', border: 'none', color: '#475569', borderRadius: '50%', width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800 }}
+                    title="Limpiar búsqueda"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* MODAL BODY (TICKETS LIST GRID) */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
+              {(() => {
+                const searchLower = ticketSearchTerm.toLowerCase().trim();
+                const searchDigits = searchLower.replace(/\D/g, '');
+
+                const filteredTickets = pendingTickets.filter(t => {
+                  if (!searchLower) return true;
+                  const tNum = (t.ticket_number || `SD-${String(t.id).slice(-4)}`).toLowerCase();
+                  const cName = (t.client_name || '').toLowerCase();
+                  const tId = String(t.id || '').toLowerCase();
+
+                  return (
+                    tNum.includes(searchLower) ||
+                    cName.includes(searchLower) ||
+                    tId.includes(searchLower) ||
+                    (searchDigits.length > 0 && tNum.includes(searchDigits))
+                  );
+                });
+
+                if (pendingTickets.length === 0) {
+                  return (
+                    <div style={{ background: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '2.5rem 1.5rem', textAlign: 'center', color: '#64748b' }}>
+                      <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>✨</div>
+                      <h4 style={{ margin: '0 0 0.35rem', color: '#1e293b', fontWeight: 800, fontSize: '1rem' }}>No hay tickets en espera</h4>
+                      <p style={{ margin: 0, fontSize: '0.825rem', color: '#64748b' }}>
+                        Todas las atenciones de la sucursal se encuentran facturadas y cerradas.
+                      </p>
+                    </div>
+                  );
+                }
+
+                if (filteredTickets.length === 0) {
+                  return (
+                    <div style={{ background: '#ffffff', border: '2px dashed #fca5a5', borderRadius: '16px', padding: '2rem 1.5rem', textAlign: 'center', color: '#991b1b' }}>
+                      <div style={{ fontSize: '2.2rem', marginBottom: '0.35rem' }}>🔍</div>
+                      <h4 style={{ margin: '0 0 0.35rem', fontWeight: 800, fontSize: '0.95rem' }}>No se encontró ningún ticket</h4>
+                      <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#7f1d1d' }}>
+                        No hay coincidencias para "{ticketSearchTerm}"
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTicketSearchTerm('')}
+                        style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.775rem', fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        Limpiar búsqueda
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.85rem' }}>
+                    {filteredTickets.map((t) => {
+                      const isSelected = selectedTicket?.id === t.id;
+                      let totalAmt = Number(t.total || 0);
+
+                      return (
+                        <div
+                          key={t.id}
+                          onClick={() => {
+                            handleSelectTicket(t);
+                            setShowPendingTicketsModal(false);
+                          }}
+                          style={{
+                            background: isSelected ? 'linear-gradient(135deg, #fff1f2, #ffffff)' : '#ffffff',
+                            border: `1.5px solid ${isSelected ? '#be185d' : '#e2e8f0'}`,
+                            borderRadius: '16px',
+                            padding: '0.9rem',
+                            cursor: 'pointer',
+                            boxShadow: isSelected ? '0 4px 14px rgba(190,24,93,0.15)' : '0 2px 6px rgba(0,0,0,0.03)',
+                            transition: 'all 0.15s ease',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.5rem'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 900, color: isSelected ? '#be185d' : '#0f172a' }}>
+                              🎫 {t.ticket_number || `SD-${String(t.id).slice(-4)}`}
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <span style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '1px 6px', borderRadius: '6px', fontSize: '0.625rem', fontWeight: 800 }}>
+                                En Atención
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDiscardTicket(e, t.id);
+                                }}
+                                style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '2px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}
+                                title="Descartar ticket"
+                              >
+                                <XCircle size={15} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            👤 {t.client_name || 'Invitado / General'}
+                          </p>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.725rem', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '0.45rem', marginTop: '0.2rem' }}>
+                            <span>🕒 {new Date(t.visited_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <strong style={{ color: totalAmt > 0 ? '#15803d' : '#be185d', fontWeight: 900, fontSize: '0.825rem' }}>
+                              {totalAmt > 0 ? `RD$ ${totalAmt.toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : 'En proceso'}
+                            </strong>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div style={{ padding: '0.85rem 1.5rem', background: '#ffffff', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={() => setShowPendingTicketsModal(false)}
+                style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '0.5rem 1.25rem', borderRadius: '10px', fontSize: '0.825rem', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: PLAN DETAILS MODAL ================= */}
+      {showPlanDetailsModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.25rem' }}>
+          <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            
+            {/* MODAL HEADER */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#faf5ff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: 'radial-gradient(circle, #f5d0fe 0%, #fae8ff 100%)', padding: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <img 
+                    src={getClientAvatar(clientFound)}
+                    alt="Avatar"
+                    style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                  />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                    {clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente'}
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', color: '#9333ea', fontWeight: 700 }}>
+                    ⭐ Plan Beauty Activo
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPlanDetailsModal(false)}
+                style={{ background: '#f1f5f9', border: 'none', color: '#64748b', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontWeight: 800, fontSize: '0.9rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* MODAL BODY */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              
+              {/* HIGHLIGHT STAT CARD */}
+              <div style={{ background: '#faf5ff', border: '1.5px solid #f3e8ff', borderRadius: '18px', padding: '1.25rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '2.8rem', fontWeight: 900, color: '#9333ea', lineHeight: 1 }}>
+                  {getBenefitsCount()}
+                </span>
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#6b7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                  Beneficios Disponibles de 4 en Ciclo
+                </span>
+                <span style={{ fontSize: '0.775rem', color: '#64748b', marginTop: '0.2rem' }}>
+                  Próxima fecha de renovación: <strong style={{ color: '#0f172a' }}>{getRenewalDateText()}</strong>
+                </span>
+              </div>
+
+              {/* CLIENT DETAILS INFO */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.725rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Datos del Titular
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.825rem' }}>
+                  <div>
+                    <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Cédula / Identificación:</span>
+                    <strong style={{ color: '#0f172a' }}>{clientFound?.cedula || 'N/A'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Teléfono:</span>
+                    <strong style={{ color: '#0f172a' }}>{clientFound?.telefono || 'N/A'}</strong>
+                  </div>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <span style={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>Correo electrónico:</span>
+                    <strong style={{ color: '#0f172a' }}>{clientFound?.email || 'N/A'}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* INCLUDED SERVICES */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Servicios Incluidos en su Membresía
+                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {['Lavado y Secado Profesional', 'Tratamiento Hidratante', 'Acceso a Tarifas Exclusivas'].map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#ffffff', border: '1px solid #f1f5f9', padding: '0.6rem 0.85rem', borderRadius: '10px' }}>
+                      <CheckCircle2 size={16} color="#16a34a" />
+                      <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#334155' }}>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  addPlanWashToTicket();
+                  setShowPlanDetailsModal(false);
+                }}
+                style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <span>+ Canjear Lavado del Plan</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPlanDetailsModal(false)}
+                style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '0.65rem 1.25rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: SMART RECOMMENDATIONS MODAL ================= */}
+      {showRecommendationsModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.25rem' }}>
+          <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            
+            {/* MODAL HEADER */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#faf5ff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{ width: '38px', height: '38px', borderRadius: '12px', background: '#f3e8ff', color: '#9333ea', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                    Recomendaciones Personalizadas
+                  </h3>
+                  <p style={{ margin: '0.15rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                    Basado en las preferencias y consumos de {clientFound?.nombre || clientFound?.name || 'Cliente'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowRecommendationsModal(false)}
+                style={{ background: '#f1f5f9', border: 'none', color: '#64748b', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontWeight: 800, fontSize: '0.9rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* MODAL BODY */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {getSmartRecommendations().map((rec, idx) => (
+                <div 
+                  key={rec.id || idx}
+                  style={{
+                    background: '#ffffff',
+                    border: '1.5px solid #f1f5f9',
+                    borderRadius: '16px',
+                    padding: '0.9rem 1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '0.75rem',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.02)',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <strong style={{ color: '#0f172a', fontSize: '0.9rem' }}>{rec.nombre}</strong>
+                      <span style={{ background: '#fdf4ff', color: '#9333ea', fontSize: '0.675rem', fontWeight: 700, padding: '2px 7px', borderRadius: '6px' }}>
+                        {rec.tiempo || 'Recomendado'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#be185d', marginTop: '0.2rem', display: 'block' }}>
+                      RD$ {(rec.precio || 600).toLocaleString('es-DO')}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      addServiceToLineItems(rec);
+                      setShowRecommendationsModal(false);
+                    }}
+                    style={{
+                      background: '#7c3aed',
+                      color: '#ffffff',
+                      border: 'none',
+                      padding: '0.5rem 0.95rem',
+                      borderRadius: '10px',
+                      fontSize: '0.775rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      boxShadow: '0 2px 6px rgba(124, 58, 237, 0.25)',
+                      flexShrink: 0
+                    }}
+                  >
+                    <Plus size={14} />
+                    <span>+ Agregar</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div style={{ padding: '0.85rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={() => setShowRecommendationsModal(false)}
+                style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '0.5rem 1.25rem', borderRadius: '10px', fontSize: '0.825rem', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+              >
+                Cerrar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: DIGITAL CONTRACT ONBOARDING ================= */}
+      {showContractModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1040, padding: '1.25rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '1050px', maxHeight: '92vh', borderRadius: '24px', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', padding: '2rem', boxSizing: 'border-box', position: 'relative' }}>
+            <DigitalContract
+              initialClient={clientFound}
+              isModal={true}
+              onClose={() => setShowContractModal(false)}
+              onContractCreated={async () => {
+                setShowContractModal(false);
+                if (clientFound) {
+                  await loadClientPlanData(clientFound.id, clientFound.nombre || clientFound.name);
+                }
+              }}
+            />
           </div>
         </div>
       )}

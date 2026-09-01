@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Users, UserX, Calendar, CreditCard, Filter, ChevronRight, 
-  MapPin, Clock, ArrowDown, ArrowUp, BarChart2, List, Banknote
+  MapPin, Clock, ArrowDown, ArrowUp, BarChart2, List, Banknote, Receipt
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import InvoiceHistory from './InvoiceHistory';
 
 const ServiceAnalytics = () => {
   const { t } = useTranslation();
@@ -53,6 +54,7 @@ const ServiceAnalytics = () => {
 
   const reportMenu = [
     { id: 'sales', label: 'Ventas Diarias', icon: DollarSign, color: '#10b981' },
+    { id: 'invoices', label: 'Facturas & Ventas', icon: Receipt, color: '#be185d' },
     { id: 'cash', label: 'Pagos en Efectivo', icon: Banknote, color: '#059669' },
     { id: 'commissions', label: 'Comisiones Colaboradores', icon: Users, color: '#ec4899' },
     { id: 'clients', label: 'Estado de Clientes', icon: Users, color: '#3b82f6' },
@@ -77,13 +79,30 @@ const ServiceAnalytics = () => {
   };
 
   const renderActiveReport = () => {
-    if (!reports) return null;
+    if (!reports && activeReport !== 'invoices') return null;
 
     switch (activeReport) {
+      case 'invoices':
+        return (
+          <div className="report-view" style={{ padding: 0 }}>
+            <InvoiceHistory />
+          </div>
+        );
+
       case 'sales':
         return (
           <div className="report-view">
-            <h3 style={{ marginBottom: '1.5rem', fontWeight: 800 }}>Ventas Diarias ({startDate} al {endDate})</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontWeight: 800 }}>Ventas Diarias ({startDate} al {endDate})</h3>
+              <button
+                type="button"
+                onClick={() => setActiveReport('invoices')}
+                style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(190,24,93,0.25)' }}
+              >
+                <Receipt size={15} />
+                <span>Ver Registro de Facturas</span>
+              </button>
+            </div>
             
             {/* New Prominent Indicator */}
             <div style={{ 
@@ -233,7 +252,17 @@ const ServiceAnalytics = () => {
         const totalPaymentSum = (reports.paymentBreakdown || []).reduce((acc, curr) => acc + Number(curr.total || 0), 0);
         return (
           <div className="report-view">
-            <h3 style={{ marginBottom: '1.5rem', fontWeight: 800 }}>Desglose de Pagos por Método ({startDate} al {endDate})</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <h3 style={{ margin: 0, fontWeight: 800 }}>Desglose de Pagos por Método ({startDate} al {endDate})</h3>
+              <button
+                type="button"
+                onClick={() => setActiveReport('invoices')}
+                style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(190,24,93,0.25)' }}
+              >
+                <Receipt size={15} />
+                <span>Ver Registro de Facturas</span>
+              </button>
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {reports.paymentBreakdown && reports.paymentBreakdown.length > 0 ? (
                 reports.paymentBreakdown.map((pay, idx) => {

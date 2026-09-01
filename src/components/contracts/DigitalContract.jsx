@@ -7,6 +7,7 @@ import { dataService } from '../../utils/dataService';
 import { getCardNetErrorMessage } from '../../utils/cardnetErrors';
 import { loadCardNetScript } from '../../utils/cardnetScriptLoader';
 import { Search, ShieldCheck, Printer, FileText, Download, CheckCircle, AlertCircle, X, Camera, Smartphone, Info, UserCheck, User, FilePlus, Archive } from 'lucide-react';
+import ClientRegistration from '../clients/ClientRegistration';
 
 // Add Google Font for signature
 if (typeof document !== 'undefined') {
@@ -35,7 +36,7 @@ const parseUA = (ua) => {
   return `${os} - ${browser}`;
 };
 
-const DigitalContract = () => {
+const DigitalContract = ({ initialClient = null, isModal = false, onContractCreated = null, onClose = null }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -44,18 +45,18 @@ const DigitalContract = () => {
 
   // Permisos: Solo Admin o quienes tengan view_contracts
   const isAdmin = user?.role === 'admin' || user?.role_name === 'Administrador';
-  const hasAccess = isAdmin || (user?.permissions && user?.permissions.view_contracts);
+  const hasAccess = isAdmin || (user?.permissions && user?.permissions.view_contracts) || isModal;
 
   useEffect(() => {
-    if (!hasAccess) {
+    if (!hasAccess && !isModal) {
       navigate('/');
     }
-  }, [hasAccess, navigate]);
+  }, [hasAccess, navigate, isModal]);
 
-  if (!hasAccess) return null;
+  if (!hasAccess && !isModal) return null;
   const [step, setStep] = useState(0); 
   const [activeTab, setActiveTab] = useState('new'); // 'new' or 'archive'
-  const [client, setClient] = useState(null);
+  const [client, setClient] = useState(initialClient || null);
   const [plans, setPlans] = useState([]);
   const [allContracts, setAllContracts] = useState([]);
   const [filteredContracts, setFilteredContracts] = useState([]);
@@ -74,6 +75,17 @@ const DigitalContract = () => {
   const [savedToken, setSavedToken] = useState(null);
   const [idFront, setIdFront] = useState(null);
   const [selfie, setSelfie] = useState(null);
+  const [isCardNetActive, setIsCardNetActive] = useState(false);
+
+  // Client registration & edit form state
+  const [clientFormData, setClientFormData] = useState({
+    nombre: '',
+    cedula: '',
+    telefono: '',
+    email: '',
+    direccion: ''
+  });
+  const [savingClientData, setSavingClientData] = useState(false);
 
   // Autocomplete search suggestions state
   const [allClients, setAllClients] = useState([]);
@@ -120,8 +132,13 @@ const DigitalContract = () => {
       setAllContracts(enriched);
       setFilteredContracts(enriched);
 
-      // Auto-search if cedar was passed from ClientProfile
-      if (location.state?.clientCedula) {
+      // Auto-search if initialClient or cedula was passed
+      if (initialClient) {
+        setClient(initialClient);
+        setSearchCedula(initialClient.cedula || initialClient.nombre || initialClient.name || '');
+        const available = p.filter(pl => !(initialClient.active_plan_ids || []).includes(pl.id.toString()));
+        if (available.length > 0) setSelectedPlanId(available[0].id);
+      } else if (location.state?.clientCedula) {
         setSearchCedula(location.state.clientCedula);
         const found = await dataService.findClientByCedula(location.state.clientCedula);
         if (found) {
@@ -133,7 +150,33 @@ const DigitalContract = () => {
       }
     };
     load();
-  }, [location.state]);
+  }, [location.state, initialClient]);
+
+  useEffect(() => {
+    if (initialClient) {
+      setClient(initialClient);
+      setSearchCedula(initialClient.cedula || initialClient.nombre || initialClient.name || '');
+      setClientFormData({
+        nombre: initialClient.nombre || initialClient.name || '',
+        cedula: initialClient.cedula || '',
+        telefono: initialClient.telefono || '',
+        email: initialClient.email || '',
+        direccion: initialClient.direccion || ''
+      });
+    }
+  }, [initialClient]);
+
+  useEffect(() => {
+    if (client) {
+      setClientFormData({
+        nombre: client.nombre || client.name || '',
+        cedula: client.cedula || '',
+        telefono: client.telefono || '',
+        email: client.email || '',
+        direccion: client.direccion || ''
+      });
+    }
+  }, [client]);
 
   const [signature, setSignature] = useState('');
 
@@ -184,7 +227,7 @@ const DigitalContract = () => {
   const handleFinish = async () => {
     if (!client?.id) return showNotification('Debes buscar un cliente primero.', 'error');
     if (!selectedPlanId) return showNotification('Debes seleccionar un plan.', 'error');
-    await dataService.saveContract({
+    const res = await dataService.saveContract({
       clientId: client.id,
       planId: selectedPlanId,
       signature_hash: signature || client.nombre,
@@ -194,9 +237,60 @@ const DigitalContract = () => {
       deviceAgent: navigator.userAgent
     });
     showNotification(t('contract.alert.done'), 'success');
+    if (onContractCreated) {
+      onContractCreated(res);
+    }
+    if (isModal && onClose) {
+      onClose();
+      return;
+    }
     setStep(0);
     setClient(null);
     setSearchCedula('');
+  };
+
+  const handleSaveClientAndContinue = async () => {
+    if (!clientFormData.nombre.trim()) {
+      showNotification('El nombre del cliente es obligatorio', 'error');
+      return;
+    }
+    if (!clientFormData.cedula.trim()) {
+      showNotification('El número de Cédula o Identificación es obligatorio para el contrato de membresía', 'error');
+      return;
+    }
+
+    setSavingClientData(true);
+    try {
+      let updated = null;
+      if (client && client.id) {
+        updated = await dataService.updateClient(client.id, {
+          ...client,
+          nombre: clientFormData.nombre,
+          cedula: clientFormData.cedula,
+          telefono: clientFormData.telefono,
+          email: clientFormData.email,
+          direccion: clientFormData.direccion
+        });
+      } else {
+        updated = await dataService.addClient({
+          nombre: clientFormData.nombre,
+          cedula: clientFormData.cedula,
+          telefono: clientFormData.telefono,
+          email: clientFormData.email,
+          direccion: clientFormData.direccion
+        });
+      }
+      const finalClient = updated || { ...client, ...clientFormData };
+      setClient(finalClient);
+      showNotification('Datos del cliente guardados exitosamente', 'success');
+      setStep(1);
+    } catch (err) {
+      console.error('Error guardando datos del cliente:', err);
+      setClient(prev => ({ ...prev, ...clientFormData }));
+      setStep(1);
+    } finally {
+      setSavingClientData(false);
+    }
   };
 
   const handleBiometricsContinue = () => {
@@ -232,6 +326,13 @@ const DigitalContract = () => {
         }
 
         showNotification("¡Suscripción y Pago Recurrente activados con éxito!", 'success');
+        if (onContractCreated) {
+          onContractCreated(res);
+        }
+        if (isModal && onClose) {
+          onClose();
+          return;
+        }
         setStep(0);
         setClient(null);
         setSearchCedula('');
@@ -242,7 +343,6 @@ const DigitalContract = () => {
         showNotification("Error al activar contrato: " + e.message, 'error');
         setSavedToken(null);
         setSignature('');
-        // El cliente tendrá que registrar otra tarjeta o reintentar
     }
   };
 
@@ -268,6 +368,7 @@ const DigitalContract = () => {
                 const originalClose = window.PWCheckout.Iframe.Close;
                 window.PWCheckout.Iframe.Close = function () {
                     console.log("[CardNet Parche] Intentando cerrar iframe...");
+                    setIsCardNetActive(false);
                     if (!document.getElementById(window.PWCheckout.Iframe.frameId)) {
                         console.warn("[CardNet Parche] El Iframe ya no existe, ignorando cierre para evitar crash.");
                         return;
@@ -284,6 +385,7 @@ const DigitalContract = () => {
 
         // 3. Configurar Evento
         window.PWCheckout.Bind("tokenCreated", (token) => {
+           setIsCardNetActive(false);
            if (token && token.TokenId) {
                setStep(4);
                setSavedToken(token.TokenId);
@@ -322,9 +424,27 @@ const DigitalContract = () => {
          let cleanCaptureUrl = capture_url;
          if (!cleanCaptureUrl.endsWith('/')) cleanCaptureUrl += '/';
          const finalUrl = `${cleanCaptureUrl}?key=${public_key}&session_id=${uniqueId}`;
+         
+         setIsCardNetActive(true);
          window.PWCheckout.OpenIframeCustom(finalUrl, uniqueId);
 
+         // Actively enforce z-index for CardNet iframe elements
+         const fixZIndex = setInterval(() => {
+           document.querySelectorAll('iframe, div').forEach(el => {
+             if (
+               (el.id && el.id.toLowerCase().includes('pwcheckout')) ||
+               (el.className && typeof el.className === 'string' && el.className.toLowerCase().includes('pwcheckout')) ||
+               (el.src && el.src.toLowerCase().includes('cardnet'))
+             ) {
+               el.style.zIndex = '2147483647';
+               el.style.position = 'fixed';
+             }
+           });
+         }, 50);
+         setTimeout(() => clearInterval(fixZIndex), 8000);
+
     } catch (err) {
+       setIsCardNetActive(false);
        console.error("CardNet Error:", err);
        const friendlyMsg = getCardNetErrorMessage(err);
        showNotification(friendlyMsg, 'error');
@@ -678,79 +798,110 @@ const DigitalContract = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-      <div className="page-header" style={{ marginBottom: '2rem' }}>
-        <div>
-          <h2 className="page-title">{t('contract.title')}</h2>
-          <p className="page-subtitle">{t('contract.subtitle')}</p>
-        </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '99px', color: 'var(--text-primary)' }}>
-            <ShieldCheck size={18} />
-            <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('contract.badge.secure')}</span>
+    <div style={{ maxWidth: '1000px', margin: '0 auto', width: '100%', opacity: isCardNetActive ? 0.05 : 1, pointerEvents: isCardNetActive ? 'none' : 'auto', transition: 'opacity 0.2s ease' }}>
+      {isModal ? (
+        /* MODAL HEADER FOR EMBEDDED CONTRATO IN BILLING */
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#fdf2f8', border: '1px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.35rem' }}>
+              💎
+            </div>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-primary)' }}>
+                Afiliación y Contrato Digital Plan Beauty
+              </h2>
+              <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                Cliente: <strong style={{ color: 'var(--text-primary)' }}>{client?.nombre || initialClient?.nombre || 'Seleccione cliente'}</strong>
+              </p>
+            </div>
           </div>
+          {onClose && (
+            <button 
+              type="button"
+              onClick={onClose} 
+              style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', transition: 'all 0.15s ease' }}
+              title="Cerrar ventana"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
-      </div>
+      ) : (
+        /* STANDARD PAGE HEADER & TABS */
+        <>
+          <div className="page-header" style={{ marginBottom: '2rem' }}>
+            <div>
+              <h2 className="page-title">{t('contract.title')}</h2>
+              <p className="page-subtitle">{t('contract.subtitle')}</p>
+            </div>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '99px', color: 'var(--text-primary)' }}>
+                <ShieldCheck size={18} />
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{t('contract.badge.secure')}</span>
+              </div>
+            </div>
+          </div>
 
-      {/* Premium Segmented Switcher Navigation Tabs */}
-      <div style={{
-        display: 'inline-flex',
-        background: 'var(--bg-canvas)',
-        padding: '6px',
-        borderRadius: '16px',
-        marginBottom: '2.5rem',
-        border: '1px solid var(--border-subtle)',
-        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
-      }}>
-        <button 
-          onClick={() => { setActiveTab('new'); setStep(0); }}
-          style={{ 
-            padding: '10px 24px',
-            background: activeTab === 'new' ? 'var(--bg-surface)' : 'transparent',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 800,
-            color: activeTab === 'new' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: activeTab === 'new' ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          <FilePlus size={16} style={{ color: activeTab === 'new' ? '#10b981' : 'var(--text-secondary)' }} />
-          Nuevo Contrato
-        </button>
-        <button 
-          onClick={() => setActiveTab('archive')}
-          style={{ 
-            padding: '10px 24px',
-            background: activeTab === 'archive' ? 'var(--bg-surface)' : 'transparent',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 800,
-            color: activeTab === 'archive' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: activeTab === 'archive' ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          <Archive size={16} style={{ color: activeTab === 'archive' ? '#3b82f6' : 'var(--text-secondary)' }} />
-          Archivo de Contratos
-        </button>
-      </div>
+          <div style={{
+            display: 'inline-flex',
+            background: 'var(--bg-canvas)',
+            padding: '6px',
+            borderRadius: '16px',
+            marginBottom: '2.5rem',
+            border: '1px solid var(--border-subtle)',
+            boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+          }}>
+            <button 
+              onClick={() => { setActiveTab('new'); setStep(0); }}
+              style={{ 
+                padding: '10px 24px',
+                background: activeTab === 'new' ? 'var(--bg-surface)' : 'transparent',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                fontWeight: 800,
+                color: activeTab === 'new' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: activeTab === 'new' ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+              }}
+            >
+              <FilePlus size={16} style={{ color: activeTab === 'new' ? '#10b981' : 'var(--text-secondary)' }} />
+              Nuevo Contrato
+            </button>
+            <button 
+              onClick={() => setActiveTab('archive')}
+              style={{ 
+                padding: '10px 24px',
+                background: activeTab === 'archive' ? 'var(--bg-surface)' : 'transparent',
+                border: 'none',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                fontWeight: 800,
+                color: activeTab === 'archive' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: activeTab === 'archive' ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+              }}
+            >
+              <Archive size={16} style={{ color: activeTab === 'archive' ? '#3b82f6' : 'var(--text-secondary)' }} />
+              Archivo de Contratos
+            </button>
+          </div>
+        </>
+      )}
 
       {activeTab === 'new' ? (
         <>
           {/* Progress Stepper */}
           {step > 0 && (
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '3rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2.5rem' }}>
               {[1, 2, 3, 4].map(i => (
                 <div 
                   key={i} 
@@ -764,239 +915,174 @@ const DigitalContract = () => {
             </div>
           )}
 
-          <div className="surface-card" style={{ padding: '3rem', border: '1px solid var(--border-subtle)', borderRadius: '24px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.04)' }}>
+          <div className="surface-card" style={{ padding: isModal ? '1.5rem' : '3rem', border: '1px solid var(--border-subtle)', borderRadius: '24px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.04)' }}>
             {step === 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div>
-              <h3 style={{ fontSize: '1.5rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-primary)', margin: '0 0 0.5rem 0' }}>
-                <User size={24} style={{ color: 'var(--text-primary)' }} />
-                {t('contract.step0.title')}
+              <h3 style={{ fontSize: '1.35rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '0.75rem', color: 'var(--text-primary)', margin: '0 0 0.35rem 0' }}>
+                <User size={22} style={{ color: 'var(--text-primary)' }} />
+                {client ? 'Cliente Seleccionado para Afiliación' : t('contract.step0.title')}
               </h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0, fontWeight: 550 }}>
-                Escribe el nombre o cédula del cliente para seleccionarlo y asignarle un plan de suscripción.
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0, fontWeight: 550 }}>
+                {client 
+                  ? 'Verifica los datos del cliente y selecciona el plan para iniciar la validación biométrica y firma.'
+                  : 'Escribe el nombre o cédula del cliente para seleccionarlo y asignarle un plan de suscripción.'}
               </p>
             </div>
             
-            <form onSubmit={handleSearch} style={{ display: 'flex', gap: '1rem', position: 'relative' }}>
-              <div style={{ flexGrow: 1, position: 'relative' }}>
-                <div className="input-wrapper" style={{ margin: 0 }}>
-                  <div className="input-icon" style={{ left: '16px' }}><Search size={18} /></div>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    placeholder="Buscar por Cédula o Nombre del cliente..." 
-                    value={searchCedula}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    onFocus={() => { if (searchCedula.trim().length > 1) setShowSuggestions(true); }}
-                    required
-                    style={{
-                      height: '52px',
-                      borderRadius: '14px',
-                      border: '1px solid var(--border-subtle)',
-                      background: 'var(--bg-canvas)',
-                      fontSize: '0.95rem',
-                      fontWeight: 600,
-                      paddingLeft: '3rem',
-                      transition: 'all 0.2s',
-                    }}
-                  />
-                </div>
-                
-                {/* Autocomplete Suggestion Dropdown */}
-                {showSuggestions && suggestions.length > 0 && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '58px',
-                    left: 0,
-                    right: 0,
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-subtle)',
-                    borderRadius: '14px',
-                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.08)',
-                    zIndex: 99,
-                    overflow: 'hidden'
-                  }}>
-                    {suggestions.map((c) => (
-                      <div 
-                        key={c.id}
-                        onClick={() => selectClientSuggestion(c)}
-                        style={{
-                          padding: '14px 20px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          borderBottom: '1px solid var(--border-subtle)',
-                          transition: 'background 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-canvas)'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <div style={{ 
-                            width: '36px', height: '36px', borderRadius: '50%', background: 'var(--text-primary)', color: 'var(--bg-surface)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.8rem'
-                          }}>
-                            {c.nombre?.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.925rem' }}>{c.nombre}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Cédula: {c.cedula}</div>
-                          </div>
-                        </div>
-                        <span style={{
-                          fontSize: '0.7rem',
-                          background: c.status === 'Cancelled' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                          color: c.status === 'Cancelled' ? '#ef4444' : '#10b981',
-                          padding: '3px 10px',
-                          borderRadius: '99px',
-                          fontWeight: 800,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em'
-                        }}>
-                          {c.status === 'Cancelled' ? 'Cancelado' : 'Activo'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button 
-                type="submit" 
-                className="btn-primary" 
-                style={{ 
-                  height: '52px',
-                  borderRadius: '14px',
-                  padding: '0 2.5rem',
-                  fontSize: '0.9rem',
-                  fontWeight: 800,
-                  boxShadow: '0 4px 12px rgba(9, 9, 11, 0.15)',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px'
-                }}
-              >
-                <Search size={16} />
-                {t('contract.step0.btn')}
-              </button>
-            </form>
-
-            {client && (
-              <div style={{ 
-                padding: '2rem', 
-                border: '1px solid var(--border-subtle)', 
-                borderRadius: '20px', 
-                background: 'var(--bg-canvas)', 
-                display: 'flex', 
-                flexDirection: 'row',
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                gap: '2rem',
-                marginTop: '1rem',
-                boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.01)',
-                transition: 'all 0.3s ease'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-                  <div style={{ 
-                    width: '56px', 
-                    height: '56px', 
-                    borderRadius: '50%', 
-                    background: 'var(--text-primary)', 
-                    color: 'var(--bg-surface)', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    fontWeight: 900,
-                    fontSize: '1.25rem',
-                    boxShadow: '0 8px 16px rgba(9, 9, 11, 0.12)'
-                  }}>
-                    {client.nombre?.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <h4 style={{ fontWeight: 900, fontSize: '1.25rem', color: 'var(--text-primary)', margin: 0 }}>{client.nombre}</h4>
-                      <span style={{
-                        fontSize: '0.65rem',
-                        background: client.status === 'Cancelled' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                        color: client.status === 'Cancelled' ? '#ef4444' : '#059669',
-                        padding: '2px 8px',
-                        borderRadius: '99px',
-                        fontWeight: 800,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
-                        {client.status === 'Cancelled' ? 'Contrato Cancelado' : 'Activo'}
-                      </span>
-                    </div>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, margin: '4px 0 0 0', display: 'flex', gap: '12px' }}>
-                      <span><strong>Cédula:</strong> {client.cedula}</span>
-                      <span>•</span>
-                      <span><strong>Teléfono:</strong> {client.telefono}</span>
-                    </p>
-                  </div>
-                </div>
-                
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Plan a Asignar</span>
-                    <select 
+            {!client && (
+              <form onSubmit={handleSearch} style={{ display: 'flex', gap: '1rem', position: 'relative' }}>
+                <div style={{ flexGrow: 1, position: 'relative' }}>
+                  <div className="input-wrapper" style={{ margin: 0 }}>
+                    <div className="input-icon" style={{ left: '16px' }}><Search size={18} /></div>
+                    <input 
+                      type="text" 
                       className="input-field" 
-                      value={selectedPlanId} 
-                      onChange={(e) => setSelectedPlanId(e.target.value)} 
-                      style={{ 
-                        width: '220px', 
-                        cursor: 'pointer',
-                        height: '46px',
-                        borderRadius: '10px',
+                      placeholder="Buscar por Cédula o Nombre del cliente..." 
+                      value={searchCedula}
+                      onChange={(e) => handleSearchChange(e.target.value)}
+                      onFocus={() => { if (searchCedula.trim().length > 1) setShowSuggestions(true); }}
+                      required
+                      style={{
+                        height: '52px',
+                        borderRadius: '14px',
                         border: '1px solid var(--border-subtle)',
-                        fontSize: '0.9rem',
-                        fontWeight: 700,
-                        padding: '0 12px',
-                        background: 'var(--bg-surface)'
+                        background: 'var(--bg-canvas)',
+                        fontSize: '0.95rem',
+                        fontWeight: 600,
+                        paddingLeft: '3rem',
+                        transition: 'all 0.2s',
                       }}
-                    >
-                      <option value="" disabled>Seleccionar Plan...</option>
-                      {plans
-                        .filter(p => !(client?.active_plan_ids || []).includes(p.id.toString()))
-                        .map(p => (
-                          <option key={p.id} value={p.id}>{p.title}</option>
-                        ))
-                      }
-                    </select>
+                    />
                   </div>
-
-                  {plans.filter(p => !(client?.active_plan_ids || []).includes(p.id.toString())).length > 0 ? (
-                    <button 
-                      onClick={() => setStep(1)} 
-                      className="btn-primary" 
-                      style={{ 
-                        padding: '0 2rem', 
-                        height: '46px',
-                        alignSelf: 'flex-end',
-                        borderRadius: '10px',
-                        fontWeight: 800,
-                        boxShadow: '0 4px 12px rgba(9, 9, 11, 0.12)'
-                      }}
-                    >
-                      {t('contract.btn.continue')}
-                    </button>
-                  ) : (
+                  
+                  {/* Autocomplete Suggestion Dropdown */}
+                  {showSuggestions && suggestions.length > 0 && (
                     <div style={{
-                      alignSelf: 'flex-end',
-                      height: '46px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      background: 'rgba(239, 68, 68, 0.05)',
-                      border: '1px dashed rgba(239, 68, 68, 0.3)',
-                      borderRadius: '10px',
-                      padding: '0 1.25rem',
+                      position: 'absolute',
+                      top: '58px',
+                      left: 0,
+                      right: 0,
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: '14px',
+                      boxShadow: '0 10px 30px rgba(0, 0, 0, 0.08)',
+                      zIndex: 99,
+                      overflow: 'hidden'
                     }}>
-                      <span style={{ color: '#ef4444', fontSize: '0.8rem', fontWeight: 800 }}>Ya posee todos los planes</span>
+                      {suggestions.map((c) => (
+                        <div 
+                          key={c.id}
+                          onClick={() => selectClientSuggestion(c)}
+                          style={{
+                            padding: '14px 20px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderBottom: '1px solid var(--border-subtle)',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-canvas)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ 
+                              width: '36px', height: '36px', borderRadius: '50%', background: 'var(--text-primary)', color: 'var(--bg-surface)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.8rem'
+                            }}>
+                              {c.nombre?.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.925rem' }}>{c.nombre}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Cédula: {c.cedula}</div>
+                            </div>
+                          </div>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            background: c.status === 'Cancelled' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                            color: c.status === 'Cancelled' ? '#ef4444' : '#10b981',
+                            padding: '3px 10px',
+                            borderRadius: '99px',
+                            fontWeight: 800,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em'
+                          }}>
+                            {c.status === 'Cancelled' ? 'Cancelado' : 'Activo'}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
+                <button 
+                  type="submit" 
+                  className="btn-primary" 
+                  style={{ 
+                    height: '52px',
+                    borderRadius: '14px',
+                    padding: '0 2.5rem',
+                    fontSize: '0.9rem',
+                    fontWeight: 800,
+                    boxShadow: '0 4px 12px rgba(9, 9, 11, 0.15)',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <Search size={16} />
+                  {t('contract.step0.btn')}
+                </button>
+              </form>
+            )}
+
+            {client && (
+              <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div style={{ background: '#ffffff', padding: '1.25rem 1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 900, color: '#0f172a' }}>
+                      Selecciona el Plan Beauty para {client.nombre || client.name}
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                      Este plan será vinculado al contrato digital y la facturación recurrente.
+                    </span>
+                  </div>
+                  <select 
+                    value={selectedPlanId} 
+                    onChange={(e) => setSelectedPlanId(e.target.value)} 
+                    style={{ 
+                      minWidth: '240px', 
+                      cursor: 'pointer',
+                      height: '44px',
+                      borderRadius: '10px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '0.875rem',
+                      fontWeight: 700,
+                      padding: '0 12px',
+                      background: '#ffffff'
+                    }}
+                  >
+                    <option value="" disabled>Seleccionar Plan...</option>
+                    {plans
+                      .filter(p => !(client?.active_plan_ids || []).includes(p.id.toString()))
+                      .map(p => (
+                        <option key={p.id} value={p.id}>{p.title}</option>
+                      ))
+                    }
+                  </select>
+                </div>
+
+                <ClientRegistration 
+                  initialClient={client} 
+                  onClientSaved={(savedClient) => { 
+                    setClient(savedClient); 
+                    setStep(1); 
+                  }} 
+                  submitButtonText="Guardar Datos y Continuar al Plan Beauty" 
+                  isModal={true} 
+                />
               </div>
             )}
           </div>
