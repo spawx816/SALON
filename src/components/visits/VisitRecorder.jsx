@@ -2720,36 +2720,6 @@ const VisitRecorder = () => {
                         boxSizing: 'border-box'
                       }}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.2rem', borderTop: `1px dashed ${isMissing ? '#fca5a5' : '#a7f3d0'}` }}>
-                      {isMissing ? (
-                        <>
-                          <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#dc2626' }}>
-                            ⚠️ Falta dinero por cobrar:
-                          </span>
-                          <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#dc2626' }}>
-                            RD$ {Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </>
-                      ) : hasChange ? (
-                        <>
-                          <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#047857' }}>
-                            💵 Devuelta / Cambio (RD$):
-                          </span>
-                          <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#047857' }}>
-                            RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span style={{ fontSize: '0.825rem', fontWeight: 700, color: '#047857' }}>
-                            {isExact ? '✓ Monto exacto (Sin devuelta)' : 'Devuelta / Cambio (RD$)'}
-                          </span>
-                          <span style={{ fontSize: '1.05rem', fontWeight: 900, color: '#047857' }}>
-                            RD$ 0.00
-                          </span>
-                        </>
-                      )}
-                    </div>
                   </div>
                 );
               })()
