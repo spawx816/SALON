@@ -271,6 +271,7 @@ export default function InvoiceHistory() {
         if (paymentFilter === 'Transferencia' && (breakdown.transferencia <= 0 || breakdown.displayMethod === 'Mixto')) return false;
         if (paymentFilter === 'Plan Beauty' && !breakdown.isPlanBeauty) return false;
         if (paymentFilter === 'Mixto' && breakdown.displayMethod !== 'Mixto') return false;
+        if (paymentFilter === 'Gift Card' && breakdown.displayMethod !== 'Gift Card') return false;
       }
 
       // Date filter
@@ -817,6 +818,7 @@ export default function InvoiceHistory() {
               <option value="Tarjeta">Tarjeta</option>
               <option value="Transferencia">Transferencia</option>
               <option value="Plan Beauty">Plan Beauty</option>
+              <option value="Gift Card">Gift Card</option>
               <option value="Mixto">Pago Mixto</option>
             </select>
           </div>
