@@ -197,6 +197,19 @@ export default function InvoiceHistory() {
       };
     }
 
+    // Gift Card
+    if (rawMethod.includes('gift')) {
+      return {
+        displayMethod: 'Gift Card',
+        isPlanBeauty: false,
+        efectivo: 0,
+        tarjeta: 0,
+        transferencia: 0,
+        total,
+        isVoided: false
+      };
+    }
+
     // Default to Cash
     return {
       displayMethod: 'Efectivo',
@@ -990,6 +1003,10 @@ export default function InvoiceHistory() {
                         ) : breakdown.displayMethod === 'Transferencia' ? (
                           <span style={{ background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe', padding: '2px 6px', borderRadius: '5px', fontSize: '0.65rem', fontWeight: 800 }}>
                             🏦 Transfer
+                          </span>
+                        ) : breakdown.displayMethod === 'Gift Card' ? (
+                          <span style={{ background: '#faf5ff', color: '#9333ea', border: '1px solid #e9d5ff', padding: '2px 6px', borderRadius: '5px', fontSize: '0.65rem', fontWeight: 800 }}>
+                            🎁 Gift Card
                           </span>
                         ) : (
                           <span style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', padding: '2px 6px', borderRadius: '5px', fontSize: '0.65rem', fontWeight: 800 }}>

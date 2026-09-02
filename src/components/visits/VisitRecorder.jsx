@@ -1222,22 +1222,43 @@ const VisitRecorder = () => {
 
   // Handlers for Applied Payments Multi-Tender Selection
   const handleToggleMethod = (methodName) => {
+    // If the method is already active
     const exists = appliedPayments.find(p => p.method === methodName);
     if (exists) {
       if (appliedPayments.length > 1) {
         setAppliedPayments(prev => prev.filter(p => p.method !== methodName));
       }
-    } else {
-      const remainingToCover = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
-      const newPayment = {
-        id: `pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-        method: methodName,
-        amount: remainingToCover > 0 ? remainingToCover.toString() : (finalTotalAmount > 0 ? finalTotalAmount.toString() : '0'),
-        giftCardCode: '',
-        giftCardInfo: null
-      };
-      setAppliedPayments(prev => [...prev, newPayment]);
+      return;
     }
+
+    // If currently only 1 method is active and its amount covers full total:
+    // Simply switch to the new selected method!
+    if (appliedPayments.length === 1) {
+      const currentAmt = parseFloat(appliedPayments[0].amount) || 0;
+      if (currentAmt >= finalTotalAmount || currentAmt === 0) {
+        setAppliedPayments([
+          {
+            id: `pay-${Date.now()}`,
+            method: methodName,
+            amount: finalTotalAmount > 0 ? finalTotalAmount.toString() : '0',
+            giftCardCode: '',
+            giftCardInfo: null
+          }
+        ]);
+        return;
+      }
+    }
+
+    // Otherwise, add the new method with the remaining pending amount
+    const remainingToCover = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
+    const newPayment = {
+      id: `pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      method: methodName,
+      amount: remainingToCover > 0 ? remainingToCover.toString() : '0',
+      giftCardCode: '',
+      giftCardInfo: null
+    };
+    setAppliedPayments(prev => [...prev, newPayment]);
   };
 
   const handleAddAppliedPayment = handleToggleMethod;
