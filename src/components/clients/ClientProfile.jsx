@@ -1862,26 +1862,38 @@ const ClientProfile = () => {
             </div>
             
             <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-               <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.35rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                 <button 
-                  onClick={() => setStatusFilter('all')}
-                  style={{ padding: '0.4rem 1.2rem', borderRadius: '8px', border: 'none', background: statusFilter === 'all' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'all' ? '#0f172a' : '#64748b', boxShadow: statusFilter === 'all' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
-                 >
-                   Todos
-                 </button>
-                 <button 
-                  onClick={() => setStatusFilter('active')}
-                  style={{ padding: '0.4rem 1.2rem', borderRadius: '8px', border: 'none', background: statusFilter === 'active' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'active' ? '#10b981' : '#64748b', boxShadow: statusFilter === 'active' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
-                 >
-                   Activos
-                 </button>
-                 <button 
-                  onClick={() => setStatusFilter('inactive')}
-                  style={{ padding: '0.4rem 1.2rem', borderRadius: '8px', border: 'none', background: statusFilter === 'inactive' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'inactive' ? '#ef4444' : '#64748b', boxShadow: statusFilter === 'inactive' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
-                 >
-                   Sin Plan
-                 </button>
-               </div>
+               <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.35rem', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '0.25rem' }}>
+                  <button 
+                    onClick={() => setStatusFilter('all')}
+                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'all' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'all' ? '#0f172a' : '#64748b', boxShadow: statusFilter === 'all' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
+                  >
+                    Todos
+                  </button>
+                  <button 
+                    onClick={() => setStatusFilter('active')}
+                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'active' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'active' ? '#10b981' : '#64748b', boxShadow: statusFilter === 'active' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
+                  >
+                    Activos
+                  </button>
+                  <button 
+                    onClick={() => setStatusFilter('pending')}
+                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'pending' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'pending' ? '#d97706' : '#64748b', boxShadow: statusFilter === 'pending' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
+                  >
+                    Cobro Pendiente
+                  </button>
+                  <button 
+                    onClick={() => setStatusFilter('cancelled')}
+                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'cancelled' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'cancelled' ? '#dc2626' : '#64748b', boxShadow: statusFilter === 'cancelled' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
+                  >
+                    Cancelados
+                  </button>
+                  <button 
+                    onClick={() => setStatusFilter('inactive')}
+                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'inactive' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'inactive' ? '#64748b' : '#64748b', boxShadow: statusFilter === 'inactive' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
+                  >
+                    Sin Plan
+                  </button>
+                </div>
 
                <div className="search-input-wrapper" style={{ width: '280px', margin: 0, position: 'relative' }}>
                  <Search className="icon" size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -1895,61 +1907,133 @@ const ClientProfile = () => {
             </div>
           </div>
 
-          <div className="grid-3" style={{ gap: '1.5rem' }}>
-            {filteredList.length > 0 ? filteredList.map(c => (
-              <div key={c.id} className="surface-card client-list-card" style={{ cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }} onClick={() => selectClient(c)} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.1)'; }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)'; }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: c.planName !== 'Sin Plan' ? '#10b981' : '#cbd5e1' }}></div>
-                
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem' }}>
-                  <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#f8fafc', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0f172a', fontSize: '1.25rem', fontWeight: 800, flexShrink: 0 }}>
-                    {(c.nombre || 'U').charAt(0).toUpperCase()}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <h4 style={{ fontWeight: 800, fontSize: '1.1rem', color: '#09090b', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.nombre}>{c.nombre}</h4>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>ID: {c.cedula}</p>
-                      {c.registration_source && (
-                        <span style={{ 
-                          fontSize: '0.6rem', 
-                          fontWeight: 800, 
-                          color: c.registration_source === 'Self' ? '#10b981' : '#3b82f6',
-                          background: c.registration_source === 'Self' ? '#f0fdf4' : '#eff6ff',
-                          padding: '1px 5px',
-                          borderRadius: '4px',
-                          border: `1px solid ${c.registration_source === 'Self' ? '#bbf7d0' : '#bfdbfe'}`
-                        }}>
-                          {c.registration_source.toUpperCase()}
-                        </span>
-                      )}
+          {(() => {
+            const filteredList = allClients.filter(c => {
+              const matchesSearch = !listFilter || 
+                (c.nombre && c.nombre.toLowerCase().includes(listFilter.toLowerCase())) ||
+                (c.telefono && String(c.telefono).includes(listFilter)) ||
+                (c.cedula && String(c.cedula).includes(listFilter));
+              
+              if (!matchesSearch) return false;
+
+              const isCancelled = c.status === 'Cancelled' || c.contract_status === 'Cancelled';
+              const isPendingRetry = c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && !isCancelled);
+              const isActive = (c.status === 'Active' || c.contract_status === 'Active' || c.contract_status === 'Activo') && c.planName && c.planName !== 'Sin Plan';
+
+              if (statusFilter === 'active') return isActive;
+              if (statusFilter === 'pending') return isPendingRetry;
+              if (statusFilter === 'cancelled') return isCancelled;
+              if (statusFilter === 'inactive') return !isActive && !isPendingRetry && !isCancelled;
+              return true;
+            });
+
+            return (
+              <div className="grid-3" style={{ gap: '1.5rem' }}>
+                {filteredList.length > 0 ? filteredList.map(c => {
+                  const isCancelled = c.status === 'Cancelled' || c.contract_status === 'Cancelled';
+                  const isSuspended = c.contract_status === 'Suspended' || (c.retry_count >= 90);
+                  const isPendingRetry = c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && !isCancelled && !isSuspended);
+                  const isActive = (c.status === 'Active' || c.contract_status === 'Active' || c.contract_status === 'Activo') && c.planName && c.planName !== 'Sin Plan';
+
+                  let topBarColor = '#cbd5e1';
+                  let boxBg = '#f8fafc';
+                  let boxBorder = '#e2e8f0';
+                  let titleColor = '#64748b';
+                  let titleText = 'MEMBRESÍA';
+                  let valueColor = '#94a3b8';
+                  let valueText = 'Sin Suscripción';
+
+                  if (isCancelled) {
+                    topBarColor = '#dc2626';
+                    boxBg = '#fef2f2';
+                    boxBorder = '#fecaca';
+                    titleColor = '#dc2626';
+                    titleText = '✕ ESTADO DE MEMBRESÍA';
+                    valueColor = '#991b1b';
+                    valueText = `✕ Cancelado (${c.planName || 'Plan Beauty'})`;
+                  } else if (isSuspended) {
+                    topBarColor = '#7f1d1d';
+                    boxBg = '#fef2f2';
+                    boxBorder = '#f87171';
+                    titleColor = '#991b1b';
+                    titleText = '🛑 ESTADO DE MEMBRESÍA';
+                    valueColor = '#7f1d1d';
+                    valueText = 'Suspendido por Mora';
+                  } else if (isPendingRetry) {
+                    topBarColor = '#f59e0b';
+                    boxBg = '#fffbeb';
+                    boxBorder = '#fde68a';
+                    titleColor = '#d97706';
+                    titleText = `⚠️ COBRO PENDIENTE (${c.retry_count || 1}/90)`;
+                    valueColor = '#b45309';
+                    valueText = `Reintentando: ${c.planName || 'Plan Beauty'}`;
+                  } else if (isActive) {
+                    topBarColor = '#10b981';
+                    boxBg = '#f0fdf4';
+                    boxBorder = '#bbf7d0';
+                    titleColor = '#166534';
+                    titleText = '✓ MEMBRESÍA ACTIVA';
+                    valueColor = '#14532d';
+                    valueText = `${c.planName}`;
+                  }
+
+                  return (
+                    <div key={c.id} className="surface-card client-list-card" style={{ cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }} onClick={() => selectClient(c)} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.1)'; }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)'; }}>
+                      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: topBarColor }}></div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem' }}>
+                        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: isCancelled ? '#fee2e2' : (isPendingRetry ? '#fef3c7' : '#f8fafc'), border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isCancelled ? '#dc2626' : (isPendingRetry ? '#d97706' : '#0f172a'), fontSize: '1.25rem', fontWeight: 800, flexShrink: 0 }}>
+                          {(c.nombre || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <h4 style={{ fontWeight: 800, fontSize: '1.1rem', color: '#09090b', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.nombre}>{c.nombre}</h4>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>ID: {c.cedula}</p>
+                            {c.registration_source && (
+                              <span style={{ 
+                                fontSize: '0.6rem', 
+                                fontWeight: 800, 
+                                color: c.registration_source === 'Self' ? '#10b981' : '#3b82f6',
+                                background: c.registration_source === 'Self' ? '#f0fdf4' : '#eff6ff',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                border: `1px solid ${c.registration_source === 'Self' ? '#bbf7d0' : '#bfdbfe'}`
+                              }}>
+                                {c.registration_source.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ background: boxBg, padding: '0.85rem', borderRadius: '10px', marginBottom: '1.25rem', border: `1px solid ${boxBorder}` }}>
+                        <p style={{ fontSize: '0.65rem', color: titleColor, fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>{titleText}</p>
+                        <p style={{ fontSize: '0.9rem', fontWeight: 800, color: valueColor }}>{valueText}</p>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: '#64748b' }}>
+                          <Phone size={14} strokeWidth={2.5} style={{ color: '#94a3b8' }} /> <span style={{ fontWeight: 600 }}>{c.telefono}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: '#64748b' }}>
+                          <Mail size={14} strokeWidth={2.5} style={{ color: '#94a3b8', flexShrink: 0 }} /> <span style={{ wordBreak: 'break-all', lineHeight: 1.2, fontWeight: 600 }}>{c.email}</span>
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: '1.5rem', display: 'flex' }}>
+                        <button className="btn-primary" style={{ width: '100%', padding: '0.75rem', fontSize: '0.75rem', background: '#09090b', color: 'white', borderRadius: '10px', fontWeight: 800, transition: 'all 0.2s ease' }}>Ver Historial Completo</button>
+                      </div>
                     </div>
+                  );
+                }) : (
+                  <div className="surface-card" style={{ gridColumn: 'span 3', padding: '4rem', textAlign: 'center' }}>
+                    <Users size={48} style={{ margin: '0 auto 1.5rem', opacity: 0.2 }} />
+                    <p>No se encontraron clientes con los filtros seleccionados.</p>
                   </div>
-                </div>
-
-                <div style={{ background: c.planName !== 'Sin Plan' ? '#f0fdf4' : '#f8fafc', padding: '0.85rem', borderRadius: '10px', marginBottom: '1.25rem', border: `1px solid ${c.planName !== 'Sin Plan' ? '#bbf7d0' : '#e2e8f0'}` }}>
-                  <p style={{ fontSize: '0.65rem', color: c.planName !== 'Sin Plan' ? '#166534' : '#64748b', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>Membresía Activa</p>
-                  <p style={{ fontSize: '0.9rem', fontWeight: 800, color: c.planName !== 'Sin Plan' ? '#14532d' : '#94a3b8' }}>{c.planName}</p>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: '#64748b' }}>
-                    <Phone size={14} strokeWidth={2.5} style={{ color: '#94a3b8' }} /> <span style={{ fontWeight: 600 }}>{c.telefono}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: '#64748b' }}>
-                    <Mail size={14} strokeWidth={2.5} style={{ color: '#94a3b8', flexShrink: 0 }} /> <span style={{ wordBreak: 'break-all', lineHeight: 1.2, fontWeight: 600 }}>{c.email}</span>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '1.5rem', display: 'flex' }}>
-                  <button className="btn-primary" style={{ width: '100%', padding: '0.75rem', fontSize: '0.75rem', background: '#09090b', color: 'white', borderRadius: '10px', fontWeight: 800, transition: 'all 0.2s ease' }}>Ver Historial Completo</button>
-                </div>
+                )}
               </div>
-            )) : (
-              <div className="surface-card" style={{ gridColumn: 'span 3', padding: '4rem', textAlign: 'center' }}>
-                <Users size={48} style={{ margin: '0 auto 1.5rem', opacity: 0.2 }} />
-                <p>No se encontraron clientes con los filtros seleccionados.</p>
-              </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       )}
       {/* Card Update Modal */}

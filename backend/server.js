@@ -1452,9 +1452,30 @@ app.delete('/api/salons/:id', async (req, res) => {
 app.get('/api/clients', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT cl.id, cl.nombre, cl.telefono, cl.email, cl.cedula, cl.frecuencia, cl.salon_id, cl.created_at, p.title as planName
+      SELECT 
+        cl.id, 
+        cl.nombre, 
+        cl.telefono, 
+        cl.email, 
+        cl.cedula, 
+        cl.frecuencia, 
+        cl.salon_id, 
+        cl.status, 
+        cl.registration_source, 
+        cl.created_at, 
+        c.status as contract_status, 
+        c.retry_count,
+        p.title as planName
       FROM clients cl
-      LEFT JOIN contracts c ON (c.client_id = cl.id OR c.client_id = cl.cedula) AND (c.status = 'Active' OR c.status = 'Activo' OR c.status = 'Pending_Retry')
+      LEFT JOIN (
+        SELECT c1.*
+        FROM contracts c1
+        INNER JOIN (
+          SELECT client_id, MAX(id) as max_id
+          FROM contracts
+          GROUP BY client_id
+        ) c2 ON c1.id = c2.max_id
+      ) c ON (c.client_id = cl.id OR c.client_id = cl.cedula)
       LEFT JOIN plans p ON c.plan_id = p.id
       ORDER BY cl.nombre ASC
     `);
