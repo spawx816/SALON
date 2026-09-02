@@ -1000,15 +1000,16 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                           </div>
                           <span style={{
                             fontSize: '0.7rem',
-                            background: c.status === 'Cancelled' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                            color: c.status === 'Cancelled' ? '#ef4444' : '#10b981',
+                            background: c.status === 'Cancelled' ? 'rgba(239, 68, 68, 0.1)' : (c.status === 'Pending_Retry' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.1)'),
+                            color: c.status === 'Cancelled' ? '#ef4444' : (c.status === 'Pending_Retry' ? '#d97706' : '#10b981'),
+                            border: `1px solid ${c.status === 'Cancelled' ? '#fca5a5' : (c.status === 'Pending_Retry' ? '#fcd34d' : '#86efac')}`,
                             padding: '3px 10px',
                             borderRadius: '99px',
                             fontWeight: 800,
                             textTransform: 'uppercase',
                             letterSpacing: '0.05em'
                           }}>
-                            {c.status === 'Cancelled' ? 'Cancelado' : 'Activo'}
+                            {c.status === 'Cancelled' ? '✕ Cancelado' : (c.status === 'Pending_Retry' ? '⚠️ Cobro Pendiente' : '✓ Activo')}
                           </span>
                         </div>
                       ))}
@@ -1405,12 +1406,16 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                     <span style={{ 
                       fontSize: '0.65rem', 
                       fontWeight: 800, 
-                      padding: '0.25rem 0.6rem', 
+                      padding: '0.35rem 0.65rem', 
                       borderRadius: '6px',
-                      background: contract.status === 'Active' || contract.status === 'Activo' ? '#dcfce7' : (contract.status === 'Pending_Retry' ? '#fffbeb' : '#fee2e2'),
-                      color: contract.status === 'Active' || contract.status === 'Activo' ? '#166534' : (contract.status === 'Pending_Retry' ? '#b45309' : '#991b1b')
+                      background: contract.status === 'Active' || contract.status === 'Activo' ? '#dcfce7' : (contract.status === 'Pending_Retry' ? '#fffbeb' : (contract.status === 'Cancelled' ? '#fee2e2' : '#f1f5f9')),
+                      color: contract.status === 'Active' || contract.status === 'Activo' ? '#166534' : (contract.status === 'Pending_Retry' ? '#b45309' : (contract.status === 'Cancelled' ? '#991b1b' : '#475569')),
+                      border: `1px solid ${contract.status === 'Active' || contract.status === 'Activo' ? '#bbf7d0' : (contract.status === 'Pending_Retry' ? '#fde68a' : (contract.status === 'Cancelled' ? '#fecaca' : '#cbd5e1'))}`,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.3rem'
                     }}>
-                      {contract.status?.toUpperCase()}
+                      {contract.status === 'Active' || contract.status === 'Activo' ? '✓ ACTIVO' : (contract.status === 'Pending_Retry' ? `⚠️ REINTENTO (${contract.retry_count || 1}/90)` : (contract.status === 'Cancelled' ? '✕ CANCELADO' : contract.status?.toUpperCase()))}
                     </span>
                   </td>
                   <td style={{ padding: '1rem', textAlign: 'right' }}>

@@ -5,7 +5,7 @@ import {
   Sparkles, Scissors, CreditCard, X, Camera, User,
   Zap, Lock, Check, Calendar, ClipboardList, Bell,
   Menu, Settings, LogOut, ArrowRight, TrendingUp,
-  Eye, EyeOff
+  Eye, EyeOff, AlertCircle
 } from 'lucide-react';
 import { useTranslation } from '../../context/LanguageContext';
 import { dataService } from '../../utils/dataService';
@@ -478,7 +478,8 @@ const ClientDashboard = () => {
     </div>
   );
 
-  const isCancelled = fullClient?.status === 'Cancelled' || fullClient?.status === 'Inactivo';
+  const isCancelled = fullClient?.status === 'Cancelled' || contract?.status === 'Cancelled';
+  const isPendingRetry = !isCancelled && (contract?.status === 'Pending_Retry' || fullClient?.status === 'Inactive');
 
   const containerVariants = {
     hidden: { opacity: 0, y: 20 },
@@ -515,11 +516,11 @@ const ClientDashboard = () => {
               </div>
               <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#09090b', marginBottom: '1rem', letterSpacing: '-0.02em' }}>Plan Cancelado</h1>
               <p style={{ color: '#64748b', fontSize: '1.25rem', lineHeight: 1.6, marginBottom: '2.5rem' }}>
-                Tu contrato ha sido cancelado. Ya no tienes acceso a los beneficios de membresía ni a la generación de códigos para servicios.
+                Tu membresía ha sido cancelada. Si deseas volver a suscribirte y disfrutar de nuestros beneficios, puedes solicitar una nueva afiliación en el salón.
               </p>
               <div style={{ background: '#f8fafc', padding: '1.5rem', borderRadius: '20px', border: '1px solid #e2e8f0', marginBottom: '2.5rem' }}>
                 <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.5rem' }}>¿Necesitas ayuda?</p>
-                <p style={{ fontWeight: 700, color: '#09090b' }}>Por favor, visita el salón para reactivar tu cuenta o contratar un nuevo plan.</p>
+                <p style={{ fontWeight: 700, color: '#09090b' }}>Visita cualquiera de nuestras sucursales para reactivar tu cuenta.</p>
               </div>
               <button 
                 onClick={logout}
@@ -535,6 +536,52 @@ const ClientDashboard = () => {
 
       {/* Main Content Area */}
       <main style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        {/* Pending Retry Warning Banner */}
+        {isPendingRetry && (
+          <div style={{
+            background: 'linear-gradient(135deg, #fffbeb, #fef3c7)',
+            border: '1px solid #f59e0b',
+            borderRadius: '20px',
+            padding: '1.25rem 1.5rem',
+            marginBottom: '2rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#f59e0b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <AlertCircle size={22} />
+              </div>
+              <div>
+                <h4 style={{ margin: 0, color: '#92400e', fontSize: '1rem', fontWeight: 800 }}>
+                  Cobro Mensual Pendiente (Reintento {contract?.retry_count || 1}/90)
+                </h4>
+                <p style={{ margin: '0.25rem 0 0', color: '#b45309', fontSize: '0.85rem', fontWeight: 500 }}>
+                  Tu último cobro mensual no pudo ser procesado. Estamos reintentando a diario o puedes actualizar tu método de pago en recepción.
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setActiveTab('settings')}
+              style={{
+                background: '#d97706',
+                color: 'white',
+                border: 'none',
+                padding: '0.6rem 1.2rem',
+                borderRadius: '12px',
+                fontSize: '0.85rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                flexShrink: 0
+              }}
+            >
+              Gestionar Tarjeta
+            </button>
+          </div>
+        )}
+
         <header style={{ 
           display: 'flex', 
           flexDirection: isMobile ? 'column' : 'row',
@@ -545,7 +592,9 @@ const ClientDashboard = () => {
         }}>
           <div>
             <h1 style={{ fontSize: '2.25rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em' }}>Hola, {user.nombre} <span style={{ fontSize: '1.5rem' }}>✨</span></h1>
-            <p style={{ color: '#64748b', margin: '0.5rem 0 0', fontWeight: 500 }}>{contract ? 'Tu membresía está activa y lista.' : 'Completa tu suscripción para comenzar.'}</p>
+            <p style={{ color: '#64748b', margin: '0.5rem 0 0', fontWeight: 500 }}>
+              {isPendingRetry ? 'Tu suscripción tiene un cobro pendiente de regularización.' : (contract ? 'Tu membresía está activa y lista.' : 'Completa tu suscripción para comenzar.')}
+            </p>
           </div>
           <div style={{ display: 'flex', gap: '1rem' }}>
             <button style={{ width: '48px', height: '48px', borderRadius: '16px', background: 'white', border: '1px solid #eee', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>

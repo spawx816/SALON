@@ -163,8 +163,10 @@ const ClientProfile = () => {
     // Clear search to show the current selected one
     setSearchTerm(found.cedula);
 
-    if (found.status === 'Cancelled' || found.status === 'Inactivo') {
-      showNotification('ATENCIÓN: Este cliente tiene su contrato CANCELADO.', 'error');
+    if (found.status === 'Cancelled' || contractsFound?.some(c => c.status === 'Cancelled')) {
+      showNotification('ATENCIÓN: Este cliente tiene su contrato CANCELADO voluntariamente.', 'error');
+    } else if (found.status === 'Inactive' || (contractsFound && contractsFound.some(c => c.status === 'Pending_Retry'))) {
+      showNotification('AVISO: Cliente con cobro pendiente en reintento automático diario.', 'warning');
     }
   };
 
@@ -918,21 +920,128 @@ const ClientProfile = () => {
                       )}
                     </div>
                     
-                    <span style={{ 
-                      fontSize: '1rem', 
-                      fontWeight: 900, 
-                      padding: '0.75rem 1.5rem', 
-                      borderRadius: '12px', 
-                      background: client.status === 'Cancelled' ? '#ef4444' : (activePlans.length > 0 ? '#10b981' : '#f1f5f9'),
-                      color: (activePlans.length > 0 || client.status === 'Cancelled') ? 'white' : '#64748b',
-                      textTransform: 'uppercase',
-                      boxShadow: client.status === 'Cancelled' ? '0 10px 15px -3px rgba(239, 68, 68, 0.3)' : (activePlans.length > 0 ? '0 10px 15px -3px rgba(16, 185, 129, 0.3)' : 'none'),
-                      letterSpacing: '0.05em',
-                      display: 'inline-block',
-                      marginBottom: '1rem'
-                    }}>
-                      {client.status === 'Cancelled' ? '✕ CONTRATO CANCELADO' : (activePlans.length > 0 ? '✓ ACTIVO' : 'INACTIVO')}
-                    </span>
+                    {(() => {
+                      const isCancelled = client.status === 'Cancelled' || contract?.status === 'Cancelled';
+                      const isSuspended = contract?.status === 'Suspended' || (contract?.retry_count >= 90);
+                      const isPendingRetry = contract?.status === 'Pending_Retry' || (client.status === 'Inactive' && !isCancelled && !isSuspended);
+                      const isActive = activePlans.length > 0 && client.status === 'Active' && (contract?.status === 'Active' || contract?.status === 'Activo');
+
+                      if (isCancelled) {
+                        return (
+                          <div style={{ marginBottom: '1rem' }}>
+                            <span style={{ 
+                              fontSize: '0.9rem', 
+                              fontWeight: 900, 
+                              padding: '0.65rem 1.25rem', 
+                              borderRadius: '12px', 
+                              background: '#dc2626',
+                              color: 'white',
+                              textTransform: 'uppercase',
+                              boxShadow: '0 10px 15px -3px rgba(220, 38, 38, 0.35)',
+                              letterSpacing: '0.05em',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.5rem'
+                            }}>
+                              ✕ CONTRATO CANCELADO
+                            </span>
+                            <p style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '0.5rem', fontWeight: 700 }}>
+                              Cancelado voluntariamente con código de seguridad. Tarjeta desvinculada.
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      if (isSuspended) {
+                        return (
+                          <div style={{ marginBottom: '1rem' }}>
+                            <span style={{ 
+                              fontSize: '0.85rem', 
+                              fontWeight: 900, 
+                              padding: '0.65rem 1.25rem', 
+                              borderRadius: '12px', 
+                              background: '#7f1d1d',
+                              color: 'white',
+                              textTransform: 'uppercase',
+                              boxShadow: '0 10px 15px -3px rgba(127, 29, 29, 0.35)',
+                              letterSpacing: '0.05em',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.5rem'
+                            }}>
+                              🛑 SUSPENDIDO POR MORA (90/90)
+                            </span>
+                            <p style={{ fontSize: '0.75rem', color: '#991b1b', marginTop: '0.5rem', fontWeight: 700 }}>
+                              Se completaron los 90 reintentos automáticos sin éxito.
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      if (isPendingRetry) {
+                        return (
+                          <div style={{ marginBottom: '1rem' }}>
+                            <span style={{ 
+                              fontSize: '0.85rem', 
+                              fontWeight: 900, 
+                              padding: '0.65rem 1.25rem', 
+                              borderRadius: '12px', 
+                              background: '#d97706',
+                              color: 'white',
+                              textTransform: 'uppercase',
+                              boxShadow: '0 10px 15px -3px rgba(217, 119, 6, 0.35)',
+                              letterSpacing: '0.05em',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.5rem'
+                            }}>
+                              ⚠️ COBRO PENDIENTE ({contract?.retry_count || 1}/90)
+                            </span>
+                            <p style={{ fontSize: '0.75rem', color: '#b45309', marginTop: '0.5rem', fontWeight: 700 }}>
+                              Tarjeta declinada. Sistema reintentando a diario (Intento {contract?.retry_count || 1} de 90).
+                            </p>
+                          </div>
+                        );
+                      }
+
+                      if (isActive) {
+                        return (
+                          <span style={{ 
+                            fontSize: '1rem', 
+                            fontWeight: 900, 
+                            padding: '0.75rem 1.5rem', 
+                            borderRadius: '12px', 
+                            background: '#10b981',
+                            color: 'white',
+                            textTransform: 'uppercase',
+                            boxShadow: '0 10px 15px -3px rgba(16, 185, 129, 0.3)',
+                            letterSpacing: '0.05em',
+                            display: 'inline-block',
+                            marginBottom: '1rem'
+                          }}>
+                            ✓ ACTIVO
+                          </span>
+                        );
+                      }
+
+                      return (
+                        <span style={{ 
+                          fontSize: '0.85rem', 
+                          fontWeight: 800, 
+                          padding: '0.6rem 1.2rem', 
+                          borderRadius: '12px', 
+                          background: '#f1f5f9',
+                          color: '#64748b',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          display: 'inline-block',
+                          marginBottom: '1rem',
+                          border: '1px solid #cbd5e1'
+                        }}>
+                          ⚪ SIN SUSCRIPCIÓN ACTIVA
+                        </span>
+                      );
+                    })()}
                     
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>ID: {client.cedula}</p>
 
@@ -1076,20 +1185,44 @@ const ClientProfile = () => {
                     return (
                       <div key={plan.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         <div style={{ 
-                          background: isPromoActive ? '#f0fdf4' : (contract?.status === 'Pending_Retry' ? '#fffbeb' : '#ecfdf5'), 
-                          border: isPromoActive ? '1px solid #166534' : (contract?.status === 'Pending_Retry' ? '1px solid #f59e0b' : '1px solid #a7f3d0'), 
+                          background: isPromoActive ? '#f0fdf4' : (contract?.status === 'Pending_Retry' ? '#fffbeb' : (contract?.status === 'Cancelled' ? '#fef2f2' : '#ecfdf5')), 
+                          border: isPromoActive ? '1px solid #166534' : (contract?.status === 'Pending_Retry' ? '1px solid #f59e0b' : (contract?.status === 'Cancelled' ? '1px solid #fca5a5' : '1px solid #a7f3d0')), 
                           padding: '1rem', 
                           borderRadius: 'var(--radius-md)' 
                         }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <p style={{ fontWeight: 700, color: isPromoActive ? '#166534' : (contract?.status === 'Pending_Retry' ? '#d97706' : '#059669'), marginBottom: '0.25rem', fontSize: '0.9rem' }}>{plan.title}</p>
+                            <p style={{ fontWeight: 700, color: isPromoActive ? '#166534' : (contract?.status === 'Pending_Retry' ? '#d97706' : (contract?.status === 'Cancelled' ? '#dc2626' : '#059669')), marginBottom: '0.25rem', fontSize: '0.9rem' }}>{plan.title}</p>
                             {isPromoActive && <span style={{ fontSize: '0.6rem', background: '#166534', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '99px', fontWeight: 900 }}>PROMO ACTIVA</span>}
-                            {contract?.status === 'Pending_Retry' && <span style={{ fontSize: '0.6rem', background: '#d97706', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '99px', fontWeight: 900 }}>REINTENTO {contract.retry_count}/5</span>}
+                            {contract?.status === 'Pending_Retry' && <span style={{ fontSize: '0.65rem', background: '#d97706', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '99px', fontWeight: 900 }}>REINTENTO {contract.retry_count || 1}/90</span>}
+                            {contract?.status === 'Cancelled' && <span style={{ fontSize: '0.65rem', background: '#dc2626', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '99px', fontWeight: 900 }}>CANCELADO</span>}
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: isPromoActive ? '#166534' : (contract?.status === 'Pending_Retry' ? '#b45309' : '#059669'), fontWeight: 600 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: isPromoActive ? '#166534' : (contract?.status === 'Pending_Retry' ? '#b45309' : (contract?.status === 'Cancelled' ? '#991b1b' : '#059669')), fontWeight: 600, marginTop: '0.25rem' }}>
                             <span>{contract?.auto_billing_enabled ? 'Auto-cobro Activo' : 'Manual'}</span>
-                            <span>{isPromoActive ? `Fin Promo: ${promoExpiry.toLocaleDateString()}` : (contract?.status === 'Pending_Retry' ? 'PAGO SUSPENDIDO' : 'Contrato Activo')}</span>
+                            <span>{isPromoActive ? `Fin Promo: ${promoExpiry.toLocaleDateString()}` : (contract?.status === 'Pending_Retry' ? 'PAGO PENDIENTE (REINTENTANDO)' : (contract?.status === 'Cancelled' ? 'Contrato Cancelado' : 'Contrato Activo'))}</span>
                           </div>
+                          {contract?.status === 'Pending_Retry' && (
+                            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed #fcd34d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.7rem', color: '#92400e', fontWeight: 600 }}>¿Clienta en salón? Puedes cobrarle directamente:</span>
+                              <button 
+                                onClick={() => handleManualPayment(contract, plan)}
+                                style={{ 
+                                  background: '#059669', 
+                                  color: 'white', 
+                                  border: 'none', 
+                                  padding: '0.35rem 0.75rem', 
+                                  borderRadius: '6px', 
+                                  fontSize: '0.7rem', 
+                                  fontWeight: 800, 
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.3rem'
+                                }}
+                              >
+                                💳 Cobrar y Reactivar
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Services included in this plan */}
