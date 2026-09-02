@@ -1205,14 +1205,14 @@ const VisitRecorder = () => {
   const pendienteAmount = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
   const isFinalizeEnabled = pendienteAmount <= 0.01 && appliedPayments.length > 0 && lineItems.length > 0;
 
-  // Auto-sync single cash payment with totalAmount
+  // Initialize default single cash payment in blank so cashier types
   useEffect(() => {
     if (appliedPayments.length === 0 && finalTotalAmount > 0) {
       setAppliedPayments([
         {
           id: `pay-default-${Date.now()}`,
           method: 'Efectivo',
-          amount: finalTotalAmount.toString(),
+          amount: '',
           giftCardCode: '',
           giftCardInfo: null
         }
@@ -1231,30 +1231,26 @@ const VisitRecorder = () => {
       return;
     }
 
-    // If currently only 1 method is active and its amount covers full total:
-    // Simply switch to the new selected method!
-    if (appliedPayments.length === 1) {
-      const currentAmt = parseFloat(appliedPayments[0].amount) || 0;
-      if (currentAmt >= finalTotalAmount || currentAmt === 0) {
-        setAppliedPayments([
-          {
-            id: `pay-${Date.now()}`,
-            method: methodName,
-            amount: finalTotalAmount > 0 ? finalTotalAmount.toString() : '0',
-            giftCardCode: '',
-            giftCardInfo: null
-          }
-        ]);
-        return;
-      }
+    // If currently only 1 method is active:
+    // Switch to the new method with input starting in zero/empty so cashier enters the amount!
+    if (appliedPayments.length <= 1) {
+      setAppliedPayments([
+        {
+          id: `pay-${Date.now()}`,
+          method: methodName,
+          amount: '',
+          giftCardCode: '',
+          giftCardInfo: null
+        }
+      ]);
+      return;
     }
 
-    // Otherwise, add the new method with the remaining pending amount
-    const remainingToCover = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
+    // Otherwise, add the new method with empty input
     const newPayment = {
       id: `pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       method: methodName,
-      amount: remainingToCover > 0 ? remainingToCover.toString() : '0',
+      amount: '',
       giftCardCode: '',
       giftCardInfo: null
     };
@@ -2667,16 +2663,27 @@ const VisitRecorder = () => {
               }}>
                 Selecciona al menos un método de pago arriba.
               </div>
-            ) : appliedPayments.length === 1 && appliedPayments[0].method === 'Efectivo' ? (
-              /* SINGLE CASH PAYMENT VIEW */
+            ) : appliedPayments.length === 1 ? (
+              /* SINGLE PAYMENT VIEW FOR ANY METHOD */
               (() => {
-                const cashP = appliedPayments[0];
-                const receivedNum = parseFloat(cashP.amount) || 0;
-                const hasTyped = (cashP.amount || '').toString().trim() !== '';
+                const singleP = appliedPayments[0];
+                const isCash = singleP.method === 'Efectivo';
+                const isCard = singleP.method === 'Tarjeta';
+                const isTransfer = singleP.method === 'Transferencia';
+                const isGiftCard = singleP.method === 'Gift Card';
+
+                const labelText = isCash
+                  ? '💵 Monto recibido en Efectivo (RD$) *'
+                  : isCard
+                  ? '💳 Monto cobrado con Tarjeta (RD$) *'
+                  : isTransfer
+                  ? '🏦 Monto cobrado por Transferencia (RD$) *'
+                  : '🎁 Monto redimido Gift Card (RD$) *';
+
+                const receivedNum = parseFloat(singleP.amount) || 0;
+                const hasTyped = (singleP.amount || '').toString().trim() !== '';
                 const diff = receivedNum - finalTotalAmount;
                 const isMissing = hasTyped && diff < -0.01;
-                const isExact = hasTyped && Math.abs(diff) <= 0.01;
-                const hasChange = hasTyped && diff > 0.01;
 
                 return (
                   <div style={{
@@ -2692,11 +2699,11 @@ const VisitRecorder = () => {
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <label style={{ fontSize: '0.78rem', fontWeight: 800, color: isMissing ? '#991b1b' : '#065f46' }}>
-                        💵 Monto recibido en Efectivo (RD$) *
+                        {labelText}
                       </label>
                       <button
                         type="button"
-                        onClick={() => handleUpdatePaymentAmount(cashP.id, finalTotalAmount > 0 ? finalTotalAmount.toFixed(2) : '')}
+                        onClick={() => handleUpdatePaymentAmount(singleP.id, finalTotalAmount > 0 ? finalTotalAmount.toFixed(2) : '')}
                         style={{ background: isMissing ? '#dc2626' : '#059669', color: '#ffffff', border: 'none', padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
                       >
                         Monto Exacto
@@ -2704,9 +2711,9 @@ const VisitRecorder = () => {
                     </div>
                     <input
                       type="number"
-                      value={cashP.amount}
+                      value={singleP.amount}
                       placeholder={`Ej: ${finalTotalAmount > 0 ? finalTotalAmount.toFixed(0) : "0"}`}
-                      onChange={(e) => handleUpdatePaymentAmount(cashP.id, e.target.value)}
+                      onChange={(e) => handleUpdatePaymentAmount(singleP.id, e.target.value)}
                       style={{
                         width: '100%',
                         padding: '0.65rem 0.85rem',
@@ -2720,6 +2727,27 @@ const VisitRecorder = () => {
                         boxSizing: 'border-box'
                       }}
                     />
+                    {isGiftCard && (
+                      <div style={{ marginTop: '0.2rem', display: 'flex', gap: '0.35rem' }}>
+                        <input
+                          type="text"
+                          placeholder="Código Gift Card (Ej: GC-1234)"
+                          value={singleP.giftCardCode || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setAppliedPayments(prev => prev.map(p => p.id === singleP.id ? { ...p, giftCardCode: val } : p));
+                          }}
+                          style={{ flex: 1, padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleVerifyAppliedGiftCard(singleP.id, singleP.giftCardCode)}
+                          style={{ padding: '0.35rem 0.6rem', borderRadius: '6px', background: '#059669', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer' }}
+                        >
+                          Verificar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })()
