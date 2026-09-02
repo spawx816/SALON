@@ -1205,18 +1205,42 @@ const VisitRecorder = () => {
   const pendienteAmount = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
   const isFinalizeEnabled = pendienteAmount <= 0.01 && appliedPayments.length > 0 && lineItems.length > 0;
 
+  // Auto-sync single cash payment with totalAmount
+  useEffect(() => {
+    if (appliedPayments.length === 0 && finalTotalAmount > 0) {
+      setAppliedPayments([
+        {
+          id: `pay-default-${Date.now()}`,
+          method: 'Efectivo',
+          amount: finalTotalAmount.toString(),
+          giftCardCode: '',
+          giftCardInfo: null
+        }
+      ]);
+    }
+  }, [finalTotalAmount]);
+
   // Handlers for Applied Payments Multi-Tender Selection
-  const handleAddAppliedPayment = (methodName) => {
-    const remainingToCover = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
-    const newPayment = {
-      id: `pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      method: methodName,
-      amount: remainingToCover > 0 ? remainingToCover.toString() : (finalTotalAmount > 0 ? finalTotalAmount.toString() : '0'),
-      giftCardCode: '',
-      giftCardInfo: null
-    };
-    setAppliedPayments(prev => [...prev, newPayment]);
+  const handleToggleMethod = (methodName) => {
+    const exists = appliedPayments.find(p => p.method === methodName);
+    if (exists) {
+      if (appliedPayments.length > 1) {
+        setAppliedPayments(prev => prev.filter(p => p.method !== methodName));
+      }
+    } else {
+      const remainingToCover = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
+      const newPayment = {
+        id: `pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        method: methodName,
+        amount: remainingToCover > 0 ? remainingToCover.toString() : (finalTotalAmount > 0 ? finalTotalAmount.toString() : '0'),
+        giftCardCode: '',
+        giftCardInfo: null
+      };
+      setAppliedPayments(prev => [...prev, newPayment]);
+    }
   };
+
+  const handleAddAppliedPayment = handleToggleMethod;
 
   const handleUpdatePaymentAmount = (paymentId, newAmount) => {
     setAppliedPayments(prev => prev.map(p => {
@@ -2522,324 +2546,287 @@ const VisitRecorder = () => {
             </div>
           </div>
 
-          {/* ================= APLICAR PAGO (MULTI-TENDER) ================= */}
+          {/* PAYMENT METHOD CARDS GRID (ORIGINAL FORMAT) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-              <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#ffe4e6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Wallet size={13} color="#e11d48" />
-              </div>
-              <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', letterSpacing: '0.02em' }}>
-                APLICAR PAGO
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                Método de pago
               </h4>
-            </div>
-
-            {/* 2x2 GRID OF METHOD BUTTONS */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-              {/* + Efectivo */}
-              <button
-                type="button"
-                onClick={() => handleAddAppliedPayment('Efectivo')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.45rem',
-                  padding: '0.75rem 0.5rem',
-                  background: '#ffffff',
-                  border: '1.5px solid #e2e8f0',
-                  borderRadius: '12px',
-                  color: '#0f172a',
-                  fontWeight: 800,
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#10b981'; e.currentTarget.style.background = '#f0fdf4'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#ffffff'; }}
-              >
-                <div style={{ width: '26px', height: '26px', borderRadius: '8px', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Banknote size={15} color="#059669" strokeWidth={2.5} />
-                </div>
-                <span>+ Efectivo</span>
-              </button>
-
-              {/* + Tarjeta */}
-              <button
-                type="button"
-                onClick={() => handleAddAppliedPayment('Tarjeta')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.45rem',
-                  padding: '0.75rem 0.5rem',
-                  background: '#ffffff',
-                  border: '1.5px solid #e2e8f0',
-                  borderRadius: '12px',
-                  color: '#0f172a',
-                  fontWeight: 800,
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#eff6ff'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#ffffff'; }}
-              >
-                <div style={{ width: '26px', height: '26px', borderRadius: '8px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <CreditCard size={15} color="#2563eb" strokeWidth={2.5} />
-                </div>
-                <span>+ Tarjeta</span>
-              </button>
-
-              {/* + Transferencia */}
-              <button
-                type="button"
-                onClick={() => handleAddAppliedPayment('Transferencia')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.45rem',
-                  padding: '0.75rem 0.5rem',
-                  background: '#ffffff',
-                  border: '1.5px solid #e2e8f0',
-                  borderRadius: '12px',
-                  color: '#0f172a',
-                  fontWeight: 800,
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#0284c7'; e.currentTarget.style.background = '#f0f9ff'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#ffffff'; }}
-              >
-                <div style={{ width: '26px', height: '26px', borderRadius: '8px', background: '#f0f9ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Landmark size={15} color="#0284c7" strokeWidth={2.5} />
-                </div>
-                <span>+ Transferencia</span>
-              </button>
-
-              {/* + Gift Card */}
-              <button
-                type="button"
-                onClick={() => handleAddAppliedPayment('Gift Card')}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.45rem',
-                  padding: '0.75rem 0.5rem',
-                  background: '#ffffff',
-                  border: '1.5px solid #e2e8f0',
-                  borderRadius: '12px',
-                  color: '#0f172a',
-                  fontWeight: 800,
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#a855f7'; e.currentTarget.style.background = '#faf5ff'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#ffffff'; }}
-              >
-                <div style={{ width: '26px', height: '26px', borderRadius: '8px', background: '#faf5ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Gift size={15} color="#9333ea" strokeWidth={2.5} />
-                </div>
-                <span>+ Gift Card</span>
-              </button>
-            </div>
-          </div>
-
-          {/* SUBTLE DIVIDER */}
-          <div style={{ borderTop: '1px dashed #e2e8f0', margin: '0.2rem 0' }} />
-
-          {/* ================= PAGOS APLICADOS ================= */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#ffe4e6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Receipt size={13} color="#e11d48" />
-                </div>
-                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', letterSpacing: '0.02em' }}>
-                  PAGOS APLICADOS
-                </h4>
-              </div>
-              {appliedPayments.length > 0 && (
-                <span style={{ fontSize: '0.725rem', fontWeight: 800, color: '#64748b' }}>
-                  {appliedPayments.length} {appliedPayments.length === 1 ? 'método' : 'métodos'}
+              {appliedPayments.length > 1 && (
+                <span style={{ fontSize: '0.725rem', fontWeight: 800, color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: '6px' }}>
+                  {appliedPayments.length} Métodos Activos
                 </span>
               )}
             </div>
+            
+            {/* ROW 1: Efectivo, Tarjeta, Transferencia */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+              {[
+                { key: 'Efectivo', label: 'Efectivo', icon: Banknote },
+                { key: 'Tarjeta', label: 'Tarjeta', icon: CreditCard },
+                { key: 'Transferencia', label: 'Transferencia', icon: Landmark }
+              ].map(({ key, label, icon: Icon }) => {
+                const isSelected = appliedPayments.some(p => p.method === key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleToggleMethod(key)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      padding: '0.75rem 0.35rem',
+                      borderRadius: '12px',
+                      border: isSelected ? '1.5px solid #10b981' : '1px solid #e2e8f0',
+                      background: isSelected ? '#f0fdf4' : '#ffffff',
+                      color: isSelected ? '#059669' : '#475569',
+                      fontWeight: isSelected ? 700 : 600,
+                      fontSize: '0.775rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected ? '0 2px 8px rgba(16, 185, 129, 0.12)' : 'none'
+                    }}
+                  >
+                    <Icon size={20} color={isSelected ? '#10b981' : '#64748b'} strokeWidth={2} />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-            {/* EMPTY STATE */}
+            {/* ROW 2: Gift Card */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem' }}>
+              {[
+                { key: 'Gift Card', label: 'Gift Card', icon: Gift }
+              ].map(({ key, label, icon: Icon }) => {
+                const isSelected = appliedPayments.some(p => p.method === key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleToggleMethod(key)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                      padding: '0.65rem 0.35rem',
+                      borderRadius: '12px',
+                      border: isSelected ? '1.5px solid #10b981' : '1px solid #e2e8f0',
+                      background: isSelected ? '#f0fdf4' : '#ffffff',
+                      color: isSelected ? '#059669' : '#475569',
+                      fontWeight: isSelected ? 700 : 600,
+                      fontSize: '0.775rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected ? '0 2px 8px rgba(16, 185, 129, 0.12)' : 'none'
+                    }}
+                  >
+                    <Icon size={18} color={isSelected ? '#10b981' : '#64748b'} strokeWidth={2} />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* DYNAMIC APPLIED PAYMENTS BREAKDOWN (SINGLE OR MULTI) */}
             {appliedPayments.length === 0 ? (
               <div style={{
                 background: '#f8fafc',
                 border: '1.5px dashed #cbd5e1',
                 borderRadius: '12px',
-                padding: '1rem',
+                padding: '0.85rem',
                 textAlign: 'center',
                 color: '#64748b',
                 fontSize: '0.775rem',
                 fontWeight: 600
               }}>
-                Pulsa un botón de arriba para agregar un método de pago.
+                Selecciona al menos un método de pago arriba.
               </div>
-            ) : (
-              /* DYNAMIC LIST OF APPLIED PAYMENTS */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
-                {appliedPayments.map((item) => {
-                  const isCash = item.method === 'Efectivo';
-                  const isCard = item.method === 'Tarjeta';
-                  const isTransfer = item.method === 'Transferencia';
-                  const isGiftCard = item.method === 'Gift Card';
+            ) : appliedPayments.length === 1 && appliedPayments[0].method === 'Efectivo' ? (
+              /* SINGLE CASH PAYMENT VIEW */
+              (() => {
+                const cashP = appliedPayments[0];
+                const receivedNum = parseFloat(cashP.amount) || 0;
+                const hasTyped = (cashP.amount || '').toString().trim() !== '';
+                const diff = receivedNum - finalTotalAmount;
+                const isMissing = hasTyped && diff < -0.01;
+                const isExact = hasTyped && Math.abs(diff) <= 0.01;
+                const hasChange = hasTyped && diff > 0.01;
 
-                  const badgeBg = isCash ? '#ecfdf5' : isCard ? '#eff6ff' : isTransfer ? '#f0f9ff' : '#faf5ff';
-                  const badgeIconColor = isCash ? '#059669' : isCard ? '#2563eb' : isTransfer ? '#0284c7' : '#9333ea';
-
-                  return (
-                    <div
-                      key={item.id}
+                return (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.45rem',
+                    marginTop: '0.2rem',
+                    background: isMissing ? '#fef2f2' : '#f0fdf4',
+                    padding: '0.75rem',
+                    borderRadius: '12px',
+                    border: isMissing ? '1.5px solid #ef4444' : '1.5px solid #10b981',
+                    transition: 'all 0.2s ease'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.78rem', fontWeight: 800, color: isMissing ? '#991b1b' : '#065f46' }}>
+                        💵 Monto recibido en Efectivo (RD$) *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdatePaymentAmount(cashP.id, finalTotalAmount > 0 ? finalTotalAmount.toFixed(2) : '')}
+                        style={{ background: isMissing ? '#dc2626' : '#059669', color: '#ffffff', border: 'none', padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        Monto Exacto
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      value={cashP.amount}
+                      placeholder={`Ej: ${finalTotalAmount > 0 ? finalTotalAmount.toFixed(0) : "0"}`}
+                      onChange={(e) => handleUpdatePaymentAmount(cashP.id, e.target.value)}
                       style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.45rem',
+                        width: '100%',
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: '8px',
+                        border: isMissing ? '1.5px solid #ef4444' : '1.5px solid #059669',
                         background: '#ffffff',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '14px',
-                        padding: '0.75rem 0.85rem',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                        fontSize: '1.05rem',
+                        fontWeight: 800,
+                        color: '#0f172a',
+                        outline: 'none',
+                        boxSizing: 'border-box'
                       }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        {/* ICON BADGE */}
-                        <div style={{
-                          width: '40px',
-                          height: '40px',
-                          borderRadius: '10px',
-                          background: badgeBg,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0
-                        }}>
-                          {isCash && <Banknote size={20} color={badgeIconColor} strokeWidth={2.2} />}
-                          {isCard && <CreditCard size={20} color={badgeIconColor} strokeWidth={2.2} />}
-                          {isTransfer && <Landmark size={20} color={badgeIconColor} strokeWidth={2.2} />}
-                          {isGiftCard && <Gift size={20} color={badgeIconColor} strokeWidth={2.2} />}
-                        </div>
-
-                        {/* NAME AND EDITABLE AMOUNT INPUT */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ fontSize: '0.775rem', fontWeight: 800, color: '#1e293b', display: 'block', marginBottom: '3px' }}>
-                            {item.method}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.2rem', borderTop: `1px dashed ${isMissing ? '#fca5a5' : '#a7f3d0'}` }}>
+                      {isMissing ? (
+                        <>
+                          <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#dc2626' }}>
+                            ⚠️ Falta dinero por cobrar:
                           </span>
-                          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                            <span style={{ position: 'absolute', left: '10px', fontSize: '0.775rem', fontWeight: 800, color: '#64748b', pointerEvents: 'none' }}>
-                              RD$
-                            </span>
-                            <input
-                              type="number"
-                              value={item.amount}
-                              onChange={(e) => handleUpdatePaymentAmount(item.id, e.target.value)}
-                              placeholder="0.00"
-                              style={{
-                                width: '100%',
-                                padding: '0.45rem 0.65rem 0.45rem 2.4rem',
-                                borderRadius: '8px',
-                                border: '1.5px solid #cbd5e1',
-                                fontSize: '0.9rem',
-                                fontWeight: 800,
-                                color: '#0f172a',
-                                background: '#ffffff',
-                                outline: 'none',
-                                boxSizing: 'border-box'
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* TRASH DELETE BUTTON */}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAppliedPayment(item.id)}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#ef4444',
-                            cursor: 'pointer',
-                            padding: '6px',
-                            borderRadius: '8px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                            transition: 'background 0.15s ease'
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = '#fef2f2'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                          title="Eliminar este método de pago"
-                        >
-                          <Trash2 size={19} />
-                        </button>
-                      </div>
-
-                      {/* SPECIAL GIFT CARD VERIFICATION FIELD */}
-                      {isGiftCard && (
-                        <div style={{ marginTop: '0.2rem', padding: '0.45rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.75rem' }}>
-                          <div style={{ display: 'flex', gap: '0.35rem' }}>
-                            <input
-                              type="text"
-                              placeholder="Código Gift Card (Ej: GC-1234)"
-                              value={item.giftCardCode || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setAppliedPayments(prev => prev.map(p => p.id === item.id ? { ...p, giftCardCode: val } : p));
-                              }}
-                              style={{ flex: 1, padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem', fontWeight: 600 }}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleVerifyAppliedGiftCard(item.id, item.giftCardCode)}
-                              style={{ padding: '0.35rem 0.6rem', borderRadius: '6px', background: '#059669', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer' }}
-                            >
-                              Verificar
-                            </button>
-                          </div>
-                          {item.giftCardInfo && (
-                            <div style={{ marginTop: '0.3rem', color: '#059669', fontWeight: 700, fontSize: '0.7rem' }}>
-                              ✓ Balance disponible: RD$ {Number(item.giftCardInfo.balance || 0).toFixed(2)}
-                            </div>
-                          )}
-                        </div>
+                          <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#dc2626' }}>
+                            RD$ {Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </>
+                      ) : hasChange ? (
+                        <>
+                          <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#047857' }}>
+                            💵 Devuelta / Cambio (RD$):
+                          </span>
+                          <span style={{ fontSize: '1.1rem', fontWeight: 900, color: '#047857' }}>
+                            RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ fontSize: '0.825rem', fontWeight: 700, color: '#047857' }}>
+                            {isExact ? '✓ Monto exacto (Sin devuelta)' : 'Devuelta / Cambio (RD$)'}
+                          </span>
+                          <span style={{ fontSize: '1.05rem', fontWeight: 900, color: '#047857' }}>
+                            RD$ 0.00
+                          </span>
+                        </>
                       )}
                     </div>
-                  );
-                })}
+                  </div>
+                );
+              })()
+            ) : (
+              /* MULTI-METHOD APPLIED LIST VIEW */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.2rem' }}>
+                {appliedPayments.map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '12px',
+                      padding: '0.65rem 0.75rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
+                        {item.method === 'Efectivo' ? '💵 Efectivo' : item.method === 'Tarjeta' ? '💳 Tarjeta' : item.method === 'Transferencia' ? '🏦 Transferencia' : '🎁 Gift Card'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAppliedPayment(item.id)}
+                        style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, padding: '2px 4px' }}
+                      >
+                        ✕ Quitar
+                      </button>
+                    </div>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <span style={{ position: 'absolute', left: '10px', fontSize: '0.75rem', fontWeight: 800, color: '#64748b' }}>
+                        RD$
+                      </span>
+                      <input
+                        type="number"
+                        value={item.amount}
+                        onChange={(e) => handleUpdatePaymentAmount(item.id, e.target.value)}
+                        placeholder="0.00"
+                        style={{
+                          width: '100%',
+                          padding: '0.45rem 0.6rem 0.45rem 2.4rem',
+                          borderRadius: '8px',
+                          border: '1.5px solid #cbd5e1',
+                          fontSize: '0.875rem',
+                          fontWeight: 800,
+                          color: '#0f172a',
+                          background: '#ffffff',
+                          outline: 'none',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    {item.method === 'Gift Card' && (
+                      <div style={{ marginTop: '0.2rem', display: 'flex', gap: '0.35rem' }}>
+                        <input
+                          type="text"
+                          placeholder="Código Gift Card"
+                          value={item.giftCardCode || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setAppliedPayments(prev => prev.map(p => p.id === item.id ? { ...p, giftCardCode: val } : p));
+                          }}
+                          style={{ flex: 1, padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleVerifyAppliedGiftCard(item.id, item.giftCardCode)}
+                          style={{ padding: '0.35rem 0.6rem', borderRadius: '6px', background: '#059669', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer' }}
+                        >
+                          Verificar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          {/* ================= SUMMARY (PENDIENTE & CAMBIO) ================= */}
-          <div style={{ borderTop: '1px dashed #e2e8f0', margin: '0.4rem 0 0', paddingTop: '0.65rem', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+          {/* FINANCIAL SUMMARY: PENDIENTE & CAMBIO */}
+          <div style={{ borderTop: '1px dashed #e2e8f0', margin: '0.4rem 0 0', paddingTop: '0.65rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
               <span style={{ fontWeight: 800, color: '#1e293b' }}>Pendiente</span>
-              <strong style={{ fontWeight: 900, color: pendienteAmount > 0.01 ? '#e11d48' : '#e11d48', fontSize: '1rem' }}>
-                RD$ {pendienteAmount.toLocaleString('es-DO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              <strong style={{ fontWeight: 900, color: pendienteAmount > 0.01 ? '#e11d48' : '#18181b', fontSize: '0.95rem' }}>
+                RD$ {pendienteAmount.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem' }}>
-              <span style={{ fontWeight: 800, color: '#1e293b' }}>Cambio</span>
-              <strong style={{ fontWeight: 900, color: cambioAmount > 0.01 ? '#166534' : '#e11d48', fontSize: '1rem' }}>
-                RD$ {cambioAmount.toLocaleString('es-DO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              <span style={{ fontWeight: 800, color: '#1e293b' }}>Cambio / Devuelta</span>
+              <strong style={{ fontWeight: 900, color: cambioAmount > 0.01 ? '#166534' : '#18181b', fontSize: '0.95rem' }}>
+                RD$ {cambioAmount.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </strong>
             </div>
           </div>
 
-          {/* ================= FINAL ACTION BUTTONS ================= */}
+          {/* FINAL ACTION BUTTONS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.25rem' }}>
             <button
               type="button"
@@ -2851,7 +2838,7 @@ const VisitRecorder = () => {
                 color: '#ffffff',
                 border: 'none',
                 padding: '0.85rem',
-                borderRadius: '14px',
+                borderRadius: '12px',
                 fontWeight: 800,
                 fontSize: '0.9rem',
                 cursor: isFinalizeEnabled && !loading ? 'pointer' : 'not-allowed',
@@ -2859,9 +2846,9 @@ const VisitRecorder = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '0.4rem',
-                boxShadow: isFinalizeEnabled ? '0 4px 14px rgba(225,29,72,0.3)' : 'none',
+                boxShadow: isFinalizeEnabled ? '0 4px 12px rgba(225,29,72,0.25)' : 'none',
                 transition: 'all 0.15s ease',
-                opacity: isFinalizeEnabled ? 1 : 0.6
+                opacity: isFinalizeEnabled ? 1 : 0.65
               }}
             >
               <span>› FINALIZAR FACTURA</span>
@@ -2875,22 +2862,19 @@ const VisitRecorder = () => {
                 width: '100%',
                 background: '#ffffff',
                 color: '#18181b',
-                border: '1.5px solid #e2e8f0',
+                border: '1px solid #e4e4e7',
                 padding: '0.65rem',
                 borderRadius: '12px',
-                fontWeight: 800,
+                fontWeight: 700,
                 fontSize: '0.8rem',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '0.4rem',
-                transition: 'all 0.15s ease'
+                gap: '0.4rem'
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
             >
-              <span>COTIZAR / PROFORMA</span>
+              COTIZAR / PROFORMA
             </button>
           </div>
 
