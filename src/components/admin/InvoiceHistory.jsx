@@ -303,6 +303,75 @@ export default function InvoiceHistory() {
     });
   }, [visits, searchTerm, salonFilter, statusFilter, paymentFilter, dateFilter, startDate, endDate]);
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(25); // 25, 50, 100, 250, 'all'
+
+  // Reset page when any filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, salonFilter, statusFilter, paymentFilter, dateFilter, startDate, endDate]);
+
+  // Pre-process items for ultra-fast rendering & calculations
+  const processedVisits = useMemo(() => {
+    return filteredVisits.map(visit => {
+      const isVoided = visit.status === 'Anulado';
+      const timing = getVisitTiming(visit);
+      const breakdown = getPaymentBreakdown(visit);
+
+      let itemsList = [];
+      try {
+        if (visit.items_detail) {
+          const parsed = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+          if (Array.isArray(parsed)) itemsList = parsed;
+        }
+      } catch (e) {}
+
+      let staffNames = new Set();
+      const isInvalidName = (n) => !n || ['n/a', 'sin asignar', 'no asignado', 'null', 'undefined', 'general', ''].includes(String(n).trim().toLowerCase());
+      if (!isInvalidName(visit.empleado_peluquera)) staffNames.add(visit.empleado_peluquera.trim());
+      if (!isInvalidName(visit.empleado_manicurista)) staffNames.add(visit.empleado_manicurista.trim());
+      itemsList.forEach(item => {
+        const emp = item.empleado_nombre || item.employee_name || item.empleado;
+        if (!isInvalidName(emp)) staffNames.add(String(emp).trim());
+      });
+      const staffDisplay = Array.from(staffNames);
+
+      let sNames = itemsList.map(i => i.nombre || i.service_name || i.servicio).filter(Boolean);
+      if (sNames.length === 0 && visit.servicios) {
+        try {
+          if (Array.isArray(visit.servicios)) sNames = visit.servicios;
+          else if (typeof visit.servicios === 'string' && visit.servicios.startsWith('[')) sNames = JSON.parse(visit.servicios);
+          else if (visit.servicios && visit.servicios !== 'Servicio en preparación') sNames = [String(visit.servicios)];
+        } catch (e) {}
+      }
+
+      let displayService = sNames.join(' + ');
+      if (!displayService || displayService === 'Ticket en Construcción') {
+        displayService = breakdown.isPlanBeauty ? 'Lavado y Secado (Plan Beauty)' : 'Servicio General';
+      }
+
+      return {
+        ...visit,
+        _timing: timing,
+        _breakdown: breakdown,
+        _itemsList: itemsList,
+        _staffDisplay: staffDisplay,
+        _displayService: displayService,
+        _isVoided: isVoided
+      };
+    });
+  }, [filteredVisits]);
+
+  // Paginated Sliced List
+  const totalPages = rowsPerPage === 'all' ? 1 : Math.max(1, Math.ceil(processedVisits.length / (Number(rowsPerPage) || 25)));
+  const paginatedVisits = useMemo(() => {
+    if (rowsPerPage === 'all') return processedVisits;
+    const rpp = Number(rowsPerPage) || 25;
+    const start = (currentPage - 1) * rpp;
+    return processedVisits.slice(start, start + rpp);
+  }, [processedVisits, currentPage, rowsPerPage]);
+
   // Financial Totals & KPIs
   const kpis = useMemo(() => {
     let totalBilled = 0;
@@ -314,10 +383,10 @@ export default function InvoiceHistory() {
     let activeCount = 0;
     let planCount = 0;
 
-    filteredVisits.forEach(v => {
+    processedVisits.forEach(v => {
       const amt = Number(v.total || 0);
-      const isVoid = v.status === 'Anulado';
-      const breakdown = getPaymentBreakdown(v);
+      const isVoid = v._isVoided;
+      const breakdown = v._breakdown;
 
       if (isVoid) {
         voidedCount += 1;
@@ -341,9 +410,9 @@ export default function InvoiceHistory() {
       voidedAmount,
       activeCount,
       planCount,
-      totalVisits: filteredVisits.length
+      totalVisits: processedVisits.length
     };
-  }, [filteredVisits]);
+  }, [processedVisits]);
 
   // Branch / Location label
   const getSalonLabel = () => {
@@ -888,43 +957,14 @@ export default function InvoiceHistory() {
               </tr>
             </thead>
             <tbody>
-              {filteredVisits.map((visit, index) => {
-                const isVoided = visit.status === 'Anulado';
+              {paginatedVisits.map((visit, index) => {
+                const isVoided = visit._isVoided;
                 const isExpanded = expandedId === (visit.id || index);
-                const timing = getVisitTiming(visit);
-                const breakdown = getPaymentBreakdown(visit);
-
-                let itemsList = [];
-                try {
-                  if (visit.items_detail) {
-                    const parsed = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
-                    if (Array.isArray(parsed)) itemsList = parsed;
-                  }
-                } catch (e) {}
-
-                let staffNames = new Set();
-                const isInvalidName = (n) => !n || ['n/a', 'sin asignar', 'no asignado', 'null', 'undefined', 'general', ''].includes(String(n).trim().toLowerCase());
-                if (!isInvalidName(visit.empleado_peluquera)) staffNames.add(visit.empleado_peluquera.trim());
-                if (!isInvalidName(visit.empleado_manicurista)) staffNames.add(visit.empleado_manicurista.trim());
-                itemsList.forEach(item => {
-                  const emp = item.empleado_nombre || item.employee_name || item.empleado;
-                  if (!isInvalidName(emp)) staffNames.add(String(emp).trim());
-                });
-                const staffDisplay = Array.from(staffNames);
-
-                let sNames = itemsList.map(i => i.nombre || i.service_name || i.servicio).filter(Boolean);
-                if (sNames.length === 0 && visit.servicios) {
-                  try {
-                    if (Array.isArray(visit.servicios)) sNames = visit.servicios;
-                    else if (typeof visit.servicios === 'string' && visit.servicios.startsWith('[')) sNames = JSON.parse(visit.servicios);
-                    else if (visit.servicios && visit.servicios !== 'Servicio en preparación') sNames = [String(visit.servicios)];
-                  } catch (e) {}
-                }
-
-                let displayService = sNames.join(' + ');
-                if (!displayService || displayService === 'Ticket en Construcción') {
-                  displayService = breakdown.isPlanBeauty ? 'Lavado y Secado (Plan Beauty)' : 'Servicio General';
-                }
+                const timing = visit._timing;
+                const breakdown = visit._breakdown;
+                const itemsList = visit._itemsList;
+                const staffDisplay = visit._staffDisplay;
+                const displayService = visit._displayService;
 
                 return (
                   <React.Fragment key={visit.id || index}>
@@ -1175,6 +1215,75 @@ export default function InvoiceHistory() {
               </tr>
             </tfoot>
           </table>
+        )}
+
+        {/* PAGINATION CONTROLS BAR */}
+        {!loading && filteredVisits.length > 0 && (
+          <div className="no-print" style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.65rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                Mostrando {rowsPerPage === 'all' ? `1 - ${filteredVisits.length}` : `${Math.min(filteredVisits.length, (currentPage - 1) * (Number(rowsPerPage) || 25) + 1)} - ${Math.min(filteredVisits.length, currentPage * (Number(rowsPerPage) || 25))}`} de {filteredVisits.length} facturas
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '0.725rem', color: '#64748b' }}>Por página:</span>
+                <select
+                  value={rowsPerPage}
+                  onChange={(e) => {
+                    const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                    setRowsPerPage(val);
+                    setCurrentPage(1);
+                  }}
+                  style={{ padding: '0.25rem 0.45rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.725rem', background: '#ffffff', fontWeight: 600 }}
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value="all">Todas</option>
+                </select>
+              </div>
+            </div>
+
+            {rowsPerPage !== 'all' && totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(1)}
+                  style={{ padding: '0.3rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '0.725rem', fontWeight: 700, color: currentPage <= 1 ? '#94a3b8' : '#334155', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer' }}
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  style={{ padding: '0.3rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '0.725rem', fontWeight: 700, color: currentPage <= 1 ? '#94a3b8' : '#334155', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer' }}
+                >
+                  ‹ Anterior
+                </button>
+                <span style={{ padding: '0 0.5rem', fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  style={{ padding: '0.3rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '0.725rem', fontWeight: 700, color: currentPage >= totalPages ? '#94a3b8' : '#334155', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
+                >
+                  Siguiente ›
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(totalPages)}
+                  style={{ padding: '0.3rem 0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#ffffff', fontSize: '0.725rem', fontWeight: 700, color: currentPage >= totalPages ? '#94a3b8' : '#334155', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer' }}
+                >
+                  »
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
