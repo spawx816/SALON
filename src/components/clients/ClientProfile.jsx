@@ -1298,9 +1298,25 @@ const ClientProfile = () => {
                     );
                   })
                 ) : (
-                  <div style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', padding: '1rem', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Sin planes activos</p>
-                  </div>
+                  contracts.some(c => c.status === 'Cancelled') ? (
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '1.25rem', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <p style={{ fontWeight: 800, color: '#991b1b', margin: 0, fontSize: '0.9rem' }}>
+                          {contracts.find(c => c.status === 'Cancelled')?.planTitle || 'Plan Beauty'}
+                        </p>
+                        <span style={{ fontSize: '0.65rem', background: '#dc2626', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '99px', fontWeight: 900 }}>
+                          ✕ CANCELADO
+                        </span>
+                      </div>
+                      <p style={{ fontSize: '0.75rem', color: '#b91c1c', margin: 0, lineHeight: 1.4 }}>
+                        El cliente canceló voluntariamente su membresía mediante código de seguridad OTP. La tarjeta fue desvinculada y no se generarán más cobros automáticos.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', padding: '1rem', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Sin planes activos</p>
+                    </div>
+                  )
                 )}
               </div>
 
@@ -1665,15 +1681,23 @@ const ClientProfile = () => {
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
                     <div>
                       <p style={{ fontWeight: 700, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <FileSignature size={14} color="#64748b" /> Contrato #{c.id || c.contract_id || 'Digital'}
+                        <FileSignature size={14} color="#64748b" /> Contrato #{c.id || c.contract_id || 'Digital'} - {c.planTitle || 'Plan Beauty'}
                       </p>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                         Firmado el: {new Date(c.created_at || c.signed_at).toLocaleDateString()}
                       </p>
                     </div>
                     <div>
-                      <span style={{ fontSize: '0.7rem', fontWeight: 800, background: '#d1fae5', color: '#059669', padding: '0.25rem 0.5rem', borderRadius: '4px', border: '1px solid #a7f3d0' }}>
-                        FIRMADO
+                      <span style={{ 
+                        fontSize: '0.7rem', 
+                        fontWeight: 800, 
+                        background: c.status === 'Active' || c.status === 'Activo' ? '#d1fae5' : (c.status === 'Cancelled' ? '#fee2e2' : '#fef3c7'), 
+                        color: c.status === 'Active' || c.status === 'Activo' ? '#059669' : (c.status === 'Cancelled' ? '#dc2626' : '#b45309'), 
+                        padding: '0.25rem 0.5rem', 
+                        borderRadius: '4px', 
+                        border: `1px solid ${c.status === 'Active' || c.status === 'Activo' ? '#a7f3d0' : (c.status === 'Cancelled' ? '#fca5a5' : '#fde68a')}` 
+                      }}>
+                        {c.status === 'Active' || c.status === 'Activo' ? 'FIRMADO / ACTIVO' : (c.status === 'Cancelled' ? '✕ CANCELADO' : `⚠️ REINTENTO (${c.retry_count || 1}/90)`)}
                       </span>
                     </div>
                   </div>

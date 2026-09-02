@@ -3866,7 +3866,6 @@ app.get('/api/contracts/client/:clientId', async (req, res) => {
       JOIN clients cl ON c.client_id = cl.id
       LEFT JOIN plans p ON (c.plan_id = p.id OR CAST(c.plan_id AS CHAR) = CAST(p.id AS CHAR))
       WHERE (c.client_id = ? OR cl.cedula = ? OR LOWER(TRIM(cl.nombre)) = LOWER(?))
-        AND (c.status = 'Active' OR c.status = 'Activo')
       ORDER BY c.signed_at DESC
     `, [clean, clean, clean]);
     res.json(rows);
