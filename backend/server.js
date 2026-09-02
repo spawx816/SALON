@@ -1972,50 +1972,75 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
     );
     if (openRegisters.length > 0) {
       const activeRegId = openRegisters[0].id;
-      const rawMetodo = (metodo_pago || '').toString();
+      const { applied_payments } = req.body;
 
-      if (rawMetodo.toLowerCase().includes('mixto')) {
-        let ef = 0, tj = 0, tr = 0;
-        const efMatch = rawMetodo.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
-        const tjMatch = rawMetodo.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
-        const trMatch = rawMetodo.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
-
-        if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
-        if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
-        if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
-
-        if (ef === 0 && tj === 0 && tr === 0) {
-          ef = Number(total || 0) / 2;
-          tj = Number(total || 0) / 2;
-        }
-
-        if (ef > 0) {
-          await pool.query(
-            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
-             VALUES (?, 'Ingreso_Venta', 'Efectivo', ?, ?, ?, NOW())`,
-            [activeRegId, ef, `Cobro Ticket ${id} (Parte Efectivo)`, id]
-          );
-        }
-        if (tj > 0) {
-          await pool.query(
-            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
-             VALUES (?, 'Ingreso_Venta', 'Tarjeta', ?, ?, ?, NOW())`,
-            [activeRegId, tj, `Cobro Ticket ${id} (Parte Tarjeta)`, id]
-          );
-        }
-        if (tr > 0) {
-          await pool.query(
-            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
-             VALUES (?, 'Ingreso_Venta', 'Transferencia', ?, ?, ?, NOW())`,
-            [activeRegId, tr, `Cobro Ticket ${id} (Parte Transferencia)`, id]
-          );
+      if (Array.isArray(applied_payments) && applied_payments.length > 0) {
+        for (const p of applied_payments) {
+          const pAmt = parseFloat(p.amount) || 0;
+          const pMethod = p.method || 'Efectivo';
+          if (pAmt > 0) {
+            await pool.query(
+              `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+               VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
+              [activeRegId, pMethod, pAmt, `Cobro Ticket ${id} (${pMethod})`, id]
+            );
+          }
         }
       } else {
-        await pool.query(
-          `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
-           VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
-          [activeRegId, metodo_pago || 'Efectivo', total || 0, `Cobro Ticket ${id}`, id]
-        );
+        const rawMetodo = (metodo_pago || '').toString();
+
+        if (rawMetodo.toLowerCase().includes('mixto')) {
+          let ef = 0, tj = 0, tr = 0, gc = 0;
+          const efMatch = rawMetodo.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+          const tjMatch = rawMetodo.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+          const trMatch = rawMetodo.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+          const gcMatch = rawMetodo.match(/Gift Card:\s*RD\$\s*([\d,.]+)/i);
+
+          if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
+          if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
+          if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
+          if (gcMatch) gc = parseFloat(gcMatch[1].replace(/,/g, '')) || 0;
+
+          if (ef === 0 && tj === 0 && tr === 0 && gc === 0) {
+            ef = Number(total || 0) / 2;
+            tj = Number(total || 0) / 2;
+          }
+
+          if (ef > 0) {
+            await pool.query(
+              `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+               VALUES (?, 'Ingreso_Venta', 'Efectivo', ?, ?, ?, NOW())`,
+              [activeRegId, ef, `Cobro Ticket ${id} (Parte Efectivo)`, id]
+            );
+          }
+          if (tj > 0) {
+            await pool.query(
+              `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+               VALUES (?, 'Ingreso_Venta', 'Tarjeta', ?, ?, ?, NOW())`,
+              [activeRegId, tj, `Cobro Ticket ${id} (Parte Tarjeta)`, id]
+            );
+          }
+          if (tr > 0) {
+            await pool.query(
+              `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+               VALUES (?, 'Ingreso_Venta', 'Transferencia', ?, ?, ?, NOW())`,
+              [activeRegId, tr, `Cobro Ticket ${id} (Parte Transferencia)`, id]
+            );
+          }
+          if (gc > 0) {
+            await pool.query(
+              `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+               VALUES (?, 'Ingreso_Venta', 'Gift Card', ?, ?, ?, NOW())`,
+              [activeRegId, gc, `Cobro Ticket ${id} (Parte Gift Card)`, id]
+            );
+          }
+        } else {
+          await pool.query(
+            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
+             VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
+            [activeRegId, metodo_pago || 'Efectivo', total || 0, `Cobro Ticket ${id}`, id]
+          );
+        }
       }
     }
 
