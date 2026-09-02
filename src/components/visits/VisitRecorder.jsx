@@ -1222,39 +1222,19 @@ const VisitRecorder = () => {
 
   // Handlers for Applied Payments Multi-Tender Selection
   const handleToggleMethod = (methodName) => {
-    // If the method is already active
     const exists = appliedPayments.find(p => p.method === methodName);
     if (exists) {
-      if (appliedPayments.length > 1) {
-        setAppliedPayments(prev => prev.filter(p => p.method !== methodName));
-      }
-      return;
+      setAppliedPayments(prev => prev.filter(p => p.method !== methodName));
+    } else {
+      const newPayment = {
+        id: `pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        method: methodName,
+        amount: '',
+        giftCardCode: '',
+        giftCardInfo: null
+      };
+      setAppliedPayments(prev => [...prev, newPayment]);
     }
-
-    // If currently only 1 method is active:
-    // Switch to the new method with input starting in zero/empty so cashier enters the amount!
-    if (appliedPayments.length <= 1) {
-      setAppliedPayments([
-        {
-          id: `pay-${Date.now()}`,
-          method: methodName,
-          amount: '',
-          giftCardCode: '',
-          giftCardInfo: null
-        }
-      ]);
-      return;
-    }
-
-    // Otherwise, add the new method with empty input
-    const newPayment = {
-      id: `pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      method: methodName,
-      amount: '',
-      giftCardCode: '',
-      giftCardInfo: null
-    };
-    setAppliedPayments(prev => [...prev, newPayment]);
   };
 
   const handleAddAppliedPayment = handleToggleMethod;
@@ -2649,7 +2629,7 @@ const VisitRecorder = () => {
               })}
             </div>
 
-            {/* DYNAMIC APPLIED PAYMENTS BREAKDOWN (SINGLE OR MULTI) */}
+            {/* DYNAMIC APPLIED PAYMENTS BREAKDOWN (EXACT CARD DESIGN AS SCREENSHOT) */}
             {appliedPayments.length === 0 ? (
               <div style={{
                 background: '#f8fafc',
@@ -2663,137 +2643,74 @@ const VisitRecorder = () => {
               }}>
                 Selecciona al menos un método de pago arriba.
               </div>
-            ) : appliedPayments.length === 1 ? (
-              /* SINGLE PAYMENT VIEW FOR ANY METHOD */
-              (() => {
-                const singleP = appliedPayments[0];
-                const isCash = singleP.method === 'Efectivo';
-                const isCard = singleP.method === 'Tarjeta';
-                const isTransfer = singleP.method === 'Transferencia';
-                const isGiftCard = singleP.method === 'Gift Card';
-
-                const labelText = isCash
-                  ? '💵 Monto recibido en Efectivo (RD$) *'
-                  : isCard
-                  ? '💳 Monto cobrado con Tarjeta (RD$) *'
-                  : isTransfer
-                  ? '🏦 Monto cobrado por Transferencia (RD$) *'
-                  : '🎁 Monto redimido Gift Card (RD$) *';
-
-                const receivedNum = parseFloat(singleP.amount) || 0;
-                const hasTyped = (singleP.amount || '').toString().trim() !== '';
-                const diff = receivedNum - finalTotalAmount;
-                const isMissing = hasTyped && diff < -0.01;
-
-                return (
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.45rem',
-                    marginTop: '0.2rem',
-                    background: isMissing ? '#fef2f2' : '#f0fdf4',
-                    padding: '0.75rem',
-                    borderRadius: '12px',
-                    border: isMissing ? '1.5px solid #ef4444' : '1.5px solid #10b981',
-                    transition: 'all 0.2s ease'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <label style={{ fontSize: '0.78rem', fontWeight: 800, color: isMissing ? '#991b1b' : '#065f46' }}>
-                        {labelText}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdatePaymentAmount(singleP.id, finalTotalAmount > 0 ? finalTotalAmount.toFixed(2) : '')}
-                        style={{ background: isMissing ? '#dc2626' : '#059669', color: '#ffffff', border: 'none', padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
-                      >
-                        Monto Exacto
-                      </button>
-                    </div>
-                    <input
-                      type="number"
-                      value={singleP.amount}
-                      placeholder={`Ej: ${finalTotalAmount > 0 ? finalTotalAmount.toFixed(0) : "0"}`}
-                      onChange={(e) => handleUpdatePaymentAmount(singleP.id, e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '0.65rem 0.85rem',
-                        borderRadius: '8px',
-                        border: isMissing ? '1.5px solid #ef4444' : '1.5px solid #059669',
-                        background: '#ffffff',
-                        fontSize: '1.05rem',
-                        fontWeight: 800,
-                        color: '#0f172a',
-                        outline: 'none',
-                        boxSizing: 'border-box'
-                      }}
-                    />
-                    {isGiftCard && (
-                      <div style={{ marginTop: '0.2rem', display: 'flex', gap: '0.35rem' }}>
-                        <input
-                          type="text"
-                          placeholder="Código Gift Card (Ej: GC-1234)"
-                          value={singleP.giftCardCode || ''}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setAppliedPayments(prev => prev.map(p => p.id === singleP.id ? { ...p, giftCardCode: val } : p));
-                          }}
-                          style={{ flex: 1, padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleVerifyAppliedGiftCard(singleP.id, singleP.giftCardCode)}
-                          style={{ padding: '0.35rem 0.6rem', borderRadius: '6px', background: '#059669', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer' }}
-                        >
-                          Verificar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()
             ) : (
-              /* MULTI-METHOD APPLIED LIST VIEW */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.2rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', marginTop: '0.15rem' }}>
                 {appliedPayments.map((item) => (
                   <div
                     key={item.id}
                     style={{
                       background: '#f8fafc',
                       border: '1px solid #e2e8f0',
-                      borderRadius: '12px',
-                      padding: '0.65rem 0.75rem',
+                      borderRadius: '14px',
+                      padding: '0.75rem 0.85rem',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '0.35rem'
+                      gap: '0.45rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
-                        {item.method === 'Efectivo' ? '💵 Efectivo' : item.method === 'Tarjeta' ? '💳 Tarjeta' : item.method === 'Transferencia' ? '🏦 Transferencia' : '🎁 Gift Card'}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                        <span style={{ fontSize: '0.95rem' }}>
+                          {item.method === 'Efectivo' ? '💵' : item.method === 'Tarjeta' ? '💳' : item.method === 'Transferencia' ? '🏦' : '🎁'}
+                        </span>
+                        <strong style={{ fontSize: '0.825rem', fontWeight: 800, color: '#0f172a' }}>
+                          {item.method}
+                        </strong>
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleRemoveAppliedPayment(item.id)}
-                        style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, padding: '2px 4px' }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#e11d48',
+                          cursor: 'pointer',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '2px',
+                          padding: '2px 6px',
+                          borderRadius: '6px'
+                        }}
                       >
                         ✕ Quitar
                       </button>
                     </div>
+
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <span style={{ position: 'absolute', left: '10px', fontSize: '0.75rem', fontWeight: 800, color: '#64748b' }}>
+                      <span style={{
+                        position: 'absolute',
+                        left: '12px',
+                        fontSize: '0.875rem',
+                        fontWeight: 800,
+                        color: '#0f172a',
+                        pointerEvents: 'none'
+                      }}>
                         RD$
                       </span>
                       <input
                         type="number"
                         value={item.amount}
                         onChange={(e) => handleUpdatePaymentAmount(item.id, e.target.value)}
-                        placeholder="0.00"
+                        placeholder="0"
                         style={{
                           width: '100%',
-                          padding: '0.45rem 0.6rem 0.45rem 2.4rem',
-                          borderRadius: '8px',
+                          padding: '0.6rem 0.85rem 0.6rem 3rem',
+                          borderRadius: '10px',
                           border: '1.5px solid #cbd5e1',
-                          fontSize: '0.875rem',
+                          fontSize: '1rem',
                           fontWeight: 800,
                           color: '#0f172a',
                           background: '#ffffff',
@@ -2802,25 +2719,33 @@ const VisitRecorder = () => {
                         }}
                       />
                     </div>
+
                     {item.method === 'Gift Card' && (
-                      <div style={{ marginTop: '0.2rem', display: 'flex', gap: '0.35rem' }}>
-                        <input
-                          type="text"
-                          placeholder="Código Gift Card"
-                          value={item.giftCardCode || ''}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setAppliedPayments(prev => prev.map(p => p.id === item.id ? { ...p, giftCardCode: val } : p));
-                          }}
-                          style={{ flex: 1, padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem' }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleVerifyAppliedGiftCard(item.id, item.giftCardCode)}
-                          style={{ padding: '0.35rem 0.6rem', borderRadius: '6px', background: '#059669', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer' }}
-                        >
-                          Verificar
-                        </button>
+                      <div style={{ marginTop: '0.2rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                          <input
+                            type="text"
+                            placeholder="Código Gift Card"
+                            value={item.giftCardCode || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setAppliedPayments(prev => prev.map(p => p.id === item.id ? { ...p, giftCardCode: val } : p));
+                            }}
+                            style={{ flex: 1, padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: 600 }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleVerifyAppliedGiftCard(item.id, item.giftCardCode)}
+                            style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', background: '#059669', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}
+                          >
+                            Verificar
+                          </button>
+                        </div>
+                        {item.giftCardInfo && (
+                          <span style={{ color: '#059669', fontWeight: 700, fontSize: '0.725rem' }}>
+                            ✓ Balance disponible: RD$ {Number(item.giftCardInfo.balance || 0).toFixed(2)}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
