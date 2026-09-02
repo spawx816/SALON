@@ -1451,35 +1451,49 @@ app.delete('/api/salons/:id', async (req, res) => {
 // === CLIENTS ===
 app.get('/api/clients', async (req, res) => {
   try {
-    const [rows] = await pool.query(`
-      SELECT 
-        cl.id, 
-        cl.nombre, 
-        cl.telefono, 
-        cl.email, 
-        cl.cedula, 
-        cl.frecuencia, 
-        cl.salon_id, 
-        cl.status, 
-        cl.registration_source, 
-        cl.created_at, 
-        c.status as contract_status, 
-        c.retry_count,
-        p.title as planName
-      FROM clients cl
-      LEFT JOIN (
-        SELECT c1.*
-        FROM contracts c1
-        INNER JOIN (
-          SELECT client_id, MAX(id) as max_id
-          FROM contracts
-          GROUP BY client_id
-        ) c2 ON c1.id = c2.max_id
-      ) c ON (c.client_id = cl.id OR c.client_id = cl.cedula)
-      LEFT JOIN plans p ON c.plan_id = p.id
-      ORDER BY cl.nombre ASC
+    const [clients] = await pool.query(`
+      SELECT id, nombre, telefono, email, cedula, frecuencia, salon_id, status, registration_source, created_at 
+      FROM clients 
+      ORDER BY nombre ASC
     `);
-    res.json(rows);
+
+    const [contracts] = await pool.query(`
+      SELECT id, client_id, plan_id, status, retry_count 
+      FROM contracts 
+      ORDER BY id ASC
+    `);
+
+    const [plans] = await pool.query(`SELECT id, title FROM plans`);
+    const planMap = {};
+    plans.forEach(p => { planMap[p.id] = p.title; });
+
+    const contractMap = {};
+    contracts.forEach(c => {
+      if (c.client_id) {
+        contractMap[c.client_id] = c;
+      }
+    });
+
+    const result = clients.map(cl => {
+      const c = contractMap[cl.id] || contractMap[cl.cedula] || null;
+      return {
+        id: cl.id,
+        nombre: cl.nombre,
+        telefono: cl.telefono,
+        email: cl.email,
+        cedula: cl.cedula,
+        frecuencia: cl.frecuencia,
+        salon_id: cl.salon_id,
+        status: cl.status || 'Active',
+        registration_source: cl.registration_source || 'Self',
+        created_at: cl.created_at,
+        contract_status: c ? c.status : null,
+        retry_count: c ? c.retry_count : 0,
+        planName: c && planMap[c.plan_id] ? planMap[c.plan_id] : (c ? 'Plan Beauty' : 'Sin Plan')
+      };
+    });
+
+    res.json(result);
   } catch (err) {
     console.error('[API ERROR] Failed to fetch clients:', err.message);
     res.status(500).json({ error: err.message });
