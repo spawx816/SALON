@@ -4847,6 +4847,29 @@ app.post('/api/contracts', async (req, res) => {
     }
 
     if (!isApproved) {
+      const declineMsg = purchaseResult?.ResponseMessage || purchaseResult?.Transaction?.Description || (purchaseResult?.Errors && purchaseResult?.Errors[0]?.Message) || "Declinada por el banco";
+      const payFailId = `PAY-FAIL-${Date.now()}`;
+      try {
+        await pool.query(
+          'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response, salon_id, applied_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            payFailId,
+            clientId,
+            planId,
+            totalAmount,
+            'CardNet',
+            'Fallido - Intento Inicial',
+            `Intento de Activación Declinado: ${plan.title} (${declineMsg})`,
+            JSON.stringify(purchaseResult || { error: declineMsg }),
+            client.salon_id || 1,
+            'CardNet Gateway'
+          ]
+        );
+        console.log(`[CARDNET] Registrado pago fallido en payments: ${payFailId} para cliente: ${clientId}`);
+      } catch (dbErr) {
+        console.error('[CARDNET] Error guardando log de pago fallido:', dbErr.message);
+      }
+
       // CLEANUP: Si el cobro inicial falla, borramos el perfil de pago recién creado en CardNet
       // para evitar dejar tarjetas inválidas vinculadas al cliente.
       if (cardnetCustomerId && paymentProfileId) {
