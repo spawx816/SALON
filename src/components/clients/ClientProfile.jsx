@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { dataService } from '../../utils/dataService';
 import { getCardNetErrorMessage } from '../../utils/cardnetErrors';
 import { loadCardNetScript } from '../../utils/cardnetScriptLoader';
-import { FileSignature, Camera, ShieldCheck, Smartphone, Info, Search, UserCheck, CreditCard, Calendar, TrendingUp, Scissors, Trash2, Edit2, Plus, ArrowLeft, RefreshCw, AlertTriangle, User, Award, Mail, Phone, Settings, Users, DollarSign, MapPin, Banknote } from 'lucide-react';
+import { FileSignature, Camera, ShieldCheck, Smartphone, Info, Search, UserCheck, CreditCard, Calendar, TrendingUp, Scissors, Trash2, Edit2, Plus, ArrowLeft, RefreshCw, AlertTriangle, User, Award, Mail, Phone, Settings, Users, DollarSign, MapPin, Banknote, Store } from 'lucide-react';
 import { useTranslation } from '../../context/LanguageContext';
 import { motion } from 'framer-motion';
 import { useNotification } from '../../context/NotificationContext';
@@ -102,18 +102,31 @@ const ClientProfile = () => {
   const [allCards, setAllCards] = useState([]);
   const [editingCard, setEditingCard] = useState(null);
   const [editCardForm, setEditCardForm] = useState({ expiration: '', enable: true });
+  const [salonsList, setSalonsList] = useState([]);
   
   // Get the primary active contract for display
   const contract = contracts.find(c => c.status === 'Active' || c.status === 'Pending_Retry') || contracts[0];
 
   const [isEditing, setIsEditing] = useState(false);
-  const [editForm, setEditForm] = useState({ nombre: '', email: '', telefono: '', cedula: '' });
+  const [editForm, setEditForm] = useState({ nombre: '', email: '', telefono: '', cedula: '', salon_id: 1 });
   
   // Card Update states
   const [isUpdatingCard, setIsUpdatingCard] = useState(false);
   const [cardnetLog, setCardnetLog] = useState('');
   const [isProcessingCard, setIsProcessingCard] = useState(false);
   const [useSimulatedModal, setUseSimulatedModal] = useState(false);
+
+  useEffect(() => {
+    const loadSalons = async () => {
+      try {
+        const data = await dataService.getSalons();
+        setSalonsList(data || []);
+      } catch (e) {
+        console.error('Error fetching salons in ClientProfile:', e);
+      }
+    };
+    loadSalons();
+  }, []);
 
   const selectClient = async (found) => {
     setCardInfo(null); // Reset state before new fetch
@@ -127,6 +140,7 @@ const ClientProfile = () => {
       numero: found.numero || '',
       sector: found.sector || '',
       ciudad: found.ciudad || '',
+      salon_id: found.salon_id || 1,
       fecha_nacimiento: found.fecha_nacimiento ? found.fecha_nacimiento.split('T')[0] : ''
     });
     setVisits(await dataService.getVisitsByClient(found.id));
@@ -874,6 +888,19 @@ const ClientProfile = () => {
                         />
                       </div>
                     </div>
+                    <div style={{ marginTop: '1rem', textAlign: 'left' }}>
+                      <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>SUCURSAL / LOCALIDAD</label>
+                      <select 
+                        value={editForm.salon_id || 1} 
+                        onChange={e => setEditForm({...editForm, salon_id: parseInt(e.target.value) || 1})}
+                        className="input-field" 
+                        style={{ fontSize: '0.85rem', padding: '0.5rem', width: '100%', background: 'white', cursor: 'pointer' }}
+                      >
+                        {salonsList.map(s => (
+                          <option key={s.id} value={s.id}>{s.name || s.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
                       <button onClick={handleSaveEdit} className="btn-primary" style={{ flex: 1, padding: '0.5rem' }}>Guardar</button>
                       <button onClick={() => setIsEditing(false)} className="btn-secondary" style={{ flex: 1, padding: '0.5rem' }}>Cancelar</button>
@@ -960,19 +987,19 @@ const ClientProfile = () => {
                               fontWeight: 900, 
                               padding: '0.65rem 1.25rem', 
                               borderRadius: '12px', 
-                              background: '#7f1d1d',
+                              background: '#475569',
                               color: 'white',
                               textTransform: 'uppercase',
-                              boxShadow: '0 10px 15px -3px rgba(127, 29, 29, 0.35)',
+                              boxShadow: '0 10px 15px -3px rgba(71, 85, 105, 0.35)',
                               letterSpacing: '0.05em',
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '0.5rem'
                             }}>
-                              🛑 SUSPENDIDO POR MORA (90/90)
+                              ⛔ SUSCRIPCIÓN SUSPENDIDA
                             </span>
-                            <p style={{ fontSize: '0.75rem', color: '#991b1b', marginTop: '0.5rem', fontWeight: 700 }}>
-                              Se completaron los 90 reintentos automáticos sin éxito.
+                            <p style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem', fontWeight: 700 }}>
+                              90 intentos automáticos fallidos consecutivos.
                             </p>
                           </div>
                         );
@@ -1069,17 +1096,28 @@ const ClientProfile = () => {
                       </div>
                     </div>
 
-                    <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left', marginTop: '1rem' }}>
-                      <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Dirección</p>
-                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-                        <div style={{ color: 'var(--text-primary)', marginTop: '2px' }}><MapPin size={16} /></div>
-                        <div>
-                          <p style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.1rem' }}>
-                            {client.calle || 'Sin calle'} {client.numero ? `#${client.numero}` : ''}
+                    <div className="grid-2" style={{ marginTop: '1rem' }}>
+                      <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                        <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Sucursal Principal</p>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <div style={{ color: 'var(--text-primary)' }}><Store size={16} /></div>
+                          <p style={{ fontSize: '0.8125rem', fontWeight: 700, margin: 0 }}>
+                            {salonsList.find(s => s.id === (client.salon_id || 1))?.name || salonsList.find(s => s.id === (client.salon_id || 1))?.nombre || `Sucursal #${client.salon_id || 1}`}
                           </p>
-                          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            {client.sector || 'Sin sector'}{client.ciudad ? `, ${client.ciudad}` : ''}
-                          </p>
+                        </div>
+                      </div>
+                      <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                        <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Dirección</p>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                          <div style={{ color: 'var(--text-primary)', marginTop: '2px' }}><MapPin size={16} /></div>
+                          <div>
+                            <p style={{ fontSize: '0.8125rem', fontWeight: 700, marginBottom: '0.1rem' }}>
+                              {client.calle || 'Sin calle'} {client.numero ? `#${client.numero}` : ''}
+                            </p>
+                            <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                              {client.sector || 'Sin sector'}{client.ciudad ? `, ${client.ciudad}` : ''}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>

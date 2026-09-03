@@ -1610,12 +1610,15 @@ app.post('/api/auth/activate', async (req, res) => {
 // === CLIENT UPDATES ===
 app.put('/api/clients/:id', async (req, res) => {
   const { id } = req.params;
-  const { cedula, nombre, telefono, email, calle, numero, sector, ciudad, fecha_nacimiento } = req.body;
+  const { cedula, nombre, telefono, email, calle, numero, sector, ciudad, fecha_nacimiento, salon_id } = req.body;
   try {
     await pool.query(
-      'UPDATE clients SET cedula = ?, nombre = ?, telefono = ?, email = ?, calle = ?, numero = ?, sector = ?, ciudad = ?, fecha_nacimiento = ? WHERE id = ?',
-      [cedula, nombre, telefono, email, calle || null, numero || null, sector || null, ciudad || null, fecha_nacimiento || null, id]
+      'UPDATE clients SET cedula = ?, nombre = ?, telefono = ?, email = ?, calle = ?, numero = ?, sector = ?, ciudad = ?, fecha_nacimiento = ?, salon_id = COALESCE(?, salon_id) WHERE id = ?',
+      [cedula, nombre, telefono, email, calle || null, numero || null, sector || null, ciudad || null, fecha_nacimiento || null, salon_id || null, id]
     );
+    if (salon_id) {
+      await pool.query('UPDATE contracts SET salon_id = ? WHERE client_id = ?', [salon_id, id]);
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
