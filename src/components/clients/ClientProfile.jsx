@@ -143,35 +143,48 @@ const ClientProfile = () => {
       salon_id: found.salon_id || 1,
       fecha_nacimiento: found.fecha_nacimiento ? found.fecha_nacimiento.split('T')[0] : ''
     });
-    setVisits(await dataService.getVisitsByClient(found.id));
-    setPayments(await dataService.getPaymentsByClient(found.id));
-    setGiftCards(await dataService.getGiftsByClient(found.id));
-    
-    const info = await dataService.getPaymentProfileByClient(found.id);
-    console.log('Card Info fetched:', info);
-    setCardInfo(info);
 
-    const cards = await dataService.getPaymentProfilesByClient(found.id);
-    console.log('All Cards fetched from vault:', cards);
-    setAllCards(Array.isArray(cards) ? cards : []);
-    
-    const contractsFound = await dataService.getContractByClient(found.id);
-    const allPlans = await dataService.getPlans();
-
-    if (Array.isArray(contractsFound)) {
-      setContracts(contractsFound);
-      const planesActivos = allPlans.filter(p => contractsFound.some(c => c.plan_id === p.id && (c.status === 'Active' || c.status === 'Pending_Retry')));
-      setActivePlans(planesActivos);
-    } else {
-      setContracts([]);
-      setActivePlans([]);
-    }
-    // Check for pending survey
     try {
-      const pending = await dataService.getPendingSurvey(found.id);
-      setPendingSurvey(pending);
+      // Execute all independent API fetches in parallel for maximum speed
+      const [
+        visitsData,
+        paymentsData,
+        giftsData,
+        cardsData,
+        contractsFound,
+        allPlans,
+        pendingSurveyData
+      ] = await Promise.all([
+        dataService.getVisitsByClient(found.id).catch(() => []),
+        dataService.getPaymentsByClient(found.id).catch(() => []),
+        dataService.getGiftsByClient(found.id).catch(() => []),
+        dataService.getPaymentProfilesByClient(found.id).catch(() => []),
+        dataService.getContractByClient(found.id).catch(() => []),
+        dataService.getPlans().catch(() => []),
+        dataService.getPendingSurvey(found.id).catch(() => null)
+      ]);
+
+      setVisits(visitsData || []);
+      setPayments(paymentsData || []);
+      setGiftCards(giftsData || []);
+
+      const cardList = Array.isArray(cardsData) ? cardsData : [];
+      setAllCards(cardList);
+      const activeCard = cardList.find(p => p.Enable === "1" || p.Enabled === true) || cardList[0] || null;
+      setCardInfo(activeCard);
+
+      if (Array.isArray(contractsFound)) {
+        setContracts(contractsFound);
+        const planesActivos = (allPlans || []).filter(p => contractsFound.some(c => c.plan_id === p.id && (c.status === 'Active' || c.status === 'Pending_Retry')));
+        setActivePlans(planesActivos);
+      } else {
+        setContracts([]);
+        setActivePlans([]);
+      }
+
+      setPendingSurvey(pendingSurveyData);
     } catch (e) {
-      console.warn("No pending survey found or error:", e.message);
+      console.error("Error loading client details in parallel:", e);
     }
 
     // Clear search to show the current selected one

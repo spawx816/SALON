@@ -3942,7 +3942,7 @@ app.get('/api/clients/:id/payment-profile', async (req, res) => {
     const url = `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`;
     
     try {
-      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT });
+      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: 6000 });
       const customer = response.data.Response || response.data;
       const profiles = customer.PaymentProfiles || [];
       const profile = profiles.find(p => p.Enable === "1") || profiles[0];
@@ -4120,7 +4120,7 @@ app.get('/api/clients/:id/payment-profiles', async (req, res) => {
     const url = `${CARDNET_CONFIG.BASE_URL}/api/Customer/${cardnetCustomerId}`;
     
     try {
-      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: CARDNET_CONFIG.TIMEOUT });
+      const response = await axios.get(url, { headers: getCardNetAuthHeaders(), timeout: 6000 });
       const customer = response.data.Response || response.data;
       res.json(customer.PaymentProfiles || []);
     } catch (error) {
