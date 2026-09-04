@@ -1822,9 +1822,15 @@ const VisitRecorder = () => {
                     onClick={() => {
                       setClientFound(null);
                       setSelectedTicket(null);
+                      setLineItems([]);
+                      setAppliedPayments([]);
                       setActivePlans([]);
                       setClientVisitsHistory([]);
                       setIsEditingGeneralName(false);
+                      setClientSearchTerm('');
+                      setMontoRecibido('');
+                      setPendingDiscountItem(null);
+                      setIsAdminAuthorized(false);
                     }}
                     style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#64748b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', borderRadius: '8px', padding: '0.25rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
                     title="Cambiar cliente"
