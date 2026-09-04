@@ -146,6 +146,18 @@ const MarketingModule = () => {
     reader.readAsDataURL(file);
   };
 
+const AUDIENCE_OPTIONS = [
+  { value: 'all', label: '👥 Todos los Clientes' },
+  { value: 'no_plan', label: '✂️ Clientes sin Planes (Genéricos / Servicios Sueltos)' },
+  { value: 'active_plan', label: '✨ Clientes con Plan de Membresía Activo' },
+  { value: 'pending_payment', label: '⚠️ Clientes con Pago Pendiente / En Mora' },
+  { value: 'tenure_3m', label: '⏳ Clientes Activos con 3 Meses de Antigüedad' },
+  { value: 'tenure_6m', label: '⏳ Clientes Activos con 6 Meses de Antigüedad' },
+  { value: 'tenure_9m', label: '⏳ Clientes Activos con 9 Meses de Antigüedad' },
+  { value: 'tenure_12m', label: '🏆 Clientes Activos con 1 Año de Antigüedad (12 meses)' },
+  { value: 'tenure_18m', label: '💎 Clientes Activos con 18 Meses o Más de Antigüedad' },
+];
+
   const handleSendMassive = async () => {
     if (campaignType === 'text' && (!subject || !settings.mass_email_template)) {
       return alert('Complete el asunto y el mensaje.');
@@ -153,13 +165,14 @@ const MarketingModule = () => {
     if (campaignType === 'image' && !campaignFlyerUrl) {
       return alert('Suba el arte de campaña primero.');
     }
-    if (!window.confirm(`¿Enviar este correo a los ${clientCount ?? 'todos los'} clientes del segmento seleccionado?`)) return;
+    const selectedAudience = AUDIENCE_OPTIONS.find(o => o.value === audienceFilter)?.label || audienceFilter;
+    if (!window.confirm(`¿Confirmas el envío de esta campaña a los ${clientCount ?? 0} destinatarios del segmento:\n\n"${selectedAudience}"?`)) return;
     setIsSending(true);
     try {
       const res = await dataService.sendMassEmail(
         subject, settings.mass_email_template, campaignType, campaignFlyerUrl, audienceFilter
       );
-      alert(`¡Campaña lanzada! Enviado a ${res.sent} clientes.`);
+      alert(`🎉 ¡Campaña lanzada!\n\nSegmento: ${selectedAudience}\nTotal correos enviados: ${res.sent}`);
       const mStats = await dataService.getMarketingStats();
       if (mStats) setStats(mStats);
     } catch (e) {
@@ -424,15 +437,9 @@ const MarketingModule = () => {
                     onChange={(e) => setAudienceFilter(e.target.value)}
                     style={{ fontWeight: 600, fontSize: '0.875rem' }}
                   >
-                    <option value="all">👥 Todos los Clientes</option>
-                    <option value="no_plan">✂️ Clientes sin Planes (Genéricos / Servicios Sueltos)</option>
-                    <option value="active_plan">✨ Clientes con Plan de Membresía Activo</option>
-                    <option value="pending_payment">⚠️ Clientes con Pago Pendiente / En Mora</option>
-                    <option value="tenure_3m">⏳ Clientes Activos con 3 Meses de Antigüedad</option>
-                    <option value="tenure_6m">⏳ Clientes Activos con 6 Meses de Antigüedad</option>
-                    <option value="tenure_9m">⏳ Clientes Activos con 9 Meses de Antigüedad</option>
-                    <option value="tenure_12m">🏆 Clientes Activos con 1 Año de Antigüedad (12 meses)</option>
-                    <option value="tenure_18m">💎 Clientes Activos con 18 Meses o Más de Antigüedad</option>
+                    {AUDIENCE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
                   </select>
                 </div>
 

@@ -6925,21 +6925,21 @@ app.get('/api/marketing/stats', async (req, res) => {
 const getMarketingAudienceWhereClause = (filter) => {
   switch (filter) {
     case 'no_plan':
-      return " AND c.id NOT IN (SELECT DISTINCT client_id FROM contracts WHERE status = 'Active')";
+      return " AND c.id NOT IN (SELECT DISTINCT client_id FROM contracts WHERE client_id IS NOT NULL AND status IN ('Active', 'Activo'))";
     case 'active_plan':
-      return " AND c.id IN (SELECT DISTINCT client_id FROM contracts WHERE status = 'Active')";
+      return " AND c.id IN (SELECT DISTINCT client_id FROM contracts WHERE client_id IS NOT NULL AND status IN ('Active', 'Activo'))";
     case 'pending_payment':
-      return " AND c.id IN (SELECT DISTINCT client_id FROM contracts WHERE status = 'Past Due' OR status = 'Overdue' OR auto_billing_enabled = 0)";
+      return " AND c.id IN (SELECT DISTINCT client_id FROM contracts WHERE client_id IS NOT NULL AND (status IN ('Past Due', 'Overdue', 'Pending_Retry') OR auto_billing_enabled = 0))";
     case 'tenure_3m':
-      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH))";
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH))";
     case 'tenure_6m':
-      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH))";
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH))";
     case 'tenure_9m':
-      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 9 MONTH))";
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 9 MONTH))";
     case 'tenure_12m':
-      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH))";
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH))";
     case 'tenure_18m':
-      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 18 MONTH))";
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE client_id IS NOT NULL AND status IN ('Active', 'Activo') AND signed_at <= DATE_SUB(CURRENT_DATE(), INTERVAL 18 MONTH))";
     case 'all':
     default:
       return "";
@@ -6948,7 +6948,7 @@ const getMarketingAudienceWhereClause = (filter) => {
 
 app.get('/api/marketing/recipient-count', async (req, res) => {
   try {
-    const { filter } = req.query;
+    const filter = req.query.targetFilter || req.query.filter;
     const whereAudience = getMarketingAudienceWhereClause(filter);
     const [rows] = await pool.query(`
       SELECT COUNT(*) as count 
@@ -6962,15 +6962,17 @@ app.get('/api/marketing/recipient-count', async (req, res) => {
 });
 
 app.post('/api/marketing/send-mass', async (req, res) => {
-  const { subject, template, campaignType, flyerUrl, targetFilter } = req.body;
+  const { subject, template, campaignType, flyerUrl, targetFilter, filter } = req.body;
+  const audience = targetFilter || filter || 'all';
   try {
-    const whereAudience = getMarketingAudienceWhereClause(targetFilter);
+    const whereAudience = getMarketingAudienceWhereClause(audience);
     const [clients] = await pool.query(`
       SELECT c.id, c.email, c.nombre, s.name as salon_name, s.address as salon_address 
       FROM clients c
       LEFT JOIN salons s ON c.salon_id = s.id
       WHERE c.email IS NOT NULL AND c.email != '' ${whereAudience}
     `);
+    console.log(`[MARKETING MASS SEND] Iniciando campaña: "${subject}". Segmento: "${audience}". Destinatarios calificados: ${clients.length}`);
     const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
     
     if (settings.length === 0) throw new Error("No hay configuración de correo.");

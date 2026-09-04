@@ -854,14 +854,7 @@ export const dataService = {
     return await res.json();
   },
 
-  sendMassEmail: async (subject, template) => {
-    const res = await fetch(`${API_URL}/marketing/send-mass`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, template })
-    });
-    return await res.json();
-  },
+
 
   sendBirthdayEmails: async (discountPercent, flyerUrl) => {
     const res = await fetch(`${API_URL}/marketing/send-birthdays`, {
@@ -1431,7 +1424,7 @@ export const dataService = {
       const res = await fetch(`${API_URL}/marketing/send-mass`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, template, campaignType, flyerUrl, filter })
+        body: JSON.stringify({ subject, template, campaignType, flyerUrl, filter, targetFilter: filter })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al enviar');
