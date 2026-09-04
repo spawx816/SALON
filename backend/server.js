@@ -599,6 +599,8 @@ const setupDB = async () => {
     try { await pool.query('ALTER TABLE employee_commissions_log ADD COLUMN localidad VARCHAR(100) NULL'); } catch(e){}
     try { await pool.query('ALTER TABLE employee_commissions_log ADD COLUMN scheme_id INT NULL'); } catch(e){}
     try { await pool.query('ALTER TABLE employee_commissions_log ADD COLUMN rule_applied_description VARCHAR(255) NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits MODIFY COLUMN metodo_pago VARCHAR(255) DEFAULT "Efectivo"'); } catch(e){}
+    try { await pool.query('ALTER TABLE cash_register_movements MODIFY COLUMN payment_method VARCHAR(255) DEFAULT "Efectivo"'); } catch(e){}
 
     // Seed default commission categories if empty
     const [catCount] = await pool.query('SELECT COUNT(*) as cnt FROM commission_categories');
