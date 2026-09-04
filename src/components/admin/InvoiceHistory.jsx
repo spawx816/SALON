@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { 
   Receipt, Search, Calendar, Filter, Download, Printer, XCircle, 
   CheckCircle, AlertTriangle, ChevronDown, ChevronUp, User, DollarSign, 
-  CreditCard, Wallet, FileText, RefreshCw, Clock, Landmark, Layers, Sparkles, FileSpreadsheet
+  CreditCard, Wallet, FileText, RefreshCw, Clock, Landmark, Layers, Sparkles, FileSpreadsheet, Mail
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useAuth } from '../../context/AuthContext';
@@ -16,6 +16,27 @@ export default function InvoiceHistory() {
   const [visits, setVisits] = useState([]);
   const [salons, setSalons] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [emailSendingId, setEmailSendingId] = useState(null);
+
+  const handleSendEmailInvoice = async (visit) => {
+    const defaultEmail = visit.client_email || visit.email || '';
+    const emailToUse = window.prompt('Confirma o ingresa el correo electrónico para enviar la factura:', defaultEmail);
+    if (!emailToUse || !emailToUse.trim()) return;
+
+    setEmailSendingId(visit.id);
+    try {
+      const res = await dataService.sendInvoiceEmail(visit.id, emailToUse.trim());
+      if (res.success) {
+        alert(res.message || '✅ Factura enviada exitosamente por correo electrónico.');
+      } else {
+        alert('Error enviando factura: ' + (res.error || 'Desconocido'));
+      }
+    } catch(err) {
+      alert('Error de conexión al enviar correo: ' + err.message);
+    } finally {
+      setEmailSendingId(null);
+    }
+  };
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -1109,6 +1130,17 @@ export default function InvoiceHistory() {
                           >
                             {isExpanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
                             <span>Detalle</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={emailSendingId === visit.id}
+                            onClick={() => handleSendEmailInvoice(visit)}
+                            style={{ background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '3px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
+                            title="Enviar factura por correo electrónico"
+                          >
+                            <Mail size={10} />
+                            <span>{emailSendingId === visit.id ? '...' : 'Email'}</span>
                           </button>
 
                           {!isVoided && canVoid && (

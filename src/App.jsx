@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
-  Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt
+  Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -18,6 +18,8 @@ import ClientDashboard from './components/clients/ClientDashboard';
 import ClientRegistration from './components/clients/ClientRegistration';
 import VisitRecorder from './components/visits/VisitRecorder';
 import InvoiceHistory from './components/admin/InvoiceHistory';
+import CashRegistersModule from './components/admin/CashRegistersModule';
+import EmployeeDiscountsModule from './components/admin/EmployeeDiscountsModule';
 import SatisfactionSurvey from './components/surveys/SatisfactionSurvey';
 import GiftCertificates from './components/surveys/GiftCertificates';
 import ClientServices from './components/clients/ClientServices';
@@ -262,9 +264,12 @@ const AppContent = () => {
                 <SidebarLink to="/lista-clientes" icon={Users} label={t('menu.clients')} active={location.pathname === '/lista-clientes'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits))) && (
-                <SidebarLink to="/visitas" icon={Calendar} label="Facturar" active={location.pathname === '/visitas'} onClick={closeMobileMenu} />
+                <SidebarLink to="/visitas" icon={Calendar} label="Facturar (POS)" active={location.pathname === '/visitas'} onClick={closeMobileMenu} />
               )}
-              {(isAdmin || (user?.permissions && (user.permissions.view_invoices || user.permissions.process_payments))) && (
+              {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.manage_salons))) && (
+                <SidebarLink to="/cajas" icon={Wallet} label="Cajas Registradoras" active={location.pathname === '/cajas'} onClick={closeMobileMenu} />
+              )}
+              {isAdmin && (
                 <SidebarLink to="/facturas" icon={Receipt} label="Historial de Facturas" active={location.pathname === '/facturas'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
@@ -275,6 +280,9 @@ const AppContent = () => {
               )}
               {(isAdmin || (user?.permissions && (user.permissions.manage_commissions || user.permissions.manage_staff))) && (
                 <SidebarLink to="/comisiones" icon={Percent} label="Comisiones" active={location.pathname === '/comisiones'} onClick={closeMobileMenu} />
+              )}
+              {(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) && (
+                <SidebarLink to="/descuentos-empleados" icon={BadgePercent} label="Descuentos Empleados" active={location.pathname === '/descuentos-empleados'} onClick={closeMobileMenu} />
               )}
               
               <div style={{ margin: '1.5rem 0.75rem 0.5rem', height: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
@@ -377,7 +385,9 @@ const AppContent = () => {
                 <Route path="/registro-cliente" element={isClient ? <Navigate to="/" /> : <ClientRegistration />} />
                 <Route path="/lista-clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
                 <Route path="/visitas" element={isClient ? <Navigate to="/" /> : <VisitRecorder />} />
-                <Route path="/facturas" element={isClient ? <Navigate to="/" /> : <InvoiceHistory />} />
+                <Route path="/cajas" element={(isAdmin || (user?.permissions && user.permissions.process_payments)) ? <CashRegistersModule /> : <Navigate to="/" />} />
+                <Route path="/facturas" element={isAdmin ? <InvoiceHistory /> : <Navigate to="/" />} />
+                <Route path="/descuentos-empleados" element={(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) ? <EmployeeDiscountsModule /> : <Navigate to="/" />} />
                 <Route path="/servicios" element={isClient ? <Navigate to="/" /> : <ServiceManagement />} />
                 <Route path="/comisiones" element={isClient ? <Navigate to="/" /> : <CommissionManagement />} />
                 <Route path="/encuesta" element={(isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />} />

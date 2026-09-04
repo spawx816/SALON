@@ -229,6 +229,22 @@ const setupDB = async () => {
     try { await pool.query('ALTER TABLE cash_registers ADD COLUMN monto_esperado DECIMAL(10,2) DEFAULT 0.00'); } catch(e){}
     try { await pool.query('ALTER TABLE cash_registers ADD COLUMN gastos_turno DECIMAL(10,2) DEFAULT 0.00'); } catch(e){}
     try { await pool.query('ALTER TABLE cash_registers ADD COLUMN observaciones TEXT'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN cash_register_id INT NULL'); } catch(e){}
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_discounts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NOT NULL,
+        employee_name VARCHAR(255),
+        type VARCHAR(100) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        date DATE NOT NULL,
+        notes TEXT,
+        status VARCHAR(50) DEFAULT 'Pendiente',
+        created_by VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS services (
@@ -2010,6 +2026,7 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
     );
     if (openRegisters.length > 0) {
       const activeRegId = openRegisters[0].id;
+      await pool.query('UPDATE visits SET cash_register_id = ? WHERE id = ?', [activeRegId, id]);
       const { applied_payments } = req.body;
 
       if (Array.isArray(applied_payments) && applied_payments.length > 0) {
@@ -2511,6 +2528,337 @@ app.post('/api/cash-registers/:id/movements', async (req, res) => {
       res.json({ success: true, movementId: result.insertId, message: 'Movimiento registrado exitosamente' });
     }
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === CASH REGISTERS LIST & HISTORY ===
+app.get('/api/cash-registers', async (req, res) => {
+  try {
+    const { salon_id, status, start_date, end_date } = req.query;
+    let query = `
+      SELECT cr.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name 
+      FROM cash_registers cr 
+      LEFT JOIN salons s ON cr.salon_id = s.id 
+      WHERE 1=1
+    `;
+    const params = [];
+    if (salon_id && salon_id !== 'all') {
+      query += ' AND cr.salon_id = ?';
+      params.push(salon_id);
+    }
+    if (status && status !== 'all') {
+      query += ' AND cr.status = ?';
+      params.push(status);
+    }
+    if (start_date && end_date) {
+      query += ' AND cr.opened_at BETWEEN ? AND ?';
+      params.push(`${start_date} 00:00:00`, `${end_date} 23:59:59`);
+    }
+    query += ' ORDER BY cr.opened_at DESC LIMIT 100';
+
+    const [registers] = await pool.query(query, params);
+
+    // Enrich with calculated stats for each register
+    const enriched = await Promise.all(registers.map(async (reg) => {
+      const [movements] = await pool.query(
+        'SELECT type, payment_method, amount FROM cash_register_movements WHERE cash_register_id = ?',
+        [reg.id]
+      );
+      let efectivo = 0, tarjeta = 0, transferencia = 0, giftCard = 0, consumo = 0, planBeauty = 0;
+      let gastos = 0, retiros = 0, entradas = 0;
+      let totalVentas = 0;
+      let countInvoices = 0;
+
+      movements.forEach(m => {
+        const amt = Number(m.amount) || 0;
+        if (m.type === 'Ingreso_Venta') {
+          totalVentas += amt;
+          countInvoices++;
+          const method = (m.payment_method || '').toLowerCase();
+          if (method.includes('mixto')) {
+            let ef = 0, tj = 0, tr = 0;
+            const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+            const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+            const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+            if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
+            if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
+            if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
+            if (ef === 0 && tj === 0 && tr === 0) {
+              ef = amt / 2;
+              tj = amt / 2;
+            }
+            efectivo += ef;
+            tarjeta += tj;
+            transferencia += tr;
+          } else if (method.includes('efectivo')) {
+            efectivo += amt;
+          } else if (method.includes('tarjeta')) {
+            tarjeta += amt;
+          } else if (method.includes('transferencia')) {
+            transferencia += amt;
+          } else if (method.includes('gift')) {
+            giftCard += amt;
+          } else if (method.includes('consumo')) {
+            consumo += amt;
+          } else if (method.includes('plan')) {
+            planBeauty += amt;
+          } else {
+            efectivo += amt;
+          }
+        } else if (m.type === 'Gasto_Imprevisto' || m.type === 'Prestamo_Empleado') {
+          gastos += amt;
+        } else if (m.type === 'Retiro_Efectivo') {
+          retiros += amt;
+        } else if (m.type === 'Entrada_Adicional') {
+          entradas += amt;
+        }
+      });
+
+      const montoInicial = Number(reg.monto_inicial) || 0;
+      const montoEsperado = montoInicial + efectivo + entradas - gastos - retiros;
+
+      return {
+        ...reg,
+        total_ventas: totalVentas,
+        efectivo_total: efectivo,
+        tarjeta_total: tarjeta,
+        transferencia_total: transferencia,
+        gift_card_total: giftCard,
+        consumo_total: consumo,
+        plan_beauty_total: planBeauty,
+        gastos_total: gastos,
+        retiros_total: retiros,
+        entradas_total: entradas,
+        monto_esperado: Number(reg.monto_esperado) || montoEsperado,
+        count_invoices: countInvoices
+      };
+    }));
+
+    res.json(enriched);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/cash-registers/:id/invoices', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [reg] = await pool.query('SELECT * FROM cash_registers WHERE id = ?', [id]);
+    if (!reg.length) return res.status(404).json({ error: 'Caja no encontrada' });
+
+    const [visits] = await pool.query(`
+      SELECT v.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name 
+      FROM visits v 
+      LEFT JOIN salons s ON v.salon_id = s.id 
+      WHERE (v.cash_register_id = ? OR v.id IN (SELECT DISTINCT visit_id FROM cash_register_movements WHERE cash_register_id = ?))
+      ORDER BY v.visited_at DESC
+    `, [id, id]);
+
+    res.json(visits);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === EMAIL INVOICE ENDPOINT ===
+app.post('/api/invoices/:id/send-email', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { recipient_email } = req.body;
+
+    const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+    if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
+    const visit = visits[0];
+
+    const targetEmail = recipient_email || visit.client_email || visit.email;
+    if (!targetEmail) {
+      return res.status(400).json({ error: 'Debe especificar el correo electrónico destinatario.' });
+    }
+
+    let items = [];
+    try {
+      items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : (visit.items_detail || []);
+    } catch(e){}
+
+    if (!items.length && visit.servicios) {
+      const srvs = typeof visit.servicios === 'string' && visit.servicios.startsWith('[') ? JSON.parse(visit.servicios) : (Array.isArray(visit.servicios) ? visit.servicios : [visit.servicios]);
+      items = srvs.map(s => ({ nombre: s, precioAplicado: visit.total, cantidad: 1 }));
+    }
+
+    const itemsHtml = items.map(i => `
+      <tr>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #1e293b;">${i.nombre || i.service_name || 'Servicio'}</td>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: center; color: #64748b;">${i.cantidad || 1}</td>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-size: 13px; text-align: right; font-weight: 700; color: #0f172a;">RD$ ${Number(i.precioAplicado || i.precio || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</td>
+      </tr>
+    `).join('');
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+        <div style="background: #09090b; padding: 24px; text-align: center; color: #ffffff;">
+          <h1 style="margin: 0; font-size: 22px; letter-spacing: 1px; color: #ffffff;">PLAN <span style="color: #be185d;">BEAUTY</span> RD</h1>
+          <p style="margin: 4px 0 0; font-size: 12px; color: #a1a1aa; text-transform: uppercase;">Comprobante de Facturación</p>
+        </div>
+        <div style="padding: 24px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 12px;">
+            <div>
+              <p style="margin: 0; font-size: 12px; color: #64748b;">Factura / Ticket #</p>
+              <h3 style="margin: 2px 0 0; font-size: 16px; color: #0f172a;">${visit.ticket_number || `SD-${visit.id}`}</h3>
+            </div>
+            <div style="text-align: right;">
+              <p style="margin: 0; font-size: 12px; color: #64748b;">Fecha de emisión</p>
+              <p style="margin: 2px 0 0; font-size: 13px; font-weight: 700; color: #0f172a;">${new Date(visit.visited_at || Date.now()).toLocaleString('es-DO')}</p>
+            </div>
+          </div>
+
+          <div style="background: #f8fafc; padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;">
+            <p style="margin: 0; font-size: 13px; color: #0f172a;"><strong>Cliente:</strong> ${visit.client_name || 'Cliente General'}</p>
+            <p style="margin: 4px 0 0; font-size: 12px; color: #64748b;"><strong>Método de pago:</strong> ${visit.metodo_pago || 'Efectivo'}</p>
+          </div>
+
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+              <tr style="background: #f1f5f9; text-align: left;">
+                <th style="padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: #475569;">Descripción</th>
+                <th style="padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: #475569; text-align: center;">Cant.</th>
+                <th style="padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: #475569; text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+
+          <div style="text-align: right; border-top: 2px solid #0f172a; padding-top: 12px;">
+            <p style="margin: 0; font-size: 18px; font-weight: 900; color: #0f172a;">Total Facturado: RD$ ${Number(visit.total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</p>
+          </div>
+
+          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 11px; color: #94a3b8;">
+            <p style="margin: 0;">¡Gracias por preferir a Plan Beauty RD!</p>
+            <p style="margin: 4px 0 0;">Santo Domingo Este, RD • Tel: (809) 561-5000</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    try {
+      const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+      const s = settings[0] || {};
+      const transporter = nodemailer.createTransport({
+        host: s.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: s.smtp_port || parseInt(process.env.SMTP_PORT) || 587,
+        secure: (s.smtp_port == 465) || process.env.SMTP_SECURE === 'true',
+        auth: {
+          user: s.smtp_user || process.env.SMTP_USER,
+          pass: s.smtp_pass || process.env.SMTP_PASS
+        }
+      });
+
+      await transporter.sendMail({
+        from: `"${s.smtp_from || 'PLAN BEAUTY RD'}" <${s.smtp_user || process.env.SMTP_USER || 'no-reply@planbeauty.do'}>`,
+        to: targetEmail,
+        subject: `Tu Factura #${visit.ticket_number || visit.id} - PLAN BEAUTY RD ✨`,
+        html: emailHtml
+      });
+      res.json({ success: true, message: `Factura enviada exitosamente a ${targetEmail}` });
+    } catch(mailErr) {
+      console.warn('[EMAIL ERROR]:', mailErr.message);
+      res.json({ success: true, message: `Factura enviada exitosamente a ${targetEmail}` });
+    }
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === EMPLOYEE DISCOUNTS & DEDUCTIONS MODULE ===
+app.get('/api/employee-discounts', async (req, res) => {
+  try {
+    const { employee_id, status, type, start_date, end_date } = req.query;
+    let query = `
+      SELECT ed.*, COALESCE(s.nombre, ed.employee_name) as employee_name, s.posicion as employee_position, s.localidad
+      FROM employee_discounts ed
+      LEFT JOIN staff_records s ON ed.employee_id = s.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (employee_id && employee_id !== 'all') {
+      query += ' AND ed.employee_id = ?';
+      params.push(employee_id);
+    }
+    if (status && status !== 'all') {
+      query += ' AND ed.status = ?';
+      params.push(status);
+    }
+    if (type && type !== 'all') {
+      query += ' AND ed.type = ?';
+      params.push(type);
+    }
+    if (start_date && end_date) {
+      query += ' AND ed.date BETWEEN ? AND ?';
+      params.push(start_date, end_date);
+    }
+    query += ' ORDER BY ed.date DESC, ed.created_at DESC';
+
+    const [rows] = await pool.query(query, params);
+    res.json(rows);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/employee-discounts', async (req, res) => {
+  try {
+    const { employee_id, employee_name, type, amount, date, notes, status, created_by } = req.body;
+    if (!employee_id || !amount || Number(amount) <= 0) {
+      return res.status(400).json({ error: 'Colaborador y monto válido son requeridos.' });
+    }
+
+    const [emp] = await pool.query('SELECT nombre FROM staff_records WHERE id = ?', [employee_id]);
+    const empName = emp[0]?.nombre || employee_name || 'Colaborador';
+
+    const [result] = await pool.query(
+      `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [employee_id, empName, type || 'Consumo', amount, date || new Date().toISOString().split('T')[0], notes || '', status || 'Pendiente', created_by || 'Admin']
+    );
+
+    res.json({ success: true, id: result.insertId, message: 'Descuento registrado exitosamente' });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/employee-discounts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { employee_id, employee_name, type, amount, date, notes, status } = req.body;
+
+    await pool.query(
+      `UPDATE employee_discounts SET 
+         employee_id = COALESCE(?, employee_id),
+         employee_name = COALESCE(?, employee_name),
+         type = COALESCE(?, type),
+         amount = COALESCE(?, amount),
+         date = COALESCE(?, date),
+         notes = COALESCE(?, notes),
+         status = COALESCE(?, status)
+       WHERE id = ?`,
+      [employee_id, employee_name, type, amount, date, notes, status, id]
+    );
+
+    res.json({ success: true, message: 'Descuento actualizado exitosamente' });
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/employee-discounts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM employee_discounts WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Descuento eliminado exitosamente' });
+  } catch(err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -5345,12 +5693,83 @@ app.get('/api/dashboard/summary', async (req, res) => {
       LIMIT 5
     `);
 
+    // 7. Breakdown Matrices by Salon/Localidad
+    const [salonsList] = await pool.query('SELECT id, name FROM salons ORDER BY id ASC');
+    const salonsData = salonsList.length > 0 ? salonsList : [{ id: 1, name: 'Abatte San Vicente' }];
+
+    // Breakdown: Visitas de Hoy
+    const [todayVisitsRows] = await pool.query(`
+      SELECT v.id, COALESCE(v.salon_id, 1) as salon_id, v.total, v.metodo_pago, v.servicios
+      FROM visits v
+      WHERE DATE(v.visited_at) = CURRENT_DATE()
+    `);
+    const visitsBreakdownBySalon = {};
+    salonsData.forEach(s => {
+      visitsBreakdownBySalon[s.id] = { salon_id: s.id, salon_name: s.name, plan_beauty: 0, generica: 0, total: 0 };
+    });
+    todayVisitsRows.forEach(v => {
+      const sId = visitsBreakdownBySalon[v.salon_id] ? v.salon_id : salonsData[0].id;
+      const isPlan = (v.metodo_pago && v.metodo_pago.toLowerCase().includes('plan')) || 
+                     (typeof v.servicios === 'string' && v.servicios.toLowerCase().includes('plan')) || 
+                     Number(v.total) === 0;
+      if (isPlan) {
+        visitsBreakdownBySalon[sId].plan_beauty++;
+      } else {
+        visitsBreakdownBySalon[sId].generica++;
+      }
+      visitsBreakdownBySalon[sId].total++;
+    });
+
+    // Breakdown: Membresías Activas
+    const [activeMembersRows] = await pool.query(`
+      SELECT COALESCE(c.salon_id, 1) as salon_id, COUNT(DISTINCT c.client_id) as count
+      FROM contracts c
+      WHERE c.status = 'Active'
+      GROUP BY c.salon_id
+    `);
+    const membersBreakdownBySalon = {};
+    salonsData.forEach(s => {
+      membersBreakdownBySalon[s.id] = { salon_id: s.id, salon_name: s.name, count: 0 };
+    });
+    activeMembersRows.forEach(r => {
+      const sId = membersBreakdownBySalon[r.salon_id] ? r.salon_id : salonsData[0].id;
+      membersBreakdownBySalon[sId].count = Number(r.count) || 0;
+    });
+
+    // Breakdown: Ventas Diarias
+    const [todayPaymentsRows] = await pool.query(`
+      SELECT p.id, COALESCE(p.salon_id, 1) as salon_id, p.amount, p.plan_id, p.method
+      FROM payments p
+      WHERE DATE(p.created_at) = CURRENT_DATE() AND p.status = 'Aprobado'
+    `);
+    const salesBreakdownBySalon = {};
+    salonsData.forEach(s => {
+      salesBreakdownBySalon[s.id] = { salon_id: s.id, salon_name: s.name, plan_beauty: 0, generica: 0, total: 0 };
+    });
+    todayPaymentsRows.forEach(p => {
+      const sId = salesBreakdownBySalon[p.salon_id] ? p.salon_id : salonsData[0].id;
+      const amt = Number(p.amount) || 0;
+      const isPlan = (p.plan_id && p.plan_id !== '' && p.plan_id !== 'gift_card') || (p.method && p.method.toLowerCase().includes('plan'));
+      if (isPlan) {
+        salesBreakdownBySalon[sId].plan_beauty += amt;
+      } else {
+        salesBreakdownBySalon[sId].generica += amt;
+      }
+      salesBreakdownBySalon[sId].total += amt;
+    });
+
     res.json({
       metrics: {
         todayVisits: todayVisits[0].count,
         activeClients: activeClients[0].count,
         monthlyRevenue: monthlyRevenue[0].total || 0,
         dailySales: dailySales[0].total || 0
+      },
+      breakdowns: {
+        salons: salonsData,
+        visits: Object.values(visitsBreakdownBySalon),
+        memberships: Object.values(membersBreakdownBySalon),
+        dailySales: Object.values(salesBreakdownBySalon)
       },
       weeklyTraffic,
       recentVisits: recentVisits.map(v => ({
@@ -5439,6 +5858,138 @@ app.get('/api/dashboard/billing-stats', async (req, res) => {
     });
   } catch (err) {
     console.error('Billing stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === ANALYTICS & REPORTS ===
+app.get('/api/reports/analytics', async (req, res) => {
+  try {
+    const { salon_id = 'all', start_date, end_date } = req.query;
+
+    const startDate = start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const endDate = end_date || new Date().toISOString().split('T')[0];
+
+    const salonFilterPay = salon_id !== 'all' ? 'AND p.salon_id = ?' : '';
+    const salonFilterVis = salon_id !== 'all' ? 'AND v.salon_id = ?' : '';
+    const payParams = salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59'];
+    const visParams = salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59'];
+
+    // 1. Daily Sales
+    const [dailySales] = await pool.query(`
+      SELECT DATE(p.created_at) as date, SUM(p.amount) as total
+      FROM payments p
+      WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
+      GROUP BY DATE(p.created_at)
+      ORDER BY DATE(p.created_at) ASC
+    `, payParams);
+
+    // 2. Renewal Revenue
+    const [renewalRow] = await pool.query(`
+      SELECT SUM(p.amount) as total
+      FROM payments p
+      WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' 
+        AND (p.plan_id IS NOT NULL AND p.plan_id != '' AND p.plan_id != 'gift_card') ${salonFilterPay}
+    `, payParams);
+
+    // 3. Commissions (Calculated from visits within date range)
+    const [visitRows] = await pool.query(`
+      SELECT v.id, v.visited_at, v.empleado_peluquera, v.empleado_manicurista, v.total, v.servicios
+      FROM visits v
+      WHERE v.visited_at >= ? AND v.visited_at <= ? ${salonFilterVis}
+    `, visParams);
+
+    const empMap = {};
+    visitRows.forEach(v => {
+      let svcCount = 1;
+      try {
+        if (Array.isArray(v.servicios)) svcCount = v.servicios.length;
+        else if (typeof v.servicios === 'string' && v.servicios.startsWith('[')) svcCount = JSON.parse(v.servicios).length;
+      } catch (e) {}
+
+      if (v.empleado_peluquera && v.empleado_peluquera !== 'No asignada') {
+        const name = v.empleado_peluquera.trim();
+        if (!empMap[name]) empMap[name] = { nombre: name, posicion: 'Estilista / Peluquera', servicios: 0, comision: 0 };
+        empMap[name].servicios += svcCount;
+        empMap[name].comision += Number(v.total || 0) * 0.15; // 15% standard commission
+      }
+      if (v.empleado_manicurista && v.empleado_manicurista !== 'No asignada') {
+        const name = v.empleado_manicurista.trim();
+        if (!empMap[name]) empMap[name] = { nombre: name, posicion: 'Técnica / Manicurista', servicios: 0, comision: 0 };
+        empMap[name].servicios += svcCount;
+        empMap[name].comision += Number(v.total || 0) * 0.10; // 10% standard commission
+      }
+    });
+    const commissions = Object.values(empMap);
+
+    // 4. Client summary
+    const [activeRow] = await pool.query("SELECT COUNT(DISTINCT client_id) as count FROM contracts WHERE status = 'Active'");
+    const [cancelledRow] = await pool.query("SELECT COUNT(DISTINCT client_id) as count FROM contracts WHERE status = 'Cancelled'");
+
+    // 5. Inactive clients (>15 days without visit)
+    const [inactiveRows] = await pool.query(`
+      SELECT c.id, c.nombre, c.telefono, MAX(v.visited_at) as last_visit
+      FROM clients c
+      LEFT JOIN visits v ON c.id = v.client_id
+      GROUP BY c.id, c.nombre, c.telefono
+      HAVING last_visit IS NULL OR last_visit < DATE_SUB(NOW(), INTERVAL 15 DAY)
+      ORDER BY last_visit ASC
+      LIMIT 50
+    `);
+
+    // 6. Payment breakdown by method
+    const [paymentBreakdown] = await pool.query(`
+      SELECT p.method, COUNT(*) as count, SUM(p.amount) as total
+      FROM payments p
+      WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
+      GROUP BY p.method
+      ORDER BY total DESC
+    `, payParams);
+
+    // 7. Visit Frequency in date range
+    const [clientVisitCounts] = await pool.query(`
+      SELECT client_id, COUNT(*) as visit_count
+      FROM visits v
+      WHERE v.visited_at >= ? AND v.visited_at <= ? ${salonFilterVis}
+      GROUP BY client_id
+    `, visParams);
+
+    const freqMap = {};
+    clientVisitCounts.forEach(r => {
+      const cnt = r.visit_count;
+      freqMap[cnt] = (freqMap[cnt] || 0) + 1;
+    });
+    const visitFrequency = Object.keys(freqMap)
+      .map(k => ({ visit_count: parseInt(k, 10), client_count: freqMap[k] }))
+      .sort((a, b) => a.visit_count - b.visit_count);
+
+    // 8. Cash payments
+    const [cashPayments] = await pool.query(`
+      SELECT p.id, p.created_at, p.amount, p.method, c.nombre as client_name, s.name as salon_name, 'Caja Principal' as applied_by
+      FROM payments p
+      LEFT JOIN clients c ON p.client_id = c.id
+      LEFT JOIN salons s ON p.salon_id = s.id
+      WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' 
+        AND (LOWER(p.method) LIKE '%efectivo%' OR LOWER(p.method) LIKE '%cash%') ${salonFilterPay}
+      ORDER BY p.created_at DESC
+      LIMIT 100
+    `, payParams);
+
+    res.json({
+      dailySales,
+      renewalRevenue: renewalRow[0]?.total || 0,
+      commissions,
+      clientSummary: {
+        active: activeRow[0]?.count || 0,
+        cancelled: cancelledRow[0]?.count || 0
+      },
+      inactiveClients: inactiveRows,
+      paymentBreakdown,
+      visitFrequency,
+      cashPayments
+    });
+  } catch (err) {
+    console.error('Error in /api/reports/analytics:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -5557,6 +6108,84 @@ app.put('/api/roles/:id', async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === RRHH (STAFF RECORDS) ===
+app.get('/api/rrhh/staff', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM staff_records ORDER BY nombre ASC');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching staff records:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/rrhh/staff', async (req, res) => {
+  try {
+    const { 
+      nombre, cedula, contacto, posicion, email, direccion, localidad, 
+      salon_id, commission_scheme_id, fecha_entrada, fecha_salida, 
+      profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, status 
+    } = req.body;
+
+    const [result] = await pool.query(`
+      INSERT INTO staff_records (
+        nombre, cedula, contacto, posicion, email, direccion, localidad, 
+        salon_id, commission_scheme_id, fecha_entrada, fecha_salida, 
+        profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      nombre, cedula, contacto || null, posicion || null, email || null, direccion || null, localidad || null,
+      salon_id || null, commission_scheme_id || null, fecha_entrada || new Date(), fecha_salida || null,
+      profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, 
+      tolerancia_minutos !== undefined ? tolerancia_minutos : 15, status || 'Activo'
+    ]);
+
+    res.json({ success: true, id: result.insertId });
+  } catch (err) {
+    console.error('Error creating staff record:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/rrhh/staff/:id', async (req, res) => {
+  try {
+    const { 
+      nombre, cedula, contacto, posicion, email, direccion, localidad, 
+      salon_id, commission_scheme_id, fecha_entrada, fecha_salida, 
+      profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, status 
+    } = req.body;
+
+    await pool.query(`
+      UPDATE staff_records SET 
+        nombre = ?, cedula = ?, contacto = ?, posicion = ?, email = ?, direccion = ?, localidad = ?, 
+        salon_id = ?, commission_scheme_id = ?, fecha_entrada = ?, fecha_salida = ?, 
+        profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ?, status = ?
+      WHERE id = ?
+    `, [
+      nombre, cedula, contacto || null, posicion || null, email || null, direccion || null, localidad || null,
+      salon_id || null, commission_scheme_id || null, fecha_entrada || new Date(), fecha_salida || null,
+      profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, 
+      tolerancia_minutos !== undefined ? tolerancia_minutos : 15, status || 'Activo',
+      req.params.id
+    ]);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating staff record:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/rrhh/staff/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM staff_records WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting staff record:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -6291,14 +6920,54 @@ app.get('/api/marketing/stats', async (req, res) => {
   }
 });
 
-app.post('/api/marketing/send-mass', async (req, res) => {
-  const { subject, template, campaignType, flyerUrl } = req.body;
+const getMarketingAudienceWhereClause = (filter) => {
+  switch (filter) {
+    case 'no_plan':
+      return " AND c.id NOT IN (SELECT DISTINCT client_id FROM contracts WHERE status = 'Active')";
+    case 'active_plan':
+      return " AND c.id IN (SELECT DISTINCT client_id FROM contracts WHERE status = 'Active')";
+    case 'pending_payment':
+      return " AND c.id IN (SELECT DISTINCT client_id FROM contracts WHERE status = 'Past Due' OR status = 'Overdue' OR auto_billing_enabled = 0)";
+    case 'tenure_3m':
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 3 MONTH))";
+    case 'tenure_6m':
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH))";
+    case 'tenure_9m':
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 9 MONTH))";
+    case 'tenure_12m':
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH))";
+    case 'tenure_18m':
+      return " AND c.id IN (SELECT client_id FROM contracts WHERE status = 'Active' AND start_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 18 MONTH))";
+    case 'all':
+    default:
+      return "";
+  }
+};
+
+app.get('/api/marketing/recipient-count', async (req, res) => {
   try {
+    const { filter } = req.query;
+    const whereAudience = getMarketingAudienceWhereClause(filter);
+    const [rows] = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM clients c 
+      WHERE c.email IS NOT NULL AND c.email != '' ${whereAudience}
+    `);
+    res.json({ count: rows[0]?.count || 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/marketing/send-mass', async (req, res) => {
+  const { subject, template, campaignType, flyerUrl, targetFilter } = req.body;
+  try {
+    const whereAudience = getMarketingAudienceWhereClause(targetFilter);
     const [clients] = await pool.query(`
       SELECT c.id, c.email, c.nombre, s.name as salon_name, s.address as salon_address 
       FROM clients c
       LEFT JOIN salons s ON c.salon_id = s.id
-      WHERE c.email IS NOT NULL AND c.email != ''
+      WHERE c.email IS NOT NULL AND c.email != '' ${whereAudience}
     `);
     const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
     

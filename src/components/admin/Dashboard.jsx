@@ -18,23 +18,46 @@ const data = [
   { name: 'Sun', visits: 0 },
 ];
 
-const MetricCard = ({ title, value, trend, icon: Icon, color = '#09090b', bg = '#f8fafc' }) => (
+const MetricCard = ({ title, value, trend, icon: Icon, color = '#09090b', bg = '#f8fafc', onViewDetails }) => (
   <div className="surface-card" style={{ border: '1px solid var(--border-subtle)', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', position: 'relative', overflow: 'hidden' }}>
     <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: color }}></div>
-    <div className="metric-header" style={{ marginBottom: '1.25rem' }}>
+    <div className="metric-header" style={{ marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div className="metric-icon" style={{ background: bg, border: 'none', width: '40px', height: '40px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Icon size={20} strokeWidth={2.5} color={color} />
       </div>
-      {trend && (
-        <div className="metric-trend" style={{ fontWeight: 800, background: bg, color: color, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.65rem' }}>
-          {trend}
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        {trend && (
+          <div className="metric-trend" style={{ fontWeight: 800, background: bg, color: color, padding: '0.2rem 0.6rem', borderRadius: '20px', fontSize: '0.65rem' }}>
+            {trend}
+          </div>
+        )}
+      </div>
     </div>
     <div>
       <p className="metric-title" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', fontWeight: 800 }}>{title}</p>
       <h3 className="metric-value" style={{ fontSize: '2rem', marginTop: '0.25rem', letterSpacing: '-0.02em', fontWeight: 900 }}>{value}</h3>
     </div>
+    {onViewDetails && (
+      <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px dashed #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+        <button 
+          onClick={onViewDetails}
+          style={{ 
+            background: 'none', 
+            border: 'none', 
+            color: color, 
+            fontSize: '0.75rem', 
+            fontWeight: 700, 
+            cursor: 'pointer', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.3rem',
+            padding: '0.2rem 0'
+          }}
+        >
+          Ver detalles <ArrowUpRight size={14} />
+        </button>
+      </div>
+    )}
   </div>
 );
 
@@ -49,6 +72,8 @@ const Dashboard = () => {
                     (currentUser?.permissions && currentUser?.permissions.view_analytics);
 
   const [stats, setStats] = useState({ todayVisits: 0, activeClients: 0, monthlyRevenue: 0, dailySales: 0 });
+  const [breakdowns, setBreakdowns] = useState({ salons: [], visits: [], memberships: [], dailySales: [] });
+  const [activeDetailModal, setActiveDetailModal] = useState(null); // 'visits' | 'memberships' | 'dailySales' | null
   const [recentVisits, setRecentVisits] = useState([]);
   const [allVisits, setAllVisits] = useState([]);
   const [planUsages, setPlanUsages] = useState([]);
@@ -87,8 +112,11 @@ const Dashboard = () => {
           revenue: summary.metrics.monthlyRevenue,
           dailySales: summary.metrics.dailySales
         });
-        setRecentVisits(summary.recentVisits);
-        setAllVisits(summary.recentVisits);
+        if (summary.breakdowns) {
+          setBreakdowns(summary.breakdowns);
+        }
+        setRecentVisits(summary.recentVisits || []);
+        setAllVisits(summary.recentVisits || []);
         if (summary.weeklyTraffic && summary.weeklyTraffic.length > 0) {
           const chartData = summary.weeklyTraffic.map(day => ({
             name: new Date(day.date).toLocaleDateString(undefined, { weekday: 'short' }),
@@ -217,10 +245,41 @@ const Dashboard = () => {
       </div>
 
       <div className="metrics-grid">
-        <MetricCard title="Visitas de Hoy" value={stats.visits || 0} trend="Real-time" icon={CalendarCheck} color="#3b82f6" bg="#eff6ff" />
-        <MetricCard title="Membresías Activas" value={stats.clients || 0} trend="Live" icon={Users} color="#10b981" bg="#ecfdf5" />
-        <MetricCard title="Ventas Diarias" value={`RD$ ${stats.dailySales ? Number(stats.dailySales).toLocaleString(undefined, {maximumFractionDigits:0}) : '0'}`} trend="Hoy" icon={TrendingUp} color="#8b5cf6" bg="#f5f3ff" />
-        <MetricCard title="Ingresos Estimados" value={`RD$ ${stats.revenue ? Number(stats.revenue).toLocaleString() : '0'}`} trend="Monthly" icon={DollarSign} color="#09090b" bg="#f1f5f9" />
+        <MetricCard 
+          title="Visitas de Hoy" 
+          value={stats.visits || 0} 
+          trend="Real-time" 
+          icon={CalendarCheck} 
+          color="#3b82f6" 
+          bg="#eff6ff" 
+          onViewDetails={() => setActiveDetailModal('visits')}
+        />
+        <MetricCard 
+          title="Membresías Activas" 
+          value={stats.clients || 0} 
+          trend="Live" 
+          icon={Users} 
+          color="#10b981" 
+          bg="#ecfdf5" 
+          onViewDetails={() => setActiveDetailModal('memberships')}
+        />
+        <MetricCard 
+          title="Ventas Diarias" 
+          value={`RD$ ${stats.dailySales ? Number(stats.dailySales).toLocaleString(undefined, {maximumFractionDigits:0}) : '0'}`} 
+          trend="Hoy" 
+          icon={TrendingUp} 
+          color="#8b5cf6" 
+          bg="#f5f3ff" 
+          onViewDetails={() => setActiveDetailModal('dailySales')}
+        />
+        <MetricCard 
+          title="Ingresos Estimados" 
+          value={`RD$ ${stats.revenue ? Number(stats.revenue).toLocaleString() : '0'}`} 
+          trend="Monthly" 
+          icon={DollarSign} 
+          color="#09090b" 
+          bg="#f1f5f9" 
+        />
       </div>
 
       <div className="dashboard-split">
@@ -484,6 +543,264 @@ const Dashboard = () => {
               to { transform: rotate(360deg); }
             }
           `}</style>
+        </div>
+      )}
+
+      {/* Modal de Desglose de Métricas (Ver Detalles) */}
+      {activeDetailModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(9, 9, 11, 0.65)', backdropFilter: 'blur(6px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', animation: 'fadeIn 0.2s ease-out' }}>
+          <div style={{ background: '#fff', borderRadius: '24px', width: '100%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, #09090b 0%, #18181b 100%)', color: 'white' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '900', color: 'white', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  {activeDetailModal === 'visits' && <><CalendarCheck size={22} color="#60a5fa" /> Desglose de Visitas de Hoy</>}
+                  {activeDetailModal === 'memberships' && <><Users size={22} color="#34d399" /> Desglose de Membresías Activas</>}
+                  {activeDetailModal === 'dailySales' && <><TrendingUp size={22} color="#c084fc" /> Desglose de Ventas Diarias (Hoy)</>}
+                </h3>
+                <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8rem', color: '#a1a1aa' }}>
+                  {activeDetailModal === 'visits' && 'Distribución en tiempo real por sucursal y tipo de atención (Plan Beauty vs. Genérica).'}
+                  {activeDetailModal === 'memberships' && 'Cantidad de contratos activos segmentados por sucursal de afiliación.'}
+                  {activeDetailModal === 'dailySales' && 'Ingresos facturados y cobrados en el día clasificados por sucursal.'}
+                </p>
+              </div>
+              <button 
+                onClick={() => setActiveDetailModal(null)} 
+                style={{ border: 'none', background: 'rgba(255,255,255,0.15)', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div style={{ padding: '2rem', overflowY: 'auto', flex: 1, background: '#fafafa' }}>
+              
+              {/* Matrix: Visitas de Hoy */}
+              {activeDetailModal === 'visits' && (() => {
+                const salons = breakdowns.salons && breakdowns.salons.length > 0 ? breakdowns.salons : [{ id: 1, name: 'Sede Principal' }];
+                const visitsData = breakdowns.visits || [];
+                const getSalonVisits = (sId) => visitsData.find(v => v.salon_id === sId) || { plan_beauty: 0, generica: 0, total: 0 };
+
+                const totalPlanBeauty = salons.reduce((acc, s) => acc + (getSalonVisits(s.id).plan_beauty || 0), 0);
+                const totalGenerica = salons.reduce((acc, s) => acc + (getSalonVisits(s.id).generica || 0), 0);
+                const totalGlobal = totalPlanBeauty + totalGenerica;
+
+                return (
+                  <div>
+                    <div style={{ overflowX: 'auto', background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                            <th style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#334155' }}>Categoría / Tipo</th>
+                            {salons.map(s => (
+                              <th key={s.id} style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#09090b', textAlign: 'center' }}>
+                                📍 {s.name}
+                              </th>
+                            ))}
+                            <th style={{ padding: '1rem 1.25rem', fontWeight: 900, color: '#1e40af', background: '#eff6ff', textAlign: 'center' }}>
+                              Total General
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '1.25rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#3b82f6' }}></span>
+                              Plan Beauty (Membresía)
+                            </td>
+                            {salons.map(s => (
+                              <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 800, fontSize: '1.05rem', color: '#0f172a' }}>
+                                {getSalonVisits(s.id).plan_beauty}
+                              </td>
+                            ))}
+                            <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.1rem', color: '#1d4ed8', background: '#f8fafc' }}>
+                              {totalPlanBeauty}
+                            </td>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '1.25rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b' }}></span>
+                              Visitas Genéricas (Sin Plan)
+                            </td>
+                            {salons.map(s => (
+                              <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 800, fontSize: '1.05rem', color: '#0f172a' }}>
+                                {getSalonVisits(s.id).generica}
+                              </td>
+                            ))}
+                            <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.1rem', color: '#d97706', background: '#f8fafc' }}>
+                              {totalGenerica}
+                            </td>
+                          </tr>
+                          <tr style={{ background: '#f8fafc', fontWeight: 900, borderTop: '2px solid #e2e8f0' }}>
+                            <td style={{ padding: '1.25rem', color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              TOTAL VISITAS HOY
+                            </td>
+                            {salons.map(s => (
+                              <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.2rem', color: '#09090b' }}>
+                                {getSalonVisits(s.id).total}
+                              </td>
+                            ))}
+                            <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.3rem', color: '#2563eb', background: '#eff6ff' }}>
+                              {totalGlobal}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Breakdown: Membresías Activas */}
+              {activeDetailModal === 'memberships' && (() => {
+                const salons = breakdowns.salons && breakdowns.salons.length > 0 ? breakdowns.salons : [{ id: 1, name: 'Sede Principal' }];
+                const membersData = breakdowns.memberships || [];
+                const getSalonMembers = (sId) => membersData.find(m => m.salon_id === sId) || { count: 0 };
+                const grandTotal = salons.reduce((acc, s) => acc + (getSalonMembers(s.id).count || 0), 0);
+
+                return (
+                  <div>
+                    <div style={{ overflowX: 'auto', background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                            <th style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#334155' }}>Sucursal / Localidad</th>
+                            <th style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#334155', textAlign: 'center' }}>Membresías Activas</th>
+                            <th style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#334155', textAlign: 'right' }}>% de Distribución</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {salons.map(s => {
+                            const count = getSalonMembers(s.id).count || 0;
+                            const pct = grandTotal > 0 ? Math.round((count / grandTotal) * 100) : 0;
+                            return (
+                              <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '1.25rem', fontWeight: 700, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                                    <Users size={18} />
+                                  </div>
+                                  {s.name}
+                                </td>
+                                <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.15rem', color: '#059669' }}>
+                                  {count}
+                                </td>
+                                <td style={{ padding: '1.25rem', textAlign: 'right' }}>
+                                  <span style={{ fontWeight: 800, color: '#64748b', background: '#f1f5f9', padding: '0.3rem 0.6rem', borderRadius: '12px', fontSize: '0.8rem' }}>
+                                    {pct}%
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr style={{ background: '#f8fafc', fontWeight: 900, borderTop: '2px solid #e2e8f0' }}>
+                            <td style={{ padding: '1.25rem', color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              TOTAL MEMBRESÍAS ACTIVAS
+                            </td>
+                            <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.3rem', color: '#059669' }}>
+                              {grandTotal}
+                            </td>
+                            <td style={{ padding: '1.25rem', textAlign: 'right', fontWeight: 900, color: '#059669' }}>
+                              100%
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Matrix: Ventas Diarias */}
+              {activeDetailModal === 'dailySales' && (() => {
+                const salons = breakdowns.salons && breakdowns.salons.length > 0 ? breakdowns.salons : [{ id: 1, name: 'Sede Principal' }];
+                const salesData = breakdowns.dailySales || [];
+                const getSalonSales = (sId) => salesData.find(s => s.salon_id === sId) || { plan_beauty: 0, generica: 0, total: 0 };
+
+                const totalPlanSales = salons.reduce((acc, s) => acc + (getSalonSales(s.id).plan_beauty || 0), 0);
+                const totalGenericaSales = salons.reduce((acc, s) => acc + (getSalonSales(s.id).generica || 0), 0);
+                const grandTotalSales = totalPlanSales + totalGenericaSales;
+
+                return (
+                  <div>
+                    <div style={{ overflowX: 'auto', background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                            <th style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#334155' }}>Concepto de Venta</th>
+                            {salons.map(s => (
+                              <th key={s.id} style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#09090b', textAlign: 'center' }}>
+                                📍 {s.name}
+                              </th>
+                            ))}
+                            <th style={{ padding: '1rem 1.25rem', fontWeight: 900, color: '#7c3aed', background: '#f5f3ff', textAlign: 'center' }}>
+                              Total Facturado
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '1.25rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#8b5cf6' }}></span>
+                              Plan Beauty (Suscripciones / Cuotas)
+                            </td>
+                            {salons.map(s => (
+                              <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>
+                                RD$ {Number(getSalonSales(s.id).plan_beauty).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              </td>
+                            ))}
+                            <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.05rem', color: '#7c3aed', background: '#f8fafc' }}>
+                              RD$ {Number(totalPlanSales).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </td>
+                          </tr>
+                          <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '1.25rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#06b6d4' }}></span>
+                              Ventas Genéricas / Servicios Sueltos
+                            </td>
+                            {salons.map(s => (
+                              <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>
+                                RD$ {Number(getSalonSales(s.id).generica).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              </td>
+                            ))}
+                            <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.05rem', color: '#0891b2', background: '#f8fafc' }}>
+                              RD$ {Number(totalGenericaSales).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </td>
+                          </tr>
+                          <tr style={{ background: '#f8fafc', fontWeight: 900, borderTop: '2px solid #e2e8f0' }}>
+                            <td style={{ padding: '1.25rem', color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              TOTAL RECAUDADO HOY
+                            </td>
+                            {salons.map(s => (
+                              <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.15rem', color: '#09090b' }}>
+                                RD$ {Number(getSalonSales(s.id).total).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                              </td>
+                            ))}
+                            <td style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 900, fontSize: '1.25rem', color: '#7c3aed', background: '#f5f3ff' }}>
+                              RD$ {Number(grandTotalSales).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1.25rem 2rem', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+              <button 
+                onClick={() => setActiveDetailModal(null)}
+                className="btn-primary" 
+                style={{ borderRadius: '12px', background: '#09090b', padding: '0.6rem 1.5rem', fontWeight: 700 }}
+              >
+                Cerrar Desglose
+              </button>
+            </div>
+
+          </div>
         </div>
       )}
     </div>

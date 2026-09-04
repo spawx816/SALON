@@ -1339,6 +1339,13 @@ export const dataService = {
     } catch { return []; }
   },
 
+  getStaffMembers: async () => {
+    try {
+      const res = await fetch(`${API_URL}/rrhh/staff`);
+      return res.ok ? await res.json() : [];
+    } catch { return []; }
+  },
+
   saveStaffRecord: async (record) => {
     try {
       const res = await fetch(`${API_URL}/rrhh/staff`, {
@@ -1419,12 +1426,12 @@ export const dataService = {
     } catch (e) { return { success: false, error: e.message }; }
   },
 
-  sendMassEmail: async (subject, template, campaignType, flyerUrl) => {
+  sendMassEmail: async (subject, template, campaignType, flyerUrl, filter = 'all') => {
     try {
       const res = await fetch(`${API_URL}/marketing/send-mass`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, template, campaignType, flyerUrl })
+        body: JSON.stringify({ subject, template, campaignType, flyerUrl, filter })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al enviar');
@@ -1604,5 +1611,114 @@ export const dataService = {
       return { success: false, error: e.message };
     }
   },
+
+  // Cash Registers Module
+  getCashRegisters: async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.salon_id) params.append('salon_id', filters.salon_id);
+      if (filters.status) params.append('status', filters.status);
+      if (filters.start_date) params.append('start_date', filters.start_date);
+      if (filters.end_date) params.append('end_date', filters.end_date);
+      const res = await fetch(`${API_URL}/cash-registers?${params.toString()}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching cash registers:', e);
+      return [];
+    }
+  },
+
+  getCashRegisterInvoices: async (registerId) => {
+    try {
+      const res = await fetch(`${API_URL}/cash-registers/${registerId}/invoices`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching cash register invoices:', e);
+      return [];
+    }
+  },
+
+  // Send Invoice Email
+  sendInvoiceEmail: async (visitId, recipientEmail) => {
+    try {
+      const res = await fetch(`${API_URL}/invoices/${visitId}/send-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient_email: recipientEmail })
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error sending invoice email:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Marketing Audience Filter
+  getMarketingRecipientCount: async (filter = 'all') => {
+    try {
+      const res = await fetch(`${API_URL}/marketing/recipient-count?filter=${encodeURIComponent(filter)}`);
+      return res.ok ? await res.json() : { count: 0 };
+    } catch (e) {
+      console.error('Error fetching recipient count:', e);
+      return { count: 0 };
+    }
+  },
+
+  // Employee Discounts & Deductions
+  getEmployeeDiscounts: async (filters = {}) => {
+    try {
+      const params = new URLSearchParams();
+      if (filters.employee_id) params.append('employee_id', filters.employee_id);
+      if (filters.status) params.append('status', filters.status);
+      if (filters.type) params.append('type', filters.type);
+      if (filters.start_date) params.append('start_date', filters.start_date);
+      if (filters.end_date) params.append('end_date', filters.end_date);
+      const res = await fetch(`${API_URL}/employee-discounts?${params.toString()}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching employee discounts:', e);
+      return [];
+    }
+  },
+
+  createEmployeeDiscount: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/employee-discounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error creating employee discount:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  updateEmployeeDiscount: async (id, payload) => {
+    try {
+      const res = await fetch(`${API_URL}/employee-discounts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error updating employee discount:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  deleteEmployeeDiscount: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/employee-discounts/${id}`, {
+        method: 'DELETE'
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error deleting employee discount:', e);
+      return { success: false, error: e.message };
+    }
+  }
 };
 

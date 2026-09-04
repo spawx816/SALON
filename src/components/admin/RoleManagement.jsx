@@ -1394,9 +1394,16 @@ const RoleManagement = () => {
                 </div>
                 
                 <div style={{ flex: '1.5 1 200px' }}>
-                  <span style={{ padding: '0.25rem 0.75rem', background: member.status === 'Activo' ? '#dcfce7' : (member.status === 'Licencia' ? '#fef3c7' : '#fee2e2'), color: member.status === 'Activo' ? '#16a34a' : (member.status === 'Licencia' ? '#d97706' : '#ef4444'), borderRadius: '100px', fontSize: '0.75rem', fontWeight: 800 }}>
-                    {member.status === 'Inactivo' ? 'Baja / Renuncia' : member.status}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span style={{ padding: '0.25rem 0.75rem', background: member.status === 'Activo' ? '#dcfce7' : (member.status === 'Licencia' ? '#fef3c7' : '#fee2e2'), color: member.status === 'Activo' ? '#16a34a' : (member.status === 'Licencia' ? '#d97706' : '#ef4444'), borderRadius: '100px', fontSize: '0.75rem', fontWeight: 800 }}>
+                      {member.status === 'Inactivo' ? 'Baja / Renuncia' : member.status}
+                    </span>
+                    {member.commission_scheme_id && (
+                      <span style={{ fontSize: '0.7rem', color: '#7c3aed', fontWeight: 800, background: '#f5f3ff', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #ddd6fe' }}>
+                        💼 {schemes.find(sch => String(sch.id) === String(member.commission_scheme_id))?.nombre || 'Esquema'}
+                      </span>
+                    )}
+                  </div>
                   <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem' }}>Entrada: {member.fecha_entrada ? new Date(member.fecha_entrada).toLocaleDateString() : 'N/A'}</p>
                   <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.2rem' }}>ID: {member.cedula}</p>
                 </div>
@@ -1594,6 +1601,12 @@ const RoleManagement = () => {
                       <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>SUCURSAL</span>
                       <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>
                         {salons.find(s => String(s.id) === String(selectedStaffDetail.salon_id))?.name || selectedStaffDetail.localidad || 'Todas las localidades'}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>ESQUEMA COMISIÓN</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#7c3aed' }}>
+                        {schemes.find(sch => String(sch.id) === String(selectedStaffDetail.commission_scheme_id))?.nombre || 'Por defecto / Sin asignar'}
                       </strong>
                     </div>
                     <div>

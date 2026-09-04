@@ -36,6 +36,7 @@ const MarketingModule = () => {
   const [subject, setSubject]             = useState('¡Nueva promoción exclusiva en PLAN BEAUTY! ✨');
   const [campaignType, setCampaignType]   = useState('text'); // 'text' | 'image'
   const [campaignFlyerUrl, setCampaignFlyerUrl] = useState('');
+  const [audienceFilter, setAudienceFilter]     = useState('all');
   const [activeTab, setActiveTab]         = useState('campaign'); // 'campaign' | 'birthday'
   const [clientCount, setClientCount]     = useState(null);
   const [stats, setStats]                 = useState(null);
@@ -51,13 +52,13 @@ const MarketingModule = () => {
     const load = async () => {
       setIsLoading(true);
       try {
-        const [sett, clients, mStats] = await Promise.all([
+        const [sett, countRes, mStats] = await Promise.all([
           dataService.getMarketingSettings(),
-          dataService.getClients(),
+          dataService.getMarketingRecipientCount(audienceFilter),
           dataService.getMarketingStats(),
         ]);
         if (sett) setSettings(prev => ({ ...DEFAULT_SETTINGS, ...sett }));
-        if (Array.isArray(clients)) setClientCount(clients.length);
+        if (countRes && typeof countRes.count === 'number') setClientCount(countRes.count);
         if (mStats) setStats(mStats);
       } catch (e) {
         console.error('Error cargando datos de marketing:', e);
@@ -67,6 +68,23 @@ const MarketingModule = () => {
     };
     load();
   }, []);
+
+  // Update recipient count when audience filter changes
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const res = await dataService.getMarketingRecipientCount(audienceFilter);
+        if (res && typeof res.count === 'number') {
+          setClientCount(res.count);
+        }
+      } catch (err) {
+        console.error('Error fetching recipient count:', err);
+      }
+    };
+    if (!isLoading) {
+      fetchCount();
+    }
+  }, [audienceFilter]);
 
   const handleSaveSettings = async () => {
     setIsSaving(true);
@@ -135,11 +153,11 @@ const MarketingModule = () => {
     if (campaignType === 'image' && !campaignFlyerUrl) {
       return alert('Suba el arte de campaña primero.');
     }
-    if (!window.confirm(`¿Enviar este correo a los ${clientCount ?? 'todos los'} clientes?`)) return;
+    if (!window.confirm(`¿Enviar este correo a los ${clientCount ?? 'todos los'} clientes del segmento seleccionado?`)) return;
     setIsSending(true);
     try {
       const res = await dataService.sendMassEmail(
-        subject, settings.mass_email_template, campaignType, campaignFlyerUrl
+        subject, settings.mass_email_template, campaignType, campaignFlyerUrl, audienceFilter
       );
       alert(`¡Campaña lanzada! Enviado a ${res.sent} clientes.`);
       const mStats = await dataService.getMarketingStats();
@@ -388,6 +406,34 @@ const MarketingModule = () => {
                   >
                     🎨 Diseño / Arte (Imagen)
                   </button>
+                </div>
+
+                {/* Audience Segmentation Selector */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)' }}>
+                      Segmento de Destinatarios
+                    </label>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb' }}>
+                      {clientCount !== null ? `${clientCount} clientes calificados` : 'Calculando...'}
+                    </span>
+                  </div>
+                  <select
+                    className="input-field"
+                    value={audienceFilter}
+                    onChange={(e) => setAudienceFilter(e.target.value)}
+                    style={{ fontWeight: 600, fontSize: '0.875rem' }}
+                  >
+                    <option value="all">👥 Todos los Clientes</option>
+                    <option value="no_plan">✂️ Clientes sin Planes (Genéricos / Servicios Sueltos)</option>
+                    <option value="active_plan">✨ Clientes con Plan de Membresía Activo</option>
+                    <option value="pending_payment">⚠️ Clientes con Pago Pendiente / En Mora</option>
+                    <option value="tenure_3m">⏳ Clientes Activos con 3 Meses de Antigüedad</option>
+                    <option value="tenure_6m">⏳ Clientes Activos con 6 Meses de Antigüedad</option>
+                    <option value="tenure_9m">⏳ Clientes Activos con 9 Meses de Antigüedad</option>
+                    <option value="tenure_12m">🏆 Clientes Activos con 1 Año de Antigüedad (12 meses)</option>
+                    <option value="tenure_18m">💎 Clientes Activos con 18 Meses o Más de Antigüedad</option>
+                  </select>
                 </div>
 
                 {/* Subject */}

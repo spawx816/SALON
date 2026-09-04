@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, Plus, Search, Edit3, Trash2, Power, CheckCircle2, XCircle, 
   Tag, DollarSign, Percent, ShieldCheck, ArrowUpDown, Filter, AlertCircle,
-  FileSpreadsheet, Upload, Download, FileText, ShoppingBag, Scissors, Package, X, Save, Check, User
+  FileSpreadsheet, Upload, Download, FileText, ShoppingBag, Scissors, Package, X, Save, Check, User,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
@@ -12,6 +13,10 @@ const ServiceManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todas');
   const [statusFilter, setStatusFilter] = useState('Todos');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Modal States for Single Item
   const [showModal, setShowModal] = useState(false);
@@ -42,6 +47,11 @@ const ServiceManagement = () => {
   useEffect(() => {
     loadServices();
   }, []);
+
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory, statusFilter, itemsPerPage]);
 
   const loadServices = async () => {
     setLoading(true);
@@ -267,11 +277,46 @@ Depilación Facial Completa,Estética,600,20,0`;
     return matchesSearch && matchesCategory && matchesStatus;
   });
 
+  // Pagination Calculations
+  const totalPages = Math.max(1, Math.ceil(filteredServices.length / itemsPerPage));
+  const validCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (validCurrentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, filteredServices.length);
+  const paginatedServices = filteredServices.slice(startIndex, endIndex);
+
+  const handleExportServices = () => {
+    if (filteredServices.length === 0) return alert('No hay servicios para exportar.');
+    const headers = ['ID', 'Nombre', 'Descripción', 'Categoría', 'Tipo', 'Precio (RD$)', 'ITBIS', 'Genera Comisión', 'Tipo Comisión', 'Comisión Valor', 'Estado'];
+    const rows = filteredServices.map(s => [
+      s.id,
+      s.nombre || '',
+      (s.descripcion || '').replace(/"/g, '""'),
+      s.categoria || 'General',
+      s.tipo_item || (s.categoria === 'Productos' ? 'Producto' : 'Servicio'),
+      Number(s.precio || 0).toFixed(2),
+      s.aplica_itbis === 1 ? '18% ITBIS' : 'Exento',
+      s.genera_comision === 1 ? 'Sí' : 'No',
+      s.tipo_comision || 'Porcentaje',
+      s.comision_valor !== undefined ? `${s.comision_valor}%` : '15%',
+      s.activo === 1 ? 'Activo' : 'Inactivo'
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.map(val => `"${val}"`).join(';')).join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `catalogo_servicios_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '1.5rem' }}>
       
       {/* HEADER BANNER */}
-      <div style={{ background: '#0f172a', color: '#ffffff', padding: '1.5rem 2rem', borderRadius: '20px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 10px 25px -5px rgba(15,23,42,0.3)' }}>
+      <div style={{ background: '#0f172a', color: '#ffffff', padding: '1.5rem 2rem', borderRadius: '20px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 10px 25px -5px rgba(15,23,42,0.3)', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.25rem' }}>
             <Sparkles size={24} style={{ color: '#ec4899' }} />
@@ -284,31 +329,44 @@ Depilación Facial Completa,Estética,600,20,0`;
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.65rem', flexWrap: 'wrap' }}>
           <button
-            onClick={() => setShowBulkModal(true)}
+            onClick={handleExportServices}
             style={{
-              background: '#334155', color: '#ffffff', border: '1px solid #475569', padding: '0.75rem 1.25rem',
+              background: '#1e293b', color: '#ffffff', border: '1px solid #475569', padding: '0.75rem 1.15rem',
               borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '0.5rem'
+              display: 'flex', alignItems: 'center', gap: '0.45rem'
             }}
             className="hover-lift"
           >
-            <FileSpreadsheet size={18} style={{ color: '#38bdf8' }} />
-            <span>📥 Carga Masiva (Excel / CSV)</span>
+            <Download size={16} style={{ color: '#10b981' }} />
+            <span>Exportar Catálogo</span>
+          </button>
+
+          <button
+            onClick={() => setShowBulkModal(true)}
+            style={{
+              background: '#334155', color: '#ffffff', border: '1px solid #475569', padding: '0.75rem 1.15rem',
+              borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '0.45rem'
+            }}
+            className="hover-lift"
+          >
+            <FileSpreadsheet size={16} style={{ color: '#38bdf8' }} />
+            <span>Carga Masiva</span>
           </button>
 
           <button
             onClick={handleOpenNewModal}
             style={{
-              background: '#be185d', color: '#ffffff', border: 'none', padding: '0.75rem 1.5rem',
-              borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(190,24,93,0.3)'
+              background: '#be185d', color: '#ffffff', border: 'none', padding: '0.75rem 1.35rem',
+              borderRadius: '12px', fontWeight: 800, fontSize: '0.875rem', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 4px 12px rgba(190,24,93,0.3)'
             }}
             className="hover-lift"
           >
             <Plus size={18} />
-            <span>+ Agregar Nuevo Servicio</span>
+            <span>+ Agregar Servicio</span>
           </button>
         </div>
       </div>
@@ -389,7 +447,7 @@ Depilación Facial Completa,Estética,600,20,0`;
               </tr>
             </thead>
             <tbody>
-              {filteredServices.map(s => (
+              {paginatedServices.map(s => (
                 <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9', opacity: s.activo === 1 ? 1 : 0.65 }}>
                   
                   {/* Service Info */}
@@ -409,8 +467,6 @@ Depilación Facial Completa,Estética,600,20,0`;
                   <td style={{ padding: '0.875rem 1rem', textAlign: 'right', fontWeight: 900, color: '#0f172a', fontSize: '0.95rem' }}>
                     RD$ {Number(s.precio).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                   </td>
-
-
 
                   {/* ITBIS */}
                   <td style={{ padding: '0.875rem 1rem', textAlign: 'center' }}>
@@ -470,6 +526,169 @@ Depilación Facial Completa,Estética,600,20,0`;
               ))}
             </tbody>
           </table>
+        )}
+
+        {/* PAGINATION BAR */}
+        {!loading && filteredServices.length > 0 && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '1rem 1.5rem',
+            background: '#f8fafc',
+            borderTop: '1px solid #e2e8f0',
+            flexWrap: 'wrap',
+            gap: '1rem'
+          }}>
+            {/* Items per page selector & info */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>
+                <span>Mostrar:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                  style={{
+                    padding: '0.35rem 0.6rem',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={10}>10 por página</option>
+                  <option value={20}>20 por página</option>
+                  <option value={50}>50 por página</option>
+                  <option value={100}>100 por página</option>
+                </select>
+              </div>
+
+              <div style={{ fontSize: '0.82rem', color: '#64748b', fontWeight: 600 }}>
+                Mostrando <strong style={{ color: '#0f172a' }}>{filteredServices.length > 0 ? startIndex + 1 : 0}</strong> - <strong style={{ color: '#0f172a' }}>{endIndex}</strong> de <strong style={{ color: '#0f172a' }}>{filteredServices.length}</strong> servicios
+              </div>
+            </div>
+
+            {/* Pagination navigation buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={validCurrentPage === 1}
+                title="Primera página"
+                style={{
+                  padding: '0.45rem 0.6rem',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  color: validCurrentPage === 1 ? '#cbd5e1' : '#334155',
+                  cursor: validCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronsLeft size={16} />
+              </button>
+
+              <button
+                onClick={() => setCurrentPage(Math.max(1, validCurrentPage - 1))}
+                disabled={validCurrentPage === 1}
+                title="Página anterior"
+                style={{
+                  padding: '0.45rem 0.6rem',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  color: validCurrentPage === 1 ? '#cbd5e1' : '#334155',
+                  cursor: validCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+
+              {/* Page Number Pills */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(page => {
+                  // Show first, last, current, and +/- 1 around current
+                  if (page === 1 || page === totalPages) return true;
+                  if (Math.abs(page - validCurrentPage) <= 1) return true;
+                  return false;
+                })
+                .map((page, idx, arr) => {
+                  const prevPage = arr[idx - 1];
+                  const showEllipsis = prevPage && page - prevPage > 1;
+
+                  return (
+                    <React.Fragment key={page}>
+                      {showEllipsis && (
+                        <span style={{ padding: '0 0.35rem', color: '#94a3b8', fontSize: '0.85rem' }}>...</span>
+                      )}
+                      <button
+                        onClick={() => setCurrentPage(page)}
+                        style={{
+                          minWidth: '34px',
+                          height: '34px',
+                          borderRadius: '8px',
+                          border: validCurrentPage === page ? 'none' : '1px solid #e2e8f0',
+                          background: validCurrentPage === page ? '#0f172a' : '#ffffff',
+                          color: validCurrentPage === page ? '#ffffff' : '#334155',
+                          fontWeight: 800,
+                          fontSize: '0.82rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {page}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, validCurrentPage + 1))}
+                disabled={validCurrentPage >= totalPages}
+                title="Página siguiente"
+                style={{
+                  padding: '0.45rem 0.6rem',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  color: validCurrentPage >= totalPages ? '#cbd5e1' : '#334155',
+                  cursor: validCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronRight size={16} />
+              </button>
+
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={validCurrentPage >= totalPages}
+                title="Última página"
+                style={{
+                  padding: '0.45rem 0.6rem',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  color: validCurrentPage >= totalPages ? '#cbd5e1' : '#334155',
+                  cursor: validCurrentPage >= totalPages ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <ChevronsRight size={16} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
