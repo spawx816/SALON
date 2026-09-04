@@ -1842,90 +1842,53 @@ const VisitRecorder = () => {
               </div>
 
               {!isClientSelected ? (
-                /* EMPTY / SEARCH STATE: NO CLIENT SELECTED */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
-                  {/* CLIENT SEARCH INPUT */}
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="text"
-                      placeholder="Buscar por nombre, cédula o tel..."
-                      value={clientSearchTerm}
-                      onChange={(e) => setClientSearchTerm(e.target.value)}
-                      style={{ width: '100%', padding: '0.65rem 2.2rem 0.65rem 0.85rem', borderRadius: '12px', border: '1.5px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 600, outline: 'none', background: '#ffffff', boxSizing: 'border-box' }}
-                    />
-                    <Search size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-
-                    {/* SEARCH RESULTS DROPDOWN */}
-                    {clientSearchTerm.trim().length > 0 && (
-                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '14px', marginTop: '6px', zIndex: 100, maxHeight: '240px', overflowY: 'auto', boxShadow: '0 15px 25px -5px rgba(0, 0, 0, 0.12)' }}>
-                        {/* QUICK ACTION: USE AS GENERAL CLIENT */}
-                        <div
-                          onClick={() => {
-                            handleQuickGeneralClient(clientSearchTerm);
-                            setClientSearchTerm('');
-                          }}
-                          style={{ padding: '0.75rem 1rem', cursor: 'pointer', background: '#fdf2f8', borderBottom: '1.5px solid #fbcfe8', display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#be185d', fontWeight: 800, fontSize: '0.825rem' }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#fce7f3'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#fdf2f8'}
-                        >
-                          <span>⚡</span>
-                          <span>Facturar a <strong>"{clientSearchTerm.trim()}"</strong> (Cliente General)</span>
-                        </div>
-
-                        {allClients
-                          .filter(c => {
-                            const term = clientSearchTerm.toLowerCase();
-                            return (
-                              (c.nombre || c.name || '').toLowerCase().includes(term) ||
-                              (c.cedula || '').includes(term) ||
-                              (c.telefono || '').includes(term)
-                            );
-                          })
-                          .slice(0, 8)
-                          .map((client) => (
-                            <div
-                              key={client.id}
-                              onClick={() => handleSelectClient(client)}
-                              style={{ padding: '0.75rem 1rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '0.75rem', transition: 'background 0.15s' }}
-                              onMouseEnter={(e) => e.currentTarget.style.background = '#fdf4ff'}
-                              onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
-                            >
-                              <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#fae8ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a855f7', fontWeight: 800, fontSize: '0.85rem', flexShrink: 0 }}>
-                                {(client.nombre || client.name || 'C').charAt(0)}
-                              </div>
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <strong style={{ color: '#0f172a', display: 'block', fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {client.nombre || client.name}
-                                </strong>
-                                <span style={{ fontSize: '0.725rem', color: '#64748b' }}>
-                                  {client.cedula ? `🪪 ${client.cedula}` : ''} {client.telefono ? `📞 ${client.telefono}` : ''}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        {allClients.filter(c => {
-                          const term = clientSearchTerm.toLowerCase();
-                          return (
-                            (c.nombre || c.name || '').toLowerCase().includes(term) ||
-                            (c.cedula || '').includes(term) ||
-                            (c.telefono || '').includes(term)
-                          );
-                        }).length === 0 && (
-                          <div style={{ padding: '1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
-                            No hay clientes registrados con "{clientSearchTerm}"
-                          </div>
-                        )}
-                      </div>
-                    )}
+                /* EMPTY STATE: NO CLIENT SELECTED */
+                <div style={{
+                  padding: '3rem 1rem',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.85rem',
+                  flex: 1,
+                  background: '#fafafa',
+                  borderRadius: '20px',
+                  border: '1.5px dashed #e4e4e7',
+                  margin: '0.5rem 0'
+                }}>
+                  <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem' }}>
+                    🎫
                   </div>
-
-                  {/* SIMPLE CLEAN STATE */}
-                  <div style={{ padding: '3.5rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '1.75rem', opacity: 0.6 }}>🎫</span>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#94a3b8' }}>
-                      Ticket no se ha seleccionado
-                    </span>
+                  <div>
+                    <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
+                      Sin cliente seleccionado
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.775rem', color: '#64748b', lineHeight: 1.4 }}>
+                      Selecciona un ticket pendiente o presiona <strong>+ Nuevo Ticket</strong> en la barra superior.
+                    </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewTicketModal(true)}
+                    style={{
+                      marginTop: '0.5rem',
+                      background: '#be185d',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '0.55rem 1rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      boxShadow: '0 4px 10px rgba(190, 24, 93, 0.2)'
+                    }}
+                  >
+                    <span>+ Crear Ticket</span>
+                  </button>
                 </div>
               ) : (
                 /* EXACT CLIENT PROFILE CARD MATCHING USER MOCKUP */
