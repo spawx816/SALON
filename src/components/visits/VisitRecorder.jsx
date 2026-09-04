@@ -1868,27 +1868,6 @@ const VisitRecorder = () => {
                       Selecciona un ticket pendiente o presiona <strong>+ Nuevo Ticket</strong> en la barra superior.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewTicketModal(true)}
-                    style={{
-                      marginTop: '0.5rem',
-                      background: '#be185d',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '10px',
-                      padding: '0.55rem 1rem',
-                      fontSize: '0.8rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.35rem',
-                      boxShadow: '0 4px 10px rgba(190, 24, 93, 0.2)'
-                    }}
-                  >
-                    <span>+ Crear Ticket</span>
-                  </button>
                 </div>
               ) : (
                 /* EXACT CLIENT PROFILE CARD MATCHING USER MOCKUP */
