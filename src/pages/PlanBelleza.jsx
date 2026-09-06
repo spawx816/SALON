@@ -360,9 +360,9 @@ const PlanBelleza = () => {
               <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(212, 175, 55, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem' }}>
                 <Scissors size={20} color="#d4af37" />
               </div>
-              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>Descuentos en Salón</h4>
+              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>20% Descuento en Salón</h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', lineHeight: 1.6 }}>
-                Como miembro de Plan Beauty tendrás acceso a descuentos especiales en los demás procesos y servicios ofrecidos por Abatte Peluquería.
+                Como miembro de Plan Beauty tendrás un <strong>20% de descuento exclusivo</strong> en todos los demás procesos y servicios adicionales que realices en el salón (tintes, hidrataciones, botox, cortes y más).
               </p>
             </div>
 

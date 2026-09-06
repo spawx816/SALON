@@ -61,14 +61,28 @@ const Beneficios = () => {
             </p>
           </div>
 
-          {/* Benefit 4 */}
+          {/* Benefit 4 - 20% Descuento */}
+          <div style={{ background: 'white', padding: '2.5rem 2rem', borderRadius: '24px', boxShadow: '0 15px 35px rgba(0,0,0,0.02)', border: '1px solid #f1f5f9', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: '1rem', right: '1rem', background: '#fef2f2', color: '#be185d', fontSize: '0.7rem', fontWeight: 900, padding: '0.25rem 0.6rem', borderRadius: '20px', border: '1px solid rgba(190,24,93,0.2)' }}>
+              EXCLUSIVO
+            </div>
+            <div style={{ width: '50px', height: '50px', borderRadius: '14px', background: 'rgba(244,63,94,0.1)', color: '#be185d', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
+              <Percent size={22} />
+            </div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>20% de Descuento en Todo</h3>
+            <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
+              Disfruta de un <strong>20% de descuento exclusivo</strong> en todos los servicios y procesos adicionales que te realices en el salón (tintes, hidrataciones, botox capilar, cortes, peinados y más).
+            </p>
+          </div>
+
+          {/* Benefit 5 */}
           <div style={{ background: 'white', padding: '2.5rem 2rem', borderRadius: '24px', boxShadow: '0 15px 35px rgba(0,0,0,0.02)', border: '1px solid #f1f5f9' }}>
             <div style={{ width: '50px', height: '50px', borderRadius: '14px', background: 'rgba(212,175,55,0.08)', color: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
               <Gift size={22} />
             </div>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>Promociones Exclusivas</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
-              Recibe ofertas especiales en tratamientos de hidratación profunda, cortes, tintes u otros servicios de salón no incluidos directamente en el plan.
+              Acceso prioritario a promociones de temporada, eventos de belleza y paquetes especiales para fechas señaladas.
             </p>
           </div>
 

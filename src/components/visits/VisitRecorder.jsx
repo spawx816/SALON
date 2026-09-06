@@ -11,6 +11,8 @@ import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import DigitalContract from '../contracts/DigitalContract';
+import ReceptionMotivationalModal from '../common/ReceptionMotivationalModal';
+import { getCurrentMotivationalPhrase } from '../../utils/motivationalPhrases';
 
 const DEFAULT_TOP_SERVICES = [
   { id: '1', nombre: 'Lavado y Secado', precio: 800 },
@@ -93,6 +95,28 @@ const VisitRecorder = () => {
   const [adminPin, setAdminPin] = useState('');
   const [pendingDiscountItem, setPendingDiscountItem] = useState(null);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
+
+  // Modal: Frases Motivacionales de Recepción (Pantalla al abrir caja y rotación 30 min)
+  const [showMotivationalModal, setShowMotivationalModal] = useState(false);
+
+  // Aplicar 20% de descuento a todos los servicios adicionales para socias Plan Beauty
+  const handleApply20PercentPlanDiscount = () => {
+    if (!lineItems || lineItems.length === 0) {
+      alert('Agrega servicios adicionales a la lista para aplicar el 20% de descuento de socia Plan Beauty.');
+      return;
+    }
+    const updated = lineItems.map(item => {
+      if (item.isPlanWash || item.precioBase === 0) return item;
+      const baseTotal = (Number(item.precioAplicado !== undefined ? item.precioAplicado : item.precioBase) || 0) * (Number(item.cantidad) || 1);
+      const discountVal = Number((baseTotal * 0.20).toFixed(2));
+      return {
+        ...item,
+        descuentoPercent: '20',
+        descuento: discountVal
+      };
+    });
+    setLineItems(updated);
+  };
 
   // Modal: Facturas de la Caja Activa
   const [showCajaInvoicesModal, setShowCajaInvoicesModal] = useState(false);
@@ -1363,6 +1387,7 @@ const VisitRecorder = () => {
       });
       setActiveRegister(res.register || { id: res.registerId, register_number: res.registerNumber });
       setShowRegisterOpenModal(false);
+      setShowMotivationalModal(true); // Desplegar automáticamente la pantalla de frase motivacional del turno
     } catch (e) {
       alert('Error abriendo caja: ' + e.message);
     } finally {
@@ -1764,6 +1789,29 @@ const VisitRecorder = () => {
 
           <button
             type="button"
+            onClick={() => setShowMotivationalModal(true)}
+            style={{
+              background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+              color: '#be185d',
+              border: '1.5px solid rgba(244,114,182,0.35)',
+              padding: '0.65rem 1.05rem',
+              borderRadius: '12px',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              boxShadow: '0 2px 6px rgba(190,24,93,0.06)'
+            }}
+            title="Ver frase motivacional del turno de recepción (rotación cada 30 min)"
+          >
+            <Sparkles size={16} color="#ec4899" />
+            <span>Frase del Turno</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleOpenCajaInvoices}
             style={{ background: '#0f172a', color: '#ffffff', border: 'none', padding: '0.65rem 1.1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(15,23,42,0.18)' }}
             title="Ver las facturas emitidas únicamente en la caja abierta actual"
@@ -2132,6 +2180,38 @@ const VisitRecorder = () => {
                     </div>
                   </div>
 
+                  {/* DETAIL LIST ROW 4: 20% DESCUENTO EN SALÓN */}
+                  {hasActivePlan && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.85rem',
+                      padding: '0.85rem 0.25rem',
+                      borderTop: '1px solid #f3f4f6'
+                    }}>
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        background: '#fdf2f8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <Percent size={20} color="#be185d" />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#be185d', lineHeight: 1.25 }}>
+                          20% Descuento en Salón
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500, marginTop: '2px' }}>
+                          En todos los servicios adicionales
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* FOOTER LINK: RECOMENDACIONES */}
                   <div 
                     onClick={() => setShowRecommendationsModal(true)}
@@ -2350,9 +2430,37 @@ const VisitRecorder = () => {
           {/* BOTTOM SECTION: SERVICIOS SELECCIONADOS TABLE WITH INTERNAL SCROLLBAR */}
           <div style={{ background: '#ffffff', padding: '1.25rem', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexShrink: 0 }}>
-              <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
-                Servicios seleccionados ({lineItems.length})
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
+                  Servicios seleccionados ({lineItems.length})
+                </h3>
+              </div>
+
+              {/* BOTÓN RÁPIDO 20% PLAN BEAUTY */}
+              {hasActivePlan && lineItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleApply20PercentPlanDiscount}
+                  style={{
+                    background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+                    border: '1.5px solid #f43f5e',
+                    color: '#be185d',
+                    padding: '0.35rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.35rem',
+                    boxShadow: '0 2px 5px rgba(244,63,94,0.12)'
+                  }}
+                  title="Aplica 20% de descuento automático a los servicios adicionales fuera del plan"
+                >
+                  <Percent size={13} color="#be185d" />
+                  <span>Aplicar 20% Plan Beauty</span>
+                </button>
+              )}
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, border: '1px solid #f4f4f5', borderRadius: '12px' }}>
@@ -5020,6 +5128,14 @@ const VisitRecorder = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL / PANTALLA MOTIVACIONAL DE RECEPCIÓN (AL ABRIR CAJA O ROTACIÓN 30 MIN) */}
+      <ReceptionMotivationalModal
+        isOpen={showMotivationalModal}
+        onClose={() => setShowMotivationalModal(false)}
+        userName={currentUser?.nombre || currentUser?.name || 'Recepción'}
+        salonName={salonsList.find(s => String(s.id) === String(salonId))?.name || 'Sistema de Gestión'}
+      />
 
     </div>
   );

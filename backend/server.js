@@ -6722,6 +6722,10 @@ app.post('/api/gifts/send-email', async (req, res) => {
 let lastBirthdaySentDate = null; // Track last date birthday emails were sent (YYYY-MM-DD)
 
 const startInternalScheduler = () => {
+  if (process.env.DISABLE_SCHEDULER === 'true' || require('os').hostname() === 'SPAWX') {
+    console.log('[SCHEDULER] Desactivado en entorno local / desarrollo.');
+    return;
+  }
   // En producción, ejecutamos la revisión cada 1 hora; en pruebas cada 2 minutos
   const checkInterval = CARDNET_CONFIG.ENV === 'PRODUCTION' 
     ? 1000 * 60 * 60 * 1  // 1 hora en producción
