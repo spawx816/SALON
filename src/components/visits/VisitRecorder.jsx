@@ -1687,6 +1687,16 @@ const VisitRecorder = () => {
     }
   };
 
+  // Scope principal: Detección de tipo de cliente y membresía Plan Beauty activa
+  const isGuestClient = Boolean(
+    !clientFound ||
+    clientFound?.id === 'INVITADO' || 
+    clientFound?.es_invitado || 
+    selectedTicket?.client_id === 'INVITADO' || 
+    String(clientFound?.id || '').startsWith('INVITADO')
+  );
+  const hasActivePlan = Boolean(!isGuestClient && activePlans && activePlans.length > 0);
+
   return (
     <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '0', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#ffffff', minHeight: '100%' }}>
       
@@ -1841,13 +1851,6 @@ const VisitRecorder = () => {
         
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
         {(() => {
-          const isGuestClient = Boolean(
-            clientFound?.id === 'INVITADO' || 
-            clientFound?.es_invitado || 
-            selectedTicket?.client_id === 'INVITADO' || 
-            String(clientFound?.id || '').startsWith('INVITADO')
-          );
-          const hasActivePlan = Boolean(!isGuestClient && activePlans && activePlans.length > 0);
           const currentClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || '';
           const isClientSelected = Boolean(clientFound || selectedTicket);
           const avatarUrl = getClientAvatar(clientFound);
