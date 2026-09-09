@@ -1751,7 +1751,7 @@ const getNextTicketNumber = async (salonId = 1, prefix = 'SD') => {
 app.post('/api/visits/ticket', async (req, res) => {
   try {
     const id = Date.now().toString();
-    const { clientId, clientName, servicios, empleadoPeluquera, empleadoLavaPelo, empleadoManicurista, salon_id } = req.body;
+    const { clientId, clientName, servicios, empleadoPeluquera, empleadoLavaPelo, empleadoManicurista, salon_id, draft_data } = req.body;
     const sId = salon_id || 1;
 
     // Get branch name
@@ -1775,9 +1775,9 @@ app.post('/api/visits/ticket', async (req, res) => {
     const ticketNumber = await getNextTicketNumber(sId, prefix);
 
     await pool.query(
-      `INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, status, ticket_number, visited_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, NOW())`,
-      [id, clientId || 'INVITADO', clientName || 'Cliente General', JSON.stringify(servicios || []), empleadoPeluquera || 'N/A', empleadoLavaPelo || 'N/A', empleadoManicurista || 'N/A', sId, ticketNumber]
+      `INSERT INTO visits (id, client_id, client_name, servicios, draft_data, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, status, ticket_number, visited_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, NOW())`,
+      [id, clientId || 'INVITADO', clientName || 'Cliente General', JSON.stringify(servicios || []), JSON.stringify(draft_data || {}), empleadoPeluquera || 'N/A', empleadoLavaPelo || 'N/A', empleadoManicurista || 'N/A', sId, ticketNumber]
     );
 
     res.json({ id, ticketNumber, salonName, clientName: clientName || 'Cliente General', createdAt: new Date().toISOString(), success: true });

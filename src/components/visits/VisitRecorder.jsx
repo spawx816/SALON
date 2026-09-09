@@ -490,7 +490,7 @@ const VisitRecorder = () => {
       cedula = selectedClientForTicket ? selectedClientForTicket.cedula : newTicketCedula;
     } else if (ticketType === 'empleado') {
       finalName = selectedEmployeeForTicket ? (selectedEmployeeForTicket.nombre || selectedEmployeeForTicket.name) : 'Empleado';
-      clientId = selectedEmployeeForTicket ? selectedEmployeeForTicket.id : 'EMPLEADO';
+      clientId = selectedEmployeeForTicket ? `EMP-${selectedEmployeeForTicket.id}` : 'EMPLEADO';
     }
 
     if (!finalName) {
@@ -510,7 +510,12 @@ const VisitRecorder = () => {
         clientName: finalName,
         servicios: [],
         empleadoPeluquera: 'Sin asignar',
-        salon_id: salonId
+        salon_id: salonId,
+        draft_data: {
+          isEmployeeTicket: ticketType === 'empleado',
+          employeeId: selectedEmployeeForTicket?.id || '',
+          employeeName: finalName
+        }
       });
 
       setShowNewTicketModal(false);
@@ -665,7 +670,7 @@ const VisitRecorder = () => {
       }
     }
 
-    const sanitizedItems = (Array.isArray(rawItems) ? rawItems : [])
+    let sanitizedItems = (Array.isArray(rawItems) ? rawItems : [])
       .filter(it => {
         const n = it.nombre || it.name || it.servicio || '';
         return n && n !== 'Ticket en Construcción' && n !== 'Servicio en preparación';
@@ -686,21 +691,56 @@ const VisitRecorder = () => {
         };
       });
 
-    setLineItems(sanitizedItems);
+    // Automatic Employee / Plan Beauty / Guest Detection
+    const isEmpTicket = Boolean(
+      String(ticket.client_id || '').startsWith('EMP-') ||
+      ticket.client_id === 'EMPLEADO' ||
+      ticket.ticket_type === 'empleado' ||
+      ticket.draft_data?.isEmployeeTicket === true ||
+      (typeof ticket.draft_data === 'string' && ticket.draft_data.includes('"isEmployeeTicket":true')) ||
+      employees.some(e => String(e.id) === String(ticket.client_id))
+    );
 
-    // Automatic Plan Beauty & Client Profile Detection ONLY for registered clients
-    const isGuest = !ticket.client_id || ticket.client_id === 'INVITADO' || String(ticket.client_id).startsWith('INVITADO');
-
-    if (!isGuest && ticket.client_id) {
-      const match = (allClients || []).find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
-      setClientFound(match || { id: ticket.client_id, nombre: ticket.client_name || 'Cliente' });
-      await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
-      await loadClientVisitsHistory(ticket.client_id);
-    } else {
-      setClientFound({ id: 'INVITADO', nombre: ticket.client_name || 'Cliente General', name: ticket.client_name || 'Cliente General', es_invitado: true });
+    if (isEmpTicket) {
+      const rawEmpId = String(ticket.client_id || '').replace('EMP-', '');
+      const matchedEmp = employees.find(e => String(e.id) === rawEmpId || (e.nombre && e.nombre === ticket.client_name));
+      setClientFound({
+        id: ticket.client_id || 'EMPLEADO',
+        nombre: matchedEmp?.nombre || ticket.client_name || 'Colaborador',
+        name: matchedEmp?.nombre || ticket.client_name || 'Colaborador',
+        is_employee: true,
+        tipo: 'Empleado',
+        posicion: matchedEmp?.rol || matchedEmp?.posicion || 'Colaborador'
+      });
       setActivePlans([]);
       setClientVisitsHistory([]);
+
+      // Auto-apply 20% discount to all services for employee ticket
+      sanitizedItems = sanitizedItems.map(it => {
+        if (it.isPlanWash || it.precioBase === 0) return it;
+        const p = Number(it.precioAplicado !== undefined ? it.precioAplicado : it.precioBase) || 0;
+        return {
+          ...it,
+          descuentoPercent: '20',
+          descuento: Number((p * (it.cantidad || 1) * 0.20).toFixed(2))
+        };
+      });
+    } else {
+      const isGuest = !ticket.client_id || ticket.client_id === 'INVITADO' || String(ticket.client_id).startsWith('INVITADO');
+
+      if (!isGuest && ticket.client_id) {
+        const match = (allClients || []).find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
+        setClientFound(match || { id: ticket.client_id, nombre: ticket.client_name || 'Cliente' });
+        await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
+        await loadClientVisitsHistory(ticket.client_id);
+      } else {
+        setClientFound({ id: 'INVITADO', nombre: ticket.client_name || 'Cliente General', name: ticket.client_name || 'Cliente General', es_invitado: true });
+        setActivePlans([]);
+        setClientVisitsHistory([]);
+      }
     }
+
+    setLineItems(sanitizedItems);
   };
 
   const loadClientPlanData = async (clientId, clientName, ticketObj = null) => {
@@ -1108,6 +1148,20 @@ const VisitRecorder = () => {
     setLineItems([newWashItem, ...lineItems]);
   };
 
+  // Detección de cliente empleado
+  const isEmployeeClient = Boolean(
+    clientFound?.is_employee ||
+    clientFound?.tipo === 'Empleado' ||
+    String(clientFound?.id || '').startsWith('EMP-') ||
+    clientFound?.id === 'EMPLEADO' ||
+    selectedTicket?.ticket_type === 'empleado' ||
+    selectedTicket?.is_employee === true ||
+    String(selectedTicket?.client_id || '').startsWith('EMP-') ||
+    selectedTicket?.client_id === 'EMPLEADO' ||
+    (typeof selectedTicket?.draft_data === 'string' && selectedTicket.draft_data.includes('"isEmployeeTicket":true')) ||
+    selectedTicket?.draft_data?.isEmployeeTicket === true
+  );
+
   // Line Items Controls (Price rules & Intelligent matching)
   const addServiceToLineItems = (service) => {
     if (!clientFound && !selectedTicket) {
@@ -1128,18 +1182,24 @@ const VisitRecorder = () => {
     const realName = match?.nombre || service.nombre;
 
     const isCoveredByPlan = isWash && hasPlanWashAvailable && !alreadyHasPlanWash;
+    const isEmployee = isEmployeeClient;
+
+    const basePrice = isCoveredByPlan ? 0 : realPrice;
+    const autoDiscountVal = isEmployee && !isCoveredByPlan ? Number((basePrice * 0.20).toFixed(2)) : 0;
+    const autoDiscountPercent = isEmployee && !isCoveredByPlan ? '20' : '0';
 
     const newItem = {
       id: Date.now() + Math.random(),
       service_id: match?.id || service.id || `srv-${Date.now()}`,
       nombre: isCoveredByPlan ? `${realName} (Plan Beauty)` : realName,
-      precioBase: isCoveredByPlan ? 0 : realPrice,
-      precioAplicado: isCoveredByPlan ? 0 : realPrice,
+      precioBase: basePrice,
+      precioAplicado: basePrice,
       cantidad: 1,
       empleado: '',
       empleado_id: '',
       empleado_nombre: '',
-      descuento: 0,
+      descuento: autoDiscountVal,
+      descuentoPercent: autoDiscountPercent,
       isPlanWash: isCoveredByPlan,
       aplica_itbis: match?.aplica_itbis !== undefined ? (match.aplica_itbis ? 1 : 0) : (service.aplica_itbis !== undefined ? (service.aplica_itbis ? 1 : 0) : 0)
     };
@@ -1150,6 +1210,11 @@ const VisitRecorder = () => {
     const updated = [...lineItems];
     const newQty = Math.max(1, (updated[index].cantidad || 1) + delta);
     updated[index].cantidad = newQty;
+    const pct = parseFloat(updated[index].descuentoPercent) || 0;
+    if (pct > 0) {
+      const p = Number(updated[index].precioAplicado !== undefined ? updated[index].precioAplicado : updated[index].precioBase) || 0;
+      updated[index].descuento = Number((p * newQty * (pct / 100)).toFixed(2));
+    }
     setLineItems(updated);
   };
 
@@ -1708,13 +1773,15 @@ const VisitRecorder = () => {
 
   // Scope principal: Detección de tipo de cliente y membresía Plan Beauty activa
   const isGuestClient = Boolean(
-    !clientFound ||
-    clientFound?.id === 'INVITADO' || 
-    clientFound?.es_invitado || 
-    selectedTicket?.client_id === 'INVITADO' || 
-    String(clientFound?.id || '').startsWith('INVITADO')
+    !isEmployeeClient && (
+      !clientFound ||
+      clientFound?.id === 'INVITADO' || 
+      clientFound?.es_invitado || 
+      selectedTicket?.client_id === 'INVITADO' || 
+      String(clientFound?.id || '').startsWith('INVITADO')
+    )
   );
-  const hasActivePlan = Boolean(!isGuestClient && activePlans && activePlans.length > 0);
+  const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && activePlans && activePlans.length > 0);
 
   return (
     <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '0', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#ffffff', minHeight: '100%' }}>
@@ -2040,16 +2107,16 @@ const VisitRecorder = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.35rem',
-                      background: isGuestClient ? '#f1f5f9' : '#fdf4ff',
-                      border: isGuestClient ? '1px solid #e2e8f0' : '1px solid #fce7f3',
-                      color: isGuestClient ? '#475569' : '#c026d3',
+                      background: isEmployeeClient ? '#eff6ff' : (isGuestClient ? '#f1f5f9' : '#fdf4ff'),
+                      border: isEmployeeClient ? '1px solid #bfdbfe' : (isGuestClient ? '1px solid #e2e8f0' : '1px solid #fce7f3'),
+                      color: isEmployeeClient ? '#1d4ed8' : (isGuestClient ? '#475569' : '#c026d3'),
                       fontSize: '0.8rem',
                       fontWeight: 700,
                       padding: '0.3rem 0.9rem',
                       borderRadius: '9999px'
                     }}>
-                      <span style={{ fontSize: '0.85rem' }}>{isGuestClient ? '👤' : (hasActivePlan ? '⭐' : '🌟')}</span>
-                      <span>{isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Beauty Activo' : 'Cliente Registrado')}</span>
+                      <span style={{ fontSize: '0.85rem' }}>{isEmployeeClient ? '💼' : (isGuestClient ? '👤' : (hasActivePlan ? '⭐' : '🌟'))}</span>
+                      <span>{isEmployeeClient ? 'Colaborador / Empleado' : (isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Beauty Activo' : 'Cliente Registrado'))}</span>
                     </div>
                   </div>
 
@@ -2485,11 +2552,9 @@ const VisitRecorder = () => {
                   </button>
                 )}
 
-                {/* BOTÓN RÁPIDO 20% DESCUENTO EMPLEADO */}
-                {lineItems.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleApply20PercentEmployeeDiscount}
+                {/* INDICADOR 20% DESCUENTO EMPLEADO (SOLO CUANDO EL TICKET ES DE UN EMPLEADO) */}
+                {isEmployeeClient && lineItems.length > 0 && (
+                  <div
                     style={{
                       background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
                       border: '1.5px solid #3b82f6',
@@ -2498,17 +2563,16 @@ const VisitRecorder = () => {
                       borderRadius: '8px',
                       fontSize: '0.75rem',
                       fontWeight: 800,
-                      cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.35rem',
                       boxShadow: '0 2px 5px rgba(59,130,246,0.12)'
                     }}
-                    title="Aplica 20% de descuento a todos los servicios para colaboradores"
+                    title="Beneficio de colaborador: 20% de descuento aplicado automáticamente en todos los servicios"
                   >
                     <Percent size={13} color="#1d4ed8" />
-                    <span>20% Desc. Empleado</span>
-                  </button>
+                    <span>20% Desc. Empleado (Automático)</span>
+                  </div>
                 )}
               </div>
             </div>
@@ -2629,9 +2693,18 @@ const VisitRecorder = () => {
                             <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 700 }}>-</span>
                           ) : (
                             <select
-                              value={item.descuento || 0}
+                              value={item.descuentoPercent !== undefined ? String(item.descuentoPercent) : (item.descuento > 0 && item.precioBase > 0 ? String(Math.round(item.descuento / ((item.precioAplicado !== undefined ? item.precioAplicado : item.precioBase) * (item.cantidad || 1)) * 100)) : "0")}
                               onChange={(e) => handleDiscountChange(idx, e.target.value)}
-                              style={{ padding: '0.25rem', borderRadius: '6px', border: '1px solid #e4e4e7', fontSize: '0.725rem' }}
+                              style={{
+                                padding: '0.25rem 0.35rem',
+                                borderRadius: '6px',
+                                border: (item.descuentoPercent && Number(item.descuentoPercent) > 0) ? '1.5px solid #3b82f6' : '1px solid #e4e4e7',
+                                background: (item.descuentoPercent && Number(item.descuentoPercent) > 0) ? '#eff6ff' : '#ffffff',
+                                color: (item.descuentoPercent && Number(item.descuentoPercent) > 0) ? '#1d4ed8' : '#0f172a',
+                                fontWeight: (item.descuentoPercent && Number(item.descuentoPercent) > 0) ? 800 : 500,
+                                fontSize: '0.725rem',
+                                cursor: 'pointer'
+                              }}
                             >
                               <option value="0">0%</option>
                               <option value="5">5%</option>
