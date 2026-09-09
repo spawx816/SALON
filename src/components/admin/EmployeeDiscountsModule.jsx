@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Users, Plus, Search, Filter, Calendar, FileSpreadsheet, 
   Trash2, Edit3, CheckCircle2, Clock, XCircle, AlertCircle, RefreshCw,
-  ArrowDownRight, User, FileText, X, Save, ShoppingBag, Scissors, CreditCard
+  ArrowDownRight, User, FileText, X, Save, ShoppingBag, Scissors, CreditCard,
+  Percent, Sparkles
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
@@ -41,6 +42,8 @@ const EmployeeDiscountsModule = () => {
     status: 'Pendiente'
   });
   const [saving, setSaving] = useState(false);
+  const [useEmployee20Discount, setUseEmployee20Discount] = useState(true);
+  const [serviceBasePrice, setServiceBasePrice] = useState('');
 
   useEffect(() => {
     loadEmployees();
@@ -100,6 +103,8 @@ const EmployeeDiscountsModule = () => {
       notes: '',
       status: 'Pendiente'
     });
+    setUseEmployee20Discount(true);
+    setServiceBasePrice('');
     setShowModal(true);
   };
 
@@ -114,6 +119,8 @@ const EmployeeDiscountsModule = () => {
       notes: item.notes || '',
       status: item.status || 'Pendiente'
     });
+    setUseEmployee20Discount(false);
+    setServiceBasePrice('');
     setShowModal(true);
   };
 
@@ -231,7 +238,24 @@ const EmployeeDiscountsModule = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+            border: '1.5px solid #fbcfe8',
+            color: '#be185d',
+            padding: '0.55rem 0.95rem',
+            borderRadius: '12px',
+            fontSize: '0.78rem',
+            fontWeight: 800,
+            boxShadow: '0 2px 6px rgba(244,63,94,0.08)'
+          }}>
+            <Sparkles size={15} color="#db2777" />
+            <span>Beneficio Global: 20% en Servicios</span>
+          </div>
+
           <button
             type="button"
             onClick={handleExportCSV}
@@ -507,20 +531,103 @@ const EmployeeDiscountsModule = () => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#334155', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
-                    Monto (RD$) *
+                    Monto a Deducir (RD$) *
                   </label>
                   <input
                     type="number"
                     step="0.01"
                     min="1"
                     required
-                    placeholder="Ej. 1500.00"
+                    placeholder="Ej. 1200.00"
                     value={formData.amount}
                     onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                     style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: 800 }}
                   />
                 </div>
               </div>
+
+              {formData.type === 'Consumo_Servicio' && (
+                <div style={{
+                  background: '#fdf2f8',
+                  border: '1.5px dashed #f472b6',
+                  borderRadius: '14px',
+                  padding: '0.85rem 1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.65rem'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <Sparkles size={16} color="#be185d" />
+                      <strong style={{ fontSize: '0.82rem', color: '#be185d' }}>
+                        Calculadora de Beneficio Colaborador (-20%)
+                      </strong>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 800, color: '#be185d' }}>
+                      <input
+                        type="checkbox"
+                        checked={useEmployee20Discount}
+                        onChange={(e) => {
+                          const isChecked = e.target.checked;
+                          setUseEmployee20Discount(isChecked);
+                          if (serviceBasePrice && isChecked) {
+                            const discounted = (Number(serviceBasePrice) * 0.8).toFixed(2);
+                            setFormData(prev => ({
+                              ...prev,
+                              amount: discounted,
+                              notes: prev.notes ? prev.notes : `Consumo con beneficio 20% (Precio regular: RD$ ${Number(serviceBasePrice).toFixed(2)})`
+                            }));
+                          } else if (serviceBasePrice && !isChecked) {
+                            setFormData(prev => ({ ...prev, amount: Number(serviceBasePrice).toFixed(2) }));
+                          }
+                        }}
+                      />
+                      Aplicar -20%
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', alignItems: 'center' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#9d174d', marginBottom: '0.2rem' }}>
+                        PRECIO REGULAR DEL SERVICIO:
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Ej. 1500.00"
+                        value={serviceBasePrice}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setServiceBasePrice(val);
+                          if (val && useEmployee20Discount) {
+                            const discounted = (Number(val) * 0.8).toFixed(2);
+                            setFormData(prev => ({
+                              ...prev,
+                              amount: discounted,
+                              notes: prev.notes && !prev.notes.includes('beneficio 20%') ? prev.notes : `Consumo con beneficio 20% (Precio regular: RD$ ${Number(val).toFixed(2)})`
+                            }));
+                          } else if (val) {
+                            setFormData(prev => ({ ...prev, amount: Number(val).toFixed(2) }));
+                          }
+                        }}
+                        style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #fbcfe8', fontSize: '0.85rem', fontWeight: 700, background: '#ffffff' }}
+                      />
+                    </div>
+
+                    {Number(serviceBasePrice) > 0 && useEmployee20Discount && (
+                      <div style={{ background: '#ffffff', borderRadius: '8px', padding: '0.5rem 0.75rem', border: '1px solid #fbcfe8' }}>
+                        <span style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>MONTO CON 20% DESC:</span>
+                        <strong style={{ fontSize: '0.95rem', color: '#15803d', fontWeight: 900 }}>
+                          RD$ {(Number(serviceBasePrice) * 0.8).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ display: 'block', fontSize: '0.68rem', color: '#be185d', fontWeight: 700 }}>
+                          (Ahorro empleado: -RD$ {(Number(serviceBasePrice) * 0.2).toFixed(2)})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>

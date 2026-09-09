@@ -118,6 +118,25 @@ const VisitRecorder = () => {
     setLineItems(updated);
   };
 
+  // Aplicar 20% de descuento global a todos los servicios para empleados
+  const handleApply20PercentEmployeeDiscount = () => {
+    if (!lineItems || lineItems.length === 0) {
+      alert('Agrega servicios a la lista para aplicar el 20% de descuento de colaborador.');
+      return;
+    }
+    const updated = lineItems.map(item => {
+      if (item.isPlanWash || item.precioBase === 0) return item;
+      const baseTotal = (Number(item.precioAplicado !== undefined ? item.precioAplicado : item.precioBase) || 0) * (Number(item.cantidad) || 1);
+      const discountVal = Number((baseTotal * 0.20).toFixed(2));
+      return {
+        ...item,
+        descuentoPercent: '20',
+        descuento: discountVal
+      };
+    });
+    setLineItems(updated);
+  };
+
   // Modal: Facturas de la Caja Activa
   const [showCajaInvoicesModal, setShowCajaInvoicesModal] = useState(false);
   const [cajaInvoices, setCajaInvoices] = useState([]);
@@ -2439,31 +2458,59 @@ const VisitRecorder = () => {
                 </h3>
               </div>
 
-              {/* BOTÓN RÁPIDO 20% PLAN BEAUTY */}
-              {hasActivePlan && lineItems.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleApply20PercentPlanDiscount}
-                  style={{
-                    background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
-                    border: '1.5px solid #f43f5e',
-                    color: '#be185d',
-                    padding: '0.35rem 0.85rem',
-                    borderRadius: '8px',
-                    fontSize: '0.75rem',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.35rem',
-                    boxShadow: '0 2px 5px rgba(244,63,94,0.12)'
-                  }}
-                  title="Aplica 20% de descuento automático a los servicios adicionales fuera del plan"
-                >
-                  <Percent size={13} color="#be185d" />
-                  <span>Aplicar 20% Plan Beauty</span>
-                </button>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                {/* BOTÓN RÁPIDO 20% PLAN BEAUTY */}
+                {hasActivePlan && lineItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleApply20PercentPlanDiscount}
+                    style={{
+                      background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+                      border: '1.5px solid #f43f5e',
+                      color: '#be185d',
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: '8px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      boxShadow: '0 2px 5px rgba(244,63,94,0.12)'
+                    }}
+                    title="Aplica 20% de descuento automático a los servicios adicionales fuera del plan"
+                  >
+                    <Percent size={13} color="#be185d" />
+                    <span>20% Plan Beauty</span>
+                  </button>
+                )}
+
+                {/* BOTÓN RÁPIDO 20% DESCUENTO EMPLEADO */}
+                {lineItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleApply20PercentEmployeeDiscount}
+                    style={{
+                      background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                      border: '1.5px solid #3b82f6',
+                      color: '#1d4ed8',
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: '8px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      boxShadow: '0 2px 5px rgba(59,130,246,0.12)'
+                    }}
+                    title="Aplica 20% de descuento a todos los servicios para colaboradores"
+                  >
+                    <Percent size={13} color="#1d4ed8" />
+                    <span>20% Desc. Empleado</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, border: '1px solid #f4f4f5', borderRadius: '12px' }}>
