@@ -156,8 +156,13 @@ const EmployeeDiscountsModule = () => {
 
   const handleToggleStatus = async (item) => {
     const newStatus = item.status === 'Pendiente' ? 'Aplicado' : 'Pendiente';
+    const cleanDate = item.date ? (String(item.date).includes('T') ? String(item.date).split('T')[0] : String(item.date).split(' ')[0]) : new Date().toISOString().split('T')[0];
     try {
-      await dataService.updateEmployeeDiscount(item.id, { ...item, status: newStatus });
+      await dataService.updateEmployeeDiscount(item.id, { 
+        ...item, 
+        date: cleanDate,
+        status: newStatus 
+      });
       loadDiscounts();
     } catch (err) {
       alert('Error actualizando estatus: ' + err.message);

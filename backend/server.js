@@ -2778,7 +2778,9 @@ app.get('/api/employee-discounts', async (req, res) => {
   try {
     const { employee_id, status, type, start_date, end_date } = req.query;
     let query = `
-      SELECT ed.*, COALESCE(s.nombre, ed.employee_name) as employee_name, s.posicion as employee_position, s.localidad
+      SELECT ed.id, ed.employee_id, ed.type, ed.amount, DATE_FORMAT(ed.date, '%Y-%m-%d') as date, 
+             ed.notes, ed.status, ed.created_by, ed.created_at,
+             COALESCE(s.nombre, ed.employee_name) as employee_name, s.posicion as employee_position, s.localidad
       FROM employee_discounts ed
       LEFT JOIN staff_records s ON ed.employee_id = s.id
       WHERE 1=1
@@ -2816,13 +2818,14 @@ app.post('/api/employee-discounts', async (req, res) => {
       return res.status(400).json({ error: 'Colaborador y monto válido son requeridos.' });
     }
 
+    const cleanDate = date ? (String(date).includes('T') ? String(date).split('T')[0] : String(date).split(' ')[0]) : new Date().toISOString().split('T')[0];
     const [emp] = await pool.query('SELECT nombre FROM staff_records WHERE id = ?', [employee_id]);
     const empName = emp[0]?.nombre || employee_name || 'Colaborador';
 
     const [result] = await pool.query(
       `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-      [employee_id, empName, type || 'Consumo', amount, date || new Date().toISOString().split('T')[0], notes || '', status || 'Pendiente', created_by || 'Admin']
+      [employee_id, empName, type || 'Consumo_Servicio', amount, cleanDate, notes || '', status || 'Pendiente', created_by || 'Admin']
     );
 
     res.json({ success: true, id: result.insertId, message: 'Descuento registrado exitosamente' });
@@ -2836,6 +2839,11 @@ app.put('/api/employee-discounts/:id', async (req, res) => {
     const { id } = req.params;
     const { employee_id, employee_name, type, amount, date, notes, status } = req.body;
 
+    let cleanDate = date;
+    if (cleanDate !== undefined && cleanDate !== null) {
+      cleanDate = String(cleanDate).includes('T') ? String(cleanDate).split('T')[0] : String(cleanDate).split(' ')[0];
+    }
+
     await pool.query(
       `UPDATE employee_discounts SET 
          employee_id = COALESCE(?, employee_id),
@@ -2846,7 +2854,7 @@ app.put('/api/employee-discounts/:id', async (req, res) => {
          notes = COALESCE(?, notes),
          status = COALESCE(?, status)
        WHERE id = ?`,
-      [employee_id, employee_name, type, amount, date, notes, status, id]
+      [employee_id || null, employee_name || null, type || null, amount || null, cleanDate || null, notes || null, status || null, id]
     );
 
     res.json({ success: true, message: 'Descuento actualizado exitosamente' });
