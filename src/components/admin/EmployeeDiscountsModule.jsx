@@ -43,50 +43,39 @@ const EmployeeDiscountsModule = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadData();
+    loadEmployees();
+    loadDiscounts();
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadEmployees = async () => {
     try {
-      const [staffList, usersList, posEmpList, discList] = await Promise.all([
-        dataService.getStaffRecords().catch(() => []),
-        dataService.getUsers().catch(() => []),
-        dataService.getEmployees().catch(() => []),
-        dataService.getEmployeeDiscounts({
-          employee_id: selectedEmployee,
-          status: selectedStatus,
-          type: selectedType,
-          start_date: startDate,
-          end_date: endDate
-        })
-      ]);
-
+      const empList = await dataService.getEmployees(true).catch(() => []);
       const combined = [];
       const seen = new Set();
 
-      (staffList || []).forEach(s => {
-        if (s.nombre && !seen.has(s.nombre.toLowerCase().trim())) {
-          seen.add(s.nombre.toLowerCase().trim());
-          combined.push({ id: s.id, nombre: s.nombre, posicion: s.posicion || 'Colaborador' });
-        }
-      });
-
-      (usersList || []).forEach(u => {
-        if (u.nombre && !seen.has(u.nombre.toLowerCase().trim())) {
-          seen.add(u.nombre.toLowerCase().trim());
-          combined.push({ id: u.id, nombre: u.nombre, posicion: u.role_name || u.posicion || 'Personal' });
-        }
-      });
-
-      (posEmpList || []).forEach(e => {
+      (empList || []).forEach(e => {
         if (e.nombre && !seen.has(e.nombre.toLowerCase().trim())) {
           seen.add(e.nombre.toLowerCase().trim());
-          combined.push({ id: e.id, nombre: e.nombre, posicion: e.rol || e.posicion || 'Estilista' });
+          combined.push({ id: e.id, nombre: e.nombre, posicion: e.rol || e.posicion || 'Colaborador' });
         }
       });
 
       setEmployees(combined);
+    } catch (err) {
+      console.error('Error cargando colaboradores:', err);
+    }
+  };
+
+  const loadDiscounts = async () => {
+    setLoading(true);
+    try {
+      const discList = await dataService.getEmployeeDiscounts({
+        employee_id: selectedEmployee,
+        status: selectedStatus,
+        type: selectedType,
+        start_date: startDate,
+        end_date: endDate
+      });
       setDiscounts(discList || []);
     } catch (err) {
       console.error('Error cargando descuentos de empleados:', err);
@@ -97,7 +86,7 @@ const EmployeeDiscountsModule = () => {
 
   const handleFilter = (e) => {
     if (e) e.preventDefault();
-    loadData();
+    loadDiscounts();
   };
 
   const handleOpenCreateModal = () => {
@@ -147,7 +136,7 @@ const EmployeeDiscountsModule = () => {
         await dataService.createEmployeeDiscount(payload);
       }
       setShowModal(false);
-      loadData();
+      loadDiscounts();
     } catch (err) {
       alert('Error al guardar: ' + err.message);
     } finally {
@@ -159,7 +148,7 @@ const EmployeeDiscountsModule = () => {
     if (!window.confirm('¿Estás seguro de que deseas eliminar este registro de descuento?')) return;
     try {
       await dataService.deleteEmployeeDiscount(id);
-      loadData();
+      loadDiscounts();
     } catch (err) {
       alert('Error eliminando: ' + err.message);
     }
@@ -169,7 +158,7 @@ const EmployeeDiscountsModule = () => {
     const newStatus = item.status === 'Pendiente' ? 'Aplicado' : 'Pendiente';
     try {
       await dataService.updateEmployeeDiscount(item.id, { ...item, status: newStatus });
-      loadData();
+      loadDiscounts();
     } catch (err) {
       alert('Error actualizando estatus: ' + err.message);
     }

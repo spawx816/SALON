@@ -3,7 +3,8 @@ name: Deploy to VPS
 on:
   push:
     branches:
-      - master  # Se ejecuta automáticamente al hacer push a la rama master
+      - master
+      - main  # Se ejecuta automáticamente al hacer push a main o master
 
 jobs:
   deploy:

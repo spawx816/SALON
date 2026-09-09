@@ -5324,6 +5324,11 @@ app.post('/api/contracts', async (req, res) => {
 // === RRHH (Staff Records) ===
 app.get('/api/rrhh/staff', async (req, res) => {
   try {
+    const { light } = req.query;
+    if (light === 'true') {
+      const [rows] = await pool.query('SELECT id, nombre, cedula, contacto, posicion, email, localidad, salon_id, status FROM staff_records ORDER BY nombre ASC');
+      return res.json(rows);
+    }
     const [rows] = await pool.query('SELECT * FROM staff_records ORDER BY nombre ASC');
     res.json(rows);
   } catch (err) {
@@ -6038,6 +6043,16 @@ app.get('/api/payments/client/:clientId', async (req, res) => {
 // === EMPLOYEES (Fetched from RRHH staff_records) ===
 app.get('/api/employees', async (req, res) => {
   try {
+    const { light } = req.query;
+    if (light === 'true') {
+      const [rows] = await pool.query(`
+        SELECT id, nombre, posicion as rol, status, salon_id
+        FROM staff_records 
+        WHERE status = 'Activo' OR status = 'Active'
+        ORDER BY nombre ASC
+      `);
+      return res.json(rows);
+    }
     const [rows] = await pool.query(`
       SELECT 
         id, 
@@ -6117,6 +6132,11 @@ app.put('/api/roles/:id', async (req, res) => {
 // === RRHH (STAFF RECORDS) ===
 app.get('/api/rrhh/staff', async (req, res) => {
   try {
+    const { light } = req.query;
+    if (light === 'true') {
+      const [rows] = await pool.query('SELECT id, nombre, cedula, contacto, posicion, email, localidad, salon_id, status FROM staff_records ORDER BY nombre ASC');
+      return res.json(rows);
+    }
     const [rows] = await pool.query('SELECT * FROM staff_records ORDER BY nombre ASC');
     res.json(rows);
   } catch (err) {

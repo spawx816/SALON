@@ -1084,9 +1084,9 @@ export const dataService = {
   },
 
   // Employees
-  getEmployees: async () => {
+  getEmployees: async (light = false) => {
     try {
-      const res = await fetch(`${API_URL}/employees`);
+      const res = await fetch(`${API_URL}/employees${light ? '?light=true' : ''}`);
       return res.ok ? await res.json() : [];
     } catch { return []; }
   },
@@ -1325,9 +1325,9 @@ export const dataService = {
   },
 
   // RRHH (Staff Records)
-  getStaffRecords: async () => {
+  getStaffRecords: async (light = false) => {
     try {
-      const res = await fetch(`${API_URL}/rrhh/staff`);
+      const res = await fetch(`${API_URL}/rrhh/staff${light ? '?light=true' : ''}`);
       return res.ok ? await res.json() : [];
     } catch { return []; }
   },
