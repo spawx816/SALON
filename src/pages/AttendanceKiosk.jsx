@@ -457,6 +457,8 @@ const AttendanceKiosk = () => {
       const lastDay = new Date(y, m + 1, 0).getDate();
 
       // Q1: 1 al 15
+      const isCurrentQ1 = (y === currentYear && m === currentMonth && currentDay <= 15);
+      const isFutureQ1 = (y === currentYear && m === currentMonth && false);
       periods.push({
         key: `${y}-${pad(m + 1)}-Q1`,
         label: `1ra Quincena ${mName} (1 al 15)`,
@@ -464,10 +466,13 @@ const AttendanceKiosk = () => {
         year: y,
         startDate: `${y}-${pad(m + 1)}-01`,
         endDate: `${y}-${pad(m + 1)}-15`,
-        isCurrent: (y === currentYear && m === currentMonth && currentDay <= 15)
+        isCurrent: isCurrentQ1,
+        isFuture: isFutureQ1
       });
 
       // Q2: 16 al fin de mes (30 o 31 o 28/29)
+      const isCurrentQ2 = (y === currentYear && m === currentMonth && currentDay > 15);
+      const isFutureQ2 = (y === currentYear && m === currentMonth && currentDay <= 15);
       periods.push({
         key: `${y}-${pad(m + 1)}-Q2`,
         label: `2da Quincena ${mName} (16 al ${lastDay})`,
@@ -475,12 +480,13 @@ const AttendanceKiosk = () => {
         year: y,
         startDate: `${y}-${pad(m + 1)}-16`,
         endDate: `${y}-${pad(m + 1)}-${pad(lastDay)}`,
-        isCurrent: (y === currentYear && m === currentMonth && currentDay > 15)
+        isCurrent: isCurrentQ2,
+        isFuture: isFutureQ2
       });
     });
 
-    // Ordenar de más reciente a más antigua
-    periods.reverse();
+    // Orden cronológico natural: de izquierda a derecha en el tiempo
+    // Agosto 1-15 -> Agosto 16-Fin -> Septiembre 1-15 -> Septiembre 16-Fin
     return periods;
   };
 
@@ -1371,25 +1377,39 @@ const AttendanceKiosk = () => {
                     type="button"
                     onClick={() => handleSelectQuincena(period.key)}
                     style={{
-                      padding: '0.6rem 0.5rem',
+                      padding: '0.65rem 0.5rem',
                       background: isSelected ? '#8b5cf6' : '#27272a',
                       color: isSelected ? '#ffffff' : '#d4d4d8',
                       border: isSelected ? '1px solid #a78bfa' : '1px solid #3f3f46',
-                      borderRadius: '10px',
+                      borderRadius: '12px',
                       cursor: 'pointer',
-                      fontSize: '0.72rem',
+                      fontSize: '0.75rem',
                       fontWeight: isSelected ? 800 : 600,
                       textAlign: 'center',
                       transition: 'all 0.15s ease',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '2px'
+                      alignItems: 'center',
+                      gap: '3px'
                     }}
                   >
-                    <span>{period.monthName}</span>
-                    <span style={{ fontSize: '0.65rem', opacity: isSelected ? 1 : 0.8 }}>
-                      {period.key.endsWith('Q1') ? '1 - 15' : '16 - Fin'} {period.isCurrent ? '⭐' : ''}
+                    <span style={{ fontWeight: 800 }}>{period.monthName}</span>
+                    <span style={{ fontSize: '0.7rem', opacity: isSelected ? 1 : 0.85 }}>
+                      {period.key.endsWith('Q1') ? '1 al 15' : '16 a Fin'}
                     </span>
+                    {period.isCurrent ? (
+                      <span style={{ fontSize: '0.6rem', background: isSelected ? '#ffffff' : 'rgba(16,185,129,0.2)', color: isSelected ? '#7c3aed' : '#34d399', fontWeight: 900, padding: '1px 6px', borderRadius: '8px', marginTop: '2px' }}>
+                        En curso
+                      </span>
+                    ) : period.isFuture ? (
+                      <span style={{ fontSize: '0.6rem', background: 'rgba(255,255,255,0.08)', color: '#a1a1aa', fontWeight: 700, padding: '1px 6px', borderRadius: '8px', marginTop: '2px' }}>
+                        Próxima
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '0.6rem', background: 'rgba(255,255,255,0.05)', color: '#71717a', fontWeight: 600, padding: '1px 6px', borderRadius: '8px', marginTop: '2px' }}>
+                        Cerrada
+                      </span>
+                    )}
                   </button>
                 );
               })}
