@@ -5682,35 +5682,84 @@ app.post('/api/rrhh/staff', async (req, res) => {
 app.put('/api/rrhh/staff/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, fecha_salida, status, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, commission_scheme_id } = req.body;
-    
+    const { 
+      nombre, cedula, contacto, posicion, email, direccion, localidad, 
+      fecha_entrada, fecha_salida, status, profile_photo, hora_entrada, 
+      hora_salida, dias_laborables, tolerancia_minutos, salon_id, commission_scheme_id 
+    } = req.body;
+
+    const cleanNombre = (nombre || '').trim();
+    const cleanCedula = (cedula || '').trim();
+    const cleanContacto = (contacto || '').trim();
+    const cleanPosicion = (posicion || '').trim();
+    const cleanEmail = (email && String(email).trim()) ? String(email).trim() : null;
+    const cleanDireccion = (direccion && String(direccion).trim()) ? String(direccion).trim() : null;
+    const cleanLocalidad = (localidad && String(localidad).trim()) ? String(localidad).trim() : null;
+    const cleanStatus = status || 'Activo';
+
+    // Sanitize dates safely
+    let cleanFechaEntrada = null;
+    if (fecha_entrada && String(fecha_entrada).trim()) {
+      cleanFechaEntrada = String(fecha_entrada).split('T')[0];
+    } else {
+      cleanFechaEntrada = new Date().toISOString().split('T')[0];
+    }
+
+    let cleanFechaSalida = null;
+    if (fecha_salida && String(fecha_salida).trim()) {
+      cleanFechaSalida = String(fecha_salida).split('T')[0];
+    }
+
+    const cleanTolerancia = !isNaN(parseInt(tolerancia_minutos, 10)) ? parseInt(tolerancia_minutos, 10) : 15;
+    const cleanSalonId = (salon_id && !isNaN(parseInt(salon_id, 10))) ? parseInt(salon_id, 10) : null;
+    const schemeIdVal = (commission_scheme_id && !isNaN(parseInt(commission_scheme_id, 10))) ? parseInt(commission_scheme_id, 10) : null;
+
     // Check if scheme changed
     const [current] = await pool.query('SELECT commission_scheme_id FROM staff_records WHERE id = ?', [id]);
-    const schemeIdVal = commission_scheme_id ? parseInt(commission_scheme_id, 10) : null;
-    const schemeChanged = current[0] && current[0].commission_scheme_id !== schemeIdVal;
+    const schemeChanged = current && current[0] && current[0].commission_scheme_id !== schemeIdVal;
 
     if (schemeChanged) {
       await pool.query(
         'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, email=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=?, profile_photo=?, hora_entrada=?, hora_salida=?, dias_laborables=?, tolerancia_minutos=?, salon_id=?, commission_scheme_id=?, scheme_effective_date=NOW() WHERE id=?',
         [
-          nombre, cedula, contacto, posicion, email || null, direccion, localidad, fecha_entrada, fecha_salida || null, status || 'Activo',
-          profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-          salon_id || null, schemeIdVal, id
+          cleanNombre, cleanCedula, cleanContacto, cleanPosicion, cleanEmail, cleanDireccion, cleanLocalidad, 
+          cleanFechaEntrada, cleanFechaSalida, cleanStatus, profile_photo || null, hora_entrada || null, 
+          hora_salida || null, dias_laborables || null, cleanTolerancia, cleanSalonId, schemeIdVal, id
         ]
       );
     } else {
       await pool.query(
         'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, email=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=?, profile_photo=?, hora_entrada=?, hora_salida=?, dias_laborables=?, tolerancia_minutos=?, salon_id=?, commission_scheme_id=? WHERE id=?',
         [
-          nombre, cedula, contacto, posicion, email || null, direccion, localidad, fecha_entrada, fecha_salida || null, status || 'Activo',
-          profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-          salon_id || null, schemeIdVal, id
+          cleanNombre, cleanCedula, cleanContacto, cleanPosicion, cleanEmail, cleanDireccion, cleanLocalidad, 
+          cleanFechaEntrada, cleanFechaSalida, cleanStatus, profile_photo || null, hora_entrada || null, 
+          hora_salida || null, dias_laborables || null, cleanTolerancia, cleanSalonId, schemeIdVal, id
         ]
       );
     }
 
+    // Sincronizar correo con la tabla `users` si existe un usuario con el mismo nombre
+    if (cleanEmail && cleanNombre) {
+      try {
+        await pool.query('UPDATE users SET email = ? WHERE nombre = ? AND (email != ? OR email IS NULL)', [cleanEmail, cleanNombre, cleanEmail]);
+      } catch (uErr) {
+        console.warn('[RRHH] Could not sync user email:', uErr.message);
+      }
+    }
+
+    res.json({ success: true, message: 'Ficha actualizada correctamente' });
+  } catch (err) {
+    console.error('Error updating staff record:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/rrhh/staff/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM staff_records WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
+    console.error('Error deleting staff record:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -6443,88 +6492,6 @@ app.put('/api/roles/:id', async (req, res) => {
   }
 });
 
-// === RRHH (STAFF RECORDS) ===
-app.get('/api/rrhh/staff', async (req, res) => {
-  try {
-    const { light } = req.query;
-    if (light === 'true') {
-      const [rows] = await pool.query('SELECT id, nombre, cedula, contacto, posicion, email, localidad, salon_id, status FROM staff_records ORDER BY nombre ASC');
-      return res.json(rows);
-    }
-    const [rows] = await pool.query('SELECT * FROM staff_records ORDER BY nombre ASC');
-    res.json(rows);
-  } catch (err) {
-    console.error('Error fetching staff records:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/rrhh/staff', async (req, res) => {
-  try {
-    const { 
-      nombre, cedula, contacto, posicion, email, direccion, localidad, 
-      salon_id, commission_scheme_id, fecha_entrada, fecha_salida, 
-      profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, status 
-    } = req.body;
-
-    const [result] = await pool.query(`
-      INSERT INTO staff_records (
-        nombre, cedula, contacto, posicion, email, direccion, localidad, 
-        salon_id, commission_scheme_id, fecha_entrada, fecha_salida, 
-        profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      nombre, cedula, contacto || null, posicion || null, email || null, direccion || null, localidad || null,
-      salon_id || null, commission_scheme_id || null, fecha_entrada || new Date(), fecha_salida || null,
-      profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, 
-      tolerancia_minutos !== undefined ? tolerancia_minutos : 15, status || 'Activo'
-    ]);
-
-    res.json({ success: true, id: result.insertId });
-  } catch (err) {
-    console.error('Error creating staff record:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/rrhh/staff/:id', async (req, res) => {
-  try {
-    const { 
-      nombre, cedula, contacto, posicion, email, direccion, localidad, 
-      salon_id, commission_scheme_id, fecha_entrada, fecha_salida, 
-      profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, status 
-    } = req.body;
-
-    await pool.query(`
-      UPDATE staff_records SET 
-        nombre = ?, cedula = ?, contacto = ?, posicion = ?, email = ?, direccion = ?, localidad = ?, 
-        salon_id = ?, commission_scheme_id = ?, fecha_entrada = ?, fecha_salida = ?, 
-        profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ?, status = ?
-      WHERE id = ?
-    `, [
-      nombre, cedula, contacto || null, posicion || null, email || null, direccion || null, localidad || null,
-      salon_id || null, commission_scheme_id || null, fecha_entrada || new Date(), fecha_salida || null,
-      profile_photo || null, hora_entrada || null, hora_salida || null, dias_laborables || null, 
-      tolerancia_minutos !== undefined ? tolerancia_minutos : 15, status || 'Activo',
-      req.params.id
-    ]);
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error updating staff record:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/rrhh/staff/:id', async (req, res) => {
-  try {
-    await pool.query('DELETE FROM staff_records WHERE id = ?', [req.params.id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error deleting staff record:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // === USERS (SYSTEM STAFF) ===
 app.get('/api/users', async (req, res) => {

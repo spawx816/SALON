@@ -43,6 +43,7 @@ const RoleManagement = () => {
     profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
   });
   const [editingStaff, setEditingStaff] = useState(null);
+  const [staffSaving, setStaffSaving] = useState(false);
   const [selectedStaffDetail, setSelectedStaffDetail] = useState(null);
 
   const [scheduleMode, setScheduleMode] = useState('general'); // 'general' o 'daily'
@@ -145,55 +146,70 @@ const RoleManagement = () => {
 
   const handleSaveStaff = async (e) => {
     e.preventDefault();
-    let processedStaff = { ...newStaff };
-    if (scheduleMode === 'daily') {
-      const scheduleJSON = {};
-      let firstActiveDayEntrada = '';
-      let firstActiveDaySalida = '';
-      Object.keys(dailySchedules).forEach(day => {
-        if (dailySchedules[day].active) {
-          scheduleJSON[day] = {
-            entrada: dailySchedules[day].entrada,
-            salida: dailySchedules[day].salida
-          };
-          if (!firstActiveDayEntrada) {
-            firstActiveDayEntrada = dailySchedules[day].entrada;
-            firstActiveDaySalida = dailySchedules[day].salida;
+    setStaffSaving(true);
+    try {
+      let processedStaff = { ...newStaff };
+      if (scheduleMode === 'daily') {
+        const scheduleJSON = {};
+        let firstActiveDayEntrada = '';
+        let firstActiveDaySalida = '';
+        Object.keys(dailySchedules).forEach(day => {
+          if (dailySchedules[day].active) {
+            scheduleJSON[day] = {
+              entrada: dailySchedules[day].entrada,
+              salida: dailySchedules[day].salida
+            };
+            if (!firstActiveDayEntrada) {
+              firstActiveDayEntrada = dailySchedules[day].entrada;
+              firstActiveDaySalida = dailySchedules[day].salida;
+            }
           }
-        }
-      });
-      processedStaff.dias_laborables = JSON.stringify(scheduleJSON);
-      processedStaff.hora_entrada = firstActiveDayEntrada || '08:00';
-      processedStaff.hora_salida = firstActiveDaySalida || '18:00';
-    } else {
-      const activeDays = Object.keys(dailySchedules).filter(day => dailySchedules[day].active);
-      const sortedDays = daysOfWeek.filter(d => activeDays.includes(d));
-      processedStaff.dias_laborables = sortedDays.join(',');
-    }
+        });
+        processedStaff.dias_laborables = JSON.stringify(scheduleJSON);
+        processedStaff.hora_entrada = firstActiveDayEntrada || '08:00';
+        processedStaff.hora_salida = firstActiveDaySalida || '18:00';
+      } else {
+        const activeDays = Object.keys(dailySchedules).filter(day => dailySchedules[day].active);
+        const sortedDays = daysOfWeek.filter(d => activeDays.includes(d));
+        processedStaff.dias_laborables = sortedDays.join(',');
+      }
 
-    if (editingStaff) {
-      await dataService.updateStaffRecord(editingStaff.id, processedStaff);
-    } else {
-      await dataService.saveStaffRecord(processedStaff);
+      let res;
+      if (editingStaff) {
+        res = await dataService.updateStaffRecord(editingStaff.id, processedStaff);
+      } else {
+        res = await dataService.saveStaffRecord(processedStaff);
+      }
+
+      if (res && (res.success || res.id)) {
+        await loadData();
+        setShowStaffForm(false);
+        setEditingStaff(null);
+        setNewStaff({ 
+          nombre: '', cedula: '', contacto: '', posicion: '', email: '',
+          direccion: '', localidad: '', salon_id: '', commission_scheme_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
+          profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
+        });
+        setDailySchedules({
+          Lunes: { active: false, entrada: '08:00', salida: '18:00' },
+          Martes: { active: false, entrada: '08:00', salida: '18:00' },
+          Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
+          Jueves: { active: false, entrada: '08:00', salida: '18:00' },
+          Viernes: { active: false, entrada: '08:00', salida: '18:00' },
+          Sábado: { active: false, entrada: '08:00', salida: '18:00' },
+          Domingo: { active: false, entrada: '08:00', salida: '18:00' }
+        });
+        setScheduleMode('general');
+        alert(editingStaff ? 'Personal actualizado correctamente' : 'Personal registrado correctamente');
+      } else {
+        alert('Error al guardar: ' + (res?.error || 'No se pudo guardar la información del colaborador.'));
+      }
+    } catch (err) {
+      console.error('Error saving staff:', err);
+      alert('Error de conexión o servidor al guardar los cambios.');
+    } finally {
+      setStaffSaving(false);
     }
-    setNewStaff({ 
-      nombre: '', cedula: '', contacto: '', posicion: '', email: '',
-      direccion: '', localidad: '', salon_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
-      profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
-    });
-    setDailySchedules({
-      Lunes: { active: false, entrada: '08:00', salida: '18:00' },
-      Martes: { active: false, entrada: '08:00', salida: '18:00' },
-      Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
-      Jueves: { active: false, entrada: '08:00', salida: '18:00' },
-      Viernes: { active: false, entrada: '08:00', salida: '18:00' },
-      Sábado: { active: false, entrada: '08:00', salida: '18:00' },
-      Domingo: { active: false, entrada: '08:00', salida: '18:00' }
-    });
-    setScheduleMode('general');
-    setEditingStaff(null);
-    loadData();
-    alert('Personal registrado/actualizado correctamente');
   };
 
   const startEditStaff = (member) => {
@@ -1049,7 +1065,7 @@ const RoleManagement = () => {
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <UserPlus size={20} /> {editingStaff ? 'Editar Ficha' : 'Nueva Ficha RRHH'}
                 </h3>
-                <form onSubmit={(e) => { handleSaveStaff(e); setShowStaffForm(false); }} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <form onSubmit={handleSaveStaff} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div className="input-group">
                     <label>Nombre del Empleado</label>
                     <input 
@@ -1199,8 +1215,8 @@ const RoleManagement = () => {
 
                   {renderScheduleConfig(newStaff, setNewStaff)}
 
-                  <button type="submit" className="btn-primary" style={{ marginTop: '1.5rem' }}>
-                    {editingStaff ? 'Guardar Cambios' : 'Registrar en RRHH'}
+                  <button type="submit" disabled={staffSaving} className="btn-primary" style={{ marginTop: '1.5rem', opacity: staffSaving ? 0.7 : 1, cursor: staffSaving ? 'not-allowed' : 'pointer' }}>
+                    {staffSaving ? '⏳ Guardando cambios...' : (editingStaff ? 'Guardar Cambios' : 'Registrar en RRHH')}
                   </button>
                 </form>
               </div>
