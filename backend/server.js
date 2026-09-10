@@ -3144,41 +3144,50 @@ app.post('/api/employees/commission-pin', async (req, res) => {
       [clientIdKey, code, expiresAt]
     );
 
-    const [smtpRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
-    if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
-      const nodemailer = require('nodemailer');
-      const cfg = smtpRows[0];
-      const transporter = nodemailer.createTransport({
-        host: cfg.smtp_host,
-        port: cfg.smtp_port,
-        secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
-        auth: { user: cfg.smtp_user, pass: cfg.smtp_pass }
+    // Send email asynchronously so HTTP response is instantaneous and doesn't block Kiosk UI
+    pool.query('SELECT * FROM email_settings LIMIT 1')
+      .then(([smtpRows]) => {
+        if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
+          const nodemailer = require('nodemailer');
+          const cfg = smtpRows[0];
+          const transporter = nodemailer.createTransport({
+            host: cfg.smtp_host,
+            port: cfg.smtp_port,
+            secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
+            auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
+            connectionTimeout: 5000,
+            greetingTimeout: 5000,
+            socketTimeout: 8000
+          });
+
+          return transporter.sendMail({
+            from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
+            to: targetEmail,
+            subject: `🔐 PIN de Consulta de Comisiones: ${code}`,
+            text: `Hola ${empName}, tu PIN para consultar tus comisiones en el Kiosco es: ${code}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #f5f3ff; border: 1px solid #ddd6fe; text-align: center;">
+                <div style="font-size: 36px; margin-bottom: 10px;">💰</div>
+                <h2 style="color: #6d28d9; margin: 0 0 8px 0; font-weight: 900;">Consulta de Comisiones</h2>
+                <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
+                  Hola <strong>${escapeHtml(empName)}</strong>, se solicitó acceso para consultar tus comisiones acumuladas en el Kiosco:
+                </p>
+                <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #7c3aed; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #8b5cf6; display: inline-block; margin-bottom: 20px;">
+                  ${code}
+                </div>
+                <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+                  Ingresa este PIN de 6 dígitos en el Kiosco. Válido por 15 minutos.
+                </p>
+              </div>
+            `
+          });
+        }
+      })
+      .catch(mailErr => {
+        console.error('[COMMISSION PIN ASYNC EMAIL ERROR]:', mailErr.message);
       });
 
-      await transporter.sendMail({
-        from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
-        to: targetEmail,
-        subject: `🔐 PIN de Consulta de Comisiones: ${code}`,
-        text: `Hola ${empName}, tu PIN para consultar tus comisiones en el Kiosco es: ${code}`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #f5f3ff; border: 1px solid #ddd6fe; text-align: center;">
-            <div style="font-size: 36px; margin-bottom: 10px;">💰</div>
-            <h2 style="color: #6d28d9; margin: 0 0 8px 0; font-weight: 900;">Consulta de Comisiones</h2>
-            <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
-              Hola <strong>${escapeHtml(empName)}</strong>, se solicitó acceso para consultar tus comisiones acumuladas en el Kiosco:
-            </p>
-            <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #7c3aed; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #8b5cf6; display: inline-block; margin-bottom: 20px;">
-              ${code}
-            </div>
-            <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-              Ingresa este PIN de 6 dígitos en el Kiosco. Válido por 15 minutos.
-            </p>
-          </div>
-        `
-      });
-    }
-
-    res.json({ success: true, message: 'PIN enviado al correo.' });
+    return res.json({ success: true, message: 'PIN generado y enviado al correo.' });
   } catch (err) {
     console.error('[COMMISSION PIN ERROR]:', err);
     res.status(500).json({ error: err.message });
@@ -3198,6 +3207,7 @@ app.post('/api/employees/verify-commission-pin', async (req, res) => {
     const clientIdKey = `COMM-${employee_id || ''}`;
     const rawId = String(employee_id || '').replace('COMM-', '').replace('EMP-', '');
 
+    // 1. Check generated OTP codes in verification_codes table
     const [rows] = await pool.query(
       `SELECT * FROM verification_codes 
        WHERE (client_id = ? OR client_id = ? OR client_id = ? OR client_id LIKE ?) 
@@ -3208,20 +3218,45 @@ app.post('/api/employees/verify-commission-pin', async (req, res) => {
       [clientIdKey, rawId, employee_id, `%${rawId}%`, cleanPin]
     );
 
-    if (!rows || rows.length === 0) {
-      const [fallback] = await pool.query(
-        'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
-        [cleanPin]
-      );
-      if (!fallback || fallback.length === 0) {
-        return res.status(400).json({ error: 'PIN incorrecto o expirado.' });
-      }
+    if (rows && rows.length > 0) {
+      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
+      return res.json({ success: true, message: 'PIN verificado exitosamente.' });
+    }
+
+    // 2. Global OTP code fallback
+    const [fallback] = await pool.query(
+      'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+      [cleanPin]
+    );
+    if (fallback && fallback.length > 0) {
       await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [fallback[0].id]);
       return res.json({ success: true, message: 'PIN verificado correctamente.' });
     }
 
-    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
-    res.json({ success: true, message: 'PIN verificado exitosamente.' });
+    // 3. Check if PIN matches employee user password or pin in users / staff_records
+    if (rawId) {
+      const [staff] = await pool.query('SELECT * FROM staff_records WHERE id = ? OR nombre = ? LIMIT 1', [rawId, employee_id]);
+      if (staff && staff.length > 0) {
+        const staffEmail = (staff[0].email || '').trim();
+        const staffName = (staff[0].nombre || '').trim();
+        const [usr] = await pool.query(
+          'SELECT * FROM users WHERE (email = ? AND email != "") OR name = ? LIMIT 1',
+          [staffEmail, staffName]
+        );
+        if (usr && usr.length > 0 && usr[0].password) {
+          if (usr[0].password === cleanPin) {
+            return res.json({ success: true, message: 'PIN verificado con contraseña de usuario.' });
+          }
+          const bcrypt = require('bcryptjs');
+          const isMatch = await bcrypt.compare(cleanPin, usr[0].password).catch(() => false);
+          if (isMatch) {
+            return res.json({ success: true, message: 'PIN verificado con contraseña de usuario.' });
+          }
+        }
+      }
+    }
+
+    return res.status(400).json({ error: 'PIN incorrecto o expirado.' });
   } catch (err) {
     console.error('[VERIFY COMMISSION PIN ERROR]:', err);
     res.status(500).json({ error: err.message });

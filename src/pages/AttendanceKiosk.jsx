@@ -378,7 +378,7 @@ const AttendanceKiosk = () => {
   };
 
   // --- Commission Flow Handlers ---
-  const handleStartCommissionMode = async (emp) => {
+  const handleStartCommissionMode = (emp) => {
     setSelectedEmployee(emp);
     setCommissionMode(true);
     setCommissionPin('');
@@ -389,11 +389,6 @@ const AttendanceKiosk = () => {
     setCustomCommissionEmail('');
     setDirectPinMode(false);
     setEmployeeCommissions([]);
-
-    // Solo enviar PIN automáticamente si el colaborador tiene correo válido registrado
-    if (emp && emp.email && emp.email.includes('@')) {
-      await handleSendCommissionPin(emp);
-    }
   };
 
   const handleSendCommissionPin = async (emp, overrideEmail) => {
@@ -424,7 +419,7 @@ const AttendanceKiosk = () => {
         setCommissionPinError(data.error || 'Error enviando PIN al correo.');
       }
     } catch (err) {
-      setCommissionPinError('Error de red. Intenta nuevamente.');
+      setCommissionPinError('Error de conexión al enviar PIN.');
     } finally {
       setCommissionPinSending(false);
     }
@@ -1197,7 +1192,7 @@ const AttendanceKiosk = () => {
                   onClick={() => { setDirectPinMode(true); setCommissionPinError(''); }}
                   style={{ width: '100%', height: '44px', background: '#27272a', color: '#f4f4f5', border: '1px solid #3f3f46', borderRadius: '12px', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                 >
-                  <Key size={15} color="#fbbf24" /> Ingresar PIN de Supervisión (2026)
+                  <Key size={15} color="#fbbf24" /> Ingresar con PIN de Acceso o Supervisión (2026)
                 </button>
 
                 <button
