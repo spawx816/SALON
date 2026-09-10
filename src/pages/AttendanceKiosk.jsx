@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign, Key } from 'lucide-react';
+import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign, Key, Calendar } from 'lucide-react';
 import { dataService } from '../utils/dataService';
 import { useTranslation } from '../context/LanguageContext';
 
@@ -37,6 +37,9 @@ const AttendanceKiosk = () => {
   const [directPinMode, setDirectPinMode] = useState(false);
   const [employeeCommissions, setEmployeeCommissions] = useState([]);
   const [commissionLoading, setCommissionLoading] = useState(false);
+  const [selectedQuincenaKey, setSelectedQuincenaKey] = useState('');
+  const [quincenaPeriods, setQuincenaPeriods] = useState([]);
+  const [commissionRemainingSeconds, setCommissionRemainingSeconds] = useState(600); // 10 minutos (600s)
   const [punchType, setPunchType] = useState('Check-In'); // 'Check-In' o 'Check-Out'
   const [todayPunches, setTodayPunches] = useState([]);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -425,6 +428,85 @@ const AttendanceKiosk = () => {
     }
   };
 
+  // --- Generador de Quincenas (Mes actual y mes anterior) ---
+  const generateQuincenaPeriods = () => {
+    const periods = [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-indexed
+    const currentDay = now.getDate();
+
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    // Helper to format YYYY-MM-DD
+    const pad = (n) => String(n).padStart(2, '0');
+
+    // Mes anterior y Mes actual
+    const monthsToProcess = [
+      new Date(currentYear, currentMonth - 1, 1),
+      new Date(currentYear, currentMonth, 1)
+    ];
+
+    monthsToProcess.forEach((mDate) => {
+      const y = mDate.getFullYear();
+      const m = mDate.getMonth();
+      const mName = monthNames[m];
+      const lastDay = new Date(y, m + 1, 0).getDate();
+
+      // Q1: 1 al 15
+      periods.push({
+        key: `${y}-${pad(m + 1)}-Q1`,
+        label: `1ra Quincena ${mName} (1 al 15)`,
+        monthName: mName,
+        year: y,
+        startDate: `${y}-${pad(m + 1)}-01`,
+        endDate: `${y}-${pad(m + 1)}-15`,
+        isCurrent: (y === currentYear && m === currentMonth && currentDay <= 15)
+      });
+
+      // Q2: 16 al fin de mes (30 o 31 o 28/29)
+      periods.push({
+        key: `${y}-${pad(m + 1)}-Q2`,
+        label: `2da Quincena ${mName} (16 al ${lastDay})`,
+        monthName: mName,
+        year: y,
+        startDate: `${y}-${pad(m + 1)}-16`,
+        endDate: `${y}-${pad(m + 1)}-${pad(lastDay)}`,
+        isCurrent: (y === currentYear && m === currentMonth && currentDay > 15)
+      });
+    });
+
+    // Ordenar de más reciente a más antigua
+    periods.reverse();
+    return periods;
+  };
+
+  const fetchCommissionsForPeriod = async (empId, startDate, endDate) => {
+    if (!empId) return;
+    setCommissionLoading(true);
+    try {
+      const url = `/api/commissions?employee_id=${empId}&start_date=${startDate}&end_date=${endDate}`;
+      const commRes = await fetch(url);
+      const commData = commRes.ok ? await commRes.json() : [];
+      setEmployeeCommissions(Array.isArray(commData) ? commData : (commData.commissions || []));
+    } catch (err) {
+      setEmployeeCommissions([]);
+    } finally {
+      setCommissionLoading(false);
+    }
+  };
+
+  const handleSelectQuincena = (periodKey) => {
+    setSelectedQuincenaKey(periodKey);
+    const found = quincenaPeriods.find(p => p.key === periodKey);
+    if (found && selectedEmployee) {
+      fetchCommissionsForPeriod(selectedEmployee.id, found.startDate, found.endDate);
+    }
+  };
+
   const handleVerifyCommissionPin = async () => {
     const cleanPin = String(commissionPin || '').trim();
     if (!cleanPin || cleanPin.length < 4) return;
@@ -438,17 +520,22 @@ const AttendanceKiosk = () => {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        // Load commissions
-        setCommissionLoading(true);
-        try {
-          const commRes = await fetch(`/api/commissions?employee_id=${selectedEmployee.id}&period=current`);
-          const commData = commRes.ok ? await commRes.json() : [];
-          setEmployeeCommissions(Array.isArray(commData) ? commData : (commData.commissions || []));
-        } catch (err) {
-          setEmployeeCommissions([]);
-        } finally {
-          setCommissionLoading(false);
+        // Calcular períodos de quincenas (mes anterior y actual)
+        const periods = generateQuincenaPeriods();
+        setQuincenaPeriods(periods);
+        
+        // Seleccionar la quincena actual por defecto (o la más reciente)
+        const defaultPeriod = periods.find(p => p.isCurrent) || periods[0];
+        setSelectedQuincenaKey(defaultPeriod ? defaultPeriod.key : '');
+
+        // Iniciar temporizador de 10 minutos (600 segundos)
+        setCommissionRemainingSeconds(600);
+
+        // Cargar comisiones de la quincena seleccionada
+        if (defaultPeriod) {
+          await fetchCommissionsForPeriod(selectedEmployee.id, defaultPeriod.startDate, defaultPeriod.endDate);
         }
+
         setStep(5);
       } else {
         setCommissionPinError(data.error || 'PIN incorrecto. Intenta nuevamente.');
@@ -459,6 +546,26 @@ const AttendanceKiosk = () => {
       setCommissionPinVerifying(false);
     }
   };
+
+  // Temporizador de 10 minutos para la pantalla de comisiones
+  useEffect(() => {
+    let timer = null;
+    if (step === 5 && commissionMode) {
+      timer = setInterval(() => {
+        setCommissionRemainingSeconds(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            handleCancelKiosk();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [step, commissionMode]);
 
   // Auto-redirect to home screen after successful punch (hands-free)
   useEffect(() => {
@@ -1209,8 +1316,8 @@ const AttendanceKiosk = () => {
 
       {/* Step 5: Commission Results */}
       {step === 5 && selectedEmployee && (
-        <div style={{ maxWidth: '600px', width: '100%', margin: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {/* Header */}
+        <div style={{ maxWidth: '640px', width: '100%', margin: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Header with 10-minute safety countdown */}
           <div style={{ background: '#18181b', border: '1px solid #3f3f46', padding: '1.25rem 1.5rem', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <div style={{ width: '52px', height: '52px', borderRadius: '50%', overflow: 'hidden', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #8b5cf6', flexShrink: 0 }}>
               {selectedEmployee.profile_photo
@@ -1218,11 +1325,74 @@ const AttendanceKiosk = () => {
                 : <User size={24} color="#71717a" />}
             </div>
             <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '0.65rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Mis Comisiones — Período Actual</p>
-              <h4 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#ffffff', margin: 0 }}>{selectedEmployee.nombre}</h4>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <p style={{ fontSize: '0.65rem', color: '#a78bfa', fontWeight: 800, textTransform: 'uppercase', margin: 0 }}>
+                  Consulta de Comisiones
+                </p>
+                <span style={{ 
+                  background: commissionRemainingSeconds < 60 ? 'rgba(239,68,68,0.2)' : 'rgba(139,92,246,0.15)', 
+                  color: commissionRemainingSeconds < 60 ? '#f87171' : '#c4b5fd', 
+                  fontSize: '0.65rem', 
+                  fontWeight: 800, 
+                  padding: '2px 8px', 
+                  borderRadius: '12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <Clock size={11} />
+                  Cierre auto en: {Math.floor(commissionRemainingSeconds / 60)}:{(commissionRemainingSeconds % 60).toString().padStart(2, '0')}
+                </span>
+              </div>
+              <h4 style={{ fontSize: '1.15rem', fontWeight: 900, color: '#ffffff', margin: '0.2rem 0 0 0' }}>{selectedEmployee.nombre}</h4>
             </div>
-            <div style={{ background: 'rgba(139,92,246,0.15)', padding: '0.5rem', borderRadius: '10px' }}>
+            <div style={{ background: 'rgba(139,92,246,0.15)', padding: '0.6rem', borderRadius: '12px' }}>
               <TrendingUp size={22} color="#a78bfa" />
+            </div>
+          </div>
+
+          {/* Quincenas Tabs (Selector de Cortes) */}
+          <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: '16px', padding: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <Calendar size={13} color="#a78bfa" /> Seleccionar Período de Corte (Quincena)
+              </span>
+              <span style={{ fontSize: '0.68rem', color: '#71717a', fontWeight: 600 }}>
+                Histórico (2 meses)
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.5rem' }}>
+              {quincenaPeriods.map((period) => {
+                const isSelected = period.key === selectedQuincenaKey;
+                return (
+                  <button
+                    key={period.key}
+                    type="button"
+                    onClick={() => handleSelectQuincena(period.key)}
+                    style={{
+                      padding: '0.6rem 0.5rem',
+                      background: isSelected ? '#8b5cf6' : '#27272a',
+                      color: isSelected ? '#ffffff' : '#d4d4d8',
+                      border: isSelected ? '1px solid #a78bfa' : '1px solid #3f3f46',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      fontSize: '0.72rem',
+                      fontWeight: isSelected ? 800 : 600,
+                      textAlign: 'center',
+                      transition: 'all 0.15s ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}
+                  >
+                    <span>{period.monthName}</span>
+                    <span style={{ fontSize: '0.65rem', opacity: isSelected ? 1 : 0.8 }}>
+                      {period.key.endsWith('Q1') ? '1 - 15' : '16 - Fin'} {period.isCurrent ? '⭐' : ''}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -1231,39 +1401,44 @@ const AttendanceKiosk = () => {
             {commissionLoading ? (
               <div style={{ padding: '3rem', textAlign: 'center' }}>
                 <RefreshCw size={24} color="#8b5cf6" style={{ animation: 'spin 1.5s linear infinite', margin: '0 auto 0.75rem', display: 'block' }} />
-                <p style={{ color: '#71717a', fontSize: '0.85rem' }}>Cargando comisiones...</p>
+                <p style={{ color: '#71717a', fontSize: '0.85rem' }}>Cargando comisiones del período...</p>
               </div>
             ) : employeeCommissions.length === 0 ? (
               <div style={{ padding: '3rem', textAlign: 'center' }}>
                 <DollarSign size={36} color="#3f3f46" style={{ margin: '0 auto 1rem', display: 'block' }} />
                 <p style={{ color: '#71717a', fontSize: '0.9rem', fontWeight: 700 }}>No hay comisiones registradas</p>
-                <p style={{ color: '#52525b', fontSize: '0.78rem', marginTop: '0.25rem' }}>para el período actual.</p>
+                <p style={{ color: '#52525b', fontSize: '0.78rem', marginTop: '0.25rem' }}>en este período de corte seleccionado.</p>
               </div>
             ) : (
               <>
                 {/* Total summary */}
-                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #27272a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Total del Período</span>
+                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #27272a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(139,92,246,0.06)' }}>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', color: '#a1a1aa', fontWeight: 800, textTransform: 'uppercase' }}>Total Acumulado en el Corte</span>
+                    <p style={{ fontSize: '0.68rem', color: '#71717a', margin: '2px 0 0' }}>{employeeCommissions.length} servicio(s) comisionado(s)</p>
+                  </div>
                   <span style={{ fontSize: '1.4rem', fontWeight: 900, color: '#a78bfa' }}>
                     RD$ {employeeCommissions.reduce((sum, c) => sum + (Number(c.monto_comision || c.amount || c.commission_amount || 0)), 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
                 {/* Commission rows */}
-                {employeeCommissions.map((comm, idx) => (
-                  <div key={idx} style={{ padding: '1rem 1.5rem', borderBottom: idx < employeeCommissions.length - 1 ? '1px solid #1c1c1f' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>
-                        {comm.service_name || comm.servicio || comm.description || 'Servicio'}
-                      </p>
-                      <p style={{ fontSize: '0.7rem', color: '#71717a', margin: '0.15rem 0 0' }}>
-                        {comm.client_name || comm.cliente || comm.ticket_number || ''} • {(comm.created_at || comm.date) ? new Date(comm.created_at || comm.date).toLocaleDateString('es-DO') : ''}
-                      </p>
+                <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                  {employeeCommissions.map((comm, idx) => (
+                    <div key={idx} style={{ padding: '0.85rem 1.5rem', borderBottom: idx < employeeCommissions.length - 1 ? '1px solid #27272a' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>
+                          {comm.service_name || comm.servicio || comm.description || 'Servicio'}
+                        </p>
+                        <p style={{ fontSize: '0.7rem', color: '#71717a', margin: '0.15rem 0 0' }}>
+                          {comm.client_name || comm.cliente || comm.ticket_number || ''} • {(comm.created_at || comm.date) ? new Date(comm.created_at || comm.date).toLocaleDateString('es-DO') : ''}
+                        </p>
+                      </div>
+                      <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#4ade80' }}>
+                        +RD$ {Number(comm.monto_comision || comm.amount || comm.commission_amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
-                    <span style={{ fontSize: '1rem', fontWeight: 900, color: '#4ade80' }}>
-                      +RD$ {Number(comm.monto_comision || comm.amount || comm.commission_amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </>
             )}
           </div>
@@ -1272,7 +1447,7 @@ const AttendanceKiosk = () => {
             onClick={handleCancelKiosk}
             style={{ height: '52px', background: '#09090b', color: '#ffffff', border: '1px solid #27272a', borderRadius: '50px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s ease' }}
           >
-            Volver al Inicio
+            Finalizar y Volver al Inicio
           </button>
         </div>
       )}
