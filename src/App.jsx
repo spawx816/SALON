@@ -264,7 +264,7 @@ const AppContent = () => {
                 <SidebarLink to="/lista-clientes" icon={Users} label={t('menu.clients')} active={location.pathname === '/lista-clientes'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits))) && (
-                <SidebarLink to="/visitas" icon={Calendar} label="Facturar (POS)" active={location.pathname === '/visitas'} onClick={closeMobileMenu} />
+                <SidebarLink to="/visitas" icon={Calendar} label="Facturación" active={location.pathname === '/visitas'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.manage_salons))) && (
                 <SidebarLink to="/cajas" icon={Wallet} label="Cajas Registradoras" active={location.pathname === '/cajas'} onClick={closeMobileMenu} />

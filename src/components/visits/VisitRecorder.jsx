@@ -95,6 +95,36 @@ const VisitRecorder = () => {
   const [adminPin, setAdminPin] = useState('');
   const [pendingDiscountItem, setPendingDiscountItem] = useState(null);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
+  const [employeeDiscountApplied, setEmployeeDiscountApplied] = useState(false); // tracks if 20% employee discount was applied
+
+  // Nómina checkout (employee payroll deduction)
+  const [showNominaModal, setShowNominaModal] = useState(false);
+  const [nominaOtpSent, setNominaOtpSent] = useState(false);
+  const [nominaOtpValue, setNominaOtpValue] = useState('');
+  const [nominaOtpSending, setNominaOtpSending] = useState(false);
+  const [nominaOtpVerifying, setNominaOtpVerifying] = useState(false);
+  const [nominaOtpError, setNominaOtpError] = useState('');
+
+  // Birthday discount tracking
+  const [birthdayDiscountActive, setBirthdayDiscountActive] = useState(false);
+
+  // Helper: Detección de ventana de 7 días del cumpleaños de la cliente
+  const checkClientBirthday = (client) => {
+    if (!client) return false;
+    const dobStr = client.fecha_nacimiento || client.fechaNacimiento || client.dob;
+    if (!dobStr) return false;
+    try {
+      const dob = new Date(dobStr);
+      if (isNaN(dob.getTime())) return false;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const bdayThisYear = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      const diffDays = Math.floor((today - bdayThisYear) / (1000 * 60 * 60 * 24));
+      return (diffDays >= 0 && diffDays <= 6);
+    } catch (e) {
+      return false;
+    }
+  };
 
   // Modal: Frases Motivacionales de Recepción (Pantalla al abrir caja y rotación 30 min)
   const [showMotivationalModal, setShowMotivationalModal] = useState(false);
@@ -118,7 +148,13 @@ const VisitRecorder = () => {
     setLineItems(updated);
   };
 
-  // Aplicar 20% de descuento global a todos los servicios para empleados
+  // Aplicar 20% de descuento global a todos los servicios para empleados (excepto Lavado Sencillo que va a $200)
+  const LAVADO_SENCILLO_PRICE = 200; // Precio fijo para Lavado Sencillo en tickets de empleado
+  const isLavadoSencillo = (nombre) => {
+    const n = (nombre || '').toLowerCase();
+    return n.includes('lavado sencillo') || n === 'lava pelo' || n.includes('lava pelo');
+  };
+
   const handleApply20PercentEmployeeDiscount = () => {
     if (!lineItems || lineItems.length === 0) {
       alert('Agrega servicios a la lista para aplicar el 20% de descuento de colaborador.');
@@ -126,6 +162,15 @@ const VisitRecorder = () => {
     }
     const updated = lineItems.map(item => {
       if (item.isPlanWash || item.precioBase === 0) return item;
+      // Lavado Sencillo: precio fijo $200 sin aplicar 20%
+      if (isLavadoSencillo(item.nombre)) {
+        return {
+          ...item,
+          precioAplicado: LAVADO_SENCILLO_PRICE,
+          descuento: 0,
+          descuentoPercent: '0'
+        };
+      }
       const baseTotal = (Number(item.precioAplicado !== undefined ? item.precioAplicado : item.precioBase) || 0) * (Number(item.cantidad) || 1);
       const discountVal = Number((baseTotal * 0.20).toFixed(2));
       return {
@@ -135,6 +180,7 @@ const VisitRecorder = () => {
       };
     });
     setLineItems(updated);
+    setEmployeeDiscountApplied(true);
   };
 
   // Modal: Facturas de la Caja Activa
@@ -535,6 +581,9 @@ const VisitRecorder = () => {
         createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
       });
       setShowPrintModal(true);
+      setTimeout(() => {
+        try { window.print(); } catch (e) {}
+      }, 350);
 
       // Ticket created successfully and sent to pending list (No auto-selection)
       await fetchPendingTickets();
@@ -597,8 +646,14 @@ const VisitRecorder = () => {
   const handleSelectClient = async (client) => {
     setClientFound(client);
     setClientSearchTerm('');
+    setEmployeeDiscountApplied(false);
+    setBirthdayDiscountActive(false);
     await loadClientPlanData(client.id, client.nombre || client.name);
     await loadClientVisitsHistory(client.id || client.nombre || client.name);
+
+    // Check birthday discount (7-day window)
+    const isBday = checkClientBirthday(client);
+    setBirthdayDiscountActive(isBday);
   };
 
   // Instant Custom General Client Selection
@@ -691,17 +746,18 @@ const VisitRecorder = () => {
         };
       });
 
-    // Automatic Employee / Plan Beauty / Guest Detection
+    // Automatic Employee / Plan Beauty / Guest Detection (Strict check to prevent ID collision with clients)
     const isEmpTicket = Boolean(
       String(ticket.client_id || '').startsWith('EMP-') ||
       ticket.client_id === 'EMPLEADO' ||
       ticket.ticket_type === 'empleado' ||
       ticket.draft_data?.isEmployeeTicket === true ||
-      (typeof ticket.draft_data === 'string' && ticket.draft_data.includes('"isEmployeeTicket":true')) ||
-      employees.some(e => String(e.id) === String(ticket.client_id))
+      (typeof ticket.draft_data === 'string' && ticket.draft_data.includes('"isEmployeeTicket":true'))
     );
 
     if (isEmpTicket) {
+      setEmployeeDiscountApplied(true);
+      setBirthdayDiscountActive(false);
       const rawEmpId = String(ticket.client_id || '').replace('EMP-', '');
       const matchedEmp = employees.find(e => String(e.id) === rawEmpId || (e.nombre && e.nombre === ticket.client_name));
       setClientFound({
@@ -715,9 +771,18 @@ const VisitRecorder = () => {
       setActivePlans([]);
       setClientVisitsHistory([]);
 
-      // Auto-apply 20% discount to all services for employee ticket
+      // Auto-apply 20% discount to all services for employee ticket, except Lavado Sencillo which is fixed at $200
       sanitizedItems = sanitizedItems.map(it => {
         if (it.isPlanWash || it.precioBase === 0) return it;
+        // Lavado Sencillo: fixed at $200, no 20% discount
+        if (isLavadoSencillo(it.nombre)) {
+          return {
+            ...it,
+            precioAplicado: LAVADO_SENCILLO_PRICE,
+            descuento: 0,
+            descuentoPercent: '0'
+          };
+        }
         const p = Number(it.precioAplicado !== undefined ? it.precioAplicado : it.precioBase) || 0;
         return {
           ...it,
@@ -726,18 +791,48 @@ const VisitRecorder = () => {
         };
       });
     } else {
+      setEmployeeDiscountApplied(false);
       const isGuest = !ticket.client_id || ticket.client_id === 'INVITADO' || String(ticket.client_id).startsWith('INVITADO');
+      let targetClient = null;
 
       if (!isGuest && ticket.client_id) {
         const match = (allClients || []).find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
-        setClientFound(match || { id: ticket.client_id, nombre: ticket.client_name || 'Cliente' });
+        targetClient = match || { id: ticket.client_id, nombre: ticket.client_name || 'Cliente' };
+        setClientFound(targetClient);
         await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
         await loadClientVisitsHistory(ticket.client_id);
       } else {
-        setClientFound({ id: 'INVITADO', nombre: ticket.client_name || 'Cliente General', name: ticket.client_name || 'Cliente General', es_invitado: true });
+        targetClient = { id: 'INVITADO', nombre: ticket.client_name || 'Cliente General', name: ticket.client_name || 'Cliente General', es_invitado: true };
+        setClientFound(targetClient);
         setActivePlans([]);
         setClientVisitsHistory([]);
       }
+
+      // Detect birthday discount on selected client
+      const isBday = checkClientBirthday(targetClient);
+      setBirthdayDiscountActive(isBday);
+
+      // Clean up any stray employee discount previously set by mistake, and apply birthday discount if active
+      sanitizedItems = sanitizedItems.map(it => {
+        if (it.isPlanWash || it.precioBase === 0) return it;
+        const p = Number(it.precioAplicado !== undefined ? it.precioAplicado : it.precioBase) || 0;
+        if (it.descuentoPercent === '20') {
+          const bdayDesc = isBday ? Number((p * (it.cantidad || 1) * 0.15).toFixed(2)) : 0;
+          return {
+            ...it,
+            descuentoPercent: isBday ? '15' : '0',
+            descuento: bdayDesc
+          };
+        } else if (isBday && (!it.descuento || it.descuento === 0)) {
+          const bdayDesc = Number((p * (it.cantidad || 1) * 0.15).toFixed(2));
+          return {
+            ...it,
+            descuentoPercent: '15',
+            descuento: bdayDesc
+          };
+        }
+        return it;
+      });
     }
 
     setLineItems(sanitizedItems);
@@ -1183,10 +1278,22 @@ const VisitRecorder = () => {
 
     const isCoveredByPlan = isWash && hasPlanWashAvailable && !alreadyHasPlanWash;
     const isEmployee = isEmployeeClient;
+    const isBirthday = birthdayDiscountActive && !isEmployee && !isCoveredByPlan;
 
-    const basePrice = isCoveredByPlan ? 0 : realPrice;
-    const autoDiscountVal = isEmployee && !isCoveredByPlan ? Number((basePrice * 0.20).toFixed(2)) : 0;
-    const autoDiscountPercent = isEmployee && !isCoveredByPlan ? '20' : '0';
+    // Employee: Lavado Sencillo fixed at $200, no 20% discount on it
+    const isLavadoSencilloItem = isLavadoSencillo(realName);
+    const basePrice = isCoveredByPlan ? 0 : (isEmployee && isLavadoSencilloItem ? LAVADO_SENCILLO_PRICE : realPrice);
+    
+    let autoDiscountVal = 0;
+    let autoDiscountPercent = '0';
+
+    if (isEmployee && !isCoveredByPlan && !isLavadoSencilloItem) {
+      autoDiscountPercent = '20';
+      autoDiscountVal = Number((basePrice * 0.20).toFixed(2));
+    } else if (isBirthday) {
+      autoDiscountPercent = '15';
+      autoDiscountVal = Number((basePrice * 0.15).toFixed(2));
+    }
 
     const newItem = {
       id: Date.now() + Math.random(),
@@ -1208,7 +1315,32 @@ const VisitRecorder = () => {
 
   const updateQuantity = (index, delta) => {
     const updated = [...lineItems];
-    const newQty = Math.max(1, (updated[index].cantidad || 1) + delta);
+    const item = updated[index];
+
+    // Regla Plan Beauty: Incluye 1 solo lavado por facturación. Si se eleva a 2, el segundo se cobra a precio regular.
+    if (item.isPlanWash && delta > 0) {
+      const regularPrice = 400;
+      const secondWash = {
+        id: Date.now() + Math.random(),
+        service_id: `srv-wash-extra-${Date.now()}`,
+        nombre: `${item.nombre.replace(' (Plan Beauty)', '')} (Adicional)`,
+        precioBase: regularPrice,
+        precioAplicado: regularPrice,
+        cantidad: 1,
+        empleado: item.empleado || '',
+        empleado_id: item.empleado_id || '',
+        empleado_nombre: item.empleado_nombre || '',
+        descuento: birthdayDiscountActive ? Number((regularPrice * 0.15).toFixed(2)) : 0,
+        descuentoPercent: birthdayDiscountActive ? '15' : '0',
+        isPlanWash: false,
+        aplica_itbis: 0
+      };
+      setLineItems([...lineItems, secondWash]);
+      alert('ℹ️ Plan Beauty incluye 1 solo lavado en cada facturación.\nEl lavado adicional se ha agregado automáticamente a precio regular.');
+      return;
+    }
+
+    const newQty = Math.max(1, (item.cantidad || 1) + delta);
     updated[index].cantidad = newQty;
     const pct = parseFloat(updated[index].descuentoPercent) || 0;
     if (pct > 0) {
@@ -1248,21 +1380,27 @@ const VisitRecorder = () => {
     setLineItems(updated);
   };
 
+  // Price change with 2.5s delay before triggering admin auth modal
+  const priceChangeTimerRef = React.useRef(null);
   const handlePriceChange = (index, newPrice) => {
     const val = parseFloat(newPrice);
     if (isNaN(val)) return;
     const item = lineItems[index];
 
-    // Restricción: Se puede subir libremente; si intenta bajar por debajo del precio base, pide autorización admin
-    if (val < item.precioBase && !isAdminAuthorized) {
-      setPendingDiscountItem({ type: 'price', index, val });
-      setShowAdminPinModal(true);
-      return;
-    }
-
+    // Always update the displayed value immediately
     const updated = [...lineItems];
     updated[index].precioAplicado = val;
     setLineItems(updated);
+
+    // If below base price and not yet authorized, debounce 2500ms before showing auth modal
+    if (val < item.precioBase && !isAdminAuthorized) {
+      if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
+      priceChangeTimerRef.current = setTimeout(() => {
+        // Re-check if still below base and still unauthorized
+        setPendingDiscountItem({ type: 'price', index, val });
+        setShowAdminPinModal(true);
+      }, 2500);
+    }
   };
 
   const verifyAdminPin = () => {
@@ -1659,13 +1797,14 @@ const VisitRecorder = () => {
       }
 
       // Check for Employee Payroll Consumption
-      const empItem = appliedPayments.find(p => p.method === 'Consumo Empleado');
-      if (empItem) {
-        const empObj = employees.find(e => e.id.toString() === selectedEmployeeForConsumption?.toString());
+      const empItem = appliedPayments.find(p => p.method === 'Consumo Empleado' || p.method === 'Nomina' || p.method === 'Descuento Nómina');
+      if (empItem || (isEmployeeClient && appliedPayments.some(p => p.method === 'Nomina'))) {
+        const rawEmpId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '') || selectedEmployeeForConsumption;
+        const empObj = employees.find(e => String(e.id) === String(rawEmpId) || e.nombre === (clientFound?.nombre || clientFound?.name));
         empCons = {
-          employee_id: empObj?.id || selectedEmployeeForConsumption || 'EMP',
-          employee_name: empObj?.nombre || 'Empleado',
-          monto: parseFloat(empItem.amount) || finalTotalAmount,
+          employee_id: empObj?.id || rawEmpId || 'EMP',
+          employee_name: empObj?.nombre || clientFound?.nombre || 'Empleado',
+          monto: parseFloat(empItem?.amount) || finalTotalAmount,
           servicios: lineItems.map(i => i.nombre),
           salon_id: salonId
         };
@@ -1678,6 +1817,9 @@ const VisitRecorder = () => {
 
       if (hasPlanWash && finalTotalAmount === 0) {
         finalMetodoPago = 'Plan Beauty';
+      } else if (appliedPayments.some(p => p.method === 'Nomina')) {
+        finalMetodoPago = 'Nomina';
+        finalMontoRecibido = finalTotalAmount;
       } else if (appliedPayments.length === 1) {
         finalMetodoPago = appliedPayments[0].method;
         finalMontoRecibido = parseFloat(appliedPayments[0].amount) || finalTotalAmount;
@@ -2116,7 +2258,7 @@ const VisitRecorder = () => {
                       borderRadius: '9999px'
                     }}>
                       <span style={{ fontSize: '0.85rem' }}>{isEmployeeClient ? '💼' : (isGuestClient ? '👤' : (hasActivePlan ? '⭐' : '🌟'))}</span>
-                      <span>{isEmployeeClient ? 'Colaborador / Empleado' : (isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Beauty Activo' : 'Cliente Registrado'))}</span>
+                      <span>{isEmployeeClient ? 'Colaborador / Empleado' : (isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Plan Beauty Activo' : 'Cliente Registrado'))}</span>
                     </div>
                   </div>
 
@@ -2184,6 +2326,58 @@ const VisitRecorder = () => {
                       <span>Ver detalles</span>
                     </button>
                   </div>
+
+                  {/* BANNER CUMPLEAÑOS — 15% descuento automático en ventana de 7 días */}
+                  {birthdayDiscountActive && !isEmployeeClient && (
+                    <div style={{
+                      background: 'linear-gradient(135deg, #fff7f3 0%, #fff1f2 100%)',
+                      border: '1.5px solid #fb923c',
+                      borderRadius: '16px',
+                      padding: '0.85rem 1rem',
+                      margin: '0.5rem 0',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.5rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '1.4rem' }}>🎂</span>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: '#c2410c' }}>¡Semana de Cumpleaños!</p>
+                          <p style={{ margin: 0, fontSize: '0.7rem', color: '#9a3412', fontWeight: 600 }}>15% de descuento disponible en servicios</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Apply 15% to all non-wash items
+                          const updated = lineItems.map(item => {
+                            if (item.isPlanWash || item.precioBase === 0 || isLavadoSencillo(item.nombre)) return item;
+                            const baseTotal = (Number(item.precioAplicado !== undefined ? item.precioAplicado : item.precioBase) || 0) * (Number(item.cantidad) || 1);
+                            return {
+                              ...item,
+                              descuentoPercent: '15',
+                              descuento: Number((baseTotal * 0.15).toFixed(2))
+                            };
+                          });
+                          setLineItems(updated);
+                          alert('¡15% de descuento de cumpleaños aplicado a los servicios adicionales!');
+                        }}
+                        style={{
+                          background: '#ea580c',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '10px',
+                          padding: '0.45rem 0.75rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          width: '100%'
+                        }}
+                      >
+                        Aplicar 15% Descuento Cumpleaños
+                      </button>
+                    </div>
+                  )}
 
                   {/* DETAIL LIST ROW 1: BENEFICIOS RENOVADOS */}
                   <div style={{
@@ -2526,8 +2720,8 @@ const VisitRecorder = () => {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                {/* BOTÓN RÁPIDO 20% PLAN BEAUTY */}
-                {hasActivePlan && lineItems.length > 0 && (
+                {/* BOTÓN RÁPIDO 20% PLAN BEAUTY — oculto si se aplicó descuento de empleado */}
+                {hasActivePlan && lineItems.length > 0 && !employeeDiscountApplied && (
                   <button
                     type="button"
                     onClick={handleApply20PercentPlanDiscount}
@@ -2753,12 +2947,34 @@ const VisitRecorder = () => {
         {/* ================= COLUMN 3: INVOICE SUMMARY & PAYMENT METHODS ================= */}
         <div style={{ background: '#ffffff', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.1rem', height: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
           
-          {/* FACTURA HEADER */}
+          {/* FACTURA HEADER — muestra foto empleado si es ticket de colaborador */}
           <div style={{ borderBottom: '1px solid #e4e4e7', paddingBottom: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
-                Factura {selectedTicket?.ticket_number || 'SD-NUEVA'}
-              </h3>
+              {isEmployeeClient && (() => {
+                const empId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '');
+                const empObj = employees.find(e => String(e.id) === empId || e.nombre === (clientFound?.nombre || clientFound?.name));
+                return empObj?.profile_photo ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', overflow: 'hidden', border: '2px solid #3b82f6', flexShrink: 0 }}>
+                      <img src={empObj.profile_photo} alt={empObj.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#18181b' }}>
+                        Factura {selectedTicket?.ticket_number || 'SD-NUEVA'}
+                      </h3>
+                      <p style={{ margin: 0, fontSize: '0.7rem', color: '#3b82f6', fontWeight: 700 }}>Colaborador: {empObj.nombre}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
+                    Factura {selectedTicket?.ticket_number || 'SD-NUEVA'}
+                  </h3>
+                );
+              })() || (
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
+                  Factura {selectedTicket?.ticket_number || 'SD-NUEVA'}
+                </h3>
+              )}
               <span style={{ fontSize: '0.9rem', color: '#71717a', cursor: 'pointer' }}>⚙️</span>
             </div>
             <p style={{ margin: '0.2rem 0 0', fontSize: '0.725rem', color: '#71717a' }}>
@@ -3051,6 +3267,64 @@ const VisitRecorder = () => {
               <Printer size={17} />
             </button>
 
+            {/* CARGAR A NÓMINA — solo visible en tickets de empleado */}
+            {isEmployeeClient && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (lineItems.length === 0) {
+                    alert('Agrega al menos un servicio antes de cargar a nómina.');
+                    return;
+                  }
+                  // Start nomina OTP flow
+                  setNominaOtpSent(false);
+                  setNominaOtpValue('');
+                  setNominaOtpError('');
+                  setShowNominaModal(true);
+                  // Send OTP to employee email
+                  setNominaOtpSending(true);
+                  try {
+                    const empId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '');
+                    const empObj = employees.find(e => String(e.id) === empId || e.nombre === (clientFound?.nombre || clientFound?.name));
+                    const email = empObj?.email || '';
+                    const res = await fetch('/api/employees/nomina-otp', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ employee_id: empObj?.id || empId, email, amount: finalTotalAmount })
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                      setNominaOtpSent(true);
+                    } else {
+                      setNominaOtpError(data.error || 'Error enviando código al correo.');
+                    }
+                  } catch (err) {
+                    setNominaOtpError('Error de red.');
+                  } finally {
+                    setNominaOtpSending(false);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #1e40af 0%, #2563eb 100%)',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.75rem',
+                  borderRadius: '12px',
+                  fontWeight: 800,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.4rem',
+                  boxShadow: '0 4px 12px rgba(37,99,235,0.25)'
+                }}
+              >
+                <span>Cargar a Nómina (Descuento)</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleCotizarProforma}
@@ -3106,6 +3380,104 @@ const VisitRecorder = () => {
           <span>🔄 Sincronizar: <strong style={{ color: '#166534' }}>✓ Actualizado</strong></span>
         </div>
       </div>
+
+      {/* MODAL: CARGAR A NÓMINA — OTP por correo del empleado */}
+      {showNominaModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '460px', borderRadius: '24px', padding: '2rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', position: 'relative' }}>
+            <button onClick={() => { setShowNominaModal(false); setNominaOtpSent(false); setNominaOtpValue(''); setNominaOtpError(''); }}
+              style={{ position: 'absolute', top: '1rem', right: '1rem', background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <X size={16} />
+            </button>
+
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.85rem', fontSize: '1.75rem' }}>
+                &#128196;
+              </div>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a' }}>Cargar a N&oacute;mina</h3>
+              <p style={{ margin: '0.3rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                RD$ {finalTotalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })} ser&aacute; descontado de la pr&oacute;xima n&oacute;mina del colaborador.
+              </p>
+            </div>
+
+            {nominaOtpSending && (
+              <div style={{ textAlign: 'center', padding: '1rem', color: '#3b82f6', fontWeight: 700, fontSize: '0.85rem' }}>
+                Enviando c&oacute;digo al correo del colaborador...
+              </div>
+            )}
+
+            {!nominaOtpSending && !nominaOtpSent && nominaOtpError && (
+              <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.8rem', color: '#be123c', fontWeight: 700 }}>
+                {nominaOtpError}
+              </div>
+            )}
+
+            {!nominaOtpSending && nominaOtpSent && (
+              <div>
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '0.75rem 1rem', marginBottom: '1.25rem', fontSize: '0.78rem', color: '#166534', fontWeight: 700, textAlign: 'center' }}>
+                  Codigo enviado al correo del colaborador. Ingresa el codigo para confirmar.
+                </div>
+                <p style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.6rem' }}>
+                  C&oacute;digo de Autorizaci&oacute;n (6 d&iacute;gitos)
+                </p>
+                <input
+                  type="text"
+                  maxLength={6}
+                  placeholder="0 0 0 0 0 0"
+                  value={nominaOtpValue}
+                  onChange={e => setNominaOtpValue(e.target.value.replace(/\D/g, ''))}
+                  style={{ width: '100%', height: '56px', background: '#f8fafc', border: '2px solid #3b82f6', borderRadius: '14px', color: '#0f172a', fontSize: '1.6rem', fontWeight: 800, textAlign: 'center', letterSpacing: '0.5em', outline: 'none', boxSizing: 'border-box', marginBottom: '0.75rem' }}
+                />
+                {nominaOtpError && <p style={{ color: '#e11d48', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.5rem' }}>{nominaOtpError}</p>}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    onClick={() => { setShowNominaModal(false); setNominaOtpSent(false); setNominaOtpValue(''); setNominaOtpError(''); }}
+                    style={{ height: '48px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '12px', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    disabled={nominaOtpVerifying || nominaOtpValue.length < 6}
+                    onClick={async () => {
+                      if (nominaOtpValue.length < 6) return;
+                      setNominaOtpVerifying(true);
+                      setNominaOtpError('');
+                      try {
+                        const empId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '');
+                        const empObj = employees.find(e => String(e.id) === empId || e.nombre === (clientFound?.nombre || clientFound?.name));
+                        const res = await fetch('/api/employees/verify-nomina-otp', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ employee_id: empObj?.id || empId, pin: nominaOtpValue })
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                          setShowNominaModal(false);
+                          // Execute checkout with nomina payment method
+                          const nomina_payment = [{ id: `pay-nomina-${Date.now()}`, method: 'Nomina', amount: finalTotalAmount }];
+                          setAppliedPayments(nomina_payment);
+                          setTimeout(() => executeCheckout(), 100);
+                        } else {
+                          setNominaOtpError(data.error || 'C\u00f3digo incorrecto. Intenta nuevamente.');
+                        }
+                      } catch (err) {
+                        setNominaOtpError('Error de red.');
+                      } finally {
+                        setNominaOtpVerifying(false);
+                      }
+                    }}
+                    style={{ height: '48px', background: nominaOtpValue.length < 6 ? '#93c5fd' : '#1d4ed8', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 800, cursor: nominaOtpValue.length < 6 ? 'not-allowed' : 'pointer' }}
+                  >
+                    {nominaOtpVerifying ? 'Verificando...' : 'Confirmar Cargo'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* MODAL: GENERAR NUEVO TICKET CON BÚSQUEDA INTEGRADA Y TABS */}
       {showNewTicketModal && (

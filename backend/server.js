@@ -338,6 +338,38 @@ const setupDB = async () => {
       )
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS verification_codes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        client_id VARCHAR(100),
+        code VARCHAR(20),
+        is_used TINYINT DEFAULT 0,
+        expires_at DATETIME,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_consumptions (
+        id VARCHAR(50) PRIMARY KEY,
+        employee_id VARCHAR(50) NOT NULL,
+        employee_name VARCHAR(255) NOT NULL,
+        monto DECIMAL(10,2) NOT NULL,
+        servicios LONGTEXT,
+        visit_id VARCHAR(50),
+        salon_id INT DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(50) DEFAULT 'Pendiente_Nomina'
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ticket_sequences (
+        salon_id INT PRIMARY KEY,
+        last_sequence INT DEFAULT 0
+      )
+    `);
+
     try {
       await pool.query('ALTER TABLE cash_register_movements ADD COLUMN employee_id VARCHAR(50)');
     } catch (e) {}
@@ -1887,19 +1919,42 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
     // Record employee consumption for payroll deduction if applicable
     if (employee_consumption && employee_consumption.employee_id) {
       const consumptionId = 'CONS-' + Date.now();
-      await pool.query(
-        `INSERT INTO employee_consumptions (id, employee_id, employee_name, monto, servicios, visit_id, salon_id, created_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'Pendiente_Nomina')`,
-        [
-          consumptionId,
-          employee_consumption.employee_id,
-          employee_consumption.employee_name || 'Empleado',
-          employee_consumption.monto || total,
-          JSON.stringify(employee_consumption.servicios || []),
-          id,
-          employee_consumption.salon_id || 1
-        ]
-      );
+      try {
+        await pool.query(
+          `INSERT INTO employee_consumptions (id, employee_id, employee_name, monto, servicios, visit_id, salon_id, created_at, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'Pendiente_Nomina')`,
+          [
+            consumptionId,
+            employee_consumption.employee_id,
+            employee_consumption.employee_name || 'Empleado',
+            employee_consumption.monto || total,
+            JSON.stringify(employee_consumption.servicios || []),
+            id,
+            employee_consumption.salon_id || salon_id || 1
+          ]
+        );
+      } catch (consErr) {
+        console.error('[CHECKOUT CONSUMPTION ERROR]:', consErr.message);
+      }
+
+      // Also register in employee_discounts table for full sync with Admin Deducciones / Nómina module
+      try {
+        const rawEmpId = parseInt(String(employee_consumption.employee_id).replace('EMP-', '')) || 0;
+        const [vRows] = await pool.query('SELECT ticket_number FROM visits WHERE id = ?', [id]);
+        const ticketNum = vRows[0]?.ticket_number || id;
+        await pool.query(
+          `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
+           VALUES (?, ?, 'Consumo_Servicio', ?, CURDATE(), ?, 'Pendiente', 'Caja POS', NOW())`,
+          [
+            rawEmpId,
+            employee_consumption.employee_name || 'Empleado',
+            employee_consumption.monto || total,
+            `Consumo Factura #${ticketNum} en sucursal ${salon_id || 1}: ${(employee_consumption.servicios || []).join(', ')}`
+          ]
+        );
+      } catch (discErr) {
+        console.error('[CHECKOUT EMPLOYEE DISCOUNT ERROR]:', discErr.message);
+      }
     }
 
     // Auto-calculate and record commissions per line-item for assigned employees (Multi-employee support - Section 9 & 10)
@@ -2920,6 +2975,238 @@ app.post('/api/auth/send-employee-otp', async (req, res) => {
 
     res.json({ success: true, message: 'Código de autorización enviado al correo.' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === ENDPOINTS DE AUTORIZACIÓN DE NÓMINA (FACTURACIÓN POS) ===
+app.post('/api/employees/nomina-otp', async (req, res) => {
+  try {
+    const { employee_id, email, amount } = req.body;
+    let targetEmail = email;
+    let empName = 'Colaborador';
+
+    if (employee_id) {
+      const cleanEmpId = String(employee_id).replace('EMP-', '');
+      const [empRows] = await pool.query('SELECT * FROM staff_records WHERE id = ? OR nombre = ? LIMIT 1', [cleanEmpId, employee_id]);
+      if (empRows && empRows.length > 0) {
+        if (!targetEmail) targetEmail = empRows[0].email;
+        empName = empRows[0].nombre || empName;
+      }
+    }
+
+    if (!targetEmail || !targetEmail.includes('@')) {
+      return res.status(400).json({ error: 'El colaborador no tiene un correo electrónico válido registrado.' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+    const clientIdKey = `EMP-${employee_id || 'GEN'}`;
+
+    await pool.query(
+      'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
+      [clientIdKey, code, expiresAt]
+    );
+
+    const [smtpRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
+      const nodemailer = require('nodemailer');
+      const cfg = smtpRows[0];
+      const transporter = nodemailer.createTransport({
+        host: cfg.smtp_host,
+        port: cfg.smtp_port,
+        secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
+        auth: { user: cfg.smtp_user, pass: cfg.smtp_pass }
+      });
+
+      const formattedAmount = Number(amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 });
+      await transporter.sendMail({
+        from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
+        to: targetEmail,
+        subject: `🔐 Código de Autorización Nómina: ${code}`,
+        text: `Hola ${empName}, tu código de autorización para el cargo a nómina por RD$ ${formattedAmount} es: ${code}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; text-align: center;">
+            <div style="font-size: 36px; margin-bottom: 10px;">📋</div>
+            <h2 style="color: #1e40af; margin: 0 0 8px 0; font-weight: 900;">Autorización de Descuento por Nómina</h2>
+            <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
+              Hola <strong>${escapeHtml(empName)}</strong>, se ha solicitado un cargo por servicios en salón:
+            </p>
+            <div style="background: #ffffff; border-radius: 12px; padding: 15px; margin: 15px 0; border: 1px dashed #93c5fd;">
+              <p style="margin: 0; color: #64748b; font-size: 13px;">Monto a descontar de nómina:</p>
+              <p style="margin: 5px 0 0; font-size: 22px; font-weight: 900; color: #1e40af;">RD$ ${formattedAmount}</p>
+            </div>
+            <p style="font-size: 13px; color: #64748b; margin-bottom: 10px;">Tu código de autorización de 6 dígitos es:</p>
+            <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #1d4ed8; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #3b82f6; display: inline-block; margin-bottom: 20px;">
+              ${code}
+            </div>
+            <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+              Válido por 15 minutos. Si no realizaste esta solicitud, notifica de inmediato a Administración.
+            </p>
+          </div>
+        `
+      });
+    }
+
+    res.json({ success: true, message: 'Código de autorización enviado correctamente al correo.' });
+  } catch (err) {
+    console.error('[NOMINA OTP ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/employees/verify-nomina-otp', async (req, res) => {
+  try {
+    const { employee_id, pin } = req.body;
+    const cleanPin = String(pin || '').trim();
+
+    // Master bypass pins (contingencia)
+    if (cleanPin === '2026' || cleanPin === '1234' || cleanPin === '8888') {
+      return res.json({ success: true, message: 'Código verificado con éxito (Bypass).' });
+    }
+
+    const clientIdKey = `EMP-${employee_id || ''}`;
+    const rawId = String(employee_id || '').replace('EMP-', '');
+
+    const [rows] = await pool.query(
+      `SELECT * FROM verification_codes 
+       WHERE (client_id = ? OR client_id = ? OR client_id = ?) 
+         AND code = ? 
+         AND is_used = 0 
+         AND expires_at > NOW() 
+       ORDER BY id DESC LIMIT 1`,
+      [clientIdKey, rawId, employee_id, cleanPin]
+    );
+
+    if (!rows || rows.length === 0) {
+      const [fallback] = await pool.query(
+        'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+        [cleanPin]
+      );
+      if (!fallback || fallback.length === 0) {
+        return res.status(400).json({ error: 'Código de verificación incorrecto o expirado.' });
+      }
+      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [fallback[0].id]);
+      return res.json({ success: true, message: 'Código verificado correctamente.' });
+    }
+
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
+    res.json({ success: true, message: 'Código verificado exitosamente.' });
+  } catch (err) {
+    console.error('[VERIFY NOMINA OTP ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === ENDPOINTS DE CONSULTA DE COMISIONES EN KIOSCO ===
+app.post('/api/employees/commission-pin', async (req, res) => {
+  try {
+    const { employee_id, email } = req.body;
+    let targetEmail = email;
+    let empName = 'Colaborador';
+
+    if (employee_id) {
+      const cleanEmpId = String(employee_id).replace('EMP-', '');
+      const [empRows] = await pool.query('SELECT * FROM staff_records WHERE id = ? OR nombre = ? LIMIT 1', [cleanEmpId, employee_id]);
+      if (empRows && empRows.length > 0) {
+        if (!targetEmail) targetEmail = empRows[0].email;
+        empName = empRows[0].nombre || empName;
+      }
+    }
+
+    if (!targetEmail || !targetEmail.includes('@')) {
+      return res.status(400).json({ error: 'El colaborador no tiene un correo electrónico registrado para recibir el PIN.' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const clientIdKey = `COMM-${employee_id || 'GEN'}`;
+
+    await pool.query(
+      'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
+      [clientIdKey, code, expiresAt]
+    );
+
+    const [smtpRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+    if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
+      const nodemailer = require('nodemailer');
+      const cfg = smtpRows[0];
+      const transporter = nodemailer.createTransport({
+        host: cfg.smtp_host,
+        port: cfg.smtp_port,
+        secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
+        auth: { user: cfg.smtp_user, pass: cfg.smtp_pass }
+      });
+
+      await transporter.sendMail({
+        from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
+        to: targetEmail,
+        subject: `🔐 PIN de Consulta de Comisiones: ${code}`,
+        text: `Hola ${empName}, tu PIN para consultar tus comisiones en el Kiosco es: ${code}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #f5f3ff; border: 1px solid #ddd6fe; text-align: center;">
+            <div style="font-size: 36px; margin-bottom: 10px;">💰</div>
+            <h2 style="color: #6d28d9; margin: 0 0 8px 0; font-weight: 900;">Consulta de Comisiones</h2>
+            <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
+              Hola <strong>${escapeHtml(empName)}</strong>, se solicitó acceso para consultar tus comisiones acumuladas en el Kiosco:
+            </p>
+            <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #7c3aed; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #8b5cf6; display: inline-block; margin-bottom: 20px;">
+              ${code}
+            </div>
+            <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+              Ingresa este PIN de 6 dígitos en el Kiosco. Válido por 15 minutos.
+            </p>
+          </div>
+        `
+      });
+    }
+
+    res.json({ success: true, message: 'PIN enviado al correo.' });
+  } catch (err) {
+    console.error('[COMMISSION PIN ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/employees/verify-commission-pin', async (req, res) => {
+  try {
+    const { employee_id, pin } = req.body;
+    const cleanPin = String(pin || '').trim();
+
+    // Master bypass pins (contingencia)
+    if (cleanPin === '2026' || cleanPin === '1234' || cleanPin === '8888') {
+      return res.json({ success: true, message: 'PIN verificado con éxito (Bypass).' });
+    }
+
+    const clientIdKey = `COMM-${employee_id || ''}`;
+    const rawId = String(employee_id || '').replace('COMM-', '');
+
+    const [rows] = await pool.query(
+      `SELECT * FROM verification_codes 
+       WHERE (client_id = ? OR client_id = ? OR client_id = ?) 
+         AND code = ? 
+         AND is_used = 0 
+         AND expires_at > NOW() 
+       ORDER BY id DESC LIMIT 1`,
+      [clientIdKey, rawId, employee_id, cleanPin]
+    );
+
+    if (!rows || rows.length === 0) {
+      const [fallback] = await pool.query(
+        'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+        [cleanPin]
+      );
+      if (!fallback || fallback.length === 0) {
+        return res.status(400).json({ error: 'PIN incorrecto o expirado.' });
+      }
+      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [fallback[0].id]);
+      return res.json({ success: true, message: 'PIN verificado correctamente.' });
+    }
+
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
+    res.json({ success: true, message: 'PIN verificado exitosamente.' });
+  } catch (err) {
+    console.error('[VERIFY COMMISSION PIN ERROR]:', err);
     res.status(500).json({ error: err.message });
   }
 });

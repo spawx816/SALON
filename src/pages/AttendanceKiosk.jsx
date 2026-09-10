@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin } from 'lucide-react';
+import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign } from 'lucide-react';
 import { dataService } from '../utils/dataService';
 import { useTranslation } from '../context/LanguageContext';
 
@@ -24,7 +24,17 @@ const AttendanceKiosk = () => {
   const [deactivateError, setDeactivateError] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [password, setPassword] = useState('');
-  const [step, setStep] = useState(1); // 1: Selector, 2: Contraseña, 3: Cámara/Ponche, 4: Éxito
+  const [step, setStep] = useState(1); // 1: Selector, 2: Contraseña, 3: Cámara/Ponche, 4: Éxito, 5: Comisiones
+
+  // Commissions mode states
+  const [commissionMode, setCommissionMode] = useState(false);
+  const [commissionPin, setCommissionPin] = useState('');
+  const [commissionPinSent, setCommissionPinSent] = useState(false);
+  const [commissionPinSending, setCommissionPinSending] = useState(false);
+  const [commissionPinVerifying, setCommissionPinVerifying] = useState(false);
+  const [commissionPinError, setCommissionPinError] = useState('');
+  const [employeeCommissions, setEmployeeCommissions] = useState([]);
+  const [commissionLoading, setCommissionLoading] = useState(false);
   const [punchType, setPunchType] = useState('Check-In'); // 'Check-In' o 'Check-Out'
   const [todayPunches, setTodayPunches] = useState([]);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -353,6 +363,83 @@ const AttendanceKiosk = () => {
     setSelectedEmployee(null);
     setMatchingStatus('idle');
     setStep(1);
+    // Reset commission mode
+    setCommissionMode(false);
+    setCommissionPin('');
+    setCommissionPinSent(false);
+    setCommissionPinError('');
+    setEmployeeCommissions([]);
+  };
+
+  // --- Commission Flow Handlers ---
+  const handleStartCommissionMode = async (emp) => {
+    setSelectedEmployee(emp);
+    setCommissionMode(true);
+    setCommissionPin('');
+    setCommissionPinSent(false);
+    setCommissionPinError('');
+    setEmployeeCommissions([]);
+    // Send PIN to employee email
+    await handleSendCommissionPin(emp);
+  };
+
+  const handleSendCommissionPin = async (emp) => {
+    const employee = emp || selectedEmployee;
+    if (!employee) return;
+    setCommissionPinSending(true);
+    setCommissionPinError('');
+    try {
+      // Reuse OTP service sending to employee email
+      const res = await fetch('/api/employees/commission-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: employee.id, email: employee.email })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCommissionPinSent(true);
+      } else {
+        setCommissionPinError(data.error || 'Error enviando PIN al correo.');
+      }
+    } catch (err) {
+      setCommissionPinError('Error de red. Intenta nuevamente.');
+    } finally {
+      setCommissionPinSending(false);
+    }
+  };
+
+  const handleVerifyCommissionPin = async () => {
+    if (!commissionPin || commissionPin.length < 6) return;
+    setCommissionPinVerifying(true);
+    setCommissionPinError('');
+    try {
+      const res = await fetch('/api/employees/verify-commission-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: selectedEmployee.id, pin: commissionPin })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // Load commissions
+        setCommissionLoading(true);
+        try {
+          const commRes = await fetch(`/api/commissions?employee_id=${selectedEmployee.id}&period=current`);
+          const commData = commRes.ok ? await commRes.json() : [];
+          setEmployeeCommissions(Array.isArray(commData) ? commData : (commData.commissions || []));
+        } catch (err) {
+          setEmployeeCommissions([]);
+        } finally {
+          setCommissionLoading(false);
+        }
+        setStep(5);
+      } else {
+        setCommissionPinError(data.error || 'PIN incorrecto. Intenta nuevamente.');
+      }
+    } catch (err) {
+      setCommissionPinError('Error de red. Intenta nuevamente.');
+    } finally {
+      setCommissionPinVerifying(false);
+    }
   };
 
   // Auto-redirect to home screen after successful punch (hands-free)
@@ -498,59 +585,97 @@ const AttendanceKiosk = () => {
               Selecciona tu Nombre para Iniciar
             </h3>
             
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1.25rem', flex: 1 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1.25rem', flex: 1 }}>
               {filteredEmployees.map(emp => (
-                <button
+                <div
                   key={emp.id}
-                  onClick={async () => {
-                    setSelectedEmployee(emp);
-                    // Determine next punch type based on the last chronological punch of today
-                    const empPunches = todayPunches.filter(p => String(p.employee_id) === String(emp.id));
-                    const lastPunch = empPunches[empPunches.length - 1];
-                    const nextType = (!lastPunch || lastPunch.type === 'Check-Out') ? 'Check-In' : 'Check-Out';
-                    setPunchType(nextType);
-                    setStep(3);
-                    setMatchingStatus('matching');
-                    setStatusMessage("Iniciando cámara...");
-                    startCamera();
-                  }}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    padding: '1.75rem 1rem',
+                    padding: '1.5rem 1rem 1rem',
                     background: '#18181b',
                     border: '1px solid #27272a',
                     borderRadius: '16px',
-                    cursor: 'pointer',
                     transition: 'all 0.2s ease',
                     color: '#ffffff'
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#10b981';
-                    e.currentTarget.style.transform = 'translateY(-4px)';
-                    e.currentTarget.style.background = '#27272a';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#27272a';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.background = '#18181b';
-                  }}
                 >
-                  <div style={{ width: '64px', height: '64px', borderRadius: '50%', overflow: 'hidden', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', border: '2px solid #3f3f46' }}>
+                  {/* Employee Photo */}
+                  <div style={{ width: '64px', height: '64px', borderRadius: '50%', overflow: 'hidden', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.75rem', border: '2px solid #3f3f46' }}>
                     {emp.profile_photo ? (
                       <img src={emp.profile_photo} alt={emp.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
                       <User size={30} color="#71717a" />
                     )}
                   </div>
-                  <span style={{ fontSize: '0.95rem', fontWeight: 800, textAlign: 'center', wordBreak: 'break-word' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 800, textAlign: 'center', wordBreak: 'break-word', marginBottom: '0.25rem' }}>
                     {emp.nombre}
                   </span>
-                  <span style={{ fontSize: '0.7rem', color: '#71717a', textTransform: 'uppercase', marginTop: '0.25rem', fontWeight: 700 }}>
+                  <span style={{ fontSize: '0.7rem', color: '#71717a', textTransform: 'uppercase', marginBottom: '1rem', fontWeight: 700 }}>
                     {emp.rol || 'Empleado'}
                   </span>
-                </button>
+
+                  {/* Two action buttons */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', width: '100%' }}>
+                    {/* Asistencia Button */}
+                    <button
+                      onClick={async () => {
+                        setSelectedEmployee(emp);
+                        setCommissionMode(false);
+                        const empPunches = todayPunches.filter(p => String(p.employee_id) === String(emp.id));
+                        const lastPunch = empPunches[empPunches.length - 1];
+                        const nextType = (!lastPunch || lastPunch.type === 'Check-Out') ? 'Check-In' : 'Check-Out';
+                        setPunchType(nextType);
+                        setStep(3);
+                        setMatchingStatus('matching');
+                        setStatusMessage('Iniciando cámara...');
+                        startCamera();
+                      }}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem',
+                        padding: '0.6rem 0.4rem',
+                        background: 'rgba(16,185,129,0.12)',
+                        border: '1px solid rgba(16,185,129,0.35)',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        color: '#10b981',
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        transition: 'all 0.15s ease',
+                        textTransform: 'uppercase'
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.25)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.12)'; }}
+                    >
+                      <Clock size={16} />
+                      Asistencia
+                    </button>
+
+                    {/* Comisiones Button */}
+                    <button
+                      onClick={() => handleStartCommissionMode(emp)}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem',
+                        padding: '0.6rem 0.4rem',
+                        background: 'rgba(139,92,246,0.12)',
+                        border: '1px solid rgba(139,92,246,0.35)',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        color: '#a78bfa',
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        transition: 'all 0.15s ease',
+                        textTransform: 'uppercase'
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.25)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.12)'; }}
+                    >
+                      <TrendingUp size={16} />
+                      Comisiones
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
 
@@ -844,39 +969,7 @@ const AttendanceKiosk = () => {
             </button>
           </div>
 
-          {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
-            <button
-              type="button"
-              onClick={() => {
-                setMatchingStatus('matched');
-                setStatusMessage("Validación omitida (Modo Desarrollo/Testing)");
-              }}
-              style={{
-                marginTop: '1.25rem',
-                height: '40px',
-                background: 'rgba(239, 68, 68, 0.1)',
-                color: '#ef4444',
-                border: '1px solid rgba(239, 68, 68, 0.2)',
-                borderRadius: '12px',
-                fontWeight: 700,
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.15s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-              }}
-            >
-              🔧 Omitir Reconocimiento Facial (Solo en localhost para pruebas)
-            </button>
-          )}
+          {/* Botón de omitir eliminado para producción */}
         </div>
       )}
 
@@ -936,6 +1029,147 @@ const AttendanceKiosk = () => {
         </div>
       )}
       
+      {/* Step 5: Commission Viewer — PIN verification + display */}
+      {commissionMode && selectedEmployee && step !== 5 && (
+        <div style={{ maxWidth: '460px', width: '100%', margin: 'auto', background: '#18181b', border: '1px solid #27272a', padding: '2.5rem 2rem', borderRadius: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)' }}>
+          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', overflow: 'hidden', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', border: '2px solid #8b5cf6' }}>
+              {selectedEmployee.profile_photo
+                ? <img src={selectedEmployee.profile_photo} alt={selectedEmployee.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <User size={30} color="#71717a" />}
+            </div>
+            <h4 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>{selectedEmployee.nombre}</h4>
+            <p style={{ fontSize: '0.8rem', color: '#a1a1aa', margin: '0.35rem 0 0 0' }}>Consulta de Comisiones</p>
+          </div>
+
+          {!commissionPinSent ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', padding: '1.25rem', borderRadius: '14px', marginBottom: '1.5rem' }}>
+                <Mail size={28} color="#a78bfa" style={{ margin: '0 auto 0.75rem', display: 'block' }} />
+                <p style={{ fontSize: '0.85rem', color: '#a1a1aa', lineHeight: 1.5 }}>
+                  Se enviará un PIN de 6 dígitos al correo de <strong style={{ color: '#ffffff' }}>{selectedEmployee.nombre}</strong> para verificar tu identidad.
+                </p>
+              </div>
+              <button
+                onClick={() => handleSendCommissionPin()}
+                disabled={commissionPinSending}
+                style={{ width: '100%', height: '50px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '30px', fontWeight: 900, fontSize: '0.95rem', cursor: commissionPinSending ? 'not-allowed' : 'pointer', opacity: commissionPinSending ? 0.7 : 1 }}
+              >
+                {commissionPinSending ? '⏳ Enviando PIN...' : '📧 Enviar PIN a mi Correo'}
+              </button>
+              {commissionPinError && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginTop: '0.75rem' }}>⚠️ {commissionPinError}</p>}
+            </div>
+          ) : (
+            <div>
+              <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1.5rem', fontSize: '0.78rem', color: '#6ee7b7', textAlign: 'center' }}>
+                ✅ PIN enviado al correo. Revisa tu bandeja de entrada.
+              </div>
+              <p style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a1a1aa', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Ingresa el PIN de 6 dígitos:</p>
+              <input
+                type="text"
+                maxLength={6}
+                placeholder="0 0 0 0 0 0"
+                value={commissionPin}
+                onChange={e => setCommissionPin(e.target.value.replace(/\D/g, ''))}
+                style={{ width: '100%', height: '54px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '12px', color: 'white', fontSize: '1.5rem', fontWeight: 800, textAlign: 'center', letterSpacing: '0.4em', outline: 'none', boxSizing: 'border-box' }}
+              />
+              {commissionPinError && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginTop: '0.5rem' }}>⚠️ {commissionPinError}</p>}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '0.75rem', marginTop: '1.25rem' }}>
+                <button
+                  onClick={handleCancelKiosk}
+                  style={{ height: '46px', background: '#27272a', color: '#a1a1aa', border: 'none', borderRadius: '12px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleVerifyCommissionPin}
+                  disabled={commissionPinVerifying || commissionPin.length < 6}
+                  style={{ height: '46px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 800, cursor: commissionPin.length < 6 ? 'not-allowed' : 'pointer', opacity: commissionPin.length < 6 ? 0.5 : 1 }}
+                >
+                  {commissionPinVerifying ? '⏳ Verificando...' : 'Ver Mis Comisiones'}
+                </button>
+              </div>
+              <button
+                onClick={() => handleSendCommissionPin()}
+                style={{ background: 'none', border: 'none', color: '#71717a', fontSize: '0.75rem', cursor: 'pointer', marginTop: '1rem', textDecoration: 'underline', width: '100%', textAlign: 'center' }}
+              >
+                Reenviar PIN
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 5: Commission Results */}
+      {step === 5 && selectedEmployee && (
+        <div style={{ maxWidth: '600px', width: '100%', margin: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {/* Header */}
+          <div style={{ background: '#18181b', border: '1px solid #3f3f46', padding: '1.25rem 1.5rem', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ width: '52px', height: '52px', borderRadius: '50%', overflow: 'hidden', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #8b5cf6', flexShrink: 0 }}>
+              {selectedEmployee.profile_photo
+                ? <img src={selectedEmployee.profile_photo} alt={selectedEmployee.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <User size={24} color="#71717a" />}
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: '0.65rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Mis Comisiones — Período Actual</p>
+              <h4 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#ffffff', margin: 0 }}>{selectedEmployee.nombre}</h4>
+            </div>
+            <div style={{ background: 'rgba(139,92,246,0.15)', padding: '0.5rem', borderRadius: '10px' }}>
+              <TrendingUp size={22} color="#a78bfa" />
+            </div>
+          </div>
+
+          {/* Commissions List */}
+          <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: '20px', overflow: 'hidden' }}>
+            {commissionLoading ? (
+              <div style={{ padding: '3rem', textAlign: 'center' }}>
+                <RefreshCw size={24} color="#8b5cf6" style={{ animation: 'spin 1.5s linear infinite', margin: '0 auto 0.75rem', display: 'block' }} />
+                <p style={{ color: '#71717a', fontSize: '0.85rem' }}>Cargando comisiones...</p>
+              </div>
+            ) : employeeCommissions.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center' }}>
+                <DollarSign size={36} color="#3f3f46" style={{ margin: '0 auto 1rem', display: 'block' }} />
+                <p style={{ color: '#71717a', fontSize: '0.9rem', fontWeight: 700 }}>No hay comisiones registradas</p>
+                <p style={{ color: '#52525b', fontSize: '0.78rem', marginTop: '0.25rem' }}>para el período actual.</p>
+              </div>
+            ) : (
+              <>
+                {/* Total summary */}
+                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #27272a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Total del Período</span>
+                  <span style={{ fontSize: '1.4rem', fontWeight: 900, color: '#a78bfa' }}>
+                    RD$ {employeeCommissions.reduce((sum, c) => sum + (Number(c.monto_comision || c.amount || c.commission_amount || 0)), 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                {/* Commission rows */}
+                {employeeCommissions.map((comm, idx) => (
+                  <div key={idx} style={{ padding: '1rem 1.5rem', borderBottom: idx < employeeCommissions.length - 1 ? '1px solid #1c1c1f' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>
+                        {comm.service_name || comm.servicio || comm.description || 'Servicio'}
+                      </p>
+                      <p style={{ fontSize: '0.7rem', color: '#71717a', margin: '0.15rem 0 0' }}>
+                        {comm.client_name || comm.cliente || comm.ticket_number || ''} • {(comm.created_at || comm.date) ? new Date(comm.created_at || comm.date).toLocaleDateString('es-DO') : ''}
+                      </p>
+                    </div>
+                    <span style={{ fontSize: '1rem', fontWeight: 900, color: '#4ade80' }}>
+                      +RD$ {Number(comm.monto_comision || comm.amount || comm.commission_amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+
+          <button
+            onClick={handleCancelKiosk}
+            style={{ height: '52px', background: '#09090b', color: '#ffffff', border: '1px solid #27272a', borderRadius: '50px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', transition: 'all 0.2s ease' }}
+          >
+            Volver al Inicio
+          </button>
+        </div>
+      )}
+
       {/* Deactivate Kiosk Modal */}
       {showDeactivateModal && (
         <div style={{
