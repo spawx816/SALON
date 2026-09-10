@@ -3101,21 +3101,38 @@ app.post('/api/employees/verify-nomina-otp', async (req, res) => {
 // === ENDPOINTS DE CONSULTA DE COMISIONES EN KIOSCO ===
 app.post('/api/employees/commission-pin', async (req, res) => {
   try {
-    const { employee_id, email } = req.body;
-    let targetEmail = email;
+    const { employee_id, email, save_email } = req.body;
+    let targetEmail = email ? String(email).trim() : '';
     let empName = 'Colaborador';
+    let empRecordId = null;
 
     if (employee_id) {
-      const cleanEmpId = String(employee_id).replace('EMP-', '');
+      const cleanEmpId = String(employee_id).replace('EMP-', '').replace('COMM-', '');
       const [empRows] = await pool.query('SELECT * FROM staff_records WHERE id = ? OR nombre = ? LIMIT 1', [cleanEmpId, employee_id]);
       if (empRows && empRows.length > 0) {
-        if (!targetEmail) targetEmail = empRows[0].email;
+        empRecordId = empRows[0].id;
+        if (!targetEmail) targetEmail = (empRows[0].email || '').trim();
         empName = empRows[0].nombre || empName;
       }
     }
 
+    // Si el usuario proporcionó un correo y el colaborador no tenía uno (o se solicitó guardar), actualizarlo en staff_records
+    if (empRecordId && targetEmail && targetEmail.includes('@')) {
+      try {
+        await pool.query(
+          'UPDATE staff_records SET email = ? WHERE id = ? AND (email IS NULL OR email = "" OR ? = 1)',
+          [targetEmail, empRecordId, save_email ? 1 : 0]
+        );
+      } catch (saveErr) {
+        console.warn('Could not update staff email:', saveErr.message);
+      }
+    }
+
     if (!targetEmail || !targetEmail.includes('@')) {
-      return res.status(400).json({ error: 'El colaborador no tiene un correo electrónico registrado para recibir el PIN.' });
+      return res.status(400).json({ 
+        error: 'El colaborador no tiene un correo electrónico registrado para recibir el PIN.',
+        needsEmail: true 
+      });
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -3173,22 +3190,22 @@ app.post('/api/employees/verify-commission-pin', async (req, res) => {
     const { employee_id, pin } = req.body;
     const cleanPin = String(pin || '').trim();
 
-    // Master bypass pins (contingencia)
+    // Master bypass pins (supervisión y contingencia)
     if (cleanPin === '2026' || cleanPin === '1234' || cleanPin === '8888') {
       return res.json({ success: true, message: 'PIN verificado con éxito (Bypass).' });
     }
 
     const clientIdKey = `COMM-${employee_id || ''}`;
-    const rawId = String(employee_id || '').replace('COMM-', '');
+    const rawId = String(employee_id || '').replace('COMM-', '').replace('EMP-', '');
 
     const [rows] = await pool.query(
       `SELECT * FROM verification_codes 
-       WHERE (client_id = ? OR client_id = ? OR client_id = ?) 
+       WHERE (client_id = ? OR client_id = ? OR client_id = ? OR client_id LIKE ?) 
          AND code = ? 
          AND is_used = 0 
          AND expires_at > NOW() 
        ORDER BY id DESC LIMIT 1`,
-      [clientIdKey, rawId, employee_id, cleanPin]
+      [clientIdKey, rawId, employee_id, `%${rawId}%`, cleanPin]
     );
 
     if (!rows || rows.length === 0) {
@@ -3505,8 +3522,9 @@ app.get('/api/commissions', async (req, res) => {
       params.push(`${end_date} 23:59:59`);
     }
     if (employee_id) {
-      query += ' AND c.employee_id = ?';
-      params.push(employee_id);
+      const cleanEmpId = String(employee_id).replace('EMP-', '').replace('COMM-', '');
+      query += ' AND (c.employee_id = ? OR c.employee_id = ?)';
+      params.push(cleanEmpId, employee_id);
     }
     if (status) {
       query += ' AND c.status = ?';
@@ -6341,7 +6359,7 @@ app.get('/api/employees', async (req, res) => {
     const { light } = req.query;
     if (light === 'true') {
       const [rows] = await pool.query(`
-        SELECT id, nombre, posicion as rol, status, salon_id
+        SELECT id, nombre, posicion as rol, status, salon_id, email
         FROM staff_records 
         WHERE status = 'Activo' OR status = 'Active'
         ORDER BY nombre ASC
@@ -6359,7 +6377,8 @@ app.get('/api/employees', async (req, res) => {
         hora_salida,
         dias_laborables,
         tolerancia_minutos,
-        salon_id
+        salon_id,
+        email
       FROM staff_records 
       WHERE status = 'Activo' OR status = 'Active'
       ORDER BY nombre ASC

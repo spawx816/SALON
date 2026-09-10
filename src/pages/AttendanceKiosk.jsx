@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign } from 'lucide-react';
+import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign, Key } from 'lucide-react';
 import { dataService } from '../utils/dataService';
 import { useTranslation } from '../context/LanguageContext';
 
@@ -33,6 +33,8 @@ const AttendanceKiosk = () => {
   const [commissionPinSending, setCommissionPinSending] = useState(false);
   const [commissionPinVerifying, setCommissionPinVerifying] = useState(false);
   const [commissionPinError, setCommissionPinError] = useState('');
+  const [customCommissionEmail, setCustomCommissionEmail] = useState('');
+  const [directPinMode, setDirectPinMode] = useState(false);
   const [employeeCommissions, setEmployeeCommissions] = useState([]);
   const [commissionLoading, setCommissionLoading] = useState(false);
   const [punchType, setPunchType] = useState('Check-In'); // 'Check-In' o 'Check-Out'
@@ -367,7 +369,11 @@ const AttendanceKiosk = () => {
     setCommissionMode(false);
     setCommissionPin('');
     setCommissionPinSent(false);
+    setCommissionPinSending(false);
+    setCommissionPinVerifying(false);
     setCommissionPinError('');
+    setCustomCommissionEmail('');
+    setDirectPinMode(false);
     setEmployeeCommissions([]);
   };
 
@@ -377,27 +383,43 @@ const AttendanceKiosk = () => {
     setCommissionMode(true);
     setCommissionPin('');
     setCommissionPinSent(false);
+    setCommissionPinSending(false);
+    setCommissionPinVerifying(false);
     setCommissionPinError('');
+    setCustomCommissionEmail('');
+    setDirectPinMode(false);
     setEmployeeCommissions([]);
-    // Send PIN to employee email
-    await handleSendCommissionPin(emp);
+
+    // Solo enviar PIN automáticamente si el colaborador tiene correo válido registrado
+    if (emp && emp.email && emp.email.includes('@')) {
+      await handleSendCommissionPin(emp);
+    }
   };
 
-  const handleSendCommissionPin = async (emp) => {
+  const handleSendCommissionPin = async (emp, overrideEmail) => {
     const employee = emp || selectedEmployee;
     if (!employee) return;
+    const emailToSend = (overrideEmail || customCommissionEmail || employee.email || '').trim();
+    if (!emailToSend || !emailToSend.includes('@')) {
+      setCommissionPinError('Por favor ingresa un correo electrónico válido para recibir tu PIN.');
+      return;
+    }
     setCommissionPinSending(true);
     setCommissionPinError('');
     try {
-      // Reuse OTP service sending to employee email
       const res = await fetch('/api/employees/commission-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: employee.id, email: employee.email })
+        body: JSON.stringify({ 
+          employee_id: employee.id, 
+          email: emailToSend,
+          save_email: true 
+        })
       });
       const data = await res.json();
       if (res.ok && data.success) {
         setCommissionPinSent(true);
+        employee.email = emailToSend;
       } else {
         setCommissionPinError(data.error || 'Error enviando PIN al correo.');
       }
@@ -409,14 +431,15 @@ const AttendanceKiosk = () => {
   };
 
   const handleVerifyCommissionPin = async () => {
-    if (!commissionPin || commissionPin.length < 6) return;
+    const cleanPin = String(commissionPin || '').trim();
+    if (!cleanPin || cleanPin.length < 4) return;
     setCommissionPinVerifying(true);
     setCommissionPinError('');
     try {
       const res = await fetch('/api/employees/verify-commission-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: selectedEmployee.id, pin: commissionPin })
+        body: JSON.stringify({ employee_id: selectedEmployee.id, pin: cleanPin })
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -579,7 +602,7 @@ const AttendanceKiosk = () => {
         </div>
       ) : (
         /* Step 1: Employee Selector */
-        step === 1 && (
+        step === 1 && !commissionMode && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', maxWidth: '800px', width: '100%', margin: '0 auto' }}>
             <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '1.5rem', color: '#ffffff', textAlign: 'center' }}>
               Selecciona tu Nombre para Iniciar
@@ -1032,7 +1055,7 @@ const AttendanceKiosk = () => {
       {/* Step 5: Commission Viewer — PIN verification + display */}
       {commissionMode && selectedEmployee && step !== 5 && (
         <div style={{ maxWidth: '460px', width: '100%', margin: 'auto', background: '#18181b', border: '1px solid #27272a', padding: '2.5rem 2rem', borderRadius: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
             <div style={{ width: '64px', height: '64px', borderRadius: '50%', overflow: 'hidden', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', border: '2px solid #8b5cf6' }}>
               {selectedEmployee.profile_photo
                 ? <img src={selectedEmployee.profile_photo} alt={selectedEmployee.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -1042,38 +1065,32 @@ const AttendanceKiosk = () => {
             <p style={{ fontSize: '0.8rem', color: '#a1a1aa', margin: '0.35rem 0 0 0' }}>Consulta de Comisiones</p>
           </div>
 
-          {!commissionPinSent ? (
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', padding: '1.25rem', borderRadius: '14px', marginBottom: '1.5rem' }}>
-                <Mail size={28} color="#a78bfa" style={{ margin: '0 auto 0.75rem', display: 'block' }} />
-                <p style={{ fontSize: '0.85rem', color: '#a1a1aa', lineHeight: 1.5 }}>
-                  Se enviará un PIN de 6 dígitos al correo de <strong style={{ color: '#ffffff' }}>{selectedEmployee.nombre}</strong> para verificar tu identidad.
-                </p>
-              </div>
-              <button
-                onClick={() => handleSendCommissionPin()}
-                disabled={commissionPinSending}
-                style={{ width: '100%', height: '50px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '30px', fontWeight: 900, fontSize: '0.95rem', cursor: commissionPinSending ? 'not-allowed' : 'pointer', opacity: commissionPinSending ? 0.7 : 1 }}
-              >
-                {commissionPinSending ? '⏳ Enviando PIN...' : '📧 Enviar PIN a mi Correo'}
-              </button>
-              {commissionPinError && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginTop: '0.75rem' }}>⚠️ {commissionPinError}</p>}
-            </div>
-          ) : (
+          {commissionPinSent || directPinMode ? (
             <div>
-              <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1.5rem', fontSize: '0.78rem', color: '#6ee7b7', textAlign: 'center' }}>
-                ✅ PIN enviado al correo. Revisa tu bandeja de entrada.
-              </div>
-              <p style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a1a1aa', textTransform: 'uppercase', marginBottom: '0.75rem' }}>Ingresa el PIN de 6 dígitos:</p>
+              {commissionPinSent ? (
+                <div style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.78rem', color: '#6ee7b7', textAlign: 'center' }}>
+                  ✅ PIN enviado a tu correo. Revisa tu bandeja de entrada.
+                </div>
+              ) : (
+                <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.25)', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.78rem', color: '#c4b5fd', textAlign: 'center' }}>
+                  🔑 Ingresa el PIN de acceso o clave de supervisión (2026).
+                </div>
+              )}
+
+              <p style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a1a1aa', textTransform: 'uppercase', marginBottom: '0.75rem' }}>
+                Ingresa tu PIN:
+              </p>
               <input
-                type="text"
+                type="password"
                 maxLength={6}
-                placeholder="0 0 0 0 0 0"
+                placeholder="• • • •"
+                autoFocus
                 value={commissionPin}
                 onChange={e => setCommissionPin(e.target.value.replace(/\D/g, ''))}
                 style={{ width: '100%', height: '54px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '12px', color: 'white', fontSize: '1.5rem', fontWeight: 800, textAlign: 'center', letterSpacing: '0.4em', outline: 'none', boxSizing: 'border-box' }}
               />
               {commissionPinError && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginTop: '0.5rem' }}>⚠️ {commissionPinError}</p>}
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '0.75rem', marginTop: '1.25rem' }}>
                 <button
                   onClick={handleCancelKiosk}
@@ -1083,18 +1100,113 @@ const AttendanceKiosk = () => {
                 </button>
                 <button
                   onClick={handleVerifyCommissionPin}
-                  disabled={commissionPinVerifying || commissionPin.length < 6}
-                  style={{ height: '46px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 800, cursor: commissionPin.length < 6 ? 'not-allowed' : 'pointer', opacity: commissionPin.length < 6 ? 0.5 : 1 }}
+                  disabled={commissionPinVerifying || commissionPin.length < 4}
+                  style={{ height: '46px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 800, cursor: commissionPin.length < 4 ? 'not-allowed' : 'pointer', opacity: commissionPin.length < 4 ? 0.5 : 1 }}
                 >
                   {commissionPinVerifying ? '⏳ Verificando...' : 'Ver Mis Comisiones'}
                 </button>
               </div>
-              <button
-                onClick={() => handleSendCommissionPin()}
-                style={{ background: 'none', border: 'none', color: '#71717a', fontSize: '0.75rem', cursor: 'pointer', marginTop: '1rem', textDecoration: 'underline', width: '100%', textAlign: 'center' }}
-              >
-                Reenviar PIN
-              </button>
+
+              <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'center' }}>
+                {commissionPinSent && (
+                  <button
+                    onClick={() => handleSendCommissionPin()}
+                    disabled={commissionPinSending}
+                    style={{ background: 'none', border: 'none', color: '#a78bfa', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    {commissionPinSending ? 'Reenviando...' : 'Reenviar PIN al correo'}
+                  </button>
+                )}
+                {!directPinMode ? (
+                  <button
+                    onClick={() => { setDirectPinMode(true); setCommissionPinError(''); }}
+                    style={{ background: 'none', border: 'none', color: '#71717a', fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Key size={13} /> Usar PIN de Supervisión
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setDirectPinMode(false); setCommissionPinError(''); }}
+                    style={{ background: 'none', border: 'none', color: '#71717a', fontSize: '0.72rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Mail size={13} /> Volver a opción de correo
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div>
+              {selectedEmployee.email && selectedEmployee.email.includes('@') ? (
+                /* Employee has an email registered */
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.3)', padding: '1.25rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
+                    <Mail size={28} color="#a78bfa" style={{ margin: '0 auto 0.75rem', display: 'block' }} />
+                    <p style={{ fontSize: '0.85rem', color: '#d4d4d8', lineHeight: 1.5, margin: 0 }}>
+                      Se enviará un PIN de 6 dígitos a tu correo registrado:
+                    </p>
+                    <p style={{ fontSize: '0.9rem', color: '#ffffff', fontWeight: 800, margin: '0.5rem 0 0' }}>
+                      {selectedEmployee.email.replace(/(.{2})(.*)(@.*)/, '$1***$3')}
+                    </p>
+                  </div>
+
+                  {commissionPinError && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginBottom: '0.75rem' }}>⚠️ {commissionPinError}</p>}
+
+                  <button
+                    onClick={() => handleSendCommissionPin()}
+                    disabled={commissionPinSending}
+                    style={{ width: '100%', height: '50px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '14px', fontWeight: 900, fontSize: '0.95rem', cursor: commissionPinSending ? 'not-allowed' : 'pointer', opacity: commissionPinSending ? 0.7 : 1 }}
+                  >
+                    {commissionPinSending ? '⏳ Enviando PIN...' : '📧 Enviar PIN a mi Correo'}
+                  </button>
+                </div>
+              ) : (
+                /* Employee DOES NOT have an email registered */
+                <div>
+                  <div style={{ background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', padding: '1rem', borderRadius: '14px', marginBottom: '1.25rem', textAlign: 'center' }}>
+                    <p style={{ fontSize: '0.82rem', color: '#fde047', fontWeight: 700, margin: 0 }}>
+                      ⚠️ No tienes un correo registrado en el sistema.
+                    </p>
+                    <p style={{ fontSize: '0.75rem', color: '#a1a1aa', margin: '0.35rem 0 0' }}>
+                      Ingresa tu correo para recibir el PIN de seguridad y guardarlo en tu ficha:
+                    </p>
+                  </div>
+
+                  <input
+                    type="email"
+                    placeholder="tu-correo@ejemplo.com"
+                    value={customCommissionEmail}
+                    onChange={e => setCustomCommissionEmail(e.target.value)}
+                    style={{ width: '100%', height: '48px', background: '#09090b', border: '1px solid #3f3f46', borderRadius: '12px', padding: '0 1rem', color: 'white', fontSize: '0.9rem', outline: 'none', marginBottom: '0.75rem', boxSizing: 'border-box' }}
+                  />
+
+                  {commissionPinError && <p style={{ color: '#ef4444', fontSize: '0.78rem', marginBottom: '0.75rem' }}>⚠️ {commissionPinError}</p>}
+
+                  <button
+                    onClick={() => handleSendCommissionPin(selectedEmployee, customCommissionEmail)}
+                    disabled={commissionPinSending || !customCommissionEmail.includes('@')}
+                    style={{ width: '100%', height: '50px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '14px', fontWeight: 900, fontSize: '0.9rem', cursor: !customCommissionEmail.includes('@') ? 'not-allowed' : 'pointer', opacity: !customCommissionEmail.includes('@') ? 0.5 : 1 }}
+                  >
+                    {commissionPinSending ? '⏳ Enviando...' : '📧 Enviar PIN y Guardar Correo'}
+                  </button>
+                </div>
+              )}
+
+              {/* Direct PIN / Supervisor bypass option */}
+              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #27272a', textAlign: 'center' }}>
+                <button
+                  onClick={() => { setDirectPinMode(true); setCommissionPinError(''); }}
+                  style={{ width: '100%', height: '44px', background: '#27272a', color: '#f4f4f5', border: '1px solid #3f3f46', borderRadius: '12px', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  <Key size={15} color="#fbbf24" /> Ingresar PIN de Supervisión (2026)
+                </button>
+
+                <button
+                  onClick={handleCancelKiosk}
+                  style={{ background: 'none', border: 'none', color: '#71717a', fontSize: '0.78rem', cursor: 'pointer', marginTop: '0.75rem' }}
+                >
+                  Cancelar y Volver
+                </button>
+              </div>
             </div>
           )}
         </div>
