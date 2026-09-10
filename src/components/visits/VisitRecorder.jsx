@@ -573,12 +573,36 @@ const VisitRecorder = () => {
       setSelectedEmployeeForTicket(null);
       await fetchPendingTickets();
 
+      // Detect if client has active Plan Beauty or Birthday
+      const isClientBday = checkClientBirthday(selectedClientForTicket);
+      let isPlanActive = ticketType === 'plan_beauty';
+      let washesAvailable = '____';
+      if (selectedClientForTicket?.id) {
+        try {
+          const contracts = await dataService.getContractByClient(selectedClientForTicket.id);
+          const activeC = (Array.isArray(contracts) ? contracts : []).filter(c => c.status === 'Active' || c.status === 'Activo');
+          if (activeC.length > 0) {
+            isPlanActive = true;
+            const pastV = await dataService.getVisitsByClient(selectedClientForTicket.id).catch(() => []) || [];
+            const lastB = activeC[0].last_billed_date ? new Date(activeC[0].last_billed_date).getTime() : 0;
+            const used = pastV.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && new Date(v.visited_at).getTime() >= lastB && (v.metodo_pago || '').toLowerCase().includes('plan')).length;
+            washesAvailable = String(Math.max(0, 4 - used));
+          }
+        } catch (e) {}
+      }
+
       // Trigger Physical Ticket Print Layout
       setPrintableTicketData({
         ticketNumber: res.ticketNumber,
         salonName: res.salonName || 'Sucursal San Vicente de Paúl',
         clientName: finalName,
-        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
+        receptionistName: currentUser?.nombre || currentUser?.name || 'Staff Recepción',
+        isPlanBeauty: isPlanActive,
+        planWashesAvailable: washesAvailable,
+        isBirthday: isClientBday,
+        dateFormatted: new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        timeFormatted: new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true })
       });
       setShowPrintModal(true);
       setTimeout(() => {
@@ -1110,12 +1134,34 @@ const VisitRecorder = () => {
         status: 'En Edición'
       };
       
-      await fetchPendingTickets();
+      const isClientBday = checkClientBirthday(clientObj);
+      let isPlanActive = false;
+      let washesAvailable = '____';
+      if (clientObj?.id) {
+        try {
+          const contracts = await dataService.getContractByClient(clientObj.id);
+          const activeC = (Array.isArray(contracts) ? contracts : []).filter(c => c.status === 'Active' || c.status === 'Activo');
+          if (activeC.length > 0) {
+            isPlanActive = true;
+            const pastV = await dataService.getVisitsByClient(clientObj.id).catch(() => []) || [];
+            const lastB = activeC[0].last_billed_date ? new Date(activeC[0].last_billed_date).getTime() : 0;
+            const used = pastV.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && new Date(v.visited_at).getTime() >= lastB && (v.metodo_pago || '').toLowerCase().includes('plan')).length;
+            washesAvailable = String(Math.max(0, 4 - used));
+          }
+        } catch (e) {}
+      }
+
       setPrintableTicketData({
         ticketNumber: res.ticketNumber || `#${Math.floor(100000 + Math.random() * 900000)}`,
         salonName: res.salonName || 'Sucursal San Vicente de Paúl',
         clientName: clientObj.nombre || clientObj.name,
-        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit' })
+        receptionistName: currentUser?.nombre || currentUser?.name || 'Staff Recepción',
+        isPlanBeauty: isPlanActive,
+        planWashesAvailable: washesAvailable,
+        isBirthday: isClientBday,
+        dateFormatted: new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        timeFormatted: new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        createdAt: new Date().toLocaleDateString('es-DO') + ' ' + new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true })
       });
       setShowPrintModal(true);
     } catch (err) {
@@ -3925,55 +3971,259 @@ const VisitRecorder = () => {
         </div>
       )}
 
-      {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO (HOMOLOGADO AL SALÓN) */}
+      {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO 80MM (HOMOLOGADO AL SALÓN - PRE-CUENTA) */}
       {showPrintModal && printableTicketData && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '420px', borderRadius: '16px', padding: '1.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-            <div style={{ border: '2px dashed #ec4899', padding: '1.25rem', borderRadius: '12px', background: '#fffdfd', textAlign: 'center', marginBottom: '1.25rem' }}>
-              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#be185d', letterSpacing: '-0.5px' }}>
-                PLAN BEAUTY <span>RD</span>
-              </h2>
-              <p style={{ margin: '0.2rem 0 0.75rem', fontSize: '0.75rem', fontWeight: 700, color: '#ec4899', textTransform: 'uppercase' }}>
-                📍 {printableTicketData.salonName}
-              </p>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, padding: '1rem' }}>
+          
+          {/* PRINT MEDIA STYLES EXCLUSIVELY FOR 80MM POS THERMAL PRINTER */}
+          <style>{`
+            @media print {
+              @page {
+                size: 80mm auto;
+                margin: 0mm !important;
+              }
+              body * {
+                visibility: hidden !important;
+              }
+              #pos-thermal-ticket-80mm, #pos-thermal-ticket-80mm * {
+                visibility: visible !important;
+              }
+              #pos-thermal-ticket-80mm {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 76mm !important;
+                max-width: 76mm !important;
+                margin: 0 auto !important;
+                padding: 2mm 3mm 8mm 3mm !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                box-shadow: none !important;
+                border: none !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+                font-size: 10px !important;
+                line-height: 1.25 !important;
+                display: block !important;
+              }
+              .no-print-thermal {
+                display: none !important;
+              }
+            }
+          `}</style>
 
-              <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'left', fontSize: '0.85rem' }}>
-                <p style={{ margin: '0 0 0.25rem' }}><strong>🎫 Secuencia Ticket:</strong> <span style={{ color: '#be185d', fontWeight: 800 }}>{printableTicketData.ticketNumber}</span></p>
-                <p style={{ margin: '0 0 0.25rem' }}><strong>👤 Cliente:</strong> {printableTicketData.clientName}</p>
-                <p style={{ margin: '0 0 0.25rem' }}><strong>🕒 Fecha y Hora:</strong> {printableTicketData.createdAt}</p>
-                <p style={{ margin: 0, color: '#92400e', background: '#fef3c7', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700, display: 'inline-block', marginTop: '0.25rem' }}>
-                  ⏳ Estado: Permanece en Tickets Pendientes hasta facturación
-                </p>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '440px', maxHeight: '92vh', borderRadius: '16px', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            
+            {/* Modal Actions Bar (Header) */}
+            <div className="no-print-thermal" style={{ padding: '0.85rem 1.25rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Printer size={18} style={{ color: '#be185d' }} />
+                <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>Pre-cuenta Impresora Térmica 80mm</span>
               </div>
-
-              <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b', textAlign: 'left' }}>
-                <strong style={{ display: 'block', marginBottom: '0.25rem', color: '#334155' }}>📋 Casillas de Servicios (Para Estilistas / Lavado):</strong>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.7rem' }}>
-                  <span>[ ] Lavado y Secado</span>
-                  <span>[ ] Corte de Puntas</span>
-                  <span>[ ] Tinte Completo</span>
-                  <span>[ ] Penetratti</span>
-                  <span>[ ] Manicura / Pedicura</span>
-                  <span>[ ] Peinado / Otros</span>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrintModal(false)}
+                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.2rem' }}
+              >
+                <X size={20} />
+              </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
+            {/* Scrollable Container with exact 80mm Physical Preview */}
+            <div style={{ overflowY: 'auto', flex: 1, padding: '1rem', background: '#f1f5f9', display: 'flex', justifyContent: 'center' }}>
+              
+              {/* === TICKET FÍSICO 80MM (EXACTO A LA MUESTRA) === */}
+              <div 
+                id="pos-thermal-ticket-80mm"
+                style={{
+                  width: '320px',
+                  background: '#ffffff',
+                  padding: '16px 14px 20px 14px',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+                  borderRadius: '6px',
+                  color: '#000000',
+                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
+                  fontSize: '11px',
+                  lineHeight: '1.25',
+                  boxSizing: 'border-box'
+                }}
+              >
+                {/* 1. CABECERA PRINCIPAL */}
+                <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                  <h1 style={{ margin: '0 0 2px 0', fontSize: '22px', fontWeight: 900, letterSpacing: '1.5px', color: '#000000' }}>
+                    PLAN BEAUTY
+                  </h1>
+                  {/* Flor de Loto Estilizada */}
+                  <div style={{ fontSize: '15px', lineHeight: '1', margin: '1px 0 2px 0', color: '#000000' }}>
+                    🪷
+                  </div>
+                  <h2 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 900, letterSpacing: '0.8px', color: '#000000' }}>
+                    ABATTE PELUQUERÍA
+                  </h2>
+                  <p style={{ margin: 0, fontSize: '9px', fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase', lineHeight: '1.2' }}>
+                    PRE-CUENTA PARA USO INTERNO<br />Y REVISIÓN DEL CLIENTE
+                  </p>
+                </div>
+
+                {/* LÍNEA SEPARADORA PUNTEADA */}
+                <div style={{ borderBottom: '1px dashed #000000', margin: '8px 0' }} />
+
+                {/* 2. METADATOS DEL TICKET */}
+                <div style={{ fontSize: '10.5px', lineHeight: '1.45', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                    <span style={{ fontWeight: 800, minWidth: '92px' }}>TICKET No.:</span>
+                    <span style={{ fontWeight: 900, fontSize: '14px', letterSpacing: '0.5px' }}>
+                      {printableTicketData.ticketNumber || 'SD-0249'}
+                    </span>
+                  </div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                    <span style={{ fontWeight: 800, minWidth: '60px' }}>FECHA:</span>
+                    <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 600 }}>
+                      {printableTicketData.dateFormatted || new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                    <span style={{ fontWeight: 800, minWidth: '60px' }}>HORA:</span>
+                    <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 600 }}>
+                      {printableTicketData.timeFormatted || new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                    <span style={{ fontWeight: 800, minWidth: '60px' }}>CLIENTE:</span>
+                    <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 800, textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {printableTicketData.clientName || 'CLIENTE GENERAL'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                    <span style={{ fontWeight: 800, minWidth: '92px' }}>RECEPCIONISTA:</span>
+                    <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 600, textTransform: 'capitalize' }}>
+                      {printableTicketData.receptionistName || currentUser?.nombre || currentUser?.name || 'Staff Recepción'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. CAJAS DE BENEFICIOS (PLAN BEAUTY Y CUMPLEAÑOS) */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', margin: '8px 0 10px 0' }}>
+                  {/* Tarjeta Plan Beauty */}
+                  <div style={{ border: '1px solid #000000', borderRadius: '4px', padding: '5px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '14px', lineHeight: 1 }}>💎</span>
+                    <div style={{ fontSize: '8px', lineHeight: 1.15 }}>
+                      <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>PLAN BEAUTY ACTIVO</div>
+                      <div style={{ marginTop: '2px', color: '#222' }}>
+                        Lavados disp: <strong style={{ textDecoration: 'underline' }}>{printableTicketData.isPlanBeauty ? (printableTicketData.planWashesAvailable || '4') : '____'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tarjeta Cumpleaños */}
+                  <div style={{ border: '1px solid #000000', borderRadius: '4px', padding: '5px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '14px', lineHeight: 1 }}>🎂</span>
+                    <div style={{ fontSize: '8px', lineHeight: 1.15 }}>
+                      <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>SEMANA CUMPLEAÑOS</div>
+                      <div style={{ marginTop: '2px', fontWeight: 700 }}>
+                        {printableTicketData.isBirthday ? '15% DESC. APLICABLE' : '15% DESC. DISPONIBLE'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. TABLA DE SERVICIOS PRE-IMPRESA PARA LLENADO DE ESTILISTA */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', lineHeight: 1.25 }}>
+                  <thead>
+                    <tr style={{ background: '#000000', color: '#ffffff' }}>
+                      <th style={{ textAlign: 'left', padding: '3px 4px', fontWeight: 800, textTransform: 'uppercase', width: '52%' }}>SERVICIO</th>
+                      <th style={{ textAlign: 'center', padding: '3px 2px', fontWeight: 800, textTransform: 'uppercase', width: '22%' }}>EMPLEADO</th>
+                      <th style={{ textAlign: 'right', padding: '3px 4px', fontWeight: 800, textTransform: 'uppercase', width: '26%' }}>PRECIO (RD$)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      'LAVADO Y SECADO CON LÍNEAS',
+                      'LAVADO Y SECADO',
+                      'CORTE',
+                      'CORTE DE PUNTA',
+                      'TINTE',
+                      'RETOQUE DE TINTE',
+                      'LIGHT (RAYITOS)',
+                      'CELLOPHANE',
+                      'TEXTURIZADO',
+                      'RETOQUE DE TEXTURIZADO',
+                      'APLICACIÓN PRODUCTO TERMINACIÓN',
+                      'TRATAMIENTO',
+                      'PLANCHA',
+                      'PENETRAITT',
+                      'MASCARILLA',
+                      'PEINADO',
+                      'GOTAS',
+                      'MAQUILLAJE',
+                      'DEPILACIÓN BIGOTE',
+                      'DEPILACIÓN CEJAS',
+                      'DEPILACIÓN AXILAS',
+                      'DEPILACIÓN ÁREA DE BIKINI',
+                      'MANICURE',
+                      'PEDICURE',
+                      'UÑAS ACRÍLICAS',
+                      'RETOQUE DE UÑAS',
+                      'APLICACIÓN DE PRODUCTOS',
+                      'LAVADO Y SECADO EXTENSIONES'
+                    ].map((srv, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px dashed #d1d5db' }}>
+                        <td style={{ padding: '3px 2px', fontWeight: 700, fontSize: '8.5px', textTransform: 'uppercase' }}>
+                          {srv}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '3px 2px', borderLeft: '1px dashed #e5e7eb', borderRight: '1px dashed #e5e7eb' }}>
+                          <span style={{ letterSpacing: '-1px', color: '#6b7280' }}>___________</span>
+                        </td>
+                        <td style={{ textAlign: 'right', padding: '3px 2px', fontWeight: 600, fontSize: '8.5px', whiteSpace: 'nowrap' }}>
+                          RD$ <span style={{ letterSpacing: '-1px', color: '#6b7280' }}>________</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* 5. SECCIÓN TOTAL RD$ */}
+                <div style={{ borderTop: '1px dashed #000000', margin: '10px 0 8px 0', paddingTop: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '0.5px' }}>
+                      TOTAL RD$
+                    </span>
+                    <div style={{ border: '2px solid #000000', borderRadius: '4px', width: '120px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '13px' }}>
+                      {printableTicketData.totalAmount ? `RD$ ${Number(printableTicketData.totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : ''}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 6. PIE DEL TICKET */}
+                <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '9px', fontWeight: 800, letterSpacing: '1px' }}>
+                  ¡GRACIAS POR PREFERIRNOS!
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="no-print-thermal" style={{ padding: '0.85rem 1.25rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '0.75rem' }}>
               <button
+                type="button"
                 onClick={() => setShowPrintModal(false)}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700 }}
+                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
               >
                 Cerrar
               </button>
               <button
+                type="button"
                 onClick={() => window.print()}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                style={{ flex: 1.5, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(190,24,93,0.3)' }}
               >
                 <Printer size={16} />
-                <span>Imprimir Ticket</span>
+                <span>Imprimir Ticket (80mm)</span>
               </button>
             </div>
+
           </div>
         </div>
       )}

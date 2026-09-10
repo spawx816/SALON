@@ -363,13 +363,6 @@ const setupDB = async () => {
       )
     `);
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ticket_sequences (
-        salon_id INT PRIMARY KEY,
-        last_sequence INT DEFAULT 0
-      )
-    `);
-
     try {
       await pool.query('ALTER TABLE cash_register_movements ADD COLUMN employee_id VARCHAR(50)');
     } catch (e) {}
