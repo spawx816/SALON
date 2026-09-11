@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Percent, DollarSign, Calendar, User, Filter, CheckCircle2, Clock, 
   Search, ShieldCheck, Plus, FileText, Tag, Sparkles, Layers,
-  Trash2, Edit2, Info, ArrowRight, MapPin, ChevronDown, Check, X
+  Trash2, Edit2, Info, ArrowRight, MapPin, ChevronDown, ChevronUp, Check, X
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
 const CommissionManagement = () => {
-  const [activeTab, setActiveTab] = useState('esquemas'); // 'esquemas' | 'registro'
+  const [activeTab, setActiveTab] = useState('registro'); // 'registro' | 'esquemas' (Default to registro)
 
   // Categories, Schemes, Services & Rules Data
   const [categories, setCategories] = useState([]);
@@ -239,6 +239,68 @@ const CommissionManagement = () => {
       alert('Error eliminando regla');
     }
   };
+
+  // Quick Date Range Helpers (Quincenas y Meses)
+  const handleSetQuincena = (type) => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth(); // 0-indexed
+    
+    if (type === 'q1_actual') {
+      const s = new Date(year, month, 1);
+      const e = new Date(year, month, 15);
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    } else if (type === 'q2_actual') {
+      const s = new Date(year, month, 16);
+      const e = new Date(year, month + 1, 0); // last day of current month
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    } else if (type === 'mes_actual') {
+      const s = new Date(year, month, 1);
+      const e = new Date(year, month + 1, 0);
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    } else if (type === 'mes_anterior') {
+      const s = new Date(year, month - 1, 1);
+      const e = new Date(year, month, 0);
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    }
+  };
+
+  // Group commissions by Employee for organized per-employee report
+  const groupedCommissions = useMemo(() => {
+    if (!Array.isArray(commissions) || commissions.length === 0) return [];
+    
+    const groupsMap = new Map();
+    
+    commissions.forEach(c => {
+      const empKey = c.employee_id || c.employee_name || 'Desconocido';
+      const empName = c.employee_name || 'Colaborador';
+      const location = c.localidad || c.emp_localidad || 'Todas las localidades';
+      
+      if (!groupsMap.has(empKey)) {
+        groupsMap.set(empKey, {
+          id: empKey,
+          name: empName,
+          location: location,
+          totalComision: 0,
+          totalMontoBase: 0,
+          totalServicios: 0,
+          items: []
+        });
+      }
+      
+      const group = groupsMap.get(empKey);
+      group.totalComision += Number(c.monto_comision || 0);
+      group.totalMontoBase += Number(c.monto_base || 0);
+      group.totalServicios += Number(c.cantidad || 1);
+      group.items.push(c);
+    });
+    
+    return Array.from(groupsMap.values()).sort((a, b) => b.totalComision - a.totalComision);
+  }, [commissions]);
 
   // Filter rules into Category Rules vs Service Exceptions
   const catRules = schemeRules.filter(r => r.rule_type === 'categoria');
@@ -482,13 +544,16 @@ const CommissionManagement = () => {
 
             </div>
 
-            {/* STEP 3: REGLAS DEL ESQUEMA SELECCIONADO */}
-            <div style={{ background: '#ffffff', borderRadius: '20px', border: '1px solid #e2e8f0', padding: '1.25rem', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ background: '#be185d', color: '#ffffff', width: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900 }}>3</span>
-                  <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>Reglas del Esquema Seleccionado</h2>
+            {/* COLUMNA 3: REGLAS Y EXCEPCIONES DEL ESQUEMA */}
+            <div style={{ background: '#ffffff', borderRadius: '20px', border: '1px solid #e2e8f0', padding: '1.25rem', boxShadow: '0 4px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
+                    3. Reglas & Excepciones
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    {selectedSchemeObj ? `Para: ${selectedSchemeObj.nombre}` : 'Selecciona un esquema'}
+                  </span>
                 </div>
               </div>
 
@@ -644,7 +709,7 @@ const CommissionManagement = () => {
         </div>
       )}
 
-      {/* TAB 2: REGISTRO DE COMISIONES GENERADAS */}
+      {/* TAB 2: REGISTRO DE COMISIONES GENERADAS (VISTA PRINCIPAL ORGANIZADA POR EMPLEADO) */}
       {activeTab === 'registro' && (
         <div>
           {/* METRICS SUMMARY CARDS */}
@@ -674,135 +739,246 @@ const CommissionManagement = () => {
             </div>
           </div>
 
-          {/* FILTERS TOOLBAR */}
-          <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', boxShadow: '0 4px 10px rgba(0,0,0,0.02)' }}>
+          {/* FILTERS TOOLBAR WITH SHORTCUTS */}
+          <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', boxShadow: '0 4px 10px rgba(0,0,0,0.02)' }}>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Calendar size={16} style={{ color: '#64748b' }} />
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Desde:</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Hasta:</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
-              />
-            </div>
-
-            {/* FILTER BY LOCALIDAD / SUCURSAL */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <MapPin size={16} style={{ color: '#be185d' }} />
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Localidad:</span>
-              <select
-                value={selectedLocation}
-                onChange={(e) => setSelectedLocation(e.target.value)}
-                style={{ padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
+            {/* QUICK PRESETS ROW (QUINCENAS Y MESES) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.85rem' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginRight: '0.35rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Clock size={13} /> Cortes Quincenales:
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSetQuincena('q1_actual')}
+                style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
               >
-                <option value="">Todas las localidades</option>
-                {salons.map(s => (
-                  <option key={s.id} value={s.name}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <User size={16} style={{ color: '#64748b' }} />
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Empleado:</span>
-              <select
-                value={selectedEmployee}
-                onChange={(e) => setSelectedEmployee(e.target.value)}
-                style={{ padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
+                1ra Quincena (1 al 15)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetQuincena('q2_actual')}
+                style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
               >
-                <option value="">Todos los Colaboradores</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.nombre}</option>
-                ))}
-              </select>
+                2da Quincena (16 al fin de mes)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetQuincena('mes_actual')}
+                style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#334155', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Mes Actual
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetQuincena('mes_anterior')}
+                style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#334155', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Mes Anterior
+              </button>
+              {(startDate || endDate || selectedEmployee || selectedLocation || serviceSearch) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStartDate('');
+                    setEndDate('');
+                    setSelectedEmployee('');
+                    setSelectedLocation('');
+                    setServiceSearch('');
+                  }}
+                  style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '0.35rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', marginLeft: 'auto' }}
+                >
+                  Limpiar Filtros
+                </button>
+              )}
             </div>
 
-            <div style={{ flex: 1, minWidth: '200px' }}>
-              <input
-                type="text"
-                placeholder="Buscar por servicio..."
-                value={serviceSearch}
-                onChange={(e) => setServiceSearch(e.target.value)}
-                style={{ width: '100%', padding: '0.55rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600 }}
-              />
-            </div>
-          </div>
+            {/* MANUAL FILTERS ROW */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Calendar size={16} style={{ color: '#64748b' }} />
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Desde:</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
+                />
+              </div>
 
-          {/* TABLE OF COMMISSIONS */}
-          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 10px rgba(0,0,0,0.03)' }}>
-            {loading ? (
-              <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-                Cargando registros de comisión...
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Hasta:</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
+                />
               </div>
-            ) : commissions.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
-                No se encontraron registros de comisiones con los filtros aplicados.
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>
-                    <th style={{ padding: '0.75rem 1rem' }}>Ticket</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>Fecha y Hora</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>Colaborador</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>Localidad</th>
-                    <th style={{ padding: '0.75rem 1rem' }}>Servicio Realizado</th>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Monto Base (Sin ITBIS)</th>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Regla Aplicada</th>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Comisión Ganada</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {commissions.map((c) => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#0f172a' }}>
-                        {c.ticket_number || `TK-${c.visit_id}`}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.78rem' }}>
-                        {new Date(c.created_at).toLocaleDateString('es-DO')} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#be185d' }}>
-                        👤 {c.employee_name}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.8rem' }}>
-                        <MapPin size={12} style={{ display: 'inline', marginRight: '3px' }} />
-                        {c.localidad || c.emp_localidad || 'Global'}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', color: '#334155', fontWeight: 700 }}>
-                        {c.service_name} (x{c.cantidad})
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#64748b' }}>
-                        RD$ {Number(c.monto_base).toFixed(2)}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                        <span style={{ background: '#fdf2f8', color: '#be185d', padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800 }}>
-                          {c.tipo_comision === 'Porcentaje' ? `${c.comision_valor}%` : `RD$ ${c.comision_valor}`}
-                        </span>
-                        {c.rule_applied_description && (
-                          <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{c.rule_applied_description}</div>
-                        )}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#15803d', fontSize: '0.95rem' }}>
-                        RD$ {Number(c.monto_comision).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
+
+              {/* FILTER BY LOCALIDAD / SUCURSAL */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <MapPin size={16} style={{ color: '#be185d' }} />
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Localidad:</span>
+                <select
+                  value={selectedLocation}
+                  onChange={(e) => setSelectedLocation(e.target.value)}
+                  style={{ padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
+                >
+                  <option value="">Todas las localidades</option>
+                  {salons.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
                   ))}
-                </tbody>
-              </table>
-            )}
+                </select>
+              </div>
+
+              {/* FILTER BY EMPLOYEE */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <User size={16} style={{ color: '#64748b' }} />
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Empleado:</span>
+                <select
+                  value={selectedEmployee}
+                  onChange={(e) => setSelectedEmployee(e.target.value)}
+                  style={{ padding: '0.55rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
+                >
+                  <option value="">Todos los Colaboradores</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <input
+                  type="text"
+                  placeholder="Buscar por servicio..."
+                  value={serviceSearch}
+                  onChange={(e) => setServiceSearch(e.target.value)}
+                  style={{ width: '100%', padding: '0.55rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600 }}
+                />
+              </div>
+            </div>
+
           </div>
+
+          {/* REPORT VIEW: GROUPED BY EMPLOYEE ONE BY ONE */}
+          {loading ? (
+            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+              Cargando registros de comisiones...
+            </div>
+          ) : groupedCommissions.length === 0 ? (
+            <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+              No se encontraron registros de comisiones con los filtros aplicados.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {groupedCommissions.map((group) => (
+                <div key={group.id} style={{ background: '#ffffff', borderRadius: '18px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                  
+                  {/* EMPLOYEE HEADER ROW WITH TOTALS */}
+                  <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                      <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: '#fdf2f8', border: '1.5px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#be185d', fontWeight: 900, fontSize: '1.1rem' }}>
+                        👤
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
+                            {group.name}
+                          </h3>
+                          <span style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', fontSize: '0.725rem', fontWeight: 700, padding: '2px 8px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <MapPin size={11} style={{ color: '#be185d' }} /> {group.location}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                          {group.items.length} {group.items.length === 1 ? 'servicio registrado' : 'servicios registrados'} en el período
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* TOTALS PILLS FOR THIS EMPLOYEE */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.45rem 0.85rem', borderRadius: '12px', textAlign: 'right' }}>
+                        <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Monto Base (Sin ITBIS)</span>
+                        <strong style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 800 }}>
+                          RD$ {group.totalMontoBase.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
+
+                      <div style={{ background: '#dcfce7', border: '1.5px solid #86efac', padding: '0.45rem 1rem', borderRadius: '12px', textAlign: 'right', boxShadow: '0 2px 6px rgba(22,101,52,0.06)' }}>
+                        <span style={{ fontSize: '0.68rem', color: '#166534', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Total Comisión Ganada</span>
+                        <strong style={{ fontSize: '1.15rem', color: '#15803d', fontWeight: 900 }}>
+                          RD$ {group.totalComision.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* DETAILED SERVICES TABLE FOR THIS EMPLOYEE */}
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.825rem' }}>
+                      <thead>
+                        <tr style={{ background: '#ffffff', borderBottom: '1px solid #f1f5f9', color: '#64748b', fontWeight: 800, fontSize: '0.725rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                          <th style={{ padding: '0.65rem 1rem' }}>Ticket</th>
+                          <th style={{ padding: '0.65rem 1rem' }}>Fecha y Hora</th>
+                          <th style={{ padding: '0.65rem 1rem' }}>Localidad</th>
+                          <th style={{ padding: '0.65rem 1rem' }}>Servicio Realizado</th>
+                          <th style={{ padding: '0.65rem 1rem', textAlign: 'right' }}>Monto Base (Sin ITBIS)</th>
+                          <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Regla Aplicada</th>
+                          <th style={{ padding: '0.65rem 1rem', textAlign: 'right' }}>Comisión Ganada</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.items.map((c) => (
+                          <tr key={c.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                            <td style={{ padding: '0.65rem 1rem', fontWeight: 800, color: '#0f172a' }}>
+                              {c.ticket_number || `TK-${c.visit_id}`}
+                            </td>
+                            <td style={{ padding: '0.65rem 1rem', color: '#64748b', fontSize: '0.775rem' }}>
+                              {new Date(c.created_at).toLocaleDateString('es-DO')} {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td style={{ padding: '0.65rem 1rem', color: '#475569', fontSize: '0.78rem' }}>
+                              {c.localidad || c.emp_localidad || group.location}
+                            </td>
+                            <td style={{ padding: '0.65rem 1rem', color: '#1e293b', fontWeight: 700 }}>
+                              {c.service_name} {c.cantidad > 1 ? `(x${c.cantidad})` : ''}
+                            </td>
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'right', color: '#64748b', fontWeight: 600 }}>
+                              RD$ {Number(c.monto_base).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
+                              <span style={{ background: '#fdf2f8', color: '#be185d', padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800 }}>
+                                {c.tipo_comision === 'Porcentaje' ? `${c.comision_valor}%` : `RD$ ${c.comision_valor}`}
+                              </span>
+                              {c.rule_applied_description && (
+                                <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: '1px' }}>{c.rule_applied_description}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: 900, color: '#15803d', fontSize: '0.9rem' }}>
+                              RD$ {Number(c.monto_comision).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#fcf8fa', borderTop: '1.5px solid #fbcfe8' }}>
+                          <td colSpan={4} style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#831843', fontSize: '0.8rem' }}>
+                            SUBTOTAL PARA {group.name.toUpperCase()} ({group.items.length} {group.items.length === 1 ? 'servicio' : 'servicios'}):
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
+                            RD$ {group.totalMontoBase.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td></td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#15803d', fontSize: '1.05rem' }}>
+                            RD$ {group.totalComision.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
