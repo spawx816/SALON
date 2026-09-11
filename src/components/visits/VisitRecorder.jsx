@@ -58,6 +58,16 @@ const VisitRecorder = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Filtrar empleados delimitados a la localidad / sucursal activa
+  const salonEmployees = useMemo(() => {
+    if (!Array.isArray(employees) || employees.length === 0) return [];
+    const filtered = employees.filter(emp => {
+      if (!emp.salon_id) return false;
+      return String(emp.salon_id) === String(salonId);
+    });
+    return filtered.length > 0 ? filtered : employees;
+  }, [employees, salonId]);
+
   // Digital Contract Onboarding Modal State
   const [showContractModal, setShowContractModal] = useState(false);
   const [showDetailedBreakdown, setShowDetailedBreakdown] = useState(false);
@@ -2850,7 +2860,7 @@ const VisitRecorder = () => {
                             }}
                           >
                             <option value="">Seleccionar...</option>
-                            {employees.map(emp => (
+                            {salonEmployees.map(emp => (
                               <option key={emp.id} value={emp.id}>{emp.nombre}</option>
                             ))}
                           </select>
@@ -3817,13 +3827,13 @@ const VisitRecorder = () => {
                       <select
                         value={selectedEmployeeForTicket?.id || ''}
                         onChange={(e) => {
-                          const emp = employees.find(emp => String(emp.id) === String(e.target.value));
+                          const emp = salonEmployees.find(emp => String(emp.id) === String(e.target.value)) || employees.find(emp => String(emp.id) === String(e.target.value));
                           setSelectedEmployeeForTicket(emp || null);
                         }}
                         style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '12px', border: '2px solid #3b82f6', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', outline: 'none', background: '#ffffff' }}
                       >
                         <option value="">-- Selecciona un Empleado --</option>
-                        {employees.map(emp => (
+                        {salonEmployees.map(emp => (
                           <option key={emp.id} value={emp.id}>
                             {emp.nombre || emp.name} {emp.cargo ? `(${emp.cargo})` : ''}
                           </option>
@@ -4962,7 +4972,7 @@ const VisitRecorder = () => {
                         Empleado beneficiario del préstamo *:
                       </label>
                       <span style={{ fontSize: '0.7rem', color: '#be185d', fontWeight: 700 }}>
-                        {employees.length} empleados registrados
+                        {salonEmployees.length} empleados en sucursal
                       </span>
                     </div>
                     <select
@@ -4972,7 +4982,7 @@ const VisitRecorder = () => {
                       style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #be185d', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
                     >
                       <option value="">-- Seleccionar Empleado --</option>
-                      {employees.map((emp) => (
+                      {salonEmployees.map((emp) => (
                         <option key={emp.id} value={emp.id}>
                           {emp.nombre || emp.name} {emp.rol ? `· (${emp.rol})` : ''} {emp.cedula ? `· [${emp.cedula}]` : ''}
                         </option>
