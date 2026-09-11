@@ -982,7 +982,7 @@ const VisitRecorder = () => {
         contractsFound = await dataService.getContractByClient(clientId);
       }
       if ((!contractsFound || contractsFound.length === 0) && clientFound?.cedula) {
-        contractsFound = await dataService.getContractByClient(clientFound.cedula.trim());
+        contractsFound = await dataService.getContractByClient(String(clientFound.cedula).trim());
       }
       if ((!contractsFound || contractsFound.length === 0) && ticketObj?.plan_beauty_id) {
         contractsFound = await dataService.getContractByClient(ticketObj.plan_beauty_id);
