@@ -675,6 +675,59 @@ const setupDB = async () => {
         `);
       }
     }
+
+    // Auto-repair commissions with generic 'Servicio' names by inspecting corresponding visits
+    try {
+      const [genericRows] = await pool.query(
+        "SELECT id, visit_id, ticket_number, employee_id, monto_base FROM employee_commissions_log WHERE service_name = 'Servicio' OR service_name IS NULL OR service_name = ''"
+      );
+      if (genericRows.length > 0) {
+        for (const row of genericRows) {
+          let visitRows = [];
+          if (row.visit_id) {
+            const [vr] = await pool.query("SELECT items_detail, servicios FROM visits WHERE id = ? OR ticket_number = ?", [row.visit_id, row.ticket_number]);
+            visitRows = vr;
+          } else if (row.ticket_number) {
+            const [vr] = await pool.query("SELECT items_detail, servicios FROM visits WHERE ticket_number = ?", [row.ticket_number]);
+            visitRows = vr;
+          }
+
+          if (visitRows.length > 0) {
+            const v = visitRows[0];
+            let matchedName = null;
+            if (v.items_detail) {
+              try {
+                const items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+                if (Array.isArray(items) && items.length > 0) {
+                  const match = items.find(i => 
+                    (i.empleado_id && String(i.empleado_id) === String(row.employee_id)) ||
+                    (i.employee_id && String(i.employee_id) === String(row.employee_id)) ||
+                    (i.empleado && String(i.empleado) === String(row.employee_id))
+                  ) || items[0];
+                  if (match) {
+                    matchedName = match.nombre || match.servicio || match.name || match.service_name || match.descripcion;
+                  }
+                }
+              } catch (e) {}
+            }
+            if (!matchedName && v.servicios) {
+              try {
+                const srvs = typeof v.servicios === 'string' ? JSON.parse(v.servicios) : v.servicios;
+                if (Array.isArray(srvs) && srvs.length > 0) {
+                  matchedName = typeof srvs[0] === 'string' ? srvs[0] : (srvs[0].nombre || srvs[0].servicio);
+                }
+              } catch (e) {}
+            }
+
+            if (matchedName && matchedName !== 'Servicio') {
+              await pool.query("UPDATE employee_commissions_log SET service_name = ? WHERE id = ?", [matchedName, row.id]);
+            }
+          }
+        }
+      }
+    } catch (repairErr) {
+      console.error('[COMMISSION REPAIR WARN]:', repairErr.message);
+    }
   } catch (err) {
     console.error('Database connection failed:', err.message);
   }
@@ -1952,7 +2005,7 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
         const empName = item.empleado_nombre || item.employee_name || 'N/A';
 
         if (empId && empId !== 'N/A') {
-          const serviceName = item.servicio || item.name || 'Servicio';
+          const serviceName = item.nombre || item.servicio || item.name || item.service_name || item.descripcion || item.description || 'Servicio';
           const price = parseFloat(item.precioAplicado || item.precio || 0);
           const qty = parseInt(item.cantidad) || 1;
           const desc = parseFloat(item.descuento) || 0;
@@ -3568,6 +3621,29 @@ app.delete('/api/services/:id', async (req, res) => {
 // === MÓDULO DE COMISIONES ===
 app.get('/api/commissions', async (req, res) => {
   try {
+    // Quick repair for any legacy generic 'Servicio' labels
+    try {
+      const [genericCheck] = await pool.query("SELECT id, visit_id, ticket_number, employee_id FROM employee_commissions_log WHERE service_name = 'Servicio' OR service_name IS NULL LIMIT 50");
+      for (const row of genericCheck) {
+        const [vr] = await pool.query("SELECT items_detail, servicios FROM visits WHERE id = ? OR ticket_number = ?", [row.visit_id, row.ticket_number]);
+        if (vr.length > 0) {
+          let matchedName = null;
+          if (vr[0].items_detail) {
+            try {
+              const items = typeof vr[0].items_detail === 'string' ? JSON.parse(vr[0].items_detail) : vr[0].items_detail;
+              if (Array.isArray(items)) {
+                const match = items.find(i => (i.empleado_id && String(i.empleado_id) === String(row.employee_id)) || (i.employee_id && String(i.employee_id) === String(row.employee_id))) || items[0];
+                if (match) matchedName = match.nombre || match.servicio || match.name || match.service_name;
+              }
+            } catch (e) {}
+          }
+          if (matchedName && matchedName !== 'Servicio') {
+            await pool.query("UPDATE employee_commissions_log SET service_name = ? WHERE id = ?", [matchedName, row.id]);
+          }
+        }
+      }
+    } catch(e) {}
+
     const { start_date, end_date, employee_id, status, service_name, localidad } = req.query;
 
     let query = `
