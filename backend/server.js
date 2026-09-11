@@ -1253,20 +1253,23 @@ app.get('/api/contracts/client/:clientId', async (req, res) => {
   try {
     const { clientId } = req.params;
     const cleanId = String(clientId || '').trim();
+    if (!cleanId || cleanId.toUpperCase() === 'INVITADO' || cleanId.toLowerCase() === 'undefined' || cleanId.toLowerCase() === 'null') {
+      return res.json([]);
+    }
     const [rows] = await pool.query(
       `SELECT 
         c.*, 
         cl.nombre as clientName, 
         cl.cedula as clientCedula,
         cl.status as clientStatus,
-        p.title as planTitle,
+        COALESCE(p.title, 'Plan Beauty') as planTitle,
         p.services as planServices,
         p.price as planPrice
        FROM contracts c
-       LEFT JOIN clients cl ON c.client_id = cl.id
-       LEFT JOIN plans p ON c.plan_id = p.id
+       LEFT JOIN clients cl ON (c.client_id = cl.id OR c.client_id = cl.cedula)
+       LEFT JOIN plans p ON (c.plan_id = p.id OR CAST(c.plan_id AS CHAR) = CAST(p.id AS CHAR))
        WHERE c.client_id = ? 
-          OR c.client_id = (SELECT cedula FROM clients WHERE id = ? LIMIT 1)
+          OR cl.id = ?
           OR cl.cedula = ?
           OR cl.nombre = ?
        ORDER BY c.id DESC`,
@@ -1274,6 +1277,7 @@ app.get('/api/contracts/client/:clientId', async (req, res) => {
     );
     res.json(rows);
   } catch (err) {
+    console.error('[API ERROR] /api/contracts/client/:clientId:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -4769,32 +4773,6 @@ app.post('/api/plans', async (req, res) => {
 });
 
 
-app.get('/api/contracts/client/:clientId', async (req, res) => {
-  try {
-    const { clientId } = req.params;
-    const clean = clientId ? clientId.trim() : '';
-    if (!clean || clean.toUpperCase() === 'INVITADO' || clean.toLowerCase() === 'cliente general' || clean.length < 2) {
-      return res.json([]);
-    }
-    const [rows] = await pool.query(`
-      SELECT 
-        c.*, 
-        cl.nombre as clientName, 
-        cl.cedula as clientCedula,
-        cl.telefono as clientPhone,
-        cl.email as clientEmail,
-        COALESCE(p.title, 'Plan Beauty') as planTitle
-      FROM contracts c
-      JOIN clients cl ON c.client_id = cl.id
-      LEFT JOIN plans p ON (c.plan_id = p.id OR CAST(c.plan_id AS CHAR) = CAST(p.id AS CHAR))
-      WHERE (c.client_id = ? OR cl.cedula = ? OR LOWER(TRIM(cl.nombre)) = LOWER(?))
-      ORDER BY c.signed_at DESC
-    `, [clean, clean, clean]);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.get('/api/clients/:id/payment-profile', async (req, res) => {
   try {
