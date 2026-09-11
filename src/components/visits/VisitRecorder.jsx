@@ -1483,17 +1483,26 @@ const VisitRecorder = () => {
 
   const handleDiscountChange = (index, discountPercent) => {
     const pct = parseFloat(discountPercent) || 0;
+    const item = lineItems[index];
     if (pct > 0 && !isAdminAuthorized) {
-      setPendingDiscountItem({ type: 'discount', index, pct });
+      setPendingDiscountItem({
+        type: 'discount',
+        index,
+        pct,
+        previousPct: item?.descuentoPercent || 0,
+        previousDiscount: item?.descuento || 0
+      });
       setShowAdminPinModal(true);
       return;
     }
     const updated = [...lineItems];
-    const item = updated[index];
-    const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
-    updated[index].descuento = discountAmt;
-    updated[index].descuentoPercent = pct;
-    setLineItems(updated);
+    const targetItem = updated[index];
+    if (targetItem) {
+      const discountAmt = (targetItem.precioBase * targetItem.cantidad) * (pct / 100);
+      targetItem.descuento = discountAmt;
+      targetItem.descuentoPercent = pct;
+      setLineItems(updated);
+    }
   };
 
   // Price change with 2.5s delay before triggering admin auth modal
@@ -1502,8 +1511,12 @@ const VisitRecorder = () => {
     const val = parseFloat(newPrice);
     if (isNaN(val)) return;
     const item = lineItems[index];
+    if (!item) return;
 
-    // Always update the displayed value immediately
+    // Save current authorized price or base price to revert if cancelled
+    const previousPrice = item.precioBase;
+
+    // Update displayed value
     const updated = [...lineItems];
     updated[index].precioAplicado = val;
     setLineItems(updated);
@@ -1512,11 +1525,48 @@ const VisitRecorder = () => {
     if (val < item.precioBase && !isAdminAuthorized) {
       if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
       priceChangeTimerRef.current = setTimeout(() => {
-        // Re-check if still below base and still unauthorized
-        setPendingDiscountItem({ type: 'price', index, val });
+        setPendingDiscountItem({
+          type: 'price',
+          index,
+          val,
+          previousPrice
+        });
         setShowAdminPinModal(true);
       }, 2500);
     }
+  };
+
+  const cancelAdminPin = () => {
+    if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
+    if (pendingDiscountItem) {
+      const updated = [...lineItems];
+      if (pendingDiscountItem.type === 'price') {
+        const { index, previousPrice } = pendingDiscountItem;
+        if (updated[index]) {
+          updated[index].precioAplicado = previousPrice !== undefined ? previousPrice : updated[index].precioBase;
+          setLineItems(updated);
+        }
+      } else if (pendingDiscountItem.type === 'discount') {
+        const { index, previousPct, previousDiscount } = pendingDiscountItem;
+        if (updated[index]) {
+          updated[index].descuentoPercent = previousPct || 0;
+          updated[index].descuento = previousDiscount || 0;
+          setLineItems(updated);
+        }
+      }
+    } else {
+      // Revert any unauthorized below-base item prices
+      const updated = lineItems.map(it => {
+        if (it.precioAplicado !== undefined && it.precioAplicado < it.precioBase && !isAdminAuthorized) {
+          return { ...it, precioAplicado: it.precioBase };
+        }
+        return it;
+      });
+      setLineItems(updated);
+    }
+    setShowAdminPinModal(false);
+    setPendingDiscountItem(null);
+    setAdminPin('');
   };
 
   const verifyAdminPin = () => {
@@ -1864,6 +1914,15 @@ const VisitRecorder = () => {
 
     if (pendienteAmount > 0.01) {
       alert(`⚠️ Aún queda un monto pendiente de RD$ ${pendienteAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}. Por favor completa los pagos aplicados hasta que Pendiente sea RD$ 0.`);
+      return;
+    }
+
+    // Ensure no unauthorized discount or reduced price is present
+    const hasUnauthorized = lineItems.some(item => (item.precioAplicado !== undefined && item.precioAplicado < item.precioBase) || (item.descuento > 0 || item.descuentoPercent > 0));
+    if (hasUnauthorized && !isAdminAuthorized) {
+      if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
+      alert('⚠️ Se requiere Autorización de Administrador para los precios reducidos o descuentos aplicados en esta factura.');
+      setShowAdminPinModal(true);
       return;
     }
 
@@ -3963,7 +4022,11 @@ const VisitRecorder = () => {
             <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
               <ShieldAlert size={36} style={{ color: '#be185d', marginBottom: '0.5rem' }} />
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Autorización de Administrador</h3>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>Se requiere PIN de administrador para aplicar este descuento</p>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                {pendingDiscountItem?.type === 'price'
+                  ? 'Se requiere PIN de administrador para autorizar un precio menor al precio base'
+                  : 'Se requiere PIN de administrador para autorizar este descuento'}
+              </p>
             </div>
 
             <div style={{ marginBottom: '1.25rem' }}>
@@ -3972,6 +4035,10 @@ const VisitRecorder = () => {
                 placeholder="Ingresa Clave PIN Admin"
                 value={adminPin}
                 onChange={(e) => setAdminPin(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') verifyAdminPin();
+                  if (e.key === 'Escape') cancelAdminPin();
+                }}
                 style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px' }}
                 autoFocus
               />
@@ -3979,12 +4046,14 @@ const VisitRecorder = () => {
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button
-                onClick={() => { setShowAdminPinModal(false); setPendingDiscountItem(null); setAdminPin(''); }}
+                type="button"
+                onClick={cancelAdminPin}
                 style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700, cursor: 'pointer' }}
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={verifyAdminPin}
                 style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}
               >
