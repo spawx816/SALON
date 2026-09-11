@@ -1043,13 +1043,14 @@ const VisitRecorder = () => {
   };
 
   // Smart dynamic recommendations based on client's real past consumption history
-  const getSmartRecommendations = () => {
-    if (!clientFound) return [];
+  const getSmartRecommendations = (customClient = null, customHistory = null) => {
+    const activeClient = customClient || clientFound || selectedTicket;
+    const historyToUse = customHistory || (customClient && customClient !== clientFound ? [] : clientVisitsHistory);
     
     // 1. Gather services from actual past visits
     const pastServicesMap = new Map();
-    if (Array.isArray(clientVisitsHistory)) {
-      clientVisitsHistory.forEach(v => {
+    if (Array.isArray(historyToUse)) {
+      historyToUse.forEach(v => {
         let items = [];
         try {
           if (v.items_detail) {
@@ -1098,17 +1099,17 @@ const VisitRecorder = () => {
       });
     });
 
-    // 2. If client has fewer than 2 past unique services, complement with top catalog services
+    // 2. If client has fewer than 3 past unique services, complement with top catalog services
     if (recommendations.length < 3) {
-      const topDefaults = (availableServices || DEFAULT_TOP_SERVICES).filter(s => 
+      const topDefaults = (availableServices && availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES).filter(s => 
         !s.nombre.toLowerCase().includes('lavado') && !recommendations.some(r => r.nombre.toLowerCase() === s.nombre.toLowerCase())
       );
       topDefaults.slice(0, 3 - recommendations.length).forEach(s => {
         recommendations.push({
-          id: `top-${s.id}`,
+          id: `top-${s.id || s.nombre}`,
           nombre: s.nombre,
           precio: s.precio || s.precioBase || 600,
-          tiempo: 'Recomendado',
+          tiempo: 'Sugerido',
           isFromHistory: false
         });
       });
@@ -2548,59 +2549,7 @@ const VisitRecorder = () => {
                     </div>
                   </div>
 
-                  {/* DETAIL LIST ROW 4: 20% DESCUENTO EN SALÓN */}
-                  {hasActivePlan && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.85rem',
-                      padding: '0.85rem 0.25rem',
-                      borderTop: '1px solid #f3f4f6'
-                    }}>
-                      <div style={{
-                        width: '40px',
-                        height: '40px',
-                        borderRadius: '50%',
-                        background: '#fdf2f8',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                        <Percent size={20} color="#be185d" />
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#be185d', lineHeight: 1.25 }}>
-                          20% Descuento en Salón
-                        </span>
-                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500, marginTop: '2px' }}>
-                          En todos los servicios adicionales
-                        </span>
-                      </div>
-                    </div>
-                  )}
 
-                  {/* FOOTER LINK: RECOMENDACIONES */}
-                  <div 
-                    onClick={() => setShowRecommendationsModal(true)}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '0.95rem 0.25rem 0.25rem',
-                      borderTop: '1px solid #f3f4f6',
-                      color: '#7c3aed',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-                  >
-                    <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>
-                      Recomendaciones
-                    </span>
-                    <ArrowRight size={18} />
-                  </div>
 
                   {/* FOOTER ACTION: REGISTER GENERAL CLIENT FORMALLY */}
                   {isGuestClient && (
@@ -3796,7 +3745,7 @@ const VisitRecorder = () => {
                     </div>
 
                     {selectedClientForTicket && (
-                      <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', padding: '0.75rem', borderRadius: '12px', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', padding: '0.75rem', borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <strong style={{ color: '#7e22ce', fontSize: '0.85rem' }}>
                             ✅ Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}
@@ -3817,6 +3766,26 @@ const VisitRecorder = () => {
                         >
                           Cambiar
                         </button>
+                      </div>
+                    )}
+
+                    {/* RECOMENDACIONES PERSONALIZADAS EN MODAL DE TICKET */}
+                    {selectedClientForTicket && (
+                      <div style={{ background: '#fdf4ff', border: '1px solid #f0abfc', padding: '0.75rem', borderRadius: '12px', marginBottom: '1rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.45rem' }}>
+                          <span style={{ fontSize: '0.95rem' }}>✨</span>
+                          <strong style={{ color: '#86198f', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                            Servicios recomendados para sugerir:
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
+                          {getSmartRecommendations(selectedClientForTicket).map((rec, idx) => (
+                            <div key={idx} style={{ background: '#ffffff', border: '1px solid #e879f9', borderRadius: '8px', padding: '0.35rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                              <span style={{ fontWeight: 700, color: '#0f172a' }}>{rec.nombre}</span>
+                              <span style={{ fontWeight: 800, color: '#be185d' }}>RD$ {(rec.precio || 600).toLocaleString('es-DO')}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -4065,6 +4034,29 @@ const VisitRecorder = () => {
               >
                 <X size={20} />
               </button>
+            </div>
+
+            {/* SECCIÓN NO-PRINT: RECOMENDACIONES DESTACADAS PARA OFRECER AL CLIENTE */}
+            <div className="no-print-thermal" style={{ padding: '0.75rem 1.25rem', background: 'linear-gradient(135deg, #fdf4ff 0%, #fae8ff 100%)', borderBottom: '1px solid #f0abfc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '1rem' }}>✨</span>
+                  <strong style={{ fontSize: '0.825rem', color: '#86198f', fontWeight: 900 }}>
+                    Recomendaciones para ofrecer al cliente:
+                  </strong>
+                </div>
+                <span style={{ fontSize: '0.675rem', color: '#a21caf', fontWeight: 800, background: '#f5d0fe', padding: '2px 8px', borderRadius: '12px' }}>
+                  Sugerencias
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
+                {getSmartRecommendations(clientFound || (printableTicketData?.clientName ? { nombre: printableTicketData.clientName } : null)).map((rec, idx) => (
+                  <div key={idx} style={{ background: '#ffffff', border: '1px solid #e879f9', borderRadius: '10px', padding: '0.35rem 0.65rem', display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '0 2px 4px rgba(162,28,175,0.06)' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f172a' }}>{rec.nombre}</span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#be185d' }}>RD$ {(rec.precio || 600).toLocaleString('es-DO')}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Scrollable Container with exact 80mm Physical Preview */}
