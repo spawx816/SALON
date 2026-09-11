@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import {
   Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star,
   Lock as LockIcon, ArrowLeft, PlusCircle, Printer, CheckCircle2, ShieldAlert,
-  Banknote, CreditCard, Landmark, Gift, Layers, Percent, AlertTriangle, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, RefreshCw, X, XCircle,
+  Banknote, CreditCard, Landmark, Gift, Layers, Percent, AlertTriangle, AlertCircle, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, RefreshCw, X, XCircle,
   UserPlus, Phone, Cake, TrendingUp, Sparkles, History, Pencil, Edit3, Plus, User, Receipt, Zap, Eye, ArrowRight, Trash2, Wallet, FileText
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
