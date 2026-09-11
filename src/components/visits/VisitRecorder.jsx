@@ -5920,8 +5920,8 @@ const VisitRecorder = () => {
             </div>
 
             {/* MODAL FOOTER */}
-            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: hasActiveBeautyPlan ? 'space-between' : 'flex-end', alignItems: 'center', gap: '0.75rem' }}>
-              {hasActiveBeautyPlan && (
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: hasActivePlan ? 'space-between' : 'flex-end', alignItems: 'center', gap: '0.75rem' }}>
+              {hasActivePlan && (
                 <button
                   type="button"
                   onClick={() => {
