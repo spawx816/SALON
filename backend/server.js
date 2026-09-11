@@ -2486,10 +2486,73 @@ app.post('/api/cash-registers/open', async (req, res) => {
   }
 });
 
+async function syncRegisterInvoicesAndMovements(registerId) {
+  try {
+    if (!registerId) return;
+    const [regs] = await pool.query('SELECT * FROM cash_registers WHERE id = ?', [registerId]);
+    if (!regs.length) return;
+    const reg = regs[0];
+
+    const openedAt = reg.opened_at || reg.created_at;
+    const closedAt = reg.closed_at;
+
+    let query = `
+      SELECT v.* FROM visits v 
+      WHERE v.status = 'Facturado' 
+        AND (
+          v.cash_register_id = ? 
+          OR (
+            (v.cash_register_id IS NULL OR v.cash_register_id = 0) 
+            AND v.visited_at >= ?
+            ${closedAt ? 'AND v.visited_at <= ?' : ''}
+          )
+        )
+    `;
+    const params = closedAt ? [registerId, openedAt, closedAt] : [registerId, openedAt];
+    const [visits] = await pool.query(query, params);
+
+    for (const v of visits) {
+      if (v.cash_register_id !== registerId) {
+        await pool.query('UPDATE visits SET cash_register_id = ? WHERE id = ?', [registerId, v.id]);
+      }
+
+      const [movExists] = await pool.query(
+        'SELECT id FROM cash_register_movements WHERE cash_register_id = ? AND visit_id = ?',
+        [registerId, v.id]
+      );
+
+      if (movExists.length === 0) {
+        const visitTotal = parseFloat(v.total) || 0;
+        const ticketNum = v.ticket_number || v.id;
+        const clientName = v.client_name || 'Cliente';
+        const method = v.metodo_pago || 'Efectivo';
+
+        await pool.query(
+          `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_name, visit_id, created_at)
+           VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, ?, ?)`,
+          [
+            registerId,
+            method,
+            visitTotal,
+            `Factura ${ticketNum} - ${clientName}`,
+            'Cajero',
+            v.id,
+            v.visited_at || new Date()
+          ]
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[SYNC REGISTER MOVEMENTS ERROR]:', err);
+  }
+}
+
 app.post('/api/cash-registers/:id/close', async (req, res) => {
   try {
     const { id } = req.params;
     const { monto_final, observaciones } = req.body;
+
+    await syncRegisterInvoicesAndMovements(id);
 
     const [regs] = await pool.query('SELECT * FROM cash_registers WHERE id = ?', [id]);
     if (regs.length === 0) return res.status(404).json({ error: 'Caja no encontrada' });
@@ -2578,6 +2641,7 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
 app.get('/api/cash-registers/:id/movements', async (req, res) => {
   try {
     const { id } = req.params;
+    await syncRegisterInvoicesAndMovements(id);
     const [movements] = await pool.query(
       'SELECT * FROM cash_register_movements WHERE cash_register_id = ? ORDER BY created_at DESC',
       [id]
@@ -2728,6 +2792,9 @@ app.get('/api/cash-registers', async (req, res) => {
 
     // Enrich with calculated stats for each register
     const enriched = await Promise.all(registers.map(async (reg) => {
+      if (reg.status === 'Abierta') {
+        await syncRegisterInvoicesAndMovements(reg.id);
+      }
       const [movements] = await pool.query(
         'SELECT type, payment_method, amount FROM cash_register_movements WHERE cash_register_id = ?',
         [reg.id]
@@ -2811,6 +2878,7 @@ app.get('/api/cash-registers', async (req, res) => {
 app.get('/api/cash-registers/:id/invoices', async (req, res) => {
   try {
     const { id } = req.params;
+    await syncRegisterInvoicesAndMovements(id);
     const [reg] = await pool.query('SELECT * FROM cash_registers WHERE id = ?', [id]);
     if (!reg.length) return res.status(404).json({ error: 'Caja no encontrada' });
 
