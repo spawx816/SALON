@@ -429,6 +429,10 @@ const VisitRecorder = () => {
   const getClientAvatar = (client) => {
     if (client?.avatar) return client.avatar;
     if (client?.selfie_photo) return client.selfie_photo;
+    if (client?.foto) return client.foto;
+    if (client?.photo_url) return client.photo_url;
+    const cPhoto = (clientContracts || []).find(c => c.selfie_photo || c.foto || c.photo_url);
+    if (cPhoto) return cPhoto.selfie_photo || cPhoto.foto || cPhoto.photo_url;
     return 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
   };
 
@@ -1072,12 +1076,14 @@ const VisitRecorder = () => {
 
       setActivePlans(planesConContrato);
 
-      // Set Selfie Photo from Contract as Client Profile Avatar if available
-      if (activeContracts.length > 0 && activeContracts[0].selfie_photo) {
+      // Set Selfie Photo from Contract as Client Profile Avatar if available (from any contract)
+      const contractWithPhoto = (contractsFound || []).find(c => c.selfie_photo || c.foto || c.photo_url);
+      if (contractWithPhoto && (contractWithPhoto.selfie_photo || contractWithPhoto.foto || contractWithPhoto.photo_url)) {
+        const photo = contractWithPhoto.selfie_photo || contractWithPhoto.foto || contractWithPhoto.photo_url;
         setClientFound(prev => (prev ? {
           ...prev,
-          avatar: activeContracts[0].selfie_photo,
-          selfie_photo: activeContracts[0].selfie_photo
+          avatar: photo,
+          selfie_photo: photo
         } : prev));
       }
 
@@ -2119,8 +2125,39 @@ const VisitRecorder = () => {
     )
   );
   const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && activePlans && activePlans.length > 0);
-  const isContractCancelled = Boolean(
+  const isPendingPayment = Boolean(
     !isEmployeeClient && !isGuestClient && (
+      clientFound?.status === 'Pending_Payment' ||
+      clientFound?.status === 'Pending_Retry' ||
+      clientFound?.status === 'Suspended' ||
+      clientFound?.status === 'Past_Due' ||
+      clientFound?.status === 'Suspendido' ||
+      clientFound?.status === 'Pendiente' ||
+      clientFound?.clientStatus === 'Pending_Payment' ||
+      clientFound?.clientStatus === 'Pending_Retry' ||
+      clientFound?.clientStatus === 'Suspended' ||
+      (clientContracts && clientContracts.length > 0 && clientContracts.some(c => 
+        c.status === 'Pending_Payment' || 
+        c.status === 'Pending_Retry' || 
+        c.status === 'Suspended' || 
+        c.status === 'Past_Due' || 
+        c.status === 'Suspendido' || 
+        c.status === 'Pendiente' ||
+        (Number(c.retry_count) > 0 && c.status !== 'Active' && c.status !== 'Cancelled')
+      ) && (!activePlans || activePlans.length === 0))
+    )
+  );
+  const suspendedContract = (clientContracts || []).find(c => 
+    c.status === 'Pending_Payment' || 
+    c.status === 'Pending_Retry' || 
+    c.status === 'Suspended' || 
+    c.status === 'Past_Due' || 
+    c.status === 'Suspendido' || 
+    c.status === 'Pendiente' ||
+    Number(c.retry_count) > 0
+  ) || null;
+  const isContractCancelled = Boolean(
+    !isEmployeeClient && !isGuestClient && !isPendingPayment && (
       clientFound?.status === 'Cancelled' ||
       clientFound?.status === 'Cancelado' ||
       clientFound?.clientStatus === 'Cancelled' ||
@@ -2454,9 +2491,39 @@ const VisitRecorder = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.35rem',
-                      background: isEmployeeClient ? '#eff6ff' : (isGuestClient ? '#f1f5f9' : (hasActivePlan ? '#fdf4ff' : (isContractCancelled ? '#fee2e2' : '#f8fafc'))),
-                      border: isEmployeeClient ? '1px solid #bfdbfe' : (isGuestClient ? '1px solid #e2e8f0' : (hasActivePlan ? '1px solid #fce7f3' : (isContractCancelled ? '1.5px solid #fca5a5' : '1px solid #e2e8f0'))),
-                      color: isEmployeeClient ? '#1d4ed8' : (isGuestClient ? '#475569' : (hasActivePlan ? '#c026d3' : (isContractCancelled ? '#dc2626' : '#64748b'))),
+                      background: isEmployeeClient 
+                        ? '#eff6ff' 
+                        : (isGuestClient 
+                          ? '#f1f5f9' 
+                          : (hasActivePlan 
+                            ? '#fdf4ff' 
+                            : (isPendingPayment 
+                              ? '#fffbeb' 
+                              : (isContractCancelled 
+                                ? '#fee2e2' 
+                                : '#f8fafc')))),
+                      border: isEmployeeClient 
+                        ? '1px solid #bfdbfe' 
+                        : (isGuestClient 
+                          ? '1px solid #e2e8f0' 
+                          : (hasActivePlan 
+                            ? '1px solid #fce7f3' 
+                            : (isPendingPayment 
+                              ? '1.5px solid #fde68a' 
+                              : (isContractCancelled 
+                                ? '1.5px solid #fca5a5' 
+                                : '1px solid #e2e8f0')))),
+                      color: isEmployeeClient 
+                        ? '#1d4ed8' 
+                        : (isGuestClient 
+                          ? '#475569' 
+                          : (hasActivePlan 
+                            ? '#c026d3' 
+                            : (isPendingPayment 
+                              ? '#b45309' 
+                              : (isContractCancelled 
+                                ? '#dc2626' 
+                                : '#64748b')))),
                       fontSize: '0.8rem',
                       fontWeight: 800,
                       padding: '0.3rem 0.9rem',
@@ -2465,17 +2532,28 @@ const VisitRecorder = () => {
                       {isEmployeeClient && <span style={{ fontSize: '0.85rem' }}>💼</span>}
                       {isGuestClient && <span style={{ fontSize: '0.85rem' }}>👤</span>}
                       {hasActivePlan && <span style={{ fontSize: '0.85rem' }}>✨</span>}
-                      {isContractCancelled && !hasActivePlan && <span style={{ fontSize: '0.85rem' }}>🚫</span>}
+                      {isPendingPayment && !hasActivePlan && <span style={{ fontSize: '0.85rem' }}>⚠️</span>}
+                      {isContractCancelled && !isPendingPayment && !hasActivePlan && <span style={{ fontSize: '0.85rem' }}>🚫</span>}
                       <span>
-                        {isEmployeeClient ? 'Colaborador / Empleado' : (isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Plan Beauty Activo' : (isContractCancelled ? 'Suscripción Cancelada' : 'Cliente Registrado')))}
+                        {isEmployeeClient 
+                          ? 'Colaborador / Empleado' 
+                          : (isGuestClient 
+                            ? 'Cliente General' 
+                            : (hasActivePlan 
+                              ? 'Plan Beauty Activo' 
+                              : (isPendingPayment 
+                                ? 'Suspendido falta de pago' 
+                                : (isContractCancelled 
+                                  ? 'Suscripción Cancelada' 
+                                  : 'Cliente Registrado'))))}
                       </span>
                     </div>
                   </div>
 
                   {/* MIDDLE CARD: BENEFICIOS DISPONIBLES & VER DETALLES */}
                   <div style={{
-                    background: isContractCancelled ? '#fff5f5' : '#fbf8fe',
-                    border: isContractCancelled ? '1.5px solid #fecaca' : '1px solid #f3e8ff',
+                    background: isPendingPayment ? '#fffbeb' : (isContractCancelled ? '#fff5f5' : '#fbf8fe'),
+                    border: isPendingPayment ? '1.5px solid #fde68a' : (isContractCancelled ? '1.5px solid #fecaca' : '1px solid #f3e8ff'),
                     borderRadius: '20px',
                     padding: '1.25rem 1rem',
                     margin: '1.1rem 0 0.85rem 0',
@@ -2488,7 +2566,7 @@ const VisitRecorder = () => {
                     <span style={{
                       fontSize: '2.85rem',
                       fontWeight: 900,
-                      color: isContractCancelled ? '#dc2626' : '#9333ea',
+                      color: isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#9333ea'),
                       lineHeight: 1
                     }}>
                       {benefitsCount}
@@ -2497,11 +2575,11 @@ const VisitRecorder = () => {
                     <span style={{
                       fontSize: '0.725rem',
                       fontWeight: 800,
-                      color: isContractCancelled ? '#b91c1c' : '#6b7280',
+                      color: isPendingPayment ? '#b45309' : (isContractCancelled ? '#b91c1c' : '#6b7280'),
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase'
                     }}>
-                      {isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : 'BENEFICIOS DISPONIBLES'}
+                      {isPendingPayment ? 'BENEFICIOS DISPONIBLES (SUSPENDIDO)' : (isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : 'BENEFICIOS DISPONIBLES')}
                     </span>
 
                     <button
@@ -2510,8 +2588,8 @@ const VisitRecorder = () => {
                       style={{
                         marginTop: '0.55rem',
                         background: '#ffffff',
-                        border: isContractCancelled ? '1.5px solid #f87171' : '1.5px solid #a855f7',
-                        color: isContractCancelled ? '#dc2626' : '#7c3aed',
+                        border: isPendingPayment ? '1.5px solid #f59e0b' : (isContractCancelled ? '1.5px solid #f87171' : '1.5px solid #a855f7'),
+                        color: isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed'),
                         padding: '0.45rem 1.35rem',
                         borderRadius: '9999px',
                         fontSize: '0.825rem',
@@ -2520,20 +2598,20 @@ const VisitRecorder = () => {
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '0.45rem',
-                        boxShadow: isContractCancelled ? '0 2px 6px rgba(239, 68, 68, 0.12)' : '0 2px 6px rgba(168, 85, 247, 0.12)',
+                        boxShadow: isPendingPayment ? '0 2px 6px rgba(245, 158, 11, 0.12)' : (isContractCancelled ? '0 2px 6px rgba(239, 68, 68, 0.12)' : '0 2px 6px rgba(168, 85, 247, 0.12)'),
                         transition: 'all 0.15s ease'
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = isContractCancelled ? '#dc2626' : '#7c3aed';
+                        e.currentTarget.style.background = isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed');
                         e.currentTarget.style.color = '#ffffff';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = '#ffffff';
-                        e.currentTarget.style.color = isContractCancelled ? '#dc2626' : '#7c3aed';
+                        e.currentTarget.style.color = isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed');
                       }}
                     >
                       <Eye size={16} />
-                      <span>{isContractCancelled ? 'Ver detalle de cancelación' : 'Ver detalles'}</span>
+                      <span>{isPendingPayment ? 'Ver detalle de suspensión' : (isContractCancelled ? 'Ver detalle de cancelación' : 'Ver detalles')}</span>
                     </button>
                   </div>
 
@@ -2601,7 +2679,7 @@ const VisitRecorder = () => {
                       width: '40px',
                       height: '40px',
                       borderRadius: '50%',
-                      background: hasActivePlan ? '#dcfce7' : (isContractCancelled ? '#fee2e2' : '#f1f5f9'),
+                      background: hasActivePlan ? '#dcfce7' : (isPendingPayment ? '#fef3c7' : (isContractCancelled ? '#fee2e2' : '#f1f5f9')),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -2609,6 +2687,8 @@ const VisitRecorder = () => {
                     }}>
                       {hasActivePlan ? (
                         <CheckCircle2 size={22} color="#16a34a" />
+                      ) : isPendingPayment ? (
+                        <AlertTriangle size={22} color="#d97706" />
                       ) : isContractCancelled ? (
                         <XCircle size={22} color="#dc2626" />
                       ) : (
@@ -2617,9 +2697,9 @@ const VisitRecorder = () => {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
-                        {hasActivePlan ? 'Beneficios renovados' : (isContractCancelled ? 'Suscripción Cancelada' : 'Sin suscripción activa')}
+                        {hasActivePlan ? 'Beneficios renovados' : (isPendingPayment ? 'Suspendido falta de pago' : (isContractCancelled ? 'Suscripción Cancelada' : 'Sin suscripción activa'))}
                       </span>
-                      <span style={{ fontSize: '0.8rem', color: isContractCancelled ? '#dc2626' : '#64748b', fontWeight: isContractCancelled ? 700 : 500, marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.8rem', color: isPendingPayment ? '#b45309' : (isContractCancelled ? '#dc2626' : '#64748b'), fontWeight: (isPendingPayment || isContractCancelled) ? 700 : 500, marginTop: '2px' }}>
                         {renewalDate}
                       </span>
                     </div>
@@ -5675,10 +5755,15 @@ const VisitRecorder = () => {
             {/* MODAL HEADER */}
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: isContractCancelled ? '#991b1b' : '#0f172a', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                  {isContractCancelled ? 'ESTADO DE SUSCRIPCIÓN' : 'DETALLE PLAN BEAUTY'}
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: isPendingPayment ? '#b45309' : (isContractCancelled ? '#991b1b' : '#0f172a'), letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                  {(isPendingPayment || isContractCancelled) ? 'ESTADO DE SUSCRIPCIÓN' : 'DETALLE PLAN BEAUTY'}
                 </h3>
-                {isContractCancelled && (
+                {isPendingPayment && (
+                  <span style={{ fontSize: '0.72rem', fontWeight: 800, background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                    SUSPENDIDO FALTA DE PAGO
+                  </span>
+                )}
+                {isContractCancelled && !isPendingPayment && (
                   <span style={{ fontSize: '0.72rem', fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '8px', border: '1px solid #fecaca' }}>
                     CANCELADO
                   </span>
@@ -5697,7 +5782,21 @@ const VisitRecorder = () => {
             {/* MODAL BODY */}
             <div style={{ padding: '1.5rem 1.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem', background: '#ffffff' }}>
 
-              {isContractCancelled && (
+              {isPendingPayment && (
+                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '14px', padding: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>⚠️</span>
+                  <div>
+                    <div style={{ fontWeight: 800, color: '#b45309', fontSize: '0.95rem' }}>
+                      Suscripción Suspendida por Falta de Pago
+                    </div>
+                    <div style={{ color: '#92400e', fontSize: '0.85rem', marginTop: '4px', lineHeight: 1.4 }}>
+                      Este cliente tiene su cobro recurrente pendiente o fallido. No dispone de beneficios bonificados hasta regularizar su suscripción. Todos los servicios deben facturarse a su tarifa regular.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isContractCancelled && !isPendingPayment && (
                 <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '14px', padding: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
                   <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>🚫</span>
                   <div>
@@ -5720,21 +5819,25 @@ const VisitRecorder = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {/* ITEM 1: LAVADOS Y SECADOS */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: isContractCancelled ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
-                      {isContractCancelled ? '✕' : '✓'}
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: (isPendingPayment || isContractCancelled) ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                      {(isPendingPayment || isContractCancelled) ? '✕' : '✓'}
                     </div>
-                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isContractCancelled ? '#64748b' : '#1e293b' }}>
-                      {isContractCancelled ? '0/4 Lavados y Secados (Cancelado)' : `${getRegularWashesCount()}/${getTotalBenefitsCount()} Lavados y Secados`}
+                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: (isPendingPayment || isContractCancelled) ? '#64748b' : '#1e293b' }}>
+                      {isPendingPayment 
+                        ? '0/4 Lavados y Secados (Suspendido)' 
+                        : (isContractCancelled 
+                          ? '0/4 Lavados y Secados (Cancelado)' 
+                          : `${getRegularWashesCount()}/${getTotalBenefitsCount()} Lavados y Secados`)}
                     </span>
                   </div>
 
                   {/* ITEM 2: EXTRA O TRATAMIENTO */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: isContractCancelled ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
-                      {isContractCancelled ? '✕' : '✓'}
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: (isPendingPayment || isContractCancelled) ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                      {(isPendingPayment || isContractCancelled) ? '✕' : '✓'}
                     </div>
-                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isContractCancelled ? '#64748b' : '#1e293b' }}>
-                      {isContractCancelled ? 'Sin tratamientos bonificados' : '1 Lavado y secado extra o 1 uso de tratamiento profundo'}
+                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: (isPendingPayment || isContractCancelled) ? '#64748b' : '#1e293b' }}>
+                      {(isPendingPayment || isContractCancelled) ? 'Sin tratamientos bonificados' : '1 Lavado y secado extra o 1 uso de tratamiento profundo'}
                     </span>
                   </div>
                 </div>
