@@ -92,10 +92,12 @@ export const dataService = {
 
   getVisitsByClient: async (clientIdOrName) => {
     try {
-      const clean = encodeURIComponent(String(clientIdOrName || '').trim());
+      if (!clientIdOrName) return [];
+      const clean = encodeURIComponent(String(clientIdOrName).trim());
       const res = await fetch(`${API_URL}/visits/client/${clean}`);
       if (!res.ok) return [];
-      return await res.json();
+      const data = await res.json();
+      return Array.isArray(data) ? data.map(v => ({ ...v, servicios: ensureArray(v.servicios) })) : [];
     } catch (e) {
       return [];
     }
@@ -660,14 +662,7 @@ export const dataService = {
     } catch (e) { console.error(e); }
   },
 
-  getVisitsByClient: async (clientId) => {
-    try {
-      const res = await fetch(`${API_URL}/visits/client/${clientId}`);
-      if (!res.ok) return [];
-      const visits = await res.json();
-      return visits.map(v => ({ ...v, servicios: ensureArray(v.servicios) }));
-    } catch { return []; }
-  },
+
 
   getPendingSurvey: async (clientId) => {
     try {

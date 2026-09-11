@@ -895,20 +895,7 @@ app.post('/api/otp/verify', async (req, res) => {
   }
 });
 
-// === VISITS & BILLING HISTORY ENDPOINTS ===
-app.get('/api/visits/client/:clientId', async (req, res) => {
-  const { clientId } = req.params;
-  try {
-    const [rows] = await pool.query(
-      'SELECT v.*, s.name as salon_nombre FROM visits v LEFT JOIN salons s ON v.salon_id = s.id WHERE v.client_id = ? OR v.client_name = ? OR v.client_name LIKE ? ORDER BY v.visited_at DESC',
-      [clientId, clientId, `%${clientId}%`]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('[VISITS CLIENT ERROR]:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+
 
 app.post('/api/visits/checkout', async (req, res) => {
   const { ticketId, total, monto_recibido, devuelta, metodo_pago, items_detail, client_id, client_name, salon_id } = req.body;
@@ -1725,9 +1712,14 @@ app.get('/api/visits/client/:clientId', async (req, res) => {
       `SELECT v.*, COALESCE(s.name, 'Sucursal San Vicente de Paúl') as salon_name 
        FROM visits v 
        LEFT JOIN salons s ON v.salon_id = s.id 
-       WHERE v.client_id = ? OR LOWER(TRIM(v.client_name)) = LOWER(?) 
+       LEFT JOIN clients c ON (v.client_id = c.id OR LOWER(TRIM(v.client_name)) = LOWER(TRIM(c.nombre)))
+       WHERE v.client_id = ? 
+          OR LOWER(TRIM(v.client_name)) = LOWER(?) 
+          OR c.id = ? 
+          OR c.cedula = ?
+          OR v.client_name LIKE ?
        ORDER BY v.visited_at DESC`,
-      [target, target]
+      [target, target, target, target, `%${target}%`]
     );
     res.json(rows);
   } catch (err) {

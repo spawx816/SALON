@@ -282,29 +282,57 @@ const VisitRecorder = () => {
   const [isEditingGeneralName, setIsEditingGeneralName] = useState(false);
   const [tempGeneralName, setTempGeneralName] = useState('');
 
-  // Helper to calculate days until client's birthday
+  // Helper to calculate days until client's birthday & eligibility for birthday gift
   const getBirthdayCountdown = (client) => {
     const dobStr = client?.fecha_nacimiento || client?.fechaNacimiento || client?.dob;
     if (dobStr) {
       try {
-        const dob = new Date(dobStr);
-        if (!isNaN(dob.getTime())) {
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const nextBday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
-          if (today > nextBday) {
-            nextBday.setFullYear(today.getFullYear() + 1);
+        const cleanStr = String(dobStr).split('T')[0];
+        const parts = cleanStr.includes('-') ? cleanStr.split('-') : cleanStr.split('/');
+        let month = 0;
+        let day = 1;
+        if (parts.length >= 3) {
+          // If YYYY-MM-DD
+          if (parts[0].length === 4) {
+            month = parseInt(parts[1], 10) - 1;
+            day = parseInt(parts[2], 10);
+          } else {
+            // DD/MM/YYYY
+            day = parseInt(parts[0], 10);
+            month = parseInt(parts[1], 10) - 1;
           }
-          const diffTime = nextBday - today;
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          if (diffDays === 0 || diffDays === 365) {
-            return { isToday: true, isAvailable: true, label: '¡Felicidades en su día! 🎂🎉', text: '¡Hoy es su cumpleaños! 🎉' };
-          }
-          return { isToday: false, isAvailable: diffDays <= 30, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días` };
         }
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const bdayThisYear = new Date(today.getFullYear(), month, day);
+        bdayThisYear.setHours(0, 0, 0, 0);
+
+        // Difference from birthday to today in days
+        // If today is within [-3, +3] days or [0, 6] days of birthday week
+        const diffFromBday = Math.floor((today - bdayThisYear) / (1000 * 60 * 60 * 24));
+        const isEligibleWindow = (diffFromBday >= -3 && diffFromBday <= 3);
+
+        let nextBday = new Date(today.getFullYear(), month, day);
+        if (today > nextBday && !isEligibleWindow) {
+          nextBday.setFullYear(today.getFullYear() + 1);
+        }
+        const diffDays = Math.ceil((nextBday - today) / (1000 * 60 * 60 * 24));
+
+        if (diffFromBday === 0) {
+          return { isToday: true, isAvailable: true, label: '¡Felicidades en su día! 🎂🎉', text: '¡Hoy es su cumpleaños! 🎉', diffDays: 0 };
+        }
+        if (isEligibleWindow) {
+          return { isToday: false, isAvailable: true, label: '¡Semana de cumpleaños disponible! 🎁', text: 'Semana de cumpleaños (Disponible)', diffDays };
+        }
+        if (diffDays <= 30) {
+          return { isToday: false, isAvailable: false, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días`, diffDays };
+        }
+        return { isToday: false, isAvailable: false, label: `Cumpleaños en ${diffDays} días`, text: `Cumpleaños en ${diffDays} días`, diffDays };
       } catch (e) {}
     }
-    return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado' };
+    return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado', diffDays: null };
   };
 
   const getLastVisitText = () => {
@@ -312,11 +340,19 @@ const VisitRecorder = () => {
       const last = clientVisitsHistory[0];
       const vDate = last.visited_at || last.created_at || last.fecha;
       if (vDate) {
-        const diffMs = Date.now() - new Date(vDate).getTime();
-        const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
-        if (diffDays === 0) return 'Última visita hoy';
-        if (diffDays === 1) return 'Última visita ayer';
-        return `Última visita hace ${diffDays} días`;
+        const visitDateObj = new Date(vDate);
+        if (!isNaN(visitDateObj.getTime())) {
+          const now = new Date();
+          now.setHours(0, 0, 0, 0);
+          const vDateOnly = new Date(visitDateObj);
+          vDateOnly.setHours(0, 0, 0, 0);
+          
+          const diffDays = Math.round((now - vDateOnly) / (1000 * 60 * 60 * 24));
+          if (diffDays === 0) return 'Última visita hoy';
+          if (diffDays === 1) return 'Última visita ayer';
+          if (diffDays > 1 && diffDays <= 30) return `Última visita hace ${diffDays} días`;
+          return `Última visita: ${visitDateObj.toLocaleDateString('es-DO', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+        }
       }
     }
     return 'Primera visita (Sin historial)';
@@ -672,6 +708,7 @@ const VisitRecorder = () => {
     setClientSearchTerm('');
     setEmployeeDiscountApplied(false);
     setBirthdayDiscountActive(false);
+    setClientVisitsHistory([]);
     await loadClientPlanData(client.id, client.nombre || client.name);
     await loadClientVisitsHistory(client.id || client.nombre || client.name);
 
@@ -823,8 +860,9 @@ const VisitRecorder = () => {
         const match = (allClients || []).find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
         targetClient = match || { id: ticket.client_id, nombre: ticket.client_name || 'Cliente' };
         setClientFound(targetClient);
+        setClientVisitsHistory([]);
         await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
-        await loadClientVisitsHistory(ticket.client_id);
+        await loadClientVisitsHistory(ticket.client_id || ticket.client_name);
       } else {
         targetClient = { id: 'INVITADO', nombre: ticket.client_name || 'Cliente General', name: ticket.client_name || 'Cliente General', es_invitado: true };
         setClientFound(targetClient);
@@ -2303,7 +2341,8 @@ const VisitRecorder = () => {
                       padding: '0.3rem 0.9rem',
                       borderRadius: '9999px'
                     }}>
-                      <span style={{ fontSize: '0.85rem' }}>{isEmployeeClient ? '💼' : (isGuestClient ? '👤' : (hasActivePlan ? '⭐' : '🌟'))}</span>
+                      {isEmployeeClient && <span style={{ fontSize: '0.85rem' }}>💼</span>}
+                      {isGuestClient && <span style={{ fontSize: '0.85rem' }}>👤</span>}
                       <span>{isEmployeeClient ? 'Colaborador / Empleado' : (isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Plan Beauty Activo' : 'Cliente Registrado'))}</span>
                     </div>
                   </div>
@@ -5555,12 +5594,38 @@ const VisitRecorder = () => {
                   Regalos
                 </h4>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>🎁</span>
-                  <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
-                    Regalo de cumpleaños disponible
-                  </span>
-                </div>
+                {(() => {
+                  const bday = getBirthdayCountdown(clientFound);
+                  if (bday.isAvailable) {
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>🎁</span>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#15803d' }}>
+                            Regalo de cumpleaños disponible
+                          </span>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#16a34a' }}>
+                            {bday.isToday ? '¡Disponible hoy por su cumpleaños! 🎂' : '¡Disponible esta semana por cumpleaños! 🎉'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', opacity: 0.75 }}>
+                      <span style={{ fontSize: '1.35rem', lineHeight: 1, filter: 'grayscale(1)' }}>🎁</span>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#64748b' }}>
+                          Regalo de cumpleaños no disponible
+                        </span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8' }}>
+                          {bday.diffDays !== null ? `Faltan ${bday.diffDays} días para su fecha de cumpleaños` : 'Fecha de cumpleaños no registrada'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* SECTION: BENEFICIOS RENOVADOS */}
