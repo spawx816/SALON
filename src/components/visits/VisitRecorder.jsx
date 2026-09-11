@@ -1533,7 +1533,7 @@ const VisitRecorder = () => {
     }
   };
 
-  // Price change with 2.5s delay before triggering admin auth modal
+  // Price change with 2.5s delay before triggering admin auth modal (ONLY when reducing price below base)
   const priceChangeTimerRef = React.useRef(null);
   const handlePriceChange = (index, newPrice) => {
     const val = parseFloat(newPrice);
@@ -1541,25 +1541,44 @@ const VisitRecorder = () => {
     const item = lineItems[index];
     if (!item) return;
 
-    // Save current authorized price or base price to revert if cancelled
+    // Save current base price to revert if cancelled
     const previousPrice = item.precioBase;
 
-    // Update displayed value
+    // Update displayed value immediately
     const updated = [...lineItems];
     updated[index].precioAplicado = val;
     setLineItems(updated);
 
-    // If below base price and not yet authorized, debounce 2500ms before showing auth modal
+    // If price is EQUAL OR HIGHER than base price, it is 100% allowed without any PIN
+    if (val >= item.precioBase) {
+      if (priceChangeTimerRef.current) {
+        clearTimeout(priceChangeTimerRef.current);
+        priceChangeTimerRef.current = null;
+      }
+      if (pendingDiscountItem?.type === 'price' && pendingDiscountItem.index === index) {
+        setShowAdminPinModal(false);
+        setPendingDiscountItem(null);
+      }
+      return;
+    }
+
+    // ONLY if strictly BELOW base price and not yet authorized, debounce 2500ms before showing auth modal
     if (val < item.precioBase && !isAdminAuthorized) {
       if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
       priceChangeTimerRef.current = setTimeout(() => {
-        setPendingDiscountItem({
-          type: 'price',
-          index,
-          val,
-          previousPrice
+        setLineItems(currentItems => {
+          const currentItem = currentItems[index];
+          if (currentItem && currentItem.precioAplicado < currentItem.precioBase && !isAdminAuthorized) {
+            setPendingDiscountItem({
+              type: 'price',
+              index,
+              val: currentItem.precioAplicado,
+              previousPrice: currentItem.precioBase
+            });
+            setShowAdminPinModal(true);
+          }
+          return currentItems;
         });
-        setShowAdminPinModal(true);
       }, 2500);
     }
   };
