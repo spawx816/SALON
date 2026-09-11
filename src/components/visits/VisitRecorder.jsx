@@ -1406,15 +1406,18 @@ const VisitRecorder = () => {
   // Detección de cliente empleado
   const isEmployeeClient = Boolean(
     clientFound?.is_employee ||
+    clientFound?.isEmployee ||
     clientFound?.tipo === 'Empleado' ||
+    employeeDiscountApplied ||
     String(clientFound?.id || '').startsWith('EMP-') ||
     clientFound?.id === 'EMPLEADO' ||
     selectedTicket?.ticket_type === 'empleado' ||
     selectedTicket?.is_employee === true ||
     String(selectedTicket?.client_id || '').startsWith('EMP-') ||
     selectedTicket?.client_id === 'EMPLEADO' ||
-    (typeof selectedTicket?.draft_data === 'string' && selectedTicket.draft_data.includes('"isEmployeeTicket":true')) ||
-    selectedTicket?.draft_data?.isEmployeeTicket === true
+    selectedTicket?.client_id === 'Colaborador' ||
+    selectedTicket?.draft_data?.isEmployeeTicket === true ||
+    (typeof selectedTicket?.draft_data === 'string' && selectedTicket.draft_data.includes('"isEmployeeTicket":true'))
   );
 
   // Line Items Controls (Price rules & Intelligent matching)
@@ -1528,7 +1531,8 @@ const VisitRecorder = () => {
   const handleDiscountChange = (index, discountPercent) => {
     const pct = parseFloat(discountPercent) || 0;
     const item = lineItems[index];
-    if (pct > 0 && !isAdminAuthorized) {
+    const isAutoPermitted = isEmployeeClient || employeeDiscountApplied || birthdayDiscountActive || (activePlans && activePlans.length > 0 && pct === 20);
+    if (pct > 0 && !isAdminAuthorized && !isAutoPermitted) {
       setPendingDiscountItem({
         type: 'discount',
         index,
@@ -1580,6 +1584,10 @@ const VisitRecorder = () => {
 
     // ONLY if strictly BELOW base price and not yet authorized, debounce 2500ms before showing auth modal
     if (val < item.precioBase && !isAdminAuthorized) {
+      // Lavado Sencillo for employee is 200 by business rule - no PIN needed
+      if (isEmployeeClient && isLavadoSencillo(item.nombre) && val >= LAVADO_SENCILLO_PRICE) {
+        return;
+      }
       if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
       priceChangeTimerRef.current = setTimeout(() => {
         setLineItems(currentItems => {
@@ -1992,12 +2000,25 @@ const VisitRecorder = () => {
     }
 
     // Ensure no unauthorized discount or reduced price is present
-    const hasUnauthorized = lineItems.some(item => (item.precioAplicado !== undefined && item.precioAplicado < item.precioBase) || (item.descuento > 0 || item.descuentoPercent > 0));
-    if (hasUnauthorized && !isAdminAuthorized) {
-      if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
-      alert('⚠️ Se requiere Autorización de Administrador para los precios reducidos o descuentos aplicados en esta factura.');
-      setShowAdminPinModal(true);
-      return;
+    // Employee discounts (20% or $200 lavado), birthday discounts (15%), or plan discounts paying via regular methods do NOT require admin PIN
+    if (!isEmployeeClient && !employeeDiscountApplied) {
+      const hasUnauthorized = lineItems.some(item => {
+        if (item.precioAplicado !== undefined && item.precioAplicado < item.precioBase) return true;
+        const pct = parseFloat(item.descuentoPercent) || 0;
+        if (pct > 0 || (item.descuento && item.descuento > 0)) {
+          if (birthdayDiscountActive && (pct === 15 || Math.abs(pct - 15) < 0.1)) return false;
+          if (activePlans && activePlans.length > 0 && (pct === 20 || Math.abs(pct - 20) < 0.1)) return false;
+          return true;
+        }
+        return false;
+      });
+
+      if (hasUnauthorized && !isAdminAuthorized) {
+        if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
+        alert('⚠️ Se requiere Autorización de Administrador para los precios reducidos o descuentos manuales aplicados en esta factura.');
+        setShowAdminPinModal(true);
+        return;
+      }
     }
 
     // Check if invoice includes a Plan Beauty wash that requires client email OTP verification
@@ -2374,6 +2395,10 @@ const VisitRecorder = () => {
           const renewalDate = getRenewalDateText();
           const lastVisitText = getLastVisitText();
           const benefitsCount = getBenefitsCount();
+          const isGuestClient = clientFound?.id === 'INVITADO' || String(clientFound?.id || '').startsWith('INVITADO') || !clientFound || clientFound?.es_invitado;
+          const hasActivePlan = Boolean(activePlans && activePlans.length > 0);
+          const isPendingPayment = clientFound?.status === 'Pending_Payment' || (clientContracts || []).some(c => c.status === 'Pending_Payment' || c.status === 'Pendiente_Pago' || c.status === 'Overdue');
+          const isContractCancelled = clientFound?.status === 'Cancelled' || clientFound?.status === 'Cancelado' || (clientContracts || []).some(c => c.status === 'Cancelled' || c.status === 'Cancelado');
 
           return (
             <div style={{ background: '#ffffff', borderRight: '1px solid #e4e4e7', padding: '1.25rem', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '0.85rem', overflowY: 'auto' }}>
