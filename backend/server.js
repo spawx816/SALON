@@ -2210,7 +2210,7 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
         for (const p of applied_payments) {
           const pAmt = parseFloat(p.amount) || 0;
           const pMethod = p.method || 'Efectivo';
-          if (pAmt > 0) {
+          if (pAmt > 0 || pMethod.toLowerCase().includes('plan')) {
             await pool.query(
               `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
                VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
@@ -2636,9 +2636,9 @@ app.get('/api/cash-registers/:id/movements', async (req, res) => {
           transferenciaTotal += amt;
         } else if (method.includes('gift card') || method.includes('gift_card')) {
           giftCardTotal += amt;
-        } else if (method.includes('consumo')) {
+        } else if (method.includes('consumo') || method.includes('nomina') || method.includes('nómina') || method.includes('empleado')) {
           consumoTotal += amt;
-        } else if (method.includes('plan beauty') || method.includes('plan_beauty')) {
+        } else if (method.includes('plan beauty') || method.includes('plan_beauty') || method.includes('plan')) {
           planBeautyTotal += amt;
         } else {
           otrosTotal += amt;
