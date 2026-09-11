@@ -2045,9 +2045,9 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
       earnedCommission = parseFloat(Number(earnedCommission).toFixed(2));
 
       if (earnedCommission > 0) {
-        // Prevent duplicate insertion for this visit, employee, and service
+        // Check if commission was already logged for this visit, employee, and service
         const [existingLog] = await pool.query(
-          'SELECT id FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ?',
+          'SELECT id, status, monto_comision, rule_applied_description FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ?',
           [visitId, empId, serviceName]
         );
 
@@ -2058,6 +2058,22 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?, ?, ?)`,
             [visitId, ticketNum, empId, empName, serviceName, price, qty, desc, baseAmt, commissionType, commissionVal, earnedCommission, empLocalidad, schemeId, ruleDesc, createdAt || new Date()]
           );
+        } else if (existingLog[0].status === 'Pendiente') {
+          // If the scheme or rule was added/updated later, update the pending commission to match the new scheme calculation
+          const currentLog = existingLog[0];
+          if (Number(currentLog.monto_comision) !== earnedCommission || currentLog.rule_applied_description !== ruleDesc) {
+            await pool.query(
+              `UPDATE employee_commissions_log SET 
+                tipo_comision = ?, 
+                comision_valor = ?, 
+                monto_comision = ?, 
+                monto_base = ?, 
+                scheme_id = ?, 
+                rule_applied_description = ? 
+               WHERE id = ?`,
+              [commissionType, commissionVal, earnedCommission, baseAmt, schemeId, ruleDesc, currentLog.id]
+            );
+          }
         }
       }
     }
@@ -3807,16 +3823,15 @@ app.get('/api/commissions', async (req, res) => {
   try {
     // Auto-sync missing commissions from Facturado visits
     try {
-      const [uncommissionedVisits] = await pool.query(`
+      const [visitsToProcess] = await pool.query(`
         SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
         FROM visits v 
         WHERE v.status = 'Facturado' 
           AND v.items_detail IS NOT NULL 
-          AND v.id NOT IN (SELECT DISTINCT visit_id FROM employee_commissions_log WHERE visit_id IS NOT NULL)
         ORDER BY v.visited_at DESC 
-        LIMIT 100
+        LIMIT 200
       `);
-      for (const uv of uncommissionedVisits) {
+      for (const uv of visitsToProcess) {
         await processVisitCommissions(uv.id, uv.items_detail, uv.ticket_number, uv.visited_at);
       }
     } catch(syncErr) {
