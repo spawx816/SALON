@@ -1861,7 +1861,9 @@ const VisitRecorder = () => {
       alert('Por favor ingresa el monto de dinero contado físicamente en caja.');
       return;
     }
-    const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+    const expected = registerSummary?.montoEstimadoEnCaja !== undefined
+      ? Number(registerSummary.montoEstimadoEnCaja)
+      : Number(activeRegister.monto_inicial || 0);
     const diff = declared - expected;
     if (diff < -0.01) {
       alert(`⛔ NO SE PUEDE CERRAR LA CAJA CON UN FALTANTE DE EFECTIVO.\n\nEfectivo Esperado: RD$ ${expected.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nDinero Contado: RD$ ${declared.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nFaltante: - RD$ ${Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2 })}\n\nPor favor revise las transacciones, gastos o justifique los movimientos antes de cerrar.`);
@@ -5165,7 +5167,9 @@ const VisitRecorder = () => {
                     {/* DIFERENCIA */}
                     {(() => {
                       const declared = parseFloat(closeRegisterAmount) || 0;
-                      const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+                      const expected = registerSummary?.montoEstimadoEnCaja !== undefined
+                        ? Number(registerSummary.montoEstimadoEnCaja)
+                        : Number(activeRegister.monto_inicial || 0);
                       const diff = closeRegisterAmount === '' ? 0 : declared - expected;
                       const isSquare = Math.abs(diff) < 0.01;
                       const isShortage = closeRegisterAmount !== '' && diff < -0.01;
@@ -5185,7 +5189,9 @@ const VisitRecorder = () => {
 
                   {(() => {
                     const declared = parseFloat(closeRegisterAmount) || 0;
-                    const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+                    const expected = registerSummary?.montoEstimadoEnCaja !== undefined
+                      ? Number(registerSummary.montoEstimadoEnCaja)
+                      : Number(activeRegister.monto_inicial || 0);
                     const diff = closeRegisterAmount === '' ? 0 : declared - expected;
                     const isShortage = closeRegisterAmount !== '' && diff < -0.01;
                     if (isShortage) {
@@ -5320,27 +5326,27 @@ const VisitRecorder = () => {
                 <button
                   type="button"
                   onClick={handleCloseCashRegister}
-                  disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01}
+                  disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01}
                   style={{
                     flex: 1,
                     padding: '0.85rem 1.25rem',
                     borderRadius: '12px',
                     border: 'none',
-                    background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : 'linear-gradient(to right, #be185d, #7c3aed)',
+                    background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : 'linear-gradient(to right, #be185d, #7c3aed)',
                     color: '#ffffff',
                     fontWeight: 800,
                     fontSize: '0.9rem',
-                    cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer',
+                    cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
                     boxShadow: '0 4px 14px rgba(190, 24, 93, 0.35)',
-                    opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1
+                    opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1
                   }}
                 >
                   <LockIcon size={18} />
-                  <span>{((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Cierre bloqueado por faltante' : 'Cerrar caja de jornada'}</span>
+                  <span>{((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Cierre bloqueado por faltante' : 'Cerrar caja de jornada'}</span>
                 </button>
               </div>
               <span style={{ fontSize: '0.725rem', color: '#64748b', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontWeight: 500 }}>
@@ -5419,7 +5425,9 @@ const VisitRecorder = () => {
             {/* LIVE DIFFERENCE CALCULATION FEEDBACK */}
             {closeRegisterAmount !== '' && (() => {
               const declared = parseFloat(closeRegisterAmount) || 0;
-              const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+              const expected = registerSummary?.montoEstimadoEnCaja !== undefined
+                ? Number(registerSummary.montoEstimadoEnCaja)
+                : Number(activeRegister.monto_inicial || 0);
               const diff = declared - expected;
               const isShortage = diff < -0.01;
               return (
@@ -5469,20 +5477,20 @@ const VisitRecorder = () => {
               </button>
               <button
                 onClick={handleCloseCashRegister}
-                disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01}
+                disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01}
                 style={{ 
                   flex: 1, 
                   padding: '0.75rem', 
                   borderRadius: '10px', 
                   border: 'none', 
-                  background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : '#dc2626', 
+                  background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : '#dc2626', 
                   color: '#ffffff', 
                   fontWeight: 800, 
-                  cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer', 
-                  opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1 
+                  cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer', 
+                  opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1 
                 }}
               >
-                {((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Bloqueado por faltante' : 'Finalizar y Cerrar Caja'}
+                {((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Bloqueado por faltante' : 'Finalizar y Cerrar Caja'}
               </button>
             </div>
           </div>
