@@ -966,37 +966,9 @@ app.post('/api/otp/verify', async (req, res) => {
 
 
 app.post('/api/visits/checkout', async (req, res) => {
-  const { ticketId, total, monto_recibido, devuelta, metodo_pago, items_detail, client_id, client_name, salon_id } = req.body;
-  const visitId = ticketId || `VIS-${Date.now()}`;
-  const ticketNumber = `SD-${String(Math.floor(1000 + Math.random() * 9000))}`;
-  const servicesNames = Array.isArray(items_detail) ? items_detail.map(i => i.nombre) : ['Servicio Salón'];
-
-  try {
-    await pool.query(`
-      INSERT INTO visits (
-        id, client_id, client_name, servicios, salon_id, status, ticket_number, 
-        total, monto_recibido, devuelta, items_detail, metodo_pago, visited_at
-      ) VALUES (?, ?, ?, ?, ?, 'Facturado', ?, ?, ?, ?, ?, ?, NOW())
-    `, [
-      visitId, 
-      client_id || 'INVITADO', 
-      client_name || 'Cliente', 
-      JSON.stringify(servicesNames), 
-      salon_id || 1, 
-      ticketNumber,
-      total || 0,
-      monto_recibido || total || 0,
-      devuelta || 0,
-      JSON.stringify(items_detail || []),
-      metodo_pago || 'Efectivo'
-    ]);
-
-    console.log(`[VISIT] ✅ Recorded new visit checkout: ${visitId} (${ticketNumber}) for client ${client_name}`);
-    res.json({ success: true, visitId, ticketNumber });
-  } catch (err) {
-    console.error('[VISIT CHECKOUT ERROR]:', err);
-    res.status(500).json({ error: err.message });
-  }
+  const visitId = req.body.ticketId || req.body.id || `VIS-${Date.now()}`;
+  req.params = { id: visitId };
+  return handleCheckoutVisit(req, res);
 });
 
 
@@ -1940,9 +1912,9 @@ app.put('/api/visits/:id/draft', async (req, res) => {
 });
 
 // Finalize checkout and mark as Facturado
-app.post('/api/visits/:id/checkout', async (req, res) => {
+async function handleCheckoutVisit(req, res) {
   try {
-    const { id } = req.params;
+    const id = req.params?.id || req.body?.ticketId || req.body?.id || `VIS-${Date.now()}`;
     const { total, monto_recibido, devuelta, metodo_pago, items_detail, client_id, client_name, salon_id, employee_consumption, gift_card_redemption } = req.body;
 
     const [existing] = await pool.query('SELECT id FROM visits WHERE id = ?', [id]);
@@ -2291,7 +2263,8 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}
+app.post('/api/visits/:id/checkout', handleCheckoutVisit);
 
 // === ANULACIÓN INMUTABLE DE FACTURAS/TICKETS (SECCIÓN 16) ===
 app.post('/api/visits/:id/void', async (req, res) => {
