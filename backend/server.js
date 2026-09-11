@@ -1911,6 +1911,161 @@ app.put('/api/visits/:id/draft', async (req, res) => {
   }
 });
 
+// Robust visit commissions processor for assigned employees
+async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null, createdAt = null) {
+  try {
+    let items = itemsDetail;
+    if (typeof items === 'string') {
+      try { items = JSON.parse(items); } catch(e) { items = []; }
+    }
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    let ticketNum = ticketNumber;
+    if (!ticketNum) {
+      const [vRows] = await pool.query('SELECT ticket_number, visited_at FROM visits WHERE id = ?', [visitId]);
+      ticketNum = vRows[0]?.ticket_number || `TK-${visitId}`;
+      if (!createdAt && vRows[0]?.visited_at) createdAt = vRows[0].visited_at;
+    }
+
+    for (const item of items) {
+      // 1. Identify employee by id or name
+      let empId = item.empleado_id || item.employee_id || item.empleado || item.employee;
+      let empName = item.empleado_nombre || item.employee_name || item.empleado || item.employee || '';
+
+      if (!empId && !empName) continue;
+      if (empId === 'N/A' || empName === 'N/A') continue;
+
+      const cleanEmpId = empId ? String(empId).replace('EMP-', '').replace('COMM-', '').trim() : '';
+
+      const [empRows] = await pool.query(
+        'SELECT id, nombre, localidad, salon_id, commission_scheme_id FROM staff_records WHERE id = ? OR id = ? OR nombre = ? LIMIT 1',
+        [cleanEmpId || 0, empId || 0, empName || '']
+      );
+
+      let empLocalidad = '';
+      let schemeId = null;
+
+      if (empRows.length > 0) {
+        empId = empRows[0].id;
+        empName = empRows[0].nombre;
+        empLocalidad = empRows[0].localidad || '';
+        schemeId = empRows[0].commission_scheme_id || null;
+      }
+
+      if (!empId) continue;
+
+      const rawServiceName = item.nombre || item.servicio || item.name || item.service_name || item.descripcion || item.description || 'Servicio';
+      const cleanServiceName = rawServiceName.replace(/\s*\(Plan Beauty\)/i, '').replace(/\s*\(Adicional\)/i, '').trim();
+      const serviceName = rawServiceName;
+
+      const price = parseFloat(item.precioAplicado !== undefined ? item.precioAplicado : (item.precio || item.precioBase || 0));
+      const qty = parseInt(item.cantidad) || 1;
+      const desc = parseFloat(item.descuento) || 0;
+
+      // Calculate price after line discounts
+      const finalLinePrice = Math.max(0, (price * qty) - desc);
+
+      // Exclude ITBIS (18%) from base amount if applicable
+      const appliesItbis = item.aplica_itbis === 1 || item.aplica_itbis === true;
+      let baseAmt = finalLinePrice;
+      if (appliesItbis && finalLinePrice > 0) {
+        baseAmt = parseFloat((finalLinePrice / 1.18).toFixed(2));
+      }
+
+      let commissionType = 'Porcentaje';
+      let commissionVal = 15.00;
+      let ruleDesc = 'Categoría Base';
+
+      // Fetch service details (category & fallback rule)
+      const [srvRows] = await pool.query(
+        'SELECT categoria, genera_comision, tipo_comision, comision_valor FROM services WHERE LOWER(nombre) = LOWER(?) OR LOWER(nombre) = LOWER(?) OR id = ? LIMIT 1',
+        [cleanServiceName, rawServiceName, item.service_id || '']
+      );
+      const srvData = srvRows[0] || {};
+      const serviceCategory = srvData.categoria || 'General';
+
+      if (srvData.genera_comision === 0) {
+        commissionVal = 0;
+        ruleDesc = 'Servicio no genera comisión';
+      } else {
+        let ruleFound = false;
+
+        // Priority 1 & Priority 2: Check employee's scheme rules
+        if (schemeId) {
+          const [schemeRules] = await pool.query(
+            'SELECT * FROM commission_scheme_rules WHERE scheme_id = ? ORDER BY prioridad ASC, id ASC',
+            [schemeId]
+          );
+
+          // Priority 1: Service specific exception rule
+          const serviceRule = schemeRules.find(r => r.rule_type === 'servicio' && r.service_name && (r.service_name.toLowerCase() === cleanServiceName.toLowerCase() || r.service_name.toLowerCase() === rawServiceName.toLowerCase()));
+          if (serviceRule) {
+            commissionType = serviceRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+            commissionVal = parseFloat(serviceRule.valor) || 0;
+            ruleDesc = `Excepción por Servicio (${cleanServiceName})`;
+            ruleFound = true;
+          }
+
+          // Priority 2: Category rule
+          if (!ruleFound) {
+            const catRule = schemeRules.find(r => r.rule_type === 'categoria' && r.category_name && r.category_name.toLowerCase() === serviceCategory.toLowerCase());
+            if (catRule) {
+              commissionType = catRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+              commissionVal = parseFloat(catRule.valor) || 0;
+              ruleDesc = `Regla por Categoría (${serviceCategory})`;
+              ruleFound = true;
+            }
+          }
+        }
+
+        // Priority 3: Fallback custom legacy employee rule or default service rule
+        if (!ruleFound) {
+          const [legacyRules] = await pool.query(
+            'SELECT * FROM employee_commission_rules WHERE employee_id = ? AND (LOWER(service_name) = LOWER(?) OR service_name = "General") ORDER BY service_name DESC LIMIT 1',
+            [empId, cleanServiceName]
+          );
+          if (legacyRules.length > 0) {
+            commissionType = legacyRules[0].tipo_comision;
+            commissionVal = parseFloat(legacyRules[0].comision_valor) || 0;
+            ruleDesc = 'Regla Específica de Empleado';
+          } else if (srvRows.length > 0) {
+            commissionType = srvData.tipo_comision || 'Porcentaje';
+            commissionVal = parseFloat(srvData.comision_valor) || 0;
+            ruleDesc = 'Regla General de Servicio';
+          }
+        }
+      }
+
+      let earnedCommission = 0;
+      if (commissionType === 'Porcentaje') {
+        earnedCommission = (baseAmt * commissionVal) / 100;
+      } else {
+        earnedCommission = commissionVal * qty;
+      }
+      earnedCommission = parseFloat(Number(earnedCommission).toFixed(2));
+
+      if (earnedCommission > 0) {
+        // Prevent duplicate insertion for this visit, employee, and service
+        const [existingLog] = await pool.query(
+          'SELECT id FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ?',
+          [visitId, empId, serviceName]
+        );
+
+        if (existingLog.length === 0) {
+          await pool.query(
+            `INSERT INTO employee_commissions_log 
+              (visit_id, ticket_number, employee_id, employee_name, service_name, precio_servicio, cantidad, descuento_aplicado, monto_base, tipo_comision, comision_valor, monto_comision, status, localidad, scheme_id, rule_applied_description, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?, ?, ?)`,
+            [visitId, ticketNum, empId, empName, serviceName, price, qty, desc, baseAmt, commissionType, commissionVal, earnedCommission, empLocalidad, schemeId, ruleDesc, createdAt || new Date()]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[PROCESS VISIT COMMISSIONS ERROR]:', err);
+  }
+}
+
 // Finalize checkout and mark as Facturado
 async function handleCheckoutVisit(req, res) {
   try {
@@ -2049,122 +2204,9 @@ async function handleCheckoutVisit(req, res) {
       }
     }
 
-    // Auto-calculate and record commissions per line-item for assigned employees (Multi-employee support - Section 9 & 10)
+    // Auto-calculate and record commissions per line-item for assigned employees
     if (Array.isArray(items_detail) && items_detail.length > 0) {
-      const [vRows] = await pool.query('SELECT ticket_number FROM visits WHERE id = ?', [id]);
-      const ticketNum = vRows[0]?.ticket_number || `TK-${id}`;
-
-      for (const item of items_detail) {
-        const empId = item.empleado_id || item.employee_id;
-        const empName = item.empleado_nombre || item.employee_name || 'N/A';
-
-        if (empId && empId !== 'N/A') {
-          const serviceName = item.nombre || item.servicio || item.name || item.service_name || item.descripcion || item.description || 'Servicio';
-          const price = parseFloat(item.precioAplicado || item.precio || 0);
-          const qty = parseInt(item.cantidad) || 1;
-          const desc = parseFloat(item.descuento) || 0;
-          
-          // 1. Calculate price after discounts
-          const finalLinePrice = Math.max(0, (price * qty) - desc);
-
-          // 2. Exclude ITBIS (18%) from base amount if applicable
-          const appliesItbis = item.aplica_itbis === 1 || item.aplica_itbis === true;
-          let baseAmt = finalLinePrice;
-          if (appliesItbis && finalLinePrice > 0) {
-            baseAmt = parseFloat((finalLinePrice / 1.18).toFixed(2));
-          }
-
-          let commissionType = 'Porcentaje';
-          let commissionVal = 15.00;
-          let ruleDesc = 'Categoría Base';
-          let schemeId = null;
-
-          // Fetch employee's assigned scheme & location
-          const [empRows] = await pool.query(
-            'SELECT id, nombre, localidad, salon_id, commission_scheme_id FROM staff_records WHERE id = ?',
-            [empId]
-          );
-          const empData = empRows[0] || {};
-          const empLocalidad = empData.localidad || '';
-          schemeId = empData.commission_scheme_id || null;
-
-          // Fetch service details (category & fallback rule)
-          const [srvRows] = await pool.query(
-            'SELECT categoria, genera_comision, tipo_comision, comision_valor FROM services WHERE nombre = ?',
-            [serviceName]
-          );
-          const srvData = srvRows[0] || {};
-          const serviceCategory = srvData.categoria || 'General';
-
-          if (srvData.genera_comision === 0) {
-            commissionVal = 0;
-            ruleDesc = 'Servicio no genera comisión';
-          } else {
-            let ruleFound = false;
-
-            // Priority 1 & Priority 2: Check employee's scheme rules
-            if (schemeId) {
-              const [schemeRules] = await pool.query(
-                'SELECT * FROM commission_scheme_rules WHERE scheme_id = ? ORDER BY prioridad ASC, id ASC',
-                [schemeId]
-              );
-
-              // Priority 1: Service specific exception rule
-              const serviceRule = schemeRules.find(r => r.rule_type === 'servicio' && r.service_name && r.service_name.toLowerCase() === serviceName.toLowerCase());
-              if (serviceRule) {
-                commissionType = serviceRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
-                commissionVal = parseFloat(serviceRule.valor) || 0;
-                ruleDesc = `Excepción por Servicio (${serviceName})`;
-                ruleFound = true;
-              }
-
-              // Priority 2: Category rule
-              if (!ruleFound) {
-                const catRule = schemeRules.find(r => r.rule_type === 'categoria' && r.category_name && r.category_name.toLowerCase() === serviceCategory.toLowerCase());
-                if (catRule) {
-                  commissionType = catRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
-                  commissionVal = parseFloat(catRule.valor) || 0;
-                  ruleDesc = `Regla por Categoría (${serviceCategory})`;
-                  ruleFound = true;
-                }
-              }
-            }
-
-            // Priority 3: Fallback custom legacy employee rule or default service rule
-            if (!ruleFound) {
-              const [legacyRules] = await pool.query(
-                'SELECT * FROM employee_commission_rules WHERE employee_id = ? AND (service_name = ? OR service_name = "General") ORDER BY service_name DESC LIMIT 1',
-                [empId, serviceName]
-              );
-              if (legacyRules.length > 0) {
-                commissionType = legacyRules[0].tipo_comision;
-                commissionVal = parseFloat(legacyRules[0].comision_valor) || 0;
-                ruleDesc = 'Regla Específica de Empleado';
-              } else if (srvRows.length > 0) {
-                commissionType = srvData.tipo_comision || 'Porcentaje';
-                commissionVal = parseFloat(srvData.comision_valor) || 0;
-                ruleDesc = 'Regla General de Servicio';
-              }
-            }
-          }
-
-          let earnedCommission = 0;
-          if (commissionType === 'Porcentaje') {
-            earnedCommission = (baseAmt * commissionVal) / 100;
-          } else {
-            earnedCommission = commissionVal * qty;
-          }
-
-          if (earnedCommission > 0) {
-            await pool.query(
-              `INSERT INTO employee_commissions_log 
-                (visit_id, ticket_number, employee_id, employee_name, service_name, precio_servicio, cantidad, descuento_aplicado, monto_base, tipo_comision, comision_valor, monto_comision, status, localidad, scheme_id, rule_applied_description, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?, ?, NOW())`,
-              [id, ticketNum, empId, empName, serviceName, price, qty, desc, baseAmt, commissionType, commissionVal, earnedCommission, empLocalidad, schemeId, ruleDesc]
-            );
-          }
-        }
-      }
+      await processVisitCommissions(id, items_detail);
     }
 
     // Auto-record sale movement into active cash register session
@@ -3763,6 +3805,24 @@ app.delete('/api/services/:id', async (req, res) => {
 // === MÓDULO DE COMISIONES ===
 app.get('/api/commissions', async (req, res) => {
   try {
+    // Auto-sync missing commissions from Facturado visits
+    try {
+      const [uncommissionedVisits] = await pool.query(`
+        SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
+        FROM visits v 
+        WHERE v.status = 'Facturado' 
+          AND v.items_detail IS NOT NULL 
+          AND v.id NOT IN (SELECT DISTINCT visit_id FROM employee_commissions_log WHERE visit_id IS NOT NULL)
+        ORDER BY v.visited_at DESC 
+        LIMIT 100
+      `);
+      for (const uv of uncommissionedVisits) {
+        await processVisitCommissions(uv.id, uv.items_detail, uv.ticket_number, uv.visited_at);
+      }
+    } catch(syncErr) {
+      console.warn('[COMMISSIONS SYNC WARN]:', syncErr.message);
+    }
+
     // Quick repair for any legacy generic 'Servicio' labels
     try {
       const [genericCheck] = await pool.query("SELECT id, visit_id, ticket_number, employee_id FROM employee_commissions_log WHERE service_name = 'Servicio' OR service_name IS NULL LIMIT 50");
@@ -3805,9 +3865,9 @@ app.get('/api/commissions', async (req, res) => {
       params.push(`${end_date} 23:59:59`);
     }
     if (employee_id) {
-      const cleanEmpId = String(employee_id).replace('EMP-', '').replace('COMM-', '');
-      query += ' AND (c.employee_id = ? OR c.employee_id = ?)';
-      params.push(cleanEmpId, employee_id);
+      const cleanEmpId = String(employee_id).replace('EMP-', '').replace('COMM-', '').trim();
+      query += ' AND (c.employee_id = ? OR c.employee_id = ? OR s.id = ? OR c.employee_name LIKE ?)';
+      params.push(cleanEmpId, employee_id, cleanEmpId, `%${employee_id}%`);
     }
     if (status) {
       query += ' AND c.status = ?';
