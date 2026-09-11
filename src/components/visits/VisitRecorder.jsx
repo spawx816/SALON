@@ -2478,77 +2478,35 @@ const VisitRecorder = () => {
                 )}
               </div>
 
-              {/* SEARCH BAR (WHEN NO CLIENT SELECTED) */}
-              {!isClientSelected && (
-                <div style={{ position: 'relative', width: '100%' }}>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px' }} />
-                    <input
-                      type="text"
-                      placeholder="Buscar por cédula, nombre o tel..."
-                      value={clientSearchTerm}
-                      onChange={(e) => setClientSearchTerm(e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '0.65rem 1rem 0.65rem 2.25rem',
-                        borderRadius: '12px',
-                        border: '1.5px solid #e2e8f0',
-                        fontSize: '0.825rem',
-                        background: '#f8fafc',
-                        outline: 'none',
-                        boxSizing: 'border-box'
-                      }}
-                    />
+              {!isClientSelected ? (
+                /* EMPTY STATE: NO CLIENT SELECTED */
+                <div style={{
+                  padding: '3rem 1rem',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.85rem',
+                  flex: 1,
+                  background: '#fafafa',
+                  borderRadius: '20px',
+                  border: '1.5px dashed #e4e4e7',
+                  margin: '0.5rem 0'
+                }}>
+                  <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem' }}>
+                    🎫
                   </div>
-
-                  {filteredClients.length > 0 && (
-                    <div style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      background: '#ffffff',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '12px',
-                      boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-                      zIndex: 100,
-                      maxHeight: '220px',
-                      overflowY: 'auto',
-                      marginTop: '4px'
-                    }}>
-                      {filteredClients.map(c => (
-                        <div
-                          key={c.id}
-                          onClick={() => handleSelectClient(c)}
-                          style={{
-                            padding: '0.65rem 0.85rem',
-                            borderBottom: '1px solid #f1f5f9',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#fdf2f8'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
-                        >
-                          <div>
-                            <strong style={{ fontSize: '0.85rem', color: '#0f172a', display: 'block' }}>{c.nombre || c.name}</strong>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{c.cedula || c.telefono || 'Sin cédula'}</span>
-                          </div>
-                          {c.plan && (
-                            <span style={{ background: '#fdf4ff', color: '#c026d3', fontSize: '0.7rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px' }}>
-                              {c.plan}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div>
+                    <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>
+                      Sin cliente seleccionado
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.775rem', color: '#64748b', lineHeight: 1.4 }}>
+                      Selecciona un ticket pendiente o presiona <strong>+ Generar Nuevo Ticket</strong> en la barra superior.
+                    </p>
+                  </div>
                 </div>
-              )}
-
-              {/* DETAILED PROFILE CARD (WHEN CLIENT SELECTED) */}
-              {isClientSelected && (
+              ) : (
                 <div style={{
                   background: '#ffffff',
                   border: '1px solid #e2e8f0',
