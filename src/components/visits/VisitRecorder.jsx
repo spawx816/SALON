@@ -745,8 +745,6 @@ const VisitRecorder = () => {
     setIsAdminAuthorized(false);
     setPendingDiscountItem(null);
     setAdminPin('');
-    setCustomTip(0);
-    setCustomClientNote('');
     setAdminOtpCode('');
   };
 
