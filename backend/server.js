@@ -1248,6 +1248,36 @@ app.get('/api/contracts', async (req, res) => {
   }
 });
 
+// Fetch all contracts for a specific client (by client_id or cedula or name)
+app.get('/api/contracts/client/:clientId', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const cleanId = String(clientId || '').trim();
+    const [rows] = await pool.query(
+      `SELECT 
+        c.*, 
+        cl.nombre as clientName, 
+        cl.cedula as clientCedula,
+        cl.status as clientStatus,
+        p.title as planTitle,
+        p.services as planServices,
+        p.price as planPrice
+       FROM contracts c
+       LEFT JOIN clients cl ON c.client_id = cl.id
+       LEFT JOIN plans p ON c.plan_id = p.id
+       WHERE c.client_id = ? 
+          OR c.client_id = (SELECT cedula FROM clients WHERE id = ? LIMIT 1)
+          OR cl.cedula = ?
+          OR cl.nombre = ?
+       ORDER BY c.id DESC`,
+      [cleanId, cleanId, cleanId, cleanId]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Fetch single contract with all details (including heavy photo columns)
 app.get('/api/contracts/:id', async (req, res) => {
   try {

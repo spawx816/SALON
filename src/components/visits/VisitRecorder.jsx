@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { 
-  Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star, 
-  Lock as LockIcon, ArrowLeft, PlusCircle, Printer, CheckCircle2, ShieldAlert, 
+import {
+  Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star,
+  Lock as LockIcon, ArrowLeft, PlusCircle, Printer, CheckCircle2, ShieldAlert,
   Banknote, CreditCard, Landmark, Gift, Layers, Percent, AlertTriangle, ChevronDown, ChevronUp, ChevronRight, ChevronLeft, RefreshCw, X, XCircle,
   UserPlus, Phone, Cake, TrendingUp, Sparkles, History, Pencil, Edit3, Plus, User, Receipt, Zap, Eye, ArrowRight, Trash2, Wallet, FileText
 } from 'lucide-react';
@@ -58,6 +58,7 @@ const VisitRecorder = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activePlans, setActivePlans] = useState([]);
+  const [clientContracts, setClientContracts] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState('none');
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -213,7 +214,7 @@ const VisitRecorder = () => {
     try {
       const invs = await dataService.getCashRegisterInvoices(activeRegister.id);
       setCajaInvoices(invs);
-    } catch(err) {
+    } catch (err) {
       console.error('Error cargando facturas de la caja:', err);
     } finally {
       setLoadingCajaInvoices(false);
@@ -233,7 +234,7 @@ const VisitRecorder = () => {
       } else {
         alert('Error enviando factura: ' + (res.error || 'Desconocido'));
       }
-    } catch(err) {
+    } catch (err) {
       alert('Error al enviar correo: ' + err.message);
     } finally {
       setEmailSendingId(null);
@@ -316,7 +317,7 @@ const VisitRecorder = () => {
             month = parseInt(parts[1], 10) - 1;
           }
         }
-        
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -344,7 +345,7 @@ const VisitRecorder = () => {
           return { isToday: false, isAvailable: false, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días`, diffDays };
         }
         return { isToday: false, isAvailable: false, label: `Cumpleaños en ${diffDays} días`, text: `Cumpleaños en ${diffDays} días`, diffDays };
-      } catch (e) {}
+      } catch (e) { }
     }
     return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado', diffDays: null };
   };
@@ -360,7 +361,7 @@ const VisitRecorder = () => {
           now.setHours(0, 0, 0, 0);
           const vDateOnly = new Date(visitDateObj);
           vDateOnly.setHours(0, 0, 0, 0);
-          
+
           const diffDays = Math.round((now - vDateOnly) / (1000 * 60 * 60 * 24));
           if (diffDays === 0) return 'Última visita hoy';
           if (diffDays === 1) return 'Última visita ayer';
@@ -380,6 +381,13 @@ const VisitRecorder = () => {
         return new Date(plan.next_billing_date).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
       }
       return 'En ciclo activo';
+    }
+    const cancelledContract = (clientContracts || []).find(c => c.status === 'Cancelled' || c.status === 'Cancelado');
+    if (clientFound?.status === 'Cancelled' || clientFound?.status === 'Cancelado' || cancelledContract) {
+      const cDate = cancelledContract?.next_billing_date || cancelledContract?.last_billed_date || cancelledContract?.signed_at;
+      return cDate 
+        ? `Cancelada el ${new Date(cDate).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })}` 
+        : 'Suscripción Cancelada';
     }
     return 'Sin suscripción activa';
   };
@@ -644,7 +652,7 @@ const VisitRecorder = () => {
             const used = pastV.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && new Date(v.visited_at).getTime() >= lastB && (v.metodo_pago || '').toLowerCase().includes('plan')).length;
             washesAvailable = String(Math.max(0, 4 - used));
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Trigger Physical Ticket Print Layout
@@ -662,7 +670,7 @@ const VisitRecorder = () => {
       });
       setShowPrintModal(true);
       setTimeout(() => {
-        try { window.print(); } catch (e) {}
+        try { window.print(); } catch (e) { }
       }, 350);
 
       // Ticket created successfully and sent to pending list (No auto-selection)
@@ -762,14 +770,14 @@ const VisitRecorder = () => {
       if (ticket.draft_data) {
         draft = typeof ticket.draft_data === 'string' ? JSON.parse(ticket.draft_data) : ticket.draft_data;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     let items = [];
     try {
       if (ticket.items_detail) {
         items = typeof ticket.items_detail === 'string' ? JSON.parse(ticket.items_detail) : ticket.items_detail;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     let rawItems = (Array.isArray(items) && items.length > 0) ? items : (draft.lineItems || []);
 
@@ -777,7 +785,7 @@ const VisitRecorder = () => {
       let rawServicios = [];
       try {
         rawServicios = typeof ticket.servicios === 'string' ? JSON.parse(ticket.servicios) : ticket.servicios;
-      } catch (e) {}
+      } catch (e) { }
       if (Array.isArray(rawServicios)) {
         rawItems = rawServicios
           .filter(s => {
@@ -924,6 +932,7 @@ const VisitRecorder = () => {
     try {
       if (!clientId || clientId === 'INVITADO' || String(clientId).startsWith('INVITADO')) {
         setActivePlans([]);
+        setClientContracts([]);
         return;
       }
 
@@ -938,6 +947,8 @@ const VisitRecorder = () => {
       if ((!contractsFound || contractsFound.length === 0) && ticketObj?.plan_beauty_id) {
         contractsFound = await dataService.getContractByClient(ticketObj.plan_beauty_id);
       }
+
+      setClientContracts(contractsFound || []);
 
       // Filter only Active contracts
       const activeContracts = (Array.isArray(contractsFound) ? contractsFound : []).filter(
@@ -993,7 +1004,7 @@ const VisitRecorder = () => {
                 hasPlanWashItem = parsed.some(i => i.isPlanWash || (i.nombre && i.nombre.toLowerCase().includes('plan beauty')));
               }
             }
-          } catch (e) {}
+          } catch (e) { }
 
           return hasPlanWashItem;
         });
@@ -1066,7 +1077,7 @@ const VisitRecorder = () => {
   const getSmartRecommendations = (customClient = null, customHistory = null) => {
     const activeClient = customClient || clientFound || selectedTicket;
     const historyToUse = customHistory || (customClient && customClient !== clientFound ? [] : clientVisitsHistory);
-    
+
     // 1. Gather services from actual past visits
     const pastServicesMap = new Map();
     if (Array.isArray(historyToUse)) {
@@ -1079,7 +1090,7 @@ const VisitRecorder = () => {
             const raw = typeof v.servicios === 'string' ? JSON.parse(v.servicios) : v.servicios;
             if (Array.isArray(raw)) items = raw.map(s => (typeof s === 'string' ? { nombre: s, precio: 600 } : s));
           }
-        } catch (e) {}
+        } catch (e) { }
 
         if (Array.isArray(items)) {
           items.forEach(it => {
@@ -1121,7 +1132,7 @@ const VisitRecorder = () => {
 
     // 2. If client has fewer than 3 past unique services, complement with top catalog services
     if (recommendations.length < 3) {
-      const topDefaults = (availableServices && availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES).filter(s => 
+      const topDefaults = (availableServices && availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES).filter(s =>
         !s.nombre.toLowerCase().includes('lavado') && !recommendations.some(r => r.nombre.toLowerCase() === s.nombre.toLowerCase())
       );
       topDefaults.slice(0, 3 - recommendations.length).forEach(s => {
@@ -1181,7 +1192,7 @@ const VisitRecorder = () => {
         empleadoPeluquera: 'Sin asignar',
         salon_id: salonId
       });
-      
+
       const newTicketObj = {
         id: res.id,
         ticket_number: res.ticketNumber || `#${Math.floor(100000 + Math.random() * 900000)}`,
@@ -1192,7 +1203,7 @@ const VisitRecorder = () => {
         servicios: [],
         status: 'En Edición'
       };
-      
+
       const isClientBday = checkClientBirthday(clientObj);
       let isPlanActive = false;
       let washesAvailable = '____';
@@ -1207,7 +1218,7 @@ const VisitRecorder = () => {
             const used = pastV.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && new Date(v.visited_at).getTime() >= lastB && (v.metodo_pago || '').toLowerCase().includes('plan')).length;
             washesAvailable = String(Math.max(0, 4 - used));
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       setPrintableTicketData({
@@ -1373,8 +1384,8 @@ const VisitRecorder = () => {
     const hasPlanWashAvailable = Boolean(activePlans && activePlans.length > 0 && (activePlans[0]?.remaining_washes || 0) > 0);
     const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
 
-    const match = availableServices.find(s => 
-      (s.id && s.id === service.id) || 
+    const match = availableServices.find(s =>
+      (s.id && s.id === service.id) ||
       (s.nombre || '').toLowerCase().trim() === (service.nombre || '').toLowerCase().trim() ||
       (s.nombre || '').toLowerCase().includes((service.nombre || '').toLowerCase())
     );
@@ -1388,7 +1399,7 @@ const VisitRecorder = () => {
     // Employee: Lavado Sencillo fixed at $200, no 20% discount on it
     const isLavadoSencilloItem = isLavadoSencillo(realName);
     const basePrice = isCoveredByPlan ? 0 : (isEmployee && isLavadoSencilloItem ? LAVADO_SENCILLO_PRICE : realPrice);
-    
+
     let autoDiscountVal = 0;
     let autoDiscountPercent = '0';
 
@@ -1551,9 +1562,9 @@ const VisitRecorder = () => {
   const calculatePlanDiscount = () => {
     if (!consumePlanWash || !activePlans || activePlans.length === 0) return 0;
     // Find the first wash/covered item in line items
-    const washItem = lineItems.find(item => 
-      (item.nombre || '').toLowerCase().includes('lavado') || 
-      (item.nombre || '').toLowerCase().includes('secado') || 
+    const washItem = lineItems.find(item =>
+      (item.nombre || '').toLowerCase().includes('lavado') ||
+      (item.nombre || '').toLowerCase().includes('secado') ||
       String(item.service_id).includes('plan') ||
       item.id === 'plan-washes' ||
       item.id === 'plan-treatment'
@@ -1572,11 +1583,11 @@ const VisitRecorder = () => {
   const manualDiscounts = lineItems.reduce((acc, item) => acc + (item.descuento || 0), 0);
   const planDiscountAmount = calculatePlanDiscount();
   const parsedGlobalDiscount = parseFloat(globalDiscountValue) || 0;
-  const globalDiscountAmount = globalDiscountType === 'percentage' 
-    ? (grossSubtotal * parsedGlobalDiscount) / 100 
+  const globalDiscountAmount = globalDiscountType === 'percentage'
+    ? (grossSubtotal * parsedGlobalDiscount) / 100
     : parsedGlobalDiscount;
   const totalDiscounts = manualDiscounts + planDiscountAmount + globalDiscountAmount;
-  
+
   // Calculate ITBIS dynamically: Exempt items (aplica_itbis === 0) do not compute ITBIS
   const itbisAmount = lineItems.reduce((acc, item) => {
     const itemAppliesItbis = item.aplica_itbis === 1 || item.aplica_itbis === true;
@@ -1584,7 +1595,7 @@ const VisitRecorder = () => {
 
     const itemGross = item.precioAplicado * item.cantidad;
     const itemManualDisc = item.descuento || 0;
-    const itemPropDiscount = grossSubtotal > 0 
+    const itemPropDiscount = grossSubtotal > 0
       ? (itemGross / grossSubtotal) * (planDiscountAmount + globalDiscountAmount)
       : 0;
     const itemTaxable = Math.max(0, itemGross - itemManualDisc - itemPropDiscount);
@@ -1861,7 +1872,7 @@ const VisitRecorder = () => {
     if (hasPlanWash) {
       const cId = clientFound?.id || selectedTicket?.client_id;
       const cEmail = clientFound?.email || selectedTicket?.client_email;
-      
+
       setOtpCodeInput('');
       setAdminCodeBypass(false);
       setAdminBypassPin('');
@@ -2023,166 +2034,176 @@ const VisitRecorder = () => {
   const isGuestClient = Boolean(
     !isEmployeeClient && (
       !clientFound ||
-      clientFound?.id === 'INVITADO' || 
-      clientFound?.es_invitado || 
-      selectedTicket?.client_id === 'INVITADO' || 
+      clientFound?.id === 'INVITADO' ||
+      clientFound?.es_invitado ||
+      selectedTicket?.client_id === 'INVITADO' ||
       String(clientFound?.id || '').startsWith('INVITADO')
     )
   );
   const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && activePlans && activePlans.length > 0);
+  const isContractCancelled = Boolean(
+    !isEmployeeClient && !isGuestClient && (
+      clientFound?.status === 'Cancelled' ||
+      clientFound?.status === 'Cancelado' ||
+      clientFound?.clientStatus === 'Cancelled' ||
+      clientFound?.clientStatus === 'Cancelado' ||
+      (clientContracts && clientContracts.length > 0 && clientContracts.some(c => c.status === 'Cancelled' || c.status === 'Cancelado') && (!activePlans || activePlans.length === 0))
+    )
+  );
+  const cancelledContract = (clientContracts || []).find(c => c.status === 'Cancelled' || c.status === 'Cancelado') || null;
 
   return (
     <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '0', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#ffffff', minHeight: '100%' }}>
-      
+
       {/* HEADER / PAGE CONTROL BAR - CLEAN & ORGANIZED */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1.25rem', width: '100%', boxSizing: 'border-box', gap: '0.75rem', flexWrap: 'wrap', borderBottom: '1px solid #e4e4e7', background: '#ffffff' }}>
-          {/* BRANCH / LOCALIDAD SELECTOR */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', background: '#f8fafc', padding: '0.4rem 0.75rem', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
-            <span style={{ fontSize: '0.9rem' }}>🏢</span>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                Sucursal
+        {/* BRANCH / LOCALIDAD SELECTOR */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', background: '#f8fafc', padding: '0.4rem 0.75rem', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
+          <span style={{ fontSize: '0.9rem' }}>🏢</span>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Sucursal
+            </span>
+            <select
+              value={salonId}
+              onChange={(e) => {
+                const newId = Number(e.target.value);
+                setSalonId(newId);
+                setSelectedTicket(null);
+                setLineItems([]);
+                setClientFound(null);
+              }}
+              disabled={currentUser?.rol !== 'admin' && currentUser?.rol !== 'Superadmin' && !!currentUser?.salon_id}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                fontSize: '0.85rem',
+                fontWeight: 800,
+                color: '#0f172a',
+                cursor: (currentUser?.rol === 'admin' || currentUser?.rol === 'Superadmin' || !currentUser?.salon_id) ? 'pointer' : 'default',
+                outline: 'none',
+                padding: 0
+              }}
+            >
+              {salonsList.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {activeRegister ? (
+          <div
+            onClick={() => setShowRegisterDetailsModal(true)}
+            style={{ background: '#065f46', border: '1.5px solid #10b981', padding: '0.5rem 1rem', borderRadius: '12px', color: '#ffffff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem' }}
+            title="Haz clic para ver detalles de la caja o realizar el cierre manual"
+          >
+            <CheckCircle2 size={18} style={{ color: '#34d399' }} />
+            <div>
+              <span style={{ display: 'block', fontSize: '0.65rem', color: '#a7f3d0', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                Caja Activa
               </span>
-              <select
-                value={salonId}
-                onChange={(e) => {
-                  const newId = Number(e.target.value);
-                  setSalonId(newId);
-                  setSelectedTicket(null);
-                  setLineItems([]);
-                  setClientFound(null);
-                }}
-                disabled={currentUser?.rol !== 'admin' && currentUser?.rol !== 'Superadmin' && !!currentUser?.salon_id}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  fontSize: '0.85rem',
-                  fontWeight: 800,
-                  color: '#0f172a',
-                  cursor: (currentUser?.rol === 'admin' || currentUser?.rol === 'Superadmin' || !currentUser?.salon_id) ? 'pointer' : 'default',
-                  outline: 'none',
-                  padding: 0
-                }}
-              >
-                {salonsList.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>{activeRegister.register_number || 'Jornada Abierta'}</span>
             </div>
           </div>
-
-          {activeRegister ? (
-            <div 
-              onClick={() => setShowRegisterDetailsModal(true)}
-              style={{ background: '#065f46', border: '1.5px solid #10b981', padding: '0.5rem 1rem', borderRadius: '12px', color: '#ffffff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem' }}
-              title="Haz clic para ver detalles de la caja o realizar el cierre manual"
-            >
-              <CheckCircle2 size={18} style={{ color: '#34d399' }} />
-              <div>
-                <span style={{ display: 'block', fontSize: '0.65rem', color: '#a7f3d0', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
-                  Caja Activa
-                </span>
-                <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>{activeRegister.register_number || 'Jornada Abierta'}</span>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowRegisterOpenModal(true)}
-              style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              <LockIcon size={16} />
-              <span>Abrir Caja de Jornada</span>
-            </button>
-          )}
-
+        ) : (
           <button
-            type="button"
-            onClick={() => setShowPendingTicketsModal(true)}
-            style={{
-              background: pendingTickets.length > 0 ? '#fff1f2' : '#ffffff',
-              color: pendingTickets.length > 0 ? '#be185d' : '#475569',
-              border: `1.5px solid ${pendingTickets.length > 0 ? '#fbcfe8' : '#cbd5e1'}`,
-              padding: '0.65rem 1.1rem',
-              borderRadius: '12px',
-              fontWeight: 800,
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
-            }}
-            title="Ver tickets pendientes en atención"
+            onClick={() => setShowRegisterOpenModal(true)}
+            style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
           >
-            <span style={{ fontSize: '1rem' }}>🎫</span>
-            <span>Tickets Pendientes</span>
-            <span style={{
-              background: pendingTickets.length > 0 ? '#be185d' : '#94a3b8',
-              color: '#ffffff',
-              fontSize: '0.75rem',
-              fontWeight: 900,
-              padding: '2px 7px',
-              borderRadius: '20px',
-              marginLeft: '2px'
-            }}>
-              {pendingTickets.length}
-            </span>
+            <LockIcon size={16} />
+            <span>Abrir Caja de Jornada</span>
           </button>
+        )}
 
-          <button
-            type="button"
-            onClick={() => setShowMotivationalModal(true)}
-            style={{
-              background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
-              color: '#be185d',
-              border: '1.5px solid rgba(244,114,182,0.35)',
-              padding: '0.65rem 1.05rem',
-              borderRadius: '12px',
-              fontWeight: 800,
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              boxShadow: '0 2px 6px rgba(190,24,93,0.06)'
-            }}
-            title="Ver frase motivacional del turno de recepción (rotación cada 30 min)"
-          >
-            <Sparkles size={16} color="#ec4899" />
-            <span>Frase del Turno</span>
-          </button>
+        <button
+          type="button"
+          onClick={() => setShowPendingTicketsModal(true)}
+          style={{
+            background: pendingTickets.length > 0 ? '#fff1f2' : '#ffffff',
+            color: pendingTickets.length > 0 ? '#be185d' : '#475569',
+            border: `1.5px solid ${pendingTickets.length > 0 ? '#fbcfe8' : '#cbd5e1'}`,
+            padding: '0.65rem 1.1rem',
+            borderRadius: '12px',
+            fontWeight: 800,
+            fontSize: '0.85rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+          }}
+          title="Ver tickets pendientes en atención"
+        >
+          <span style={{ fontSize: '1rem' }}>🎫</span>
+          <span>Tickets Pendientes</span>
+          <span style={{
+            background: pendingTickets.length > 0 ? '#be185d' : '#94a3b8',
+            color: '#ffffff',
+            fontSize: '0.75rem',
+            fontWeight: 900,
+            padding: '2px 7px',
+            borderRadius: '20px',
+            marginLeft: '2px'
+          }}>
+            {pendingTickets.length}
+          </span>
+        </button>
 
-          <button
-            type="button"
-            onClick={handleOpenCajaInvoices}
-            style={{ background: '#0f172a', color: '#ffffff', border: 'none', padding: '0.65rem 1.1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(15,23,42,0.18)' }}
-            title="Ver las facturas emitidas únicamente en la caja abierta actual"
-          >
-            <Receipt size={16} />
-            <span>Ver Facturas</span>
-          </button>
+        <button
+          type="button"
+          onClick={() => setShowMotivationalModal(true)}
+          style={{
+            background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
+            color: '#be185d',
+            border: '1.5px solid rgba(244,114,182,0.35)',
+            padding: '0.65rem 1.05rem',
+            borderRadius: '12px',
+            fontWeight: 800,
+            fontSize: '0.85rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            boxShadow: '0 2px 6px rgba(190,24,93,0.06)'
+          }}
+          title="Ver frase motivacional del turno de recepción (rotación cada 30 min)"
+        >
+          <Sparkles size={16} color="#ec4899" />
+          <span>Frase del Turno</span>
+        </button>
 
-          <button
-            onClick={() => {
-              if (!activeRegister) {
-                alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets si no existe una caja abierta en esta sucursal.');
-                setShowRegisterOpenModal(true);
-                return;
-              }
-              setShowNewTicketModal(true);
-            }}
-            style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(190,24,93,0.25)' }}
-          >
-            <PlusCircle size={18} />
-            <span>+ Generar Nuevo Ticket</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={handleOpenCajaInvoices}
+          style={{ background: '#0f172a', color: '#ffffff', border: 'none', padding: '0.65rem 1.1rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(15,23,42,0.18)' }}
+          title="Ver las facturas emitidas únicamente en la caja abierta actual"
+        >
+          <Receipt size={16} />
+          <span>Ver Facturas</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (!activeRegister) {
+              alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets si no existe una caja abierta en esta sucursal.');
+              setShowRegisterOpenModal(true);
+              return;
+            }
+            setShowNewTicketModal(true);
+          }}
+          style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 12px rgba(190,24,93,0.25)' }}
+        >
+          <PlusCircle size={18} />
+          <span>+ Generar Nuevo Ticket</span>
+        </button>
+      </div>
 
       {/* MAIN 3-COLUMN LAYOUT WITH SEAMLESS WHITE BACKGROUND & SINGLE DIVIDING LINES */}
       <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr) 340px', gap: 0, alignItems: 'stretch', width: '100%', height: 'calc(100vh - 120px)', minHeight: '620px', boxSizing: 'border-box', background: '#ffffff' }}>
-        
+
         {/* ================= COLUMN 1: CLIENT SEARCH & DETAILED PROFILE ================= */}
         {(() => {
           const currentClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || '';
@@ -2195,7 +2216,7 @@ const VisitRecorder = () => {
 
           return (
             <div style={{ background: '#ffffff', borderRight: '1px solid #e4e4e7', padding: '1.25rem', width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: '0.85rem', overflowY: 'auto' }}>
-              
+
               {/* TOP HEADER & SEARCH */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
@@ -2280,7 +2301,7 @@ const VisitRecorder = () => {
                     justifyContent: 'center',
                     boxShadow: '0 4px 12px rgba(245, 208, 254, 0.5)'
                   }}>
-                    <img 
+                    <img
                       src={avatarUrl}
                       alt={currentClientName}
                       style={{
@@ -2355,24 +2376,28 @@ const VisitRecorder = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.35rem',
-                      background: isEmployeeClient ? '#eff6ff' : (isGuestClient ? '#f1f5f9' : '#fdf4ff'),
-                      border: isEmployeeClient ? '1px solid #bfdbfe' : (isGuestClient ? '1px solid #e2e8f0' : '1px solid #fce7f3'),
-                      color: isEmployeeClient ? '#1d4ed8' : (isGuestClient ? '#475569' : '#c026d3'),
+                      background: isEmployeeClient ? '#eff6ff' : (isGuestClient ? '#f1f5f9' : (hasActivePlan ? '#fdf4ff' : (isContractCancelled ? '#fee2e2' : '#f8fafc'))),
+                      border: isEmployeeClient ? '1px solid #bfdbfe' : (isGuestClient ? '1px solid #e2e8f0' : (hasActivePlan ? '1px solid #fce7f3' : (isContractCancelled ? '1.5px solid #fca5a5' : '1px solid #e2e8f0'))),
+                      color: isEmployeeClient ? '#1d4ed8' : (isGuestClient ? '#475569' : (hasActivePlan ? '#c026d3' : (isContractCancelled ? '#dc2626' : '#64748b'))),
                       fontSize: '0.8rem',
-                      fontWeight: 700,
+                      fontWeight: 800,
                       padding: '0.3rem 0.9rem',
                       borderRadius: '9999px'
                     }}>
                       {isEmployeeClient && <span style={{ fontSize: '0.85rem' }}>💼</span>}
                       {isGuestClient && <span style={{ fontSize: '0.85rem' }}>👤</span>}
-                      <span>{isEmployeeClient ? 'Colaborador / Empleado' : (isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Plan Beauty Activo' : 'Cliente Registrado'))}</span>
+                      {hasActivePlan && <span style={{ fontSize: '0.85rem' }}>✨</span>}
+                      {isContractCancelled && !hasActivePlan && <span style={{ fontSize: '0.85rem' }}>🚫</span>}
+                      <span>
+                        {isEmployeeClient ? 'Colaborador / Empleado' : (isGuestClient ? 'Cliente General' : (hasActivePlan ? 'Plan Beauty Activo' : (isContractCancelled ? 'Suscripción Cancelada' : 'Cliente Registrado')))}
+                      </span>
                     </div>
                   </div>
 
-                  {/* MIDDLE CARD: 2 BENEFICIOS DISPONIBLES & VER DETALLES */}
+                  {/* MIDDLE CARD: BENEFICIOS DISPONIBLES & VER DETALLES */}
                   <div style={{
-                    background: '#fbf8fe',
-                    border: '1px solid #f3e8ff',
+                    background: isContractCancelled ? '#fff5f5' : '#fbf8fe',
+                    border: isContractCancelled ? '1.5px solid #fecaca' : '1px solid #f3e8ff',
                     borderRadius: '20px',
                     padding: '1.25rem 1rem',
                     margin: '1.1rem 0 0.85rem 0',
@@ -2385,7 +2410,7 @@ const VisitRecorder = () => {
                     <span style={{
                       fontSize: '2.85rem',
                       fontWeight: 900,
-                      color: '#9333ea',
+                      color: isContractCancelled ? '#dc2626' : '#9333ea',
                       lineHeight: 1
                     }}>
                       {benefitsCount}
@@ -2394,11 +2419,11 @@ const VisitRecorder = () => {
                     <span style={{
                       fontSize: '0.725rem',
                       fontWeight: 800,
-                      color: '#6b7280',
+                      color: isContractCancelled ? '#b91c1c' : '#6b7280',
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase'
                     }}>
-                      BENEFICIOS DISPONIBLES
+                      {isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : 'BENEFICIOS DISPONIBLES'}
                     </span>
 
                     <button
@@ -2407,8 +2432,8 @@ const VisitRecorder = () => {
                       style={{
                         marginTop: '0.55rem',
                         background: '#ffffff',
-                        border: '1.5px solid #a855f7',
-                        color: '#7c3aed',
+                        border: isContractCancelled ? '1.5px solid #f87171' : '1.5px solid #a855f7',
+                        color: isContractCancelled ? '#dc2626' : '#7c3aed',
                         padding: '0.45rem 1.35rem',
                         borderRadius: '9999px',
                         fontSize: '0.825rem',
@@ -2417,20 +2442,20 @@ const VisitRecorder = () => {
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '0.45rem',
-                        boxShadow: '0 2px 6px rgba(168, 85, 247, 0.12)',
+                        boxShadow: isContractCancelled ? '0 2px 6px rgba(239, 68, 68, 0.12)' : '0 2px 6px rgba(168, 85, 247, 0.12)',
                         transition: 'all 0.15s ease'
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#7c3aed';
+                        e.currentTarget.style.background = isContractCancelled ? '#dc2626' : '#7c3aed';
                         e.currentTarget.style.color = '#ffffff';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = '#ffffff';
-                        e.currentTarget.style.color = '#7c3aed';
+                        e.currentTarget.style.color = isContractCancelled ? '#dc2626' : '#7c3aed';
                       }}
                     >
                       <Eye size={16} />
-                      <span>Ver detalles</span>
+                      <span>{isContractCancelled ? 'Ver detalle de cancelación' : 'Ver detalles'}</span>
                     </button>
                   </div>
 
@@ -2486,7 +2511,7 @@ const VisitRecorder = () => {
                     </div>
                   )}
 
-                  {/* DETAIL LIST ROW 1: BENEFICIOS RENOVADOS */}
+                  {/* DETAIL LIST ROW 1: ESTADO DEL PLAN / RENOVACIÓN */}
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -2498,19 +2523,25 @@ const VisitRecorder = () => {
                       width: '40px',
                       height: '40px',
                       borderRadius: '50%',
-                      background: '#dcfce7',
+                      background: hasActivePlan ? '#dcfce7' : (isContractCancelled ? '#fee2e2' : '#f1f5f9'),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0
                     }}>
-                      <CheckCircle2 size={22} color="#16a34a" />
+                      {hasActivePlan ? (
+                        <CheckCircle2 size={22} color="#16a34a" />
+                      ) : isContractCancelled ? (
+                        <XCircle size={22} color="#dc2626" />
+                      ) : (
+                        <AlertCircle size={22} color="#64748b" />
+                      )}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
-                        Beneficios renovados
+                        {hasActivePlan ? 'Beneficios renovados' : (isContractCancelled ? 'Suscripción Cancelada' : 'Sin suscripción activa')}
                       </span>
-                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500, marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.8rem', color: isContractCancelled ? '#dc2626' : '#64748b', fontWeight: isContractCancelled ? 700 : 500, marginTop: '2px' }}>
                         {renewalDate}
                       </span>
                     </div>
@@ -2610,7 +2641,7 @@ const VisitRecorder = () => {
 
         {/* ================= COLUMN 2: SERVICES CATALOG & SELECTED LINE ITEMS ================= */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0, overflow: 'hidden', width: '100%', height: '100%', boxSizing: 'border-box', borderRight: '1px solid #e4e4e7', background: '#ffffff' }}>
-          
+
           {/* TOP SECTION: AGREGA SERVICIOS (SEARCH DRIVEN + QUICK ACCESS) */}
           <div style={{ background: '#ffffff', borderBottom: '1px solid #e4e4e7', padding: '1rem 1.25rem', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}>
             <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#18181b' }}>
@@ -2687,19 +2718,19 @@ const VisitRecorder = () => {
                   </button>
                 </div>
               </div>
-              <div 
+              <div
                 ref={favoritesScrollRef}
                 onWheel={(e) => {
                   if (favoritesScrollRef.current) {
                     favoritesScrollRef.current.scrollLeft += (e.deltaY || e.deltaX) * 1.2;
                   }
                 }}
-                className="hide-scrollbar" 
-                style={{ 
-                  display: 'flex', 
-                  gap: '0.45rem', 
-                  overflowX: 'auto', 
-                  paddingBottom: '0.35rem', 
+                className="hide-scrollbar"
+                style={{
+                  display: 'flex',
+                  gap: '0.45rem',
+                  overflowX: 'auto',
+                  paddingBottom: '0.35rem',
                   scrollBehavior: 'smooth',
                   WebkitOverflowScrolling: 'touch',
                   touchAction: 'pan-x',
@@ -3001,7 +3032,7 @@ const VisitRecorder = () => {
 
         {/* ================= COLUMN 3: INVOICE SUMMARY & PAYMENT METHODS ================= */}
         <div style={{ background: '#ffffff', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.1rem', height: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
-          
+
           {/* FACTURA HEADER — muestra foto empleado si es ticket de colaborador */}
           <div style={{ borderBottom: '1px solid #e4e4e7', paddingBottom: '0.75rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -3026,10 +3057,10 @@ const VisitRecorder = () => {
                   </h3>
                 );
               })() || (
-                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
-                  Factura {selectedTicket?.ticket_number || 'SD-NUEVA'}
-                </h3>
-              )}
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#18181b' }}>
+                    Factura {selectedTicket?.ticket_number || 'SD-NUEVA'}
+                  </h3>
+                )}
               <span style={{ fontSize: '0.9rem', color: '#71717a', cursor: 'pointer' }}>⚙️</span>
             </div>
             <p style={{ margin: '0.2rem 0 0', fontSize: '0.725rem', color: '#71717a' }}>
@@ -3057,7 +3088,7 @@ const VisitRecorder = () => {
               <span>ITBIS (18%)</span>
               <strong style={{ color: '#18181b' }}>RD$ {itbisAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
             </div>
-            
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.4rem', paddingTop: '0.65rem', borderTop: '1px solid #e4e4e7' }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#18181b' }}>TOTAL</span>
               <span style={{ fontSize: '1.45rem', fontWeight: 900, color: '#e11d48', letterSpacing: '-0.5px', whiteSpace: 'nowrap' }}>
@@ -3078,7 +3109,7 @@ const VisitRecorder = () => {
                 </span>
               )}
             </div>
-            
+
             {/* ROW 1: Efectivo, Tarjeta, Transferencia */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
               {[
@@ -3411,7 +3442,7 @@ const VisitRecorder = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <span>⌨️ Atajos de teclado: <strong style={{ color: '#18181b' }}>F1 Ver atajos</strong></span>
           <span>📄 Última factura: <strong style={{ color: '#18181b' }}>{clientVisitsHistory[0]?.ticket_number || 'SD-0290'}</strong></span>
-          <span 
+          <span
             onClick={() => {
               if (selectedTicket || clientFound || clientVisitsHistory.length > 0) {
                 setPrintableTicketData({
@@ -3538,7 +3569,7 @@ const VisitRecorder = () => {
       {showNewTicketModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '560px', borderRadius: '24px', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', position: 'relative' }}>
-            
+
             {/* HEADER WITH CLOSE BUTTON */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -3570,7 +3601,7 @@ const VisitRecorder = () => {
                   TIPO DE TICKET
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.65rem' }}>
-                  
+
                   {/* TAB 1: CLIENTE GENERAL */}
                   <div
                     onClick={() => {
@@ -4003,7 +4034,7 @@ const VisitRecorder = () => {
       {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO 80MM (HOMOLOGADO AL SALÓN - PRE-CUENTA) */}
       {showPrintModal && printableTicketData && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, padding: '1rem' }}>
-          
+
           {/* PRINT MEDIA STYLES EXCLUSIVELY FOR 80MM POS THERMAL PRINTER */}
           <style>{`
             @media print {
@@ -4041,7 +4072,7 @@ const VisitRecorder = () => {
           `}</style>
 
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '440px', maxHeight: '92vh', borderRadius: '16px', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
-            
+
             {/* Modal Actions Bar (Header) */}
             <div className="no-print-thermal" style={{ padding: '0.85rem 1.25rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -4082,9 +4113,9 @@ const VisitRecorder = () => {
 
             {/* Scrollable Container with exact 80mm Physical Preview */}
             <div style={{ overflowY: 'auto', flex: 1, padding: '1rem', background: '#f1f5f9', display: 'flex', justifyContent: 'center' }}>
-              
+
               {/* === TICKET FÍSICO 80MM (EXACTO A LA MUESTRA) === */}
-              <div 
+              <div
                 id="pos-thermal-ticket-80mm"
                 style={{
                   width: '320px',
@@ -4127,7 +4158,7 @@ const VisitRecorder = () => {
                       {printableTicketData.ticketNumber || 'SD-0249'}
                     </span>
                   </div>
-                  
+
                   <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
                     <span style={{ fontWeight: 800, minWidth: '60px' }}>FECHA:</span>
                     <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 600 }}>
@@ -4331,7 +4362,7 @@ const VisitRecorder = () => {
                         if (Array.isArray(parsed) && parsed.length > 0) {
                           sNames = parsed.map(i => i.nombre || i.service_name || i.servicio).filter(Boolean);
                         }
-                      } catch (e) {}
+                      } catch (e) { }
                     }
 
                     if (sNames.length === 0 && visit.servicios) {
@@ -4339,7 +4370,7 @@ const VisitRecorder = () => {
                         if (Array.isArray(visit.servicios)) sNames = visit.servicios;
                         else if (typeof visit.servicios === 'string' && visit.servicios.startsWith('[')) sNames = JSON.parse(visit.servicios);
                         else if (visit.servicios && visit.servicios !== 'Servicio en preparación') sNames = [String(visit.servicios)];
-                      } catch (e) {}
+                      } catch (e) { }
                     }
 
                     const displayServiceText = sNames.length > 0 ? sNames.join(' + ') : 'Servicios Varios / Lavado';
@@ -4376,17 +4407,17 @@ const VisitRecorder = () => {
                     const isExpanded = expandedVisitId === (visit.id || index);
 
                     return (
-                      <div 
+                      <div
                         key={visit.id || index}
-                        style={{ 
-                          background: isVoided ? '#fef2f2' : '#ffffff', 
-                          border: isVoided ? '1px solid #fecaca' : '1px solid #e2e8f0', 
-                          padding: '0.85rem 1.1rem', 
-                          borderRadius: '14px', 
+                        style={{
+                          background: isVoided ? '#fef2f2' : '#ffffff',
+                          border: isVoided ? '1px solid #fecaca' : '1px solid #e2e8f0',
+                          padding: '0.85rem 1.1rem',
+                          borderRadius: '14px',
                           display: 'flex',
                           flexDirection: 'column',
                           gap: '0.55rem',
-                          boxShadow: '0 2px 6px rgba(0,0,0,0.03)' 
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
                         }}
                       >
                         {/* HEADER: Ticket Number & Total / Badges */}
@@ -4636,7 +4667,7 @@ const VisitRecorder = () => {
       {showRegisterDetailsModal && activeRegister && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1070, padding: '1rem' }}>
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '680px', borderRadius: '24px', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
-            
+
             {/* HEADER */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.85rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
@@ -4708,7 +4739,7 @@ const VisitRecorder = () => {
             {/* TAB 1: DESGLOSE DE INGRESOS */}
             {movementActiveTab === 'resumen' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                
+
                 {/* SECTION 1: INGRESOS DE LA JORNADA */}
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
@@ -5215,7 +5246,7 @@ const VisitRecorder = () => {
       {showOtpVerificationModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
           <div style={{ background: '#ffffff', borderRadius: '20px', width: '100%', maxWidth: '440px', padding: '1.75rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
-            
+
             {/* MODAL HEADER */}
             <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
               <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#fdf2f8', border: '2px solid #fbcfe8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem', fontSize: '1.5rem' }}>
@@ -5325,7 +5356,7 @@ const VisitRecorder = () => {
       {showPendingTicketsModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.25rem' }}>
           <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '780px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
-            
+
             {/* MODAL HEADER */}
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
@@ -5553,12 +5584,19 @@ const VisitRecorder = () => {
       {showPlanDetailsModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.25rem' }}>
           <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '460px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-            
+
             {/* MODAL HEADER */}
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff' }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#0f172a', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                DETALLE PLAN BEAUTY
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: isContractCancelled ? '#991b1b' : '#0f172a', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                  {isContractCancelled ? 'ESTADO DE SUSCRIPCIÓN' : 'DETALLE PLAN BEAUTY'}
+                </h3>
+                {isContractCancelled && (
+                  <span style={{ fontSize: '0.72rem', fontWeight: 800, background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                    CANCELADO
+                  </span>
+                )}
+              </div>
 
               <button
                 type="button"
@@ -5571,7 +5609,21 @@ const VisitRecorder = () => {
 
             {/* MODAL BODY */}
             <div style={{ padding: '1.5rem 1.75rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem', background: '#ffffff' }}>
-              
+
+              {isContractCancelled && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '14px', padding: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>🚫</span>
+                  <div>
+                    <div style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.95rem' }}>
+                      Suscripción Plan Beauty Cancelada
+                    </div>
+                    <div style={{ color: '#b91c1c', fontSize: '0.85rem', marginTop: '4px', lineHeight: 1.4 }}>
+                      Este cliente no tiene una membresía activa. Todos los servicios deben facturarse a su tarifa regular.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* SECTION: BENEFICIOS DISPONIBLES */}
               <div>
                 <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>
@@ -5581,21 +5633,21 @@ const VisitRecorder = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {/* ITEM 1: LAVADOS Y SECADOS */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
-                      ✓
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: isContractCancelled ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                      {isContractCancelled ? '✕' : '✓'}
                     </div>
-                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
-                      {getRegularWashesCount()}/{getTotalBenefitsCount()} Lavados y Secados
+                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isContractCancelled ? '#64748b' : '#1e293b' }}>
+                      {isContractCancelled ? '0/4 Lavados y Secados (Cancelado)' : `${getRegularWashesCount()}/${getTotalBenefitsCount()} Lavados y Secados`}
                     </span>
                   </div>
 
                   {/* ITEM 2: EXTRA O TRATAMIENTO */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
-                      ✓
+                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: isContractCancelled ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                      {isContractCancelled ? '✕' : '✓'}
                     </div>
-                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>
-                      1 Lavado y secado extra o 1 uso de tratamiento profundo
+                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isContractCancelled ? '#64748b' : '#1e293b' }}>
+                      {isContractCancelled ? 'Sin tratamientos bonificados' : '1 Lavado y secado extra o 1 uso de tratamiento profundo'}
                     </span>
                   </div>
                 </div>
@@ -5641,14 +5693,14 @@ const VisitRecorder = () => {
                 })()}
               </div>
 
-              {/* SECTION: BENEFICIOS RENOVADOS */}
+              {/* SECTION: ESTADO DE SUSCRIPCIÓN */}
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', paddingTop: '0.35rem' }}>
-                <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0, marginTop: '2px' }}>
-                  ✓
+                <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: isContractCancelled ? '#fee2e2' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isContractCancelled ? '#dc2626' : '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0, marginTop: '2px' }}>
+                  {isContractCancelled ? '✕' : '✓'}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-                    Beneficios renovados
+                  <span style={{ fontSize: '0.95rem', fontWeight: 800, color: isContractCancelled ? '#991b1b' : '#0f172a', lineHeight: 1.2 }}>
+                    {isContractCancelled ? 'Suscripción Cancelada' : 'Beneficios renovados'}
                   </span>
                   <span style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: 600, marginTop: '3px' }}>
                     {getRenewalDateText()}
@@ -5659,17 +5711,19 @@ const VisitRecorder = () => {
             </div>
 
             {/* MODAL FOOTER */}
-            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  addPlanWashToTicket();
-                  setShowPlanDetailsModal(false);
-                }}
-                style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-              >
-                <span>+ Canjear Lavado</span>
-              </button>
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: hasActiveBeautyPlan ? 'space-between' : 'flex-end', alignItems: 'center', gap: '0.75rem' }}>
+              {hasActiveBeautyPlan && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    addPlanWashToTicket();
+                    setShowPlanDetailsModal(false);
+                  }}
+                  style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <span>+ Canjear Lavado</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowPlanDetailsModal(false)}
@@ -5687,7 +5741,7 @@ const VisitRecorder = () => {
       {showRecommendationsModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1.25rem' }}>
           <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
-            
+
             {/* MODAL HEADER */}
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#faf5ff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
@@ -5716,7 +5770,7 @@ const VisitRecorder = () => {
             {/* MODAL BODY */}
             <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {getSmartRecommendations().map((rec, idx) => (
-                <div 
+                <div
                   key={rec.id || idx}
                   style={{
                     background: '#ffffff',
@@ -5810,7 +5864,7 @@ const VisitRecorder = () => {
       {showCajaInvoicesModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1055, padding: '1rem' }}>
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '900px', maxHeight: '88vh', borderRadius: '20px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
-            
+
             {/* Modal Header */}
             <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
@@ -5897,7 +5951,7 @@ const VisitRecorder = () => {
                                   <Printer size={13} />
                                   <span>Imprimir</span>
                                 </button>
-                                
+
                                 <button
                                   type="button"
                                   disabled={emailSendingId === inv.id}
