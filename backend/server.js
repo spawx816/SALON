@@ -2195,14 +2195,25 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
       }
     }
 
-    // Auto-record sale movement into active cash register session for this branch
+    // Auto-record sale movement into active cash register session
     const sId = salon_id || 1;
-    const [openRegisters] = await pool.query(
-      "SELECT id FROM cash_registers WHERE status = 'Abierta' AND (salon_id = ? OR salon_id IS NULL) ORDER BY opened_at DESC LIMIT 1",
-      [sId]
-    );
-    if (openRegisters.length > 0) {
-      const activeRegId = openRegisters[0].id;
+    let activeRegId = req.body.cash_register_id || null;
+    if (!activeRegId) {
+      const [openRegisters] = await pool.query(
+        "SELECT id FROM cash_registers WHERE status = 'Abierta' AND (salon_id = ? OR salon_id IS NULL) ORDER BY opened_at DESC LIMIT 1",
+        [sId]
+      );
+      if (openRegisters.length > 0) {
+        activeRegId = openRegisters[0].id;
+      } else {
+        const [anyOpen] = await pool.query(
+          "SELECT id FROM cash_registers WHERE status = 'Abierta' ORDER BY opened_at DESC LIMIT 1"
+        );
+        if (anyOpen.length > 0) activeRegId = anyOpen[0].id;
+      }
+    }
+
+    if (activeRegId) {
       await pool.query('UPDATE visits SET cash_register_id = ? WHERE id = ?', [activeRegId, id]);
       const { applied_payments } = req.body;
 
@@ -2214,12 +2225,12 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
             await pool.query(
               `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
                VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
-              [activeRegId, pMethod, pAmt, `Cobro Ticket ${id} (${pMethod})`, id]
+              [activeRegId, pMethod, pAmt, `Cobro Factura #${ticketNum || id} (${pMethod})`, id]
             );
           }
         }
       } else {
-        const rawMetodo = (metodo_pago || '').toString();
+        const rawMetodo = (metodo_pago || 'Efectivo').toString();
 
         if (rawMetodo.toLowerCase().includes('mixto')) {
           let ef = 0, tj = 0, tr = 0, gc = 0;
@@ -2242,41 +2253,41 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
             await pool.query(
               `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
                VALUES (?, 'Ingreso_Venta', 'Efectivo', ?, ?, ?, NOW())`,
-              [activeRegId, ef, `Cobro Ticket ${id} (Parte Efectivo)`, id]
+              [activeRegId, ef, `Cobro Factura #${ticketNum || id} (Parte Efectivo)`, id]
             );
           }
           if (tj > 0) {
             await pool.query(
               `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
                VALUES (?, 'Ingreso_Venta', 'Tarjeta', ?, ?, ?, NOW())`,
-              [activeRegId, tj, `Cobro Ticket ${id} (Parte Tarjeta)`, id]
+              [activeRegId, tj, `Cobro Factura #${ticketNum || id} (Parte Tarjeta)`, id]
             );
           }
           if (tr > 0) {
             await pool.query(
               `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
                VALUES (?, 'Ingreso_Venta', 'Transferencia', ?, ?, ?, NOW())`,
-              [activeRegId, tr, `Cobro Ticket ${id} (Parte Transferencia)`, id]
+              [activeRegId, tr, `Cobro Factura #${ticketNum || id} (Parte Transferencia)`, id]
             );
           }
           if (gc > 0) {
             await pool.query(
               `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
                VALUES (?, 'Ingreso_Venta', 'Gift Card', ?, ?, ?, NOW())`,
-              [activeRegId, gc, `Cobro Ticket ${id} (Parte Gift Card)`, id]
+              [activeRegId, gc, `Cobro Factura #${ticketNum || id} (Parte Gift Card)`, id]
             );
           }
         } else {
           await pool.query(
             `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)
              VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, NOW())`,
-            [activeRegId, metodo_pago || 'Efectivo', total || 0, `Cobro Ticket ${id}`, id]
+            [activeRegId, rawMetodo, total || 0, `Cobro Factura #${ticketNum || id}`, id]
           );
         }
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, ticketNumber: ticketNum || id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -103,19 +103,6 @@ export const dataService = {
     }
   },
 
-  checkoutTicket: async (ticketId, payload) => {
-    try {
-      const res = await fetch(`${API_URL}/visits/checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketId, ...payload })
-      });
-      if (res.ok) return await res.json();
-    } catch (e) {
-      console.warn('Checkout ticket API error:', e);
-    }
-    return { success: true };
-  },
 
   saveClient: async (client) => {
     try {

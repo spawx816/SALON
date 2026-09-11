@@ -2116,11 +2116,17 @@ const VisitRecorder = () => {
         client_id: finalClientId,
         client_name: finalClientName,
         salon_id: salonId,
+        cash_register_id: activeRegister?.id || null,
         employee_consumption: empCons,
         gift_card_redemption: gcRedemption
       }).catch(err => {
         console.warn('Checkout ticket API fallback:', err);
       });
+
+      // Refresh active cash register movements immediately
+      if (activeRegister?.id) {
+        await fetchRegisterMovements(activeRegister.id);
+      }
 
       // Update remaining washes balance immediately
       if (hasPlanWash && activePlans.length > 0) {
@@ -2280,7 +2286,12 @@ const VisitRecorder = () => {
 
         {activeRegister ? (
           <div
-            onClick={() => setShowRegisterDetailsModal(true)}
+            onClick={async () => {
+              if (activeRegister?.id) {
+                await fetchRegisterMovements(activeRegister.id);
+              }
+              setShowRegisterDetailsModal(true);
+            }}
             style={{ background: '#065f46', border: '1.5px solid #10b981', padding: '0.5rem 1rem', borderRadius: '12px', color: '#ffffff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.6rem' }}
             title="Haz clic para ver detalles de la caja o realizar el cierre manual"
           >
@@ -4961,9 +4972,22 @@ const VisitRecorder = () => {
                     <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>
                       Ingresos de la jornada
                     </h3>
-                    <span style={{ fontSize: '0.75rem', color: '#be185d', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      🕒 Actualizado en tiempo real
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (activeRegister?.id) await fetchRegisterMovements(activeRegister.id);
+                        }}
+                        style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', borderRadius: '8px', padding: '0.25rem 0.6rem', fontSize: '0.725rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                        title="Recargar ingresos y movimientos de caja"
+                      >
+                        <RefreshCw size={12} />
+                        <span>Recargar</span>
+                      </button>
+                      <span style={{ fontSize: '0.75rem', color: '#be185d', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        🕒 Actualizado en tiempo real
+                      </span>
+                    </div>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
