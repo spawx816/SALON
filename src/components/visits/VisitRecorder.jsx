@@ -250,6 +250,7 @@ const VisitRecorder = () => {
   const [adminCodeBypass, setAdminCodeBypass] = useState(false);
   const [adminBypassPin, setAdminBypassPin] = useState('');
   const [otpSentEmail, setOtpSentEmail] = useState('');
+  const [adminOtpCode, setAdminOtpCode] = useState('');
 
   // Invoice Voiding / Anulación (Section 16 Audit)
   const [showVoidModal, setShowVoidModal] = useState(false);
@@ -721,13 +722,32 @@ const VisitRecorder = () => {
     }
   };
 
-  const handleStartBlankTicket = () => {
+  const resetPosToBlankState = () => {
     setSelectedTicket(null);
     setLineItems([]);
-    setClientFound(null);
-    setClientSearchTerm('');
+    setAppliedPayments([]);
     setMontoRecibido('');
     setGlobalDiscountValue('');
+    setClientFound(null);
+    setClientContracts([]);
+    setActivePlans([]);
+    setClientVisitsHistory([]);
+    setClientSearchTerm('');
+    setIsEditingGeneralName(false);
+    setIsTicketExpanded(false);
+    setEmployeeDiscountApplied(false);
+    setSelectedEmployeeForConsumption(null);
+    setConsumePlanWash(false);
+    setIsAdminAuthorized(false);
+    setPendingDiscountItem(null);
+    setAdminPin('');
+    setCustomTip(0);
+    setCustomClientNote('');
+    setAdminOtpCode('');
+  };
+
+  const handleStartBlankTicket = () => {
+    resetPosToBlankState();
   };
 
   // Direct Client Selection from Search
@@ -1258,6 +1278,7 @@ const VisitRecorder = () => {
       const cEmail = clientFound?.email || selectedTicket?.client_email;
       const res = await dataService.generateOTP(cId, cEmail);
       if (res?.email) setOtpSentEmail(res.email);
+      if (res?.code) setAdminOtpCode(res.code);
       if (res && res.error) {
         console.warn('Error sending OTP:', res.error);
       }
@@ -1279,6 +1300,7 @@ const VisitRecorder = () => {
       } else {
         setOtpCodeInput('');
         if (res?.email) setOtpSentEmail(res.email);
+        if (res?.code) setAdminOtpCode(res.code);
         const targetEmail = res?.email || cEmail || clientFound?.email || selectedTicket?.client_email;
         alert(`✉️ Nuevo código de seguridad enviado ${targetEmail ? `al correo (${targetEmail})` : 'al correo del cliente'}.`);
       }
@@ -1943,6 +1965,7 @@ const VisitRecorder = () => {
         const res = await dataService.generateOTP(cId, cEmail);
         if (res?.email) setOtpSentEmail(res.email);
         if (res?.code) {
+          setAdminOtpCode(res.code);
           console.log(`[OTP Security Code]: ${res.code}`);
         }
       } catch (err) {
@@ -2040,11 +2063,7 @@ const VisitRecorder = () => {
       alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);
       setShowOtpVerificationModal(false);
       setShowOtpModal(false);
-      setSelectedTicket(null);
-      setIsTicketExpanded(false);
-      setLineItems([]);
-      setAppliedPayments([]);
-      setMontoRecibido('');
+      resetPosToBlankState();
       await fetchPendingTickets();
       await fetchTopServices();
     } catch (err) {
@@ -2865,32 +2884,6 @@ const VisitRecorder = () => {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                {/* BOTÓN RÁPIDO 20% PLAN BEAUTY — oculto si se aplicó descuento de empleado */}
-                {hasActivePlan && lineItems.length > 0 && !employeeDiscountApplied && (
-                  <button
-                    type="button"
-                    onClick={handleApply20PercentPlanDiscount}
-                    style={{
-                      background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
-                      border: '1.5px solid #f43f5e',
-                      color: '#be185d',
-                      padding: '0.35rem 0.85rem',
-                      borderRadius: '8px',
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.35rem',
-                      boxShadow: '0 2px 5px rgba(244,63,94,0.12)'
-                    }}
-                    title="Aplica 20% de descuento automático a los servicios adicionales fuera del plan"
-                  >
-                    <Percent size={13} color="#be185d" />
-                    <span>20% Plan Beauty</span>
-                  </button>
-                )}
-
                 {/* INDICADOR 20% DESCUENTO EMPLEADO (SOLO CUANDO EL TICKET ES DE UN EMPLEADO) */}
                 {isEmployeeClient && lineItems.length > 0 && (
                   <div
@@ -5338,6 +5331,31 @@ const VisitRecorder = () => {
                 ✉️ {otpSentEmail || clientFound?.email || selectedTicket?.client_email || '(Sin correo registrado)'}
               </strong>
             </div>
+
+            {/* VISTA ADMINISTRADOR: CÓDIGO VISIBLE DIRECTAMENTE PARA PRUEBAS/SOPORTE */}
+            {(currentUser?.role_id === 1 || currentUser?.role === 'admin' || currentUser?.role === 'SuperAdmin' || currentUser?.tipo === 'admin' || currentUser?.email === 'admin@planbeauty.com') && adminOtpCode && (
+              <div style={{ background: '#fdf2f8', border: '1.5px dashed #f472b6', borderRadius: '12px', padding: '0.65rem 0.85rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 5px rgba(244,114,182,0.12)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', textAlign: 'left' }}>
+                  <span style={{ fontSize: '1.2rem' }}>🛡️</span>
+                  <div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#9d174d' }}>Vista Administrador:</div>
+                    <div style={{ fontSize: '0.68rem', color: '#be185d' }}>Código generado para verificación</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.15rem', fontWeight: 900, color: '#9d174d', letterSpacing: '3px', background: '#ffffff', padding: '3px 10px', borderRadius: '8px', border: '1px solid #fbcfe8' }}>
+                    {adminOtpCode}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOtpCodeInput(adminOtpCode)}
+                    style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '5px 10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    Usar
+                  </button>
+                </div>
+              </div>
+            )}
 
             {!adminCodeBypass ? (
               <>

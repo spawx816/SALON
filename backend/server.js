@@ -857,7 +857,7 @@ app.post('/api/otp/generate', async (req, res) => {
     res.json({
       success: true,
       message: 'Código de seguridad enviado exitosamente al correo.',
-      code: process.env.NODE_ENV !== 'production' ? code : undefined,
+      code: code,
       email: emailToSend
     });
   } catch (err) {
@@ -4372,7 +4372,7 @@ app.post('/api/otp/generate', async (req, res) => {
     res.json({
       success: true,
       message: 'Código de verificación generado y enviado por correo.',
-      code: process.env.NODE_ENV !== 'production' ? code : undefined,
+      code: code,
       email: emailToSend
     });
   } catch (err) {
