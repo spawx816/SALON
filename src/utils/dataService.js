@@ -422,9 +422,10 @@ export const dataService = {
     }
   },
 
-  getTopServices: async () => {
+  getTopServices: async (salonId = null, limit = 20) => {
     try {
-      const res = await fetch(`${API_URL}/services/top`);
+      const url = salonId ? `${API_URL}/services/top?salon_id=${salonId}&limit=${limit}` : `${API_URL}/services/top?limit=${limit}`;
+      const res = await fetch(url);
       if (!res.ok) return [];
       return await res.json();
     } catch (e) {

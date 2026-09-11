@@ -3335,9 +3335,11 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
-// === TOP 7 INTELLIGENT QUICK ACCESS SERVICES ===
+// === TOP INTELLIGENT QUICK ACCESS SERVICES (MÁS FACTURADOS) ===
 app.get('/api/services/top', async (req, res) => {
   try {
+    const { salon_id, limit = 20 } = req.query;
+
     // 1. Fetch active services
     const [activeServices] = await pool.query('SELECT * FROM services WHERE activo = 1 ORDER BY orden_visualizacion ASC, nombre ASC');
 
@@ -3346,31 +3348,74 @@ app.get('/api/services/top', async (req, res) => {
     }
 
     // 2. Compute historical usage frequency from past visits
-    const [visits] = await pool.query("SELECT items_detail FROM visits WHERE status = 'Facturado' AND items_detail IS NOT NULL");
+    let visitsQuery = "SELECT items_detail, servicios FROM visits WHERE (status = 'Facturado' OR status = 'Completado')";
+    const params = [];
+    if (salon_id && salon_id !== 'all') {
+      visitsQuery += " AND (salon_id = ? OR salon_id IS NULL OR salon_id = 0)";
+      params.push(salon_id);
+    }
+    const [visits] = await pool.query(visitsQuery, params);
     const usageCounts = {};
 
     visits.forEach(v => {
       let items = [];
-      try { items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail; } catch(e){}
-      if (Array.isArray(items)) {
+      try { 
+        if (v.items_detail) items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail; 
+      } catch(e){}
+      
+      if (Array.isArray(items) && items.length > 0) {
         items.forEach(item => {
           const sName = (item.servicio || item.nombre || item.name || '').trim().toLowerCase();
           if (sName) {
             usageCounts[sName] = (usageCounts[sName] || 0) + (parseInt(item.cantidad) || 1);
           }
         });
+      } else if (v.servicios) {
+        try {
+          const raw = typeof v.servicios === 'string' ? JSON.parse(v.servicios) : v.servicios;
+          if (Array.isArray(raw)) {
+            raw.forEach(s => {
+              const sName = (typeof s === 'string' ? s : (s.nombre || s.servicio || '')).trim().toLowerCase();
+              if (sName) usageCounts[sName] = (usageCounts[sName] || 0) + 1;
+            });
+          }
+        } catch (e) {}
       }
     });
 
-    // 3. Sort active services by real usage frequency
+    // Default priority keywords for salon services when frequency is equal or 0
+    const priorityKeywords = [
+      'lavado y secado', 'lavado', 'secado', 'corte de punta', 'corte', 'tratamiento', 
+      'plancha', 'mascarilla', 'penetraitt', 'botox', 'tinte', 'retoque', 'manicura', 
+      'pedicura', 'uñas', 'maquillaje', 'depilacion', 'alisado'
+    ];
+
+    const getPriorityScore = (name) => {
+      const lower = (name || '').toLowerCase();
+      for (let i = 0; i < priorityKeywords.length; i++) {
+        if (lower.includes(priorityKeywords[i])) {
+          return 1000 - (i * 10);
+        }
+      }
+      return 0;
+    };
+
+    // 3. Sort active services by real usage frequency + popularity weight
     const sortedServices = [...activeServices].sort((a, b) => {
-      const countA = usageCounts[a.nombre.trim().toLowerCase()] || 0;
-      const countB = usageCounts[b.nombre.trim().toLowerCase()] || 0;
-      return countB - countA; // Most used first
+      const aName = (a.nombre || '').trim().toLowerCase();
+      const bName = (b.nombre || '').trim().toLowerCase();
+      const countA = usageCounts[aName] || 0;
+      const countB = usageCounts[bName] || 0;
+
+      if (countB !== countA) {
+        return countB - countA; // Most billed first
+      }
+      return getPriorityScore(b.nombre) - getPriorityScore(a.nombre);
     });
 
-    res.json(sortedServices.slice(0, 7));
+    res.json(sortedServices.slice(0, parseInt(limit) || 20));
   } catch (err) {
+    console.error('[TOP SERVICES ERROR]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

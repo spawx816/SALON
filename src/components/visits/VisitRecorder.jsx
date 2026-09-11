@@ -17,11 +17,14 @@ import { getCurrentMotivationalPhrase } from '../../utils/motivationalPhrases';
 const DEFAULT_TOP_SERVICES = [
   { id: '1', nombre: 'Lavado y Secado', precio: 800 },
   { id: '2', nombre: 'Corte de Puntas', precio: 500 },
-  { id: '3', nombre: 'Tinte Completo', precio: 1800 },
-  { id: '4', nombre: 'Tratamiento Penetratti', precio: 750 },
-  { id: '5', nombre: 'Manicura Simple', precio: 500 },
-  { id: '6', nombre: 'Pedicura Simple', precio: 600 },
-  { id: '7', nombre: 'Maquillaje Social', precio: 2500 }
+  { id: '3', nombre: 'Tratamiento Profundo', precio: 750 },
+  { id: '4', nombre: 'Plancha / Brushing', precio: 400 },
+  { id: '5', nombre: 'Tinte Completo', precio: 1800 },
+  { id: '6', nombre: 'Retoque de Tinte', precio: 1200 },
+  { id: '7', nombre: 'Manicura Simple', precio: 500 },
+  { id: '8', nombre: 'Pedicura Simple', precio: 600 },
+  { id: '9', nombre: 'Mascarilla Capilar', precio: 650 },
+  { id: '10', nombre: 'Botox Capilar', precio: 2200 }
 ];
 
 const VisitRecorder = () => {
@@ -51,6 +54,7 @@ const VisitRecorder = () => {
   const [clientFound, setClientFound] = useState(null);
   const [lineItems, setLineItems] = useState([]);
   const [availableServices, setAvailableServices] = useState(DEFAULT_TOP_SERVICES);
+  const [quickAccessServices, setQuickAccessServices] = useState(DEFAULT_TOP_SERVICES);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activePlans, setActivePlans] = useState([]);
@@ -459,20 +463,26 @@ const VisitRecorder = () => {
 
   const fetchTopServices = async () => {
     try {
-      const servs = await dataService.getServices().catch(() => []);
+      const [servs, top] = await Promise.all([
+        dataService.getServices().catch(() => []),
+        dataService.getTopServices(salonId, 20).catch(() => [])
+      ]);
+
       if (Array.isArray(servs) && servs.length > 0) {
         setAvailableServices(servs);
       } else {
-        const top = await dataService.getTopServices().catch(() => []);
-        if (Array.isArray(top) && top.length > 0) {
-          setAvailableServices(top);
-        } else {
-          setAvailableServices(DEFAULT_TOP_SERVICES);
-        }
+        setAvailableServices(DEFAULT_TOP_SERVICES);
+      }
+
+      if (Array.isArray(top) && top.length > 0) {
+        setQuickAccessServices(top);
+      } else {
+        setQuickAccessServices(DEFAULT_TOP_SERVICES);
       }
     } catch (e) {
       console.error('Error cargando servicios catálogo:', e);
       setAvailableServices(DEFAULT_TOP_SERVICES);
+      setQuickAccessServices(DEFAULT_TOP_SERVICES);
     }
   };
 
@@ -2696,7 +2706,7 @@ const VisitRecorder = () => {
                   maxWidth: '100%'
                 }}
               >
-                {(availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES).slice(0, 15).map((srv, idx) => {
+                {(quickAccessServices.length > 0 ? quickAccessServices : (availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES)).slice(0, 20).map((srv, idx) => {
                   const nameLower = (srv.nombre || '').toLowerCase();
                   let iconEmoji = '✨';
                   if (nameLower.includes('lavado')) iconEmoji = '🧴';
