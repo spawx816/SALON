@@ -1,19 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   DollarSign, Users, Plus, Search, Filter, Calendar, FileSpreadsheet, 
   Trash2, Edit3, CheckCircle2, Clock, XCircle, AlertCircle, RefreshCw,
   ArrowDownRight, User, FileText, X, Save, ShoppingBag, Scissors, CreditCard,
-  Percent, Sparkles
+  Percent, Sparkles, MapPin, Receipt, Check
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
 const DISCOUNT_TYPES = [
-  { id: 'Consumo_Servicio', label: 'Consumo de Servicio', icon: Scissors, color: '#ec4899' },
-  { id: 'Consumo_Producto', label: 'Consumo de Producto', icon: ShoppingBag, color: '#f59e0b' },
-  { id: 'Prestamo', label: 'Préstamo / Adelanto de Sueldo', icon: DollarSign, color: '#3b82f6' },
-  { id: 'Uniforme', label: 'Uniforme / Materiales', icon: FileText, color: '#8b5cf6' },
-  { id: 'Sancion', label: 'Tardanza / Penalidad', icon: AlertCircle, color: '#ef4444' },
-  { id: 'Otro', label: 'Otro Descuento', icon: CreditCard, color: '#64748b' }
+  { id: 'Consumo_Servicio', label: 'Consumo de Servicio', icon: Scissors, color: '#be185d', bg: '#fdf2f8', border: '#fbcfe8' },
+  { id: 'Consumo_Producto', label: 'Consumo de Producto', icon: ShoppingBag, color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
+  { id: 'Prestamo', label: 'Préstamo / Adelanto', icon: DollarSign, color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+  { id: 'Uniforme', label: 'Uniforme / Materiales', icon: FileText, color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+  { id: 'Sancion', label: 'Tardanza / Penalidad', icon: AlertCircle, color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
+  { id: 'Otro', label: 'Otro Descuento', icon: CreditCard, color: '#475569', bg: '#f8fafc', border: '#e2e8f0' }
 ];
 
 const EmployeeDiscountsModule = () => {
@@ -26,8 +26,29 @@ const EmployeeDiscountsModule = () => {
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedType, setSelectedType] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Default to current month quincena
+  const getInitialDates = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+    if (day <= 15) {
+      return {
+        start: new Date(year, month, 1).toISOString().split('T')[0],
+        end: new Date(year, month, 15).toISOString().split('T')[0]
+      };
+    } else {
+      return {
+        start: new Date(year, month, 16).toISOString().split('T')[0],
+        end: new Date(year, month + 1, 0).toISOString().split('T')[0]
+      };
+    }
+  };
+
+  const initialDates = getInitialDates();
+  const [startDate, setStartDate] = useState(initialDates.start);
+  const [endDate, setEndDate] = useState(initialDates.end);
 
   // Modal Create/Edit
   const [showModal, setShowModal] = useState(false);
@@ -47,8 +68,11 @@ const EmployeeDiscountsModule = () => {
 
   useEffect(() => {
     loadEmployees();
-    loadDiscounts();
   }, []);
+
+  useEffect(() => {
+    loadDiscounts();
+  }, [startDate, endDate, selectedEmployee, selectedStatus, selectedType]);
 
   const loadEmployees = async () => {
     try {
@@ -59,7 +83,12 @@ const EmployeeDiscountsModule = () => {
       (empList || []).forEach(e => {
         if (e.nombre && !seen.has(e.nombre.toLowerCase().trim())) {
           seen.add(e.nombre.toLowerCase().trim());
-          combined.push({ id: e.id, nombre: e.nombre, posicion: e.rol || e.posicion || 'Colaborador' });
+          combined.push({ 
+            id: e.id, 
+            nombre: e.nombre, 
+            posicion: e.rol || e.posicion || 'Colaborador',
+            localidad: e.localidad || 'Principal'
+          });
         }
       });
 
@@ -87,9 +116,33 @@ const EmployeeDiscountsModule = () => {
     }
   };
 
-  const handleFilter = (e) => {
-    if (e) e.preventDefault();
-    loadDiscounts();
+  // Quincena & Month Quick Presets
+  const handleSetQuincena = (type) => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    
+    if (type === 'q1_actual') {
+      const s = new Date(year, month, 1);
+      const e = new Date(year, month, 15);
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    } else if (type === 'q2_actual') {
+      const s = new Date(year, month, 16);
+      const e = new Date(year, month + 1, 0);
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    } else if (type === 'mes_actual') {
+      const s = new Date(year, month, 1);
+      const e = new Date(year, month + 1, 0);
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    } else if (type === 'mes_anterior') {
+      const s = new Date(year, month - 1, 1);
+      const e = new Date(year, month, 0);
+      setStartDate(s.toISOString().split('T')[0]);
+      setEndDate(e.toISOString().split('T')[0]);
+    }
   };
 
   const handleOpenCreateModal = () => {
@@ -176,22 +229,64 @@ const EmployeeDiscountsModule = () => {
     }
   };
 
-  // KPI Calculations
-  const filteredDiscounts = discounts.filter(d => {
-    if (!searchTerm.trim()) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      (d.employee_name || '').toLowerCase().includes(term) ||
-      (d.type || '').toLowerCase().includes(term) ||
-      (d.notes || '').toLowerCase().includes(term) ||
-      (d.status || '').toLowerCase().includes(term)
-    );
-  });
+  // Filtered list based on search term
+  const filteredDiscounts = useMemo(() => {
+    return discounts.filter(d => {
+      if (!searchTerm.trim()) return true;
+      const term = searchTerm.toLowerCase();
+      return (
+        (d.employee_name || '').toLowerCase().includes(term) ||
+        (d.type || '').toLowerCase().includes(term) ||
+        (d.notes || '').toLowerCase().includes(term) ||
+        (d.status || '').toLowerCase().includes(term) ||
+        (d.localidad || '').toLowerCase().includes(term)
+      );
+    });
+  }, [discounts, searchTerm]);
 
+  // Overall KPI Calculations
   const totalAmount = filteredDiscounts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const totalPending = filteredDiscounts.filter(d => d.status === 'Pendiente').reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const totalApplied = filteredDiscounts.filter(d => d.status === 'Aplicado').reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const countPending = filteredDiscounts.filter(d => d.status === 'Pendiente').length;
+
+  // Group discounts by Employee for clean per-employee visual breakdown
+  const groupedDiscounts = useMemo(() => {
+    if (!Array.isArray(filteredDiscounts) || filteredDiscounts.length === 0) return [];
+    
+    const groupsMap = new Map();
+    
+    filteredDiscounts.forEach(d => {
+      const empKey = d.employee_id || d.employee_name || 'Desconocido';
+      const empName = d.employee_name || 'Colaborador';
+      const location = d.localidad || 'Principal';
+      const position = d.employee_position || 'Colaborador';
+      
+      if (!groupsMap.has(empKey)) {
+        groupsMap.set(empKey, {
+          id: empKey,
+          name: empName,
+          position: position,
+          location: location,
+          totalAmount: 0,
+          totalPending: 0,
+          totalApplied: 0,
+          items: []
+        });
+      }
+      
+      const group = groupsMap.get(empKey);
+      const amt = Number(d.amount || 0);
+      group.totalAmount += amt;
+      if (d.status === 'Pendiente') group.totalPending += amt;
+      else if (d.status === 'Aplicado') group.totalApplied += amt;
+      group.items.push(d);
+    });
+    
+    return Array.from(groupsMap.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [filteredDiscounts]);
+
+  const uniqueEmpsCount = groupedDiscounts.length;
 
   const handleExportCSV = () => {
     if (filteredDiscounts.length === 0) return alert('No hay datos para exportar.');
@@ -199,8 +294,8 @@ const EmployeeDiscountsModule = () => {
     const rows = filteredDiscounts.map(d => [
       d.id,
       d.employee_name || 'Colaborador',
-      d.employee_position || 'N/A',
-      d.localidad || 'Central',
+      d.employee_position || 'Colaborador',
+      d.localidad || 'Principal',
       d.type,
       Number(d.amount || 0).toFixed(2),
       d.date ? d.date.split('T')[0] : '',
@@ -220,55 +315,54 @@ const EmployeeDiscountsModule = () => {
   };
 
   return (
-    <div style={{ padding: '0 0.5rem 2rem' }}>
+    <div style={{ maxWidth: '1440px', margin: '0 auto', padding: '1.5rem', fontFamily: 'Inter, system-ui, sans-serif' }}>
       
-      {/* HEADER */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'linear-gradient(135deg, #be185d 0%, #db2777 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
-            <DollarSign size={22} />
-          </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.45rem', fontWeight: 900, color: '#0f172a' }}>
+      {/* HEADER BANNER */}
+      <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)', color: '#ffffff', padding: '1.75rem 2rem', borderRadius: '24px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 12px 30px -10px rgba(15,23,42,0.4)', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.35rem' }}>
+            <div style={{ background: '#be185d', padding: '0.45rem', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <DollarSign size={24} color="#ffffff" />
+            </div>
+            <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.02em' }}>
               Descuentos y Deducciones de Empleados
             </h1>
-            <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-              Gestión de préstamos, consumos de productos/servicios y descuentos para nómina
-            </p>
           </div>
+          <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>
+            Control de cargos a nómina por servicios del salón, préstamos y consumos organizados por colaborador
+          </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '0.45rem',
-            background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
-            border: '1.5px solid #fbcfe8',
-            color: '#be185d',
+            background: 'rgba(219, 39, 119, 0.15)',
+            border: '1px solid rgba(244, 114, 182, 0.3)',
+            color: '#f472b6',
             padding: '0.55rem 0.95rem',
             borderRadius: '12px',
             fontSize: '0.78rem',
-            fontWeight: 800,
-            boxShadow: '0 2px 6px rgba(244,63,94,0.08)'
+            fontWeight: 800
           }}>
-            <Sparkles size={15} color="#db2777" />
-            <span>Beneficio Global: 20% en Servicios</span>
+            <Sparkles size={15} color="#f472b6" />
+            <span>Beneficio Nómina: 20% en Servicios</span>
           </div>
 
           <button
             type="button"
             onClick={handleExportCSV}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.6rem 1.1rem', borderRadius: '12px', background: '#f8fafc', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.65rem 1.1rem', borderRadius: '12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', fontSize: '0.825rem', fontWeight: 800, color: '#ffffff', cursor: 'pointer', backdropFilter: 'blur(10px)' }}
           >
-            <FileSpreadsheet size={16} color="#059669" />
+            <FileSpreadsheet size={16} color="#34d399" />
             <span>Exportar Nómina</span>
           </button>
 
           <button
             type="button"
             onClick={handleOpenCreateModal}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.6rem 1.25rem', borderRadius: '12px', background: '#be185d', border: 'none', fontSize: '0.825rem', fontWeight: 800, color: '#ffffff', cursor: 'pointer', boxShadow: '0 4px 12px rgba(190,24,93,0.25)' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.65rem 1.25rem', borderRadius: '12px', background: '#be185d', border: 'none', fontSize: '0.825rem', fontWeight: 800, color: '#ffffff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(190,24,93,0.4)' }}
           >
             <Plus size={16} />
             <span>+ Registrar Descuento</span>
@@ -276,212 +370,393 @@ const EmployeeDiscountsModule = () => {
         </div>
       </div>
 
-      {/* KPI METRICS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-        <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Total Descuentos</span>
+      {/* KPI SUMMARY METRICS */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+        <div style={{ background: '#ffffff', padding: '1.25rem 1.5rem', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Total Deducciones Período</span>
+            <DollarSign size={18} color="#0f172a" />
+          </div>
           <h2 style={{ margin: '0.35rem 0 0', fontSize: '1.85rem', fontWeight: 900, color: '#0f172a' }}>
             RD$ {totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
           </h2>
-          <span style={{ fontSize: '0.725rem', color: '#64748b' }}>{filteredDiscounts.length} registros en el periodo</span>
+          <span style={{ fontSize: '0.725rem', color: '#64748b', fontWeight: 600 }}>{filteredDiscounts.length} registros en el rango seleccionado</span>
         </div>
 
-        <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #fee2e2' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase' }}>Pendiente por Descontar</span>
+        <div style={{ background: '#ffffff', padding: '1.25rem 1.5rem', borderRadius: '20px', border: '1.5px solid #fecaca', boxShadow: '0 4px 12px rgba(220,38,38,0.05)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase' }}>Pendiente por Descontar</span>
+            <Clock size={18} color="#dc2626" />
+          </div>
           <h2 style={{ margin: '0.35rem 0 0', fontSize: '1.85rem', fontWeight: 900, color: '#dc2626' }}>
             RD$ {totalPending.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
           </h2>
           <span style={{ fontSize: '0.725rem', color: '#b91c1c', fontWeight: 700 }}>{countPending} deducciones pendientes de nómina</span>
         </div>
 
-        <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #bbf7d0' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase' }}>Aplicado en Nómina</span>
+        <div style={{ background: '#ffffff', padding: '1.25rem 1.5rem', borderRadius: '20px', border: '1.5px solid #bbf7d0', boxShadow: '0 4px 12px rgba(22,163,74,0.05)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase' }}>Aplicado en Nómina</span>
+            <CheckCircle2 size={18} color="#16a34a" />
+          </div>
           <h2 style={{ margin: '0.35rem 0 0', fontSize: '1.85rem', fontWeight: 900, color: '#16a34a' }}>
             RD$ {totalApplied.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
           </h2>
-          <span style={{ fontSize: '0.725rem', color: '#15803d', fontWeight: 600 }}>Deducciones liquidadas / cobradas</span>
+          <span style={{ fontSize: '0.725rem', color: '#15803d', fontWeight: 600 }}>Deducciones ya procesadas</span>
+        </div>
+
+        <div style={{ background: '#ffffff', padding: '1.25rem 1.5rem', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Colaboradores Activos</span>
+            <Users size={18} color="#64748b" />
+          </div>
+          <h2 style={{ margin: '0.35rem 0 0', fontSize: '1.85rem', fontWeight: 900, color: '#0f172a' }}>
+            {uniqueEmpsCount} {uniqueEmpsCount === 1 ? 'Colaborador' : 'Colaboradores'}
+          </h2>
+          <span style={{ fontSize: '0.725rem', color: '#64748b', fontWeight: 600 }}>Con consumos o préstamos en el período</span>
         </div>
       </div>
 
-      {/* FILTER BAR */}
-      <div style={{ background: '#ffffff', padding: '1rem 1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', display: 'flex', gap: '0.85rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-          <input
-            type="text"
-            placeholder="Buscar por colaborador o concepto..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ width: '100%', padding: '0.55rem 0.75rem 0.55rem 2.25rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', outline: 'none' }}
-          />
+      {/* FILTER TOOLBAR & QUINCENA PRESETS */}
+      <div style={{ background: '#ffffff', padding: '1.25rem', borderRadius: '20px', border: '1px solid #e2e8f0', marginBottom: '1.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+        {/* QUINCENA PRESETS ROW */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', paddingBottom: '1rem', borderBottom: '1px solid #f1f5f9', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>
+              Período de Nómina:
+            </span>
+            <button
+              type="button"
+              onClick={() => handleSetQuincena('q1_actual')}
+              style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.4rem 0.75rem', fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}
+            >
+              1ra Quincena (1-15)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetQuincena('q2_actual')}
+              style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.4rem 0.75rem', fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}
+            >
+              2da Quincena (16-Fin)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetQuincena('mes_actual')}
+              style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.4rem 0.75rem', fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}
+            >
+              Mes Completo
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetQuincena('mes_anterior')}
+              style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.4rem 0.75rem', fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}
+            >
+              Mes Anterior
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>Desde:</span>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ padding: '0.35rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: 700 }}
+            />
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>Hasta:</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ padding: '0.35rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: 700 }}
+            />
+          </div>
         </div>
 
-        <select
-          value={selectedEmployee}
-          onChange={(e) => setSelectedEmployee(e.target.value)}
-          style={{ padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, outline: 'none', background: '#ffffff' }}
-        >
-          <option value="all">Todos los Colaboradores</option>
-          {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
-        </select>
+        {/* DROPDOWNS & SEARCH ROW */}
+        <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input
+              type="text"
+              placeholder="Buscar por colaborador, ticket o servicios..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ width: '100%', padding: '0.55rem 0.75rem 0.55rem 2.25rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', outline: 'none' }}
+            />
+          </div>
 
-        <select
-          value={selectedType}
-          onChange={(e) => setSelectedType(e.target.value)}
-          style={{ padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, outline: 'none', background: '#ffffff' }}
-        >
-          <option value="all">Todos los Tipos</option>
-          {DISCOUNT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-        </select>
+          <select
+            value={selectedEmployee}
+            onChange={(e) => setSelectedEmployee(e.target.value)}
+            style={{ padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, outline: 'none', background: '#ffffff' }}
+          >
+            <option value="all">Todos los Colaboradores</option>
+            {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
+          </select>
 
-        <select
-          value={selectedStatus}
-          onChange={(e) => setSelectedStatus(e.target.value)}
-          style={{ padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, outline: 'none', background: '#ffffff' }}
-        >
-          <option value="all">Todos los Estatus</option>
-          <option value="Pendiente">⏳ Pendiente</option>
-          <option value="Aplicado">✅ Aplicado</option>
-        </select>
+          <select
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value)}
+            style={{ padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, outline: 'none', background: '#ffffff' }}
+          >
+            <option value="all">Todos los Tipos</option>
+            {DISCOUNT_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          <Calendar size={16} color="#64748b" />
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            style={{ padding: '0.45rem 0.55rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
-          />
-          <span style={{ color: '#94a3b8' }}>-</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            style={{ padding: '0.45rem 0.55rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 700 }}
-          />
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            style={{ padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, outline: 'none', background: '#ffffff' }}
+          >
+            <option value="all">Todos los Estatus</option>
+            <option value="Pendiente">⏳ Pendiente</option>
+            <option value="Aplicado">✅ Aplicado</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={loadDiscounts}
+            style={{ padding: '0.55rem 1.1rem', borderRadius: '10px', background: '#09090b', color: '#ffffff', border: 'none', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer' }}
+          >
+            Actualizar
+          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={handleFilter}
-          style={{ padding: '0.55rem 1.25rem', borderRadius: '10px', background: '#09090b', color: '#ffffff', border: 'none', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer' }}
-        >
-          Filtrar
-        </button>
       </div>
 
-      {/* TABLE */}
-      <div style={{ background: '#ffffff', borderRadius: '20px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
-        <div className="table-responsive">
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.825rem' }}>
-            <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', textAlign: 'left', fontSize: '0.725rem', textTransform: 'uppercase' }}>
-                <th style={{ padding: '0.85rem 0.75rem', fontWeight: 800 }}>Colaborador</th>
-                <th style={{ padding: '0.85rem 0.75rem', fontWeight: 800 }}>Tipo de Deducción</th>
-                <th style={{ padding: '0.85rem 0.75rem', fontWeight: 800 }}>Fecha</th>
-                <th style={{ padding: '0.85rem 0.75rem', fontWeight: 800, textAlign: 'right' }}>Monto</th>
-                <th style={{ padding: '0.85rem 0.75rem', fontWeight: 800 }}>Notas / Detalle</th>
-                <th style={{ padding: '0.85rem 0.75rem', fontWeight: 800, textAlign: 'center' }}>Estatus</th>
-                <th style={{ padding: '0.85rem 0.75rem', fontWeight: 800, textAlign: 'center' }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan="7" style={{ padding: '4rem 1rem', textAlign: 'center', color: '#64748b' }}>
-                    <RefreshCw size={24} className="spin" style={{ margin: '0 auto 0.5rem' }} />
-                    <p style={{ margin: 0, fontWeight: 700 }}>Cargando deducciones...</p>
-                  </td>
-                </tr>
-              ) : filteredDiscounts.length === 0 ? (
-                <tr>
-                  <td colSpan="7" style={{ padding: '4rem 1rem', textAlign: 'center', color: '#64748b' }}>
-                    <p style={{ margin: 0, fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>No hay registros de descuentos de empleados</p>
-                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Haz clic en "+ Registrar Descuento" para añadir una deducción o préstamo.</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredDiscounts.map((item) => {
-                  const typeObj = DISCOUNT_TYPES.find(t => t.id === item.type) || DISCOUNT_TYPES[0];
-                  const Icon = typeObj.icon;
-                  const isPending = item.status === 'Pendiente';
+      {/* ================= GROUPED BY EMPLOYEE ACCORDIONS / CARDS ================= */}
+      {loading ? (
+        <div style={{ background: '#ffffff', borderRadius: '24px', padding: '4rem', textAlign: 'center', border: '1px solid #e2e8f0', color: '#64748b' }}>
+          <RefreshCw size={28} className="spin" style={{ margin: '0 auto 0.75rem' }} />
+          <p style={{ margin: 0, fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>Cargando deducciones de colaboradores...</p>
+        </div>
+      ) : groupedDiscounts.length === 0 ? (
+        <div style={{ background: '#ffffff', borderRadius: '24px', padding: '4rem 2rem', textAlign: 'center', border: '1px solid #e2e8f0' }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: '#fdf2f8', color: '#be185d', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', fontSize: '1.5rem' }}>
+            🏷️
+          </div>
+          <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+            No hay descuentos de empleados registrados
+          </h3>
+          <p style={{ margin: '0.35rem auto 1.25rem', fontSize: '0.85rem', color: '#64748b', maxWidth: '440px' }}>
+            Los cargos por servicios facturados con nómina y préstamos en este período aparecerán aquí agrupados automáticamente por colaborador.
+          </p>
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            style={{ padding: '0.65rem 1.25rem', borderRadius: '12px', background: '#be185d', color: '#ffffff', border: 'none', fontWeight: 800, cursor: 'pointer' }}
+          >
+            + Registrar Primer Descuento
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {groupedDiscounts.map((group) => {
+            const initials = group.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
 
-                  return (
-                    <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '0.85rem 0.75rem' }}>
-                        <strong style={{ color: '#0f172a', display: 'block', fontSize: '0.85rem' }}>{item.employee_name}</strong>
-                        <span style={{ fontSize: '0.725rem', color: '#64748b' }}>{item.employee_position || item.localidad || 'Colaborador'}</span>
-                      </td>
+            return (
+              <div 
+                key={group.id} 
+                style={{ 
+                  background: '#ffffff', 
+                  borderRadius: '20px', 
+                  border: '1px solid #e2e8f0', 
+                  overflow: 'hidden',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.03)'
+                }}
+              >
+                {/* EMPLOYEE HEADER BAR */}
+                <div style={{ 
+                  background: '#f8fafc', 
+                  padding: '1.1rem 1.5rem', 
+                  borderBottom: '1.5px solid #e2e8f0', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  flexWrap: 'wrap', 
+                  gap: '1rem' 
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                    <div style={{ 
+                      width: '44px', 
+                      height: '44px', 
+                      borderRadius: '12px', 
+                      background: 'linear-gradient(135deg, #be185d 0%, #db2777 100%)', 
+                      color: '#ffffff', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      fontWeight: 900, 
+                      fontSize: '1rem',
+                      boxShadow: '0 4px 10px rgba(190,24,93,0.25)'
+                    }}>
+                      {initials}
+                    </div>
 
-                      <td style={{ padding: '0.85rem 0.75rem' }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#f8fafc', padding: '3px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 700, color: typeObj.color }}>
-                          <Icon size={13} />
-                          <span>{typeObj.label}</span>
-                        </div>
-                      </td>
-
-                      <td style={{ padding: '0.85rem 0.75rem', color: '#475569', fontWeight: 600 }}>
-                        {item.date ? new Date(item.date).toLocaleDateString('es-DO') : 'N/A'}
-                      </td>
-
-                      <td style={{ padding: '0.85rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#dc2626', fontSize: '0.9rem' }}>
-                        - RD$ {Number(item.amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </td>
-
-                      <td style={{ padding: '0.85rem 0.75rem', color: '#475569', maxWidth: '240px' }}>
-                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.notes}>
-                          {item.notes || '(Sin observaciones)'}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>
+                          {group.name}
+                        </h3>
+                        <span style={{ fontSize: '0.72rem', background: '#e2e8f0', color: '#475569', padding: '2px 8px', borderRadius: '6px', fontWeight: 800 }}>
+                          {group.position}
                         </span>
-                      </td>
+                        <span style={{ fontSize: '0.72rem', background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <MapPin size={11} /> {group.location}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                        {group.items.length} {group.items.length === 1 ? 'deducción registrada' : 'deducciones registradas'} en el período
+                      </span>
+                    </div>
+                  </div>
 
-                      <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleStatus(item)}
-                          style={{
-                            border: 'none', cursor: 'pointer', padding: '3px 10px', borderRadius: '99px',
-                            fontSize: '0.7rem', fontWeight: 900,
-                            background: isPending ? '#fee2e2' : '#dcfce7',
-                            color: isPending ? '#b91c1c' : '#15803d'
-                          }}
-                          title="Haz clic para alternar entre Pendiente y Aplicado"
-                        >
-                          {isPending ? '⏳ PENDIENTE' : '✔ APLICADO'}
-                        </button>
-                      </td>
+                  {/* TOTALS PILLS FOR THIS EMPLOYEE */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '0.45rem 0.85rem', borderRadius: '12px', textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.68rem', color: '#b91c1c', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Pendiente Nómina</span>
+                      <strong style={{ fontSize: '0.9rem', color: '#dc2626', fontWeight: 900 }}>
+                        RD$ {group.totalPending.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
 
-                      <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditModal(item)}
-                            style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer', color: '#0f172a' }}
-                            title="Editar"
-                          >
-                            <Edit3 size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteDiscount(item.id)}
-                            style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer', color: '#dc2626' }}
-                            title="Eliminar"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '0.45rem 0.85rem', borderRadius: '12px', textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.68rem', color: '#15803d', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Aplicado</span>
+                      <strong style={{ fontSize: '0.9rem', color: '#16a34a', fontWeight: 900 }}>
+                        RD$ {group.totalApplied.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <div style={{ background: '#0f172a', border: '1.5px solid #1e293b', padding: '0.45rem 1rem', borderRadius: '12px', textAlign: 'right', color: '#ffffff', boxShadow: '0 2px 8px rgba(15,23,42,0.15)' }}>
+                      <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Total Deducciones</span>
+                      <strong style={{ fontSize: '1.15rem', color: '#ffffff', fontWeight: 900 }}>
+                        RD$ {group.totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* DETAILED DEDUCTIONS TABLE FOR THIS EMPLOYEE */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.825rem' }}>
+                    <thead>
+                      <tr style={{ background: '#ffffff', borderBottom: '1px solid #f1f5f9', color: '#64748b', fontWeight: 800, fontSize: '0.725rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                        <th style={{ padding: '0.65rem 1rem' }}>Ticket / Ref</th>
+                        <th style={{ padding: '0.65rem 1rem' }}>Fecha</th>
+                        <th style={{ padding: '0.65rem 1rem' }}>Tipo de Deducción</th>
+                        <th style={{ padding: '0.65rem 1rem' }}>Detalle / Servicios Realizados</th>
+                        <th style={{ padding: '0.65rem 1rem', textAlign: 'right' }}>Monto Descontado</th>
+                        <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Estatus Nómina</th>
+                        <th style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.items.map((item) => {
+                        const typeObj = DISCOUNT_TYPES.find(t => t.id === item.type) || DISCOUNT_TYPES[0];
+                        const Icon = typeObj.icon;
+                        const isPending = item.status === 'Pendiente';
+
+                        // Extract ticket number if present in notes or ticket field
+                        let displayTicket = `DISC-${item.id}`;
+                        if (item.notes && item.notes.includes('Factura #')) {
+                          const match = item.notes.match(/Factura\s*#([A-Za-z0-9-_]+)/i);
+                          if (match) displayTicket = match[1];
+                        }
+
+                        return (
+                          <tr key={item.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                            <td style={{ padding: '0.65rem 1rem', fontWeight: 800, color: '#0f172a' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#f1f5f9', padding: '2px 8px', borderRadius: '6px', fontSize: '0.78rem' }}>
+                                <Receipt size={12} color="#64748b" />
+                                <span>{displayTicket}</span>
+                              </div>
+                            </td>
+
+                            <td style={{ padding: '0.65rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: 600 }}>
+                              {item.date ? new Date(item.date).toLocaleDateString('es-DO') : 'N/A'}
+                            </td>
+
+                            <td style={{ padding: '0.65rem 1rem' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: typeObj.bg, border: `1px solid ${typeObj.border}`, color: typeObj.color, padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                                <Icon size={12} />
+                                <span>{typeObj.label}</span>
+                              </div>
+                            </td>
+
+                            <td style={{ padding: '0.65rem 1rem', color: '#1e293b', fontWeight: 600, maxWidth: '340px' }}>
+                              <span style={{ display: 'block', fontSize: '0.8rem' }}>
+                                {item.notes || '(Sin observaciones detalladas)'}
+                              </span>
+                            </td>
+
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: 900, color: '#dc2626', fontSize: '0.92rem' }}>
+                              - RD$ {Number(item.amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                            </td>
+
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStatus(item)}
+                                style={{
+                                  border: 'none', cursor: 'pointer', padding: '3px 10px', borderRadius: '99px',
+                                  fontSize: '0.7rem', fontWeight: 900,
+                                  background: isPending ? '#fee2e2' : '#dcfce7',
+                                  color: isPending ? '#b91c1c' : '#15803d'
+                                }}
+                                title="Haz clic para alternar entre Pendiente y Aplicado"
+                              >
+                                {isPending ? '⏳ PENDIENTE' : '✔ APLICADO'}
+                              </button>
+                            </td>
+
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditModal(item)}
+                                  style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer', color: '#0f172a' }}
+                                  title="Editar"
+                                >
+                                  <Edit3 size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteDiscount(item.id)}
+                                  style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer', color: '#dc2626' }}
+                                  title="Eliminar"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#fdf2f8', borderTop: '1.5px solid #fbcfe8' }}>
+                        <td colSpan={4} style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#831843', fontSize: '0.8rem' }}>
+                          SUBTOTAL DEDUCCIONES PARA {group.name.toUpperCase()} ({group.items.length} {group.items.length === 1 ? 'registro' : 'registros'}):
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#dc2626', fontSize: '0.92rem' }}>
+                          - RD$ {group.totalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td colSpan={2} style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.725rem', color: '#9d174d', fontWeight: 700 }}>
+                          (Pendiente: RD$ {group.totalPending.toLocaleString('es-DO', { minimumFractionDigits: 2 })} | Aplicado: RD$ {group.totalApplied.toLocaleString('es-DO', { minimumFractionDigits: 2 })})
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
 
       {/* ================= MODAL CREATE / EDIT ================= */}
       {showModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, padding: '1rem' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, padding: '1rem' }}>
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '520px', borderRadius: '20px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
             
             <div style={{ padding: '1.25rem 1.5rem', background: '#0f172a', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -621,7 +896,7 @@ const EmployeeDiscountsModule = () => {
                           RD$ {(Number(serviceBasePrice) * 0.8).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                         </strong>
                         <span style={{ display: 'block', fontSize: '0.68rem', color: '#be185d', fontWeight: 700 }}>
-                          (Ahorro empleado: -RD$ {(Number(serviceBasePrice) * 0.2).toFixed(2)})
+                          (Ahorro: -RD$ {(Number(serviceBasePrice) * 0.2).toFixed(2)})
                         </span>
                       </div>
                     )}
@@ -664,7 +939,7 @@ const EmployeeDiscountsModule = () => {
                 </label>
                 <textarea
                   rows="3"
-                  placeholder="Detalle o motivo del descuento/préstamo..."
+                  placeholder="Detalle de servicios o motivo del descuento/préstamo..."
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', resize: 'none' }}

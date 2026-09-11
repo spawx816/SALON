@@ -1886,14 +1886,15 @@ const VisitRecorder = () => {
     await executeCheckout();
   };
 
-  const executeCheckout = async () => {
+  const executeCheckout = async (customPayments = null) => {
     setLoading(true);
     try {
+      const activePayments = customPayments || appliedPayments;
       let empCons = null;
       let gcRedemption = null;
 
       // Check for Gift Card in applied payments
-      const gcItem = appliedPayments.find(p => p.method === 'Gift Card');
+      const gcItem = activePayments.find(p => p.method === 'Gift Card');
       if (gcItem && gcItem.giftCardInfo) {
         gcRedemption = {
           code: gcItem.giftCardCode || gcItem.giftCardInfo.code,
@@ -1902,13 +1903,13 @@ const VisitRecorder = () => {
       }
 
       // Check for Employee Payroll Consumption
-      const empItem = appliedPayments.find(p => p.method === 'Consumo Empleado' || p.method === 'Nomina' || p.method === 'Descuento Nómina');
-      if (empItem || (isEmployeeClient && appliedPayments.some(p => p.method === 'Nomina'))) {
+      const empItem = activePayments.find(p => p.method === 'Consumo Empleado' || p.method === 'Nomina' || p.method === 'Descuento Nómina');
+      if (empItem || isEmployeeClient || (clientFound && clientFound.isEmployee)) {
         const rawEmpId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '') || selectedEmployeeForConsumption;
         const empObj = employees.find(e => String(e.id) === String(rawEmpId) || e.nombre === (clientFound?.nombre || clientFound?.name));
         empCons = {
           employee_id: empObj?.id || rawEmpId || 'EMP',
-          employee_name: empObj?.nombre || clientFound?.nombre || 'Empleado',
+          employee_name: empObj?.nombre || clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Empleado',
           monto: parseFloat(empItem?.amount) || finalTotalAmount,
           servicios: lineItems.map(i => i.nombre),
           salon_id: salonId
@@ -1922,14 +1923,14 @@ const VisitRecorder = () => {
 
       if (hasPlanWash && finalTotalAmount === 0) {
         finalMetodoPago = 'Plan Beauty';
-      } else if (appliedPayments.some(p => p.method === 'Nomina')) {
+      } else if (activePayments.some(p => p.method === 'Nomina')) {
         finalMetodoPago = 'Nomina';
         finalMontoRecibido = finalTotalAmount;
-      } else if (appliedPayments.length === 1) {
-        finalMetodoPago = appliedPayments[0].method;
-        finalMontoRecibido = parseFloat(appliedPayments[0].amount) || finalTotalAmount;
-      } else if (appliedPayments.length > 1) {
-        finalMetodoPago = 'Mixto (' + appliedPayments.map(p => `${p.method}: RD$ ${(parseFloat(p.amount) || 0).toFixed(2)}`).join(' + ') + ')';
+      } else if (activePayments.length === 1) {
+        finalMetodoPago = activePayments[0].method;
+        finalMontoRecibido = parseFloat(activePayments[0].amount) || finalTotalAmount;
+      } else if (activePayments.length > 1) {
+        finalMetodoPago = 'Mixto (' + activePayments.map(p => `${p.method}: RD$ ${(parseFloat(p.amount) || 0).toFixed(2)}`).join(' + ') + ')';
         finalMontoRecibido = totalAppliedSum;
       }
 
@@ -1943,7 +1944,7 @@ const VisitRecorder = () => {
         devuelta: finalDevuelta,
         metodo_pago: finalMetodoPago,
         items_detail: lineItems,
-        applied_payments: appliedPayments,
+        applied_payments: activePayments,
         client_id: finalClientId,
         client_name: finalClientName,
         salon_id: salonId,
@@ -3512,7 +3513,7 @@ const VisitRecorder = () => {
                           // Execute checkout with nomina payment method
                           const nomina_payment = [{ id: `pay-nomina-${Date.now()}`, method: 'Nomina', amount: finalTotalAmount }];
                           setAppliedPayments(nomina_payment);
-                          setTimeout(() => executeCheckout(), 100);
+                          await executeCheckout(nomina_payment);
                         } else {
                           setNominaOtpError(data.error || 'C\u00f3digo incorrecto. Intenta nuevamente.');
                         }

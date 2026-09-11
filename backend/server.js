@@ -627,6 +627,21 @@ const setupDB = async () => {
     try { await pool.query('ALTER TABLE visits MODIFY COLUMN metodo_pago VARCHAR(255) DEFAULT "Efectivo"'); } catch(e){}
     try { await pool.query('ALTER TABLE cash_register_movements MODIFY COLUMN payment_method VARCHAR(255) DEFAULT "Efectivo"'); } catch(e){}
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS employee_discounts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NOT NULL,
+        employee_name VARCHAR(255) NULL,
+        type VARCHAR(50) DEFAULT 'Consumo_Servicio',
+        amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        date DATE NOT NULL,
+        notes TEXT NULL,
+        status VARCHAR(50) DEFAULT 'Pendiente',
+        created_by VARCHAR(100) DEFAULT 'Caja POS',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Seed default commission categories if empty
     const [catCount] = await pool.query('SELECT COUNT(*) as cnt FROM commission_categories');
     if (catCount[0].cnt === 0) {
@@ -1955,7 +1970,43 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
     }
 
     // Record employee consumption for payroll deduction if applicable
-    if (employee_consumption && employee_consumption.employee_id) {
+    const isNominaPayment = metodo_pago === 'Nomina' || (Array.isArray(applied_payments) && applied_payments.some(p => p.method === 'Nomina' || p.method === 'Consumo Empleado' || p.method === 'Descuento Nómina'));
+
+    if ((employee_consumption && employee_consumption.employee_id) || isNominaPayment) {
+      const [vRows] = await pool.query('SELECT ticket_number, salon_id FROM visits WHERE id = ?', [id]);
+      const ticketNum = vRows[0]?.ticket_number || `TK-${id}`;
+      const branchId = salon_id || vRows[0]?.salon_id || 1;
+
+      let empId = employee_consumption?.employee_id || client_id;
+      let rawEmpId = parseInt(String(empId || '').replace('EMP-', '').replace('COMM-', '')) || 0;
+      let empName = employee_consumption?.employee_name || client_name || 'Colaborador';
+
+      // Look up staff record by ID or Name if available to get clean ID and Name
+      if (rawEmpId) {
+        const [st] = await pool.query('SELECT id, nombre, localidad FROM staff_records WHERE id = ? LIMIT 1', [rawEmpId]);
+        if (st.length > 0) {
+          empName = st[0].nombre || empName;
+        }
+      } else if (empName && empName !== 'Cliente General') {
+        const [st] = await pool.query('SELECT id, nombre, localidad FROM staff_records WHERE nombre = ? LIMIT 1', [empName]);
+        if (st.length > 0) {
+          rawEmpId = st[0].id;
+          empName = st[0].nombre;
+        }
+      }
+
+      // Collect specific service names
+      let serviceNames = [];
+      if (employee_consumption?.servicios && Array.isArray(employee_consumption.servicios) && employee_consumption.servicios.length > 0) {
+        serviceNames = employee_consumption.servicios;
+      } else if (Array.isArray(items_detail) && items_detail.length > 0) {
+        serviceNames = items_detail.map(i => i.nombre || i.servicio || i.name || 'Servicio');
+      }
+
+      const servicesStr = serviceNames.join(', ');
+      const discountNotes = `Factura #${ticketNum}${servicesStr ? ` - Servicios: ${servicesStr}` : ''}`;
+      const discountAmount = parseFloat(employee_consumption?.monto || total || 0);
+
       const consumptionId = 'CONS-' + Date.now();
       try {
         await pool.query(
@@ -1963,12 +2014,12 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 'Pendiente_Nomina')`,
           [
             consumptionId,
-            employee_consumption.employee_id,
-            employee_consumption.employee_name || 'Empleado',
-            employee_consumption.monto || total,
-            JSON.stringify(employee_consumption.servicios || []),
+            rawEmpId || empId || 'EMP',
+            empName,
+            discountAmount,
+            JSON.stringify(serviceNames),
             id,
-            employee_consumption.salon_id || salon_id || 1
+            branchId
           ]
         );
       } catch (consErr) {
@@ -1977,17 +2028,14 @@ app.post('/api/visits/:id/checkout', async (req, res) => {
 
       // Also register in employee_discounts table for full sync with Admin Deducciones / Nómina module
       try {
-        const rawEmpId = parseInt(String(employee_consumption.employee_id).replace('EMP-', '')) || 0;
-        const [vRows] = await pool.query('SELECT ticket_number FROM visits WHERE id = ?', [id]);
-        const ticketNum = vRows[0]?.ticket_number || id;
         await pool.query(
           `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
-           VALUES (?, ?, 'Consumo_Servicio', ?, CURDATE(), ?, 'Pendiente', 'Caja POS', NOW())`,
+           VALUES (?, ?, 'Consumo_Servicio', ?, CURDATE(), ?, 'Pendiente', 'Caja POS (Nómina)', NOW())`,
           [
             rawEmpId,
-            employee_consumption.employee_name || 'Empleado',
-            employee_consumption.monto || total,
-            `Consumo Factura #${ticketNum} en sucursal ${salon_id || 1}: ${(employee_consumption.servicios || []).join(', ')}`
+            empName,
+            discountAmount,
+            discountNotes
           ]
         );
       } catch (discErr) {
@@ -2873,9 +2921,11 @@ app.get('/api/employee-discounts', async (req, res) => {
     let query = `
       SELECT ed.id, ed.employee_id, ed.type, ed.amount, DATE_FORMAT(ed.date, '%Y-%m-%d') as date, 
              ed.notes, ed.status, ed.created_by, ed.created_at,
-             COALESCE(s.nombre, ed.employee_name) as employee_name, s.posicion as employee_position, s.localidad
+             COALESCE(s.nombre, ed.employee_name) as employee_name, 
+             COALESCE(s.posicion, 'Colaborador') as employee_position, 
+             COALESCE(s.localidad, 'Principal') as localidad
       FROM employee_discounts ed
-      LEFT JOIN staff_records s ON ed.employee_id = s.id
+      LEFT JOIN staff_records s ON (ed.employee_id = s.id OR (ed.employee_id = 0 AND ed.employee_name = s.nombre))
       WHERE 1=1
     `;
     const params = [];
