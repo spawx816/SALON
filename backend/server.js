@@ -2557,6 +2557,12 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
     const finalAmt = parseFloat(monto_final) || 0;
     const diff = finalAmt - montoEsperado;
 
+    if (diff < -0.01) {
+      return res.status(400).json({
+        error: `⛔ NO SE PUEDE CERRAR LA CAJA CON UN FALTANTE DE EFECTIVO.\n\nEfectivo esperado: RD$ ${montoEsperado.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nEfectivo contado: RD$ ${finalAmt.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nFaltante: - RD$ ${Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2 })}.\n\nPor favor revise los movimientos o cuadre la caja antes de cerrar.`
+      });
+    }
+
     await pool.query(
       `UPDATE cash_registers SET 
         status = 'Cerrada', 

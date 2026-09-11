@@ -431,6 +431,20 @@ const VisitRecorder = () => {
     if (client?.selfie_photo) return client.selfie_photo;
     if (client?.foto) return client.foto;
     if (client?.photo_url) return client.photo_url;
+    if (client?.profile_photo) return client.profile_photo;
+
+    // Check if current client or selected ticket matches an employee
+    const rawEmpId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(client?.id || '').replace('EMP-', '');
+    const clientName = client?.nombre || client?.name || selectedTicket?.client_name || '';
+    const empObj = employees.find(e => 
+      (rawEmpId && String(e.id) === String(rawEmpId)) || 
+      (clientName && (e.nombre?.toLowerCase().trim() === clientName.toLowerCase().trim() || e.name?.toLowerCase().trim() === clientName.toLowerCase().trim()))
+    );
+    if (empObj) {
+      const empPhoto = empObj.profile_photo || empObj.foto || empObj.photo_url || empObj.avatar || empObj.selfie_photo;
+      if (empPhoto) return empPhoto;
+    }
+
     const cPhoto = (clientContracts || []).find(c => c.selfie_photo || c.foto || c.photo_url);
     if (cPhoto) return cPhoto.selfie_photo || cPhoto.foto || cPhoto.photo_url;
     return 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
@@ -871,10 +885,14 @@ const VisitRecorder = () => {
       setBirthdayDiscountActive(false);
       const rawEmpId = String(ticket.client_id || '').replace('EMP-', '');
       const matchedEmp = employees.find(e => String(e.id) === rawEmpId || (e.nombre && e.nombre === ticket.client_name));
+      const empPhoto = matchedEmp?.profile_photo || matchedEmp?.foto || matchedEmp?.photo_url || matchedEmp?.avatar || matchedEmp?.selfie_photo;
       setClientFound({
         id: ticket.client_id || 'EMPLEADO',
         nombre: matchedEmp?.nombre || ticket.client_name || 'Colaborador',
         name: matchedEmp?.nombre || ticket.client_name || 'Colaborador',
+        avatar: empPhoto || null,
+        profile_photo: empPhoto || null,
+        foto: empPhoto || null,
         is_employee: true,
         tipo: 'Empleado',
         posicion: matchedEmp?.rol || matchedEmp?.posicion || 'Colaborador'
@@ -1830,10 +1848,21 @@ const VisitRecorder = () => {
 
   const handleCloseCashRegister = async () => {
     if (!activeRegister) return;
+    const declared = parseFloat(closeRegisterAmount);
+    if (isNaN(declared) || closeRegisterAmount === '') {
+      alert('Por favor ingresa el monto de dinero contado físicamente en caja.');
+      return;
+    }
+    const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+    const diff = declared - expected;
+    if (diff < -0.01) {
+      alert(`⛔ NO SE PUEDE CERRAR LA CAJA CON UN FALTANTE DE EFECTIVO.\n\nEfectivo Esperado: RD$ ${expected.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nDinero Contado: RD$ ${declared.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nFaltante: - RD$ ${Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2 })}\n\nPor favor revise las transacciones, gastos o justifique los movimientos antes de cerrar.`);
+      return;
+    }
     setLoading(true);
     try {
       const res = await dataService.closeCashRegister(activeRegister.id, {
-        monto_final: parseFloat(closeRegisterAmount) || 0,
+        monto_final: declared,
         observaciones: closeRegisterNotes.trim()
       });
       const diffVal = res.summary?.diferencia || 0;
@@ -5114,24 +5143,41 @@ const VisitRecorder = () => {
                       const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
                       const diff = closeRegisterAmount === '' ? 0 : declared - expected;
                       const isSquare = Math.abs(diff) < 0.01;
+                      const isShortage = closeRegisterAmount !== '' && diff < -0.01;
                       return (
-                        <div style={{ background: isSquare ? '#f0fdf4' : '#fef2f2', border: `1px solid ${isSquare ? '#bbf7d0' : '#fca5a5'}`, borderRadius: '14px', padding: '0.85rem 1rem' }}>
-                          <span style={{ fontSize: '0.7rem', color: isSquare ? '#166534' : '#991b1b', fontWeight: 700, display: 'block' }}>Diferencia</span>
-                          <strong style={{ fontSize: '1.05rem', color: isSquare ? '#15803d' : '#dc2626', fontWeight: 900, display: 'block' }}>
-                            RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        <div style={{ background: isSquare ? '#f0fdf4' : (isShortage ? '#fef2f2' : '#f0f9ff'), border: `1.5px solid ${isSquare ? '#bbf7d0' : (isShortage ? '#fca5a5' : '#bae6fd')}`, borderRadius: '14px', padding: '0.85rem 1rem' }}>
+                          <span style={{ fontSize: '0.7rem', color: isSquare ? '#166534' : (isShortage ? '#991b1b' : '#0369a1'), fontWeight: 700, display: 'block' }}>Diferencia</span>
+                          <strong style={{ fontSize: '1.05rem', color: isSquare ? '#15803d' : (isShortage ? '#dc2626' : '#0284c7'), fontWeight: 900, display: 'block' }}>
+                            {diff >= 0 ? '+' : ''} RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                           </strong>
-                          <span style={{ fontSize: '0.675rem', fontWeight: 800, color: isSquare ? '#15803d' : '#dc2626', display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '2px' }}>
-                            {isSquare ? '✔ Caja cuadrada' : '⚠ Descuadre de caja'}
+                          <span style={{ fontSize: '0.675rem', fontWeight: 800, color: isSquare ? '#15803d' : (isShortage ? '#dc2626' : '#0284c7'), display: 'flex', alignItems: 'center', gap: '0.2rem', marginTop: '2px' }}>
+                            {isSquare ? '✔ Caja cuadrada' : (isShortage ? '⛔ Faltante en caja (Cierre bloqueado)' : '🔷 Sobrante en caja')}
                           </span>
                         </div>
                       );
                     })()}
                   </div>
 
-                  <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px', padding: '0.65rem 0.85rem', marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem', color: '#0369a1', fontWeight: 600 }}>
-                    <span>ℹ</span>
-                    <span>Si la diferencia es distinta de 0, deberás indicar el motivo antes de cerrar la caja.</span>
-                  </div>
+                  {(() => {
+                    const declared = parseFloat(closeRegisterAmount) || 0;
+                    const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
+                    const diff = closeRegisterAmount === '' ? 0 : declared - expected;
+                    const isShortage = closeRegisterAmount !== '' && diff < -0.01;
+                    if (isShortage) {
+                      return (
+                        <div style={{ background: '#fef2f2', border: '1.5px solid #ef4444', borderRadius: '10px', padding: '0.65rem 0.85rem', marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#b91c1c', fontWeight: 700 }}>
+                          <span>⛔</span>
+                          <span><strong>Bloqueado:</strong> No se permite cerrar la caja con un faltante de efectivo (- RD$ {Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2 })}). Revise los movimientos.</span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px', padding: '0.65rem 0.85rem', marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.725rem', color: '#0369a1', fontWeight: 600 }}>
+                        <span>ℹ</span>
+                        <span>Si la diferencia es distinta de 0, deberás indicar el motivo antes de cerrar la caja.</span>
+                      </div>
+                    );
+                  })()}
                 </div>
 
               </div>
@@ -5249,27 +5295,27 @@ const VisitRecorder = () => {
                 <button
                   type="button"
                   onClick={handleCloseCashRegister}
-                  disabled={loading || closeRegisterAmount === ''}
+                  disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01}
                   style={{
                     flex: 1,
                     padding: '0.85rem 1.25rem',
                     borderRadius: '12px',
                     border: 'none',
-                    background: 'linear-gradient(to right, #be185d, #7c3aed)',
+                    background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : 'linear-gradient(to right, #be185d, #7c3aed)',
                     color: '#ffffff',
                     fontWeight: 800,
                     fontSize: '0.9rem',
-                    cursor: 'pointer',
+                    cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
                     boxShadow: '0 4px 14px rgba(190, 24, 93, 0.35)',
-                    opacity: (loading || closeRegisterAmount === '') ? 0.6 : 1
+                    opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1
                   }}
                 >
                   <LockIcon size={18} />
-                  <span>Cerrar caja de jornada</span>
+                  <span>{((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Cierre bloqueado por faltante' : 'Cerrar caja de jornada'}</span>
                 </button>
               </div>
               <span style={{ fontSize: '0.725rem', color: '#64748b', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontWeight: 500 }}>
@@ -5350,6 +5396,7 @@ const VisitRecorder = () => {
               const declared = parseFloat(closeRegisterAmount) || 0;
               const expected = registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0);
               const diff = declared - expected;
+              const isShortage = diff < -0.01;
               return (
                 <div style={{
                   padding: '0.75rem',
@@ -5357,14 +5404,19 @@ const VisitRecorder = () => {
                   marginBottom: '1rem',
                   textAlign: 'center',
                   background: Math.abs(diff) < 0.01 ? '#f0fdf4' : diff > 0 ? '#f0f9ff' : '#fef2f2',
-                  border: `1px solid ${Math.abs(diff) < 0.01 ? '#86efac' : diff > 0 ? '#bae6fd' : '#fca5a5'}`
+                  border: `1.5px solid ${Math.abs(diff) < 0.01 ? '#86efac' : diff > 0 ? '#bae6fd' : '#f87171'}`
                 }}>
                   <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>
-                    {Math.abs(diff) < 0.01 ? '🟢 CUADRE PERFECTO' : diff > 0 ? '🔷 SOBRANTE DE CAJA' : '🔴 FALTANTE DE CAJA'}
+                    {Math.abs(diff) < 0.01 ? '🟢 CUADRE PERFECTO' : diff > 0 ? '🔷 SOBRANTE DE CAJA' : '🔴 FALTANTE DE CAJA (CIERRE BLOQUEADO)'}
                   </span>
                   <div style={{ fontSize: '1.15rem', fontWeight: 900, color: Math.abs(diff) < 0.01 ? '#15803d' : diff > 0 ? '#0369a1' : '#dc2626' }}>
                     Diferencia: {diff >= 0 ? '+' : ''} RD$ {diff.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                   </div>
+                  {isShortage && (
+                    <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', color: '#b91c1c', fontWeight: 700 }}>
+                      ⛔ No se puede cerrar la caja con faltante de efectivo.
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -5392,10 +5444,20 @@ const VisitRecorder = () => {
               </button>
               <button
                 onClick={handleCloseCashRegister}
-                disabled={loading || closeRegisterAmount === ''}
-                style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#dc2626', color: '#ffffff', fontWeight: 800, cursor: 'pointer', opacity: (loading || closeRegisterAmount === '') ? 0.6 : 1 }}
+                disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01}
+                style={{ 
+                  flex: 1, 
+                  padding: '0.75rem', 
+                  borderRadius: '10px', 
+                  border: 'none', 
+                  background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : '#dc2626', 
+                  color: '#ffffff', 
+                  fontWeight: 800, 
+                  cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer', 
+                  opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1 
+                }}
               >
-                Finalizar y Cerrar Caja
+                {((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja || Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Bloqueado por faltante' : 'Finalizar y Cerrar Caja'}
               </button>
             </div>
           </div>
