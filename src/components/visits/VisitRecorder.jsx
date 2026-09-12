@@ -4532,18 +4532,18 @@ const VisitRecorder = () => {
                         style={{
                           background: ticketClientMembership?.statusBg || '#f8fafc',
                           border: `1.5px solid ${ticketClientMembership?.statusBorder || '#e2e8f0'}`,
-                          padding: '0.9rem 1.1rem',
-                          borderRadius: '14px',
+                          padding: '0.95rem 1.15rem',
+                          borderRadius: '16px',
                           marginBottom: '0.85rem',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
                           transition: 'all 0.2s ease'
                         }}
                       >
                         {/* Header con nombre del cliente y botón Cambiar */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.55rem', borderBottom: '1px solid rgba(0,0,0,0.06)', paddingBottom: '0.45rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                             <span style={{ fontSize: '0.95rem' }}>✅</span>
-                            <strong style={{ color: '#0f172a', fontSize: '0.9rem', fontWeight: 800 }}>
+                            <strong style={{ color: '#0f172a', fontSize: '0.92rem', fontWeight: 800 }}>
                               Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}
                             </strong>
                           </div>
@@ -4561,7 +4561,7 @@ const VisitRecorder = () => {
                               fontWeight: 800,
                               cursor: 'pointer',
                               fontSize: '0.75rem',
-                              padding: '0.25rem 0.6rem',
+                              padding: '0.25rem 0.65rem',
                               borderRadius: '8px',
                               transition: 'all 0.15s'
                             }}
@@ -4570,18 +4570,17 @@ const VisitRecorder = () => {
                           </button>
                         </div>
 
-                        {/* Estado de Membresía y Lavados Disponibles */}
+                        {/* Estado de Membresía y Lavados Disponibles (Minimalista y Sincronizado) */}
                         {loadingTicketMembership ? (
-                          <div style={{ padding: '0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.85rem', fontWeight: 600 }}>
+                          <div style={{ padding: '0.4rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.85rem', fontWeight: 600 }}>
                             <span style={{ display: 'inline-block' }}>⏳</span> Verificando membresía...
                           </div>
                         ) : ticketClientMembership ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                            {/* Estatus, PROMO badge y Plan */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.4rem' }}>
                               <div
                                 style={{
-                                  fontSize: '1.2rem',
+                                  fontSize: '1.25rem',
                                   fontWeight: 800,
                                   color: ticketClientMembership.statusColor,
                                   letterSpacing: '-0.01em',
@@ -4590,97 +4589,35 @@ const VisitRecorder = () => {
                               >
                                 {ticketClientMembership.statusLabel}
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                {ticketClientMembership.isPromoActive && (
-                                  <span
-                                    style={{
-                                      fontSize: '0.62rem',
-                                      background: '#166534',
-                                      color: 'white',
-                                      padding: '0.2rem 0.5rem',
-                                      borderRadius: '99px',
-                                      fontWeight: 900,
-                                      letterSpacing: '0.02em'
-                                    }}
-                                  >
-                                    PROMO ACTIVA
-                                  </span>
-                                )}
-                                {ticketClientMembership.planName && (
-                                  <span
-                                    style={{
-                                      fontSize: '0.72rem',
-                                      fontWeight: 700,
-                                      color: '#6b21a8',
-                                      background: 'rgba(255,255,255,0.85)',
-                                      padding: '0.2rem 0.55rem',
-                                      borderRadius: '6px',
-                                      border: '1px solid rgba(107,33,168,0.2)'
-                                    }}
-                                  >
-                                    {ticketClientMembership.planName}
-                                  </span>
-                                )}
-                              </div>
+                              {ticketClientMembership.planName && (
+                                <span
+                                  style={{
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    color: '#6b21a8',
+                                    background: 'rgba(255,255,255,0.85)',
+                                    padding: '0.2rem 0.6rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(107,33,168,0.2)'
+                                  }}
+                                >
+                                  {ticketClientMembership.planName}
+                                </span>
+                              )}
                             </div>
 
-                            {/* Desglose de Servicios del Plan y Beneficios (sincronizado con Perfil del Cliente) */}
-                            {ticketClientMembership.hasContract && ticketClientMembership.servicesList && ticketClientMembership.servicesList.length > 0 && (
-                              <div style={{ marginTop: '0.3rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                                  Servicios del Plan y Beneficios:
-                                </p>
-                                {ticketClientMembership.servicesList.map((svc, idx) => (
-                                  <div
-                                    key={idx}
-                                    style={{
-                                      background: '#ffffff',
-                                      border: svc.available > 0 ? '1.5px solid #86efac' : '1.5px solid #fecaca',
-                                      padding: '0.45rem 0.7rem',
-                                      borderRadius: '8px',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
-                                    }}
-                                  >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>
-                                        {svc.name}
-                                      </span>
-                                      {svc.isPromo && (
-                                        <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#dcfce7', color: '#166534', padding: '0.1rem 0.35rem', borderRadius: '4px' }}>
-                                          PROMO
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span
-                                      style={{
-                                        fontSize: '0.75rem',
-                                        fontWeight: 800,
-                                        color: svc.available > 0 ? '#047857' : '#ef4444'
-                                      }}
-                                    >
-                                      {svc.currentUsage} / {svc.isUnlimited ? '∞' : svc.quota} usados ({svc.isUnlimited ? 'Ilimitados' : svc.available} disponibles)
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Resumen Total */}
                             {ticketClientMembership.hasContract && (
                               <div
                                 style={{
-                                  fontSize: '1.25rem',
+                                  fontSize: '1.35rem',
                                   fontWeight: 900,
                                   color: '#1e293b',
                                   letterSpacing: '-0.02em',
                                   lineHeight: 1.2,
-                                  marginTop: '0.35rem'
+                                  marginTop: '0.15rem'
                                 }}
                               >
-                                Lavados y Beneficios disponibles: {ticketClientMembership.totalAvailableCount}
+                                Lavados disponibles: {ticketClientMembership.washesAvailable}
                               </div>
                             )}
                           </div>
