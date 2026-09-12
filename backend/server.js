@@ -2191,15 +2191,28 @@ async function handleCheckoutVisit(req, res) {
     const id = req.params?.id || req.body?.ticketId || req.body?.id || `VIS-${Date.now()}`;
     const { total, monto_recibido, devuelta, metodo_pago, items_detail, client_id, client_name, salon_id, employee_consumption, gift_card_redemption } = req.body;
 
-    const [existing] = await pool.query('SELECT id FROM visits WHERE id = ?', [id]);
+    const [existing] = await pool.query('SELECT id, servicios FROM visits WHERE id = ?', [id]);
+
+    let serviceNames = [];
+    if (Array.isArray(items_detail) && items_detail.length > 0) {
+      serviceNames = items_detail.map(i => i.nombre || i.servicio || i.name || 'Servicio').filter(Boolean);
+    } else if (req.body.servicios && Array.isArray(req.body.servicios)) {
+      serviceNames = req.body.servicios;
+    } else if (existing[0]?.servicios) {
+      try {
+        serviceNames = typeof existing[0].servicios === 'string' ? JSON.parse(existing[0].servicios) : existing[0].servicios;
+      } catch (e) {
+        serviceNames = [];
+      }
+    }
 
     if (existing.length === 0) {
       const ticketNum = await getNextTicketNumber(salon_id || 1, 'SD');
 
       await pool.query(
         `INSERT INTO visits 
-          (id, ticket_number, client_id, client_name, total, monto_recibido, devuelta, metodo_pago, items_detail, salon_id, status, visited_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
+          (id, ticket_number, client_id, client_name, total, monto_recibido, devuelta, metodo_pago, items_detail, servicios, salon_id, status, visited_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
         [
           id,
           ticketNum,
@@ -2210,6 +2223,7 @@ async function handleCheckoutVisit(req, res) {
           devuelta || 0,
           metodo_pago || 'Efectivo',
           JSON.stringify(items_detail || []),
+          JSON.stringify(serviceNames || []),
           salon_id || 1
         ]
       );
@@ -2222,9 +2236,10 @@ async function handleCheckoutVisit(req, res) {
           devuelta = ?, 
           metodo_pago = ?, 
           items_detail = ?, 
+          servicios = ?,
           visited_at = NOW() 
          WHERE id = ?`,
-        [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), id]
+        [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), JSON.stringify(serviceNames || []), id]
       );
     }
 

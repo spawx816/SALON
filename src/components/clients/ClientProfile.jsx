@@ -1234,12 +1234,18 @@ const ClientProfile = () => {
                     const cycleVisits = visits.filter(v => parseDate(v.visited_at) >= threshold);
                     
                     const usageMap = {};
+                    let totalCycleWashesUsed = 0;
+                    let totalCyclePromoUsed = 0;
+
                     cycleVisits.forEach(v => {
                       let sList = v.servicios || [];
                       if (typeof sList === 'string') {
                         try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
                       }
-                      if (Array.isArray(sList)) {
+                      let visitWashCount = 0;
+                      let visitPromoCount = 0;
+
+                      if (Array.isArray(sList) && sList.length > 0) {
                         sList.forEach(s => {
                           if (typeof s === 'string') {
                             const cleanS = s.trim();
@@ -1248,9 +1254,37 @@ const ClientProfile = () => {
                             if (noNum && noNum !== cleanS) {
                               usageMap[noNum] = (usageMap[noNum] || 0) + 1;
                             }
+                            if (cleanS.toLowerCase().includes('lavado')) {
+                              visitWashCount++;
+                            }
+                            if (cleanS.toLowerCase().includes('tratamiento') || cleanS.toLowerCase().includes('promo') || cleanS.toLowerCase().includes('extra')) {
+                              visitPromoCount++;
+                            }
                           }
                         });
                       }
+
+                      // También inspeccionar items_detail si está presente
+                      try {
+                        if (v.items_detail) {
+                          const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+                          if (Array.isArray(parsed)) {
+                            parsed.forEach(i => {
+                              const iName = (i.nombre || i.servicio || '').toLowerCase();
+                              const qty = Number(i.cantidad) || 1;
+                              if (i.isPlanWash || iName.includes('plan beauty') || iName.includes('lavado')) {
+                                if (visitWashCount === 0) visitWashCount += qty;
+                              }
+                              if (iName.includes('promo') || iName.includes('tratamiento')) {
+                                if (visitPromoCount === 0) visitPromoCount += qty;
+                              }
+                            });
+                          }
+                        }
+                      } catch (e) {}
+
+                      totalCycleWashesUsed += visitWashCount;
+                      totalCyclePromoUsed += visitPromoCount;
                     });
 
                     // Snapshot & Promo Logic
@@ -1364,7 +1398,17 @@ const ClientProfile = () => {
                                 }
                               }
 
-                              const currentUsage = usageMap[service] || usageMap[baseName] || usageMap[(baseName || '').trim()] || 0;
+                              const isWash = lower.includes('lavado');
+                              const isPromoBenefit = lower.includes('promo') || lower.includes('extra') || lower.includes('tratamiento');
+
+                              let currentUsage = usageMap[service] || usageMap[baseName] || usageMap[(baseName || '').trim()] || 0;
+
+                              if (isWash && !isPromoBenefit) {
+                                currentUsage = Math.max(currentUsage, Math.min(quota, totalCycleWashesUsed));
+                              } else if (isPromoBenefit) {
+                                const excessWashes = Math.max(0, totalCycleWashesUsed - 4);
+                                currentUsage = Math.max(currentUsage, totalCyclePromoUsed, excessWashes);
+                              }
                               const percentage = isUnlimited ? 100 : Math.min(100, (currentUsage / quota) * 100);
                               const isBtnDisabled = (percentage >= 100 && !isUnlimited) || client.status === 'Cancelled' || contract?.status === 'Pending_Retry';
 
