@@ -1480,13 +1480,15 @@ const VisitRecorder = () => {
     const updated = [...lineItems];
     const item = updated[index];
 
-    // Regla Plan Beauty: Incluye 1 solo lavado por facturación. Si se eleva a 2, el segundo se cobra a precio regular.
+    // Regla Plan Beauty: Incluye 1 solo lavado por facturación. Si se eleva a 2, el segundo se cobra a precio regular estándar (RD$ 600).
     if (item.isPlanWash && delta > 0) {
-      const regularPrice = 400;
+      const cleanName = item.nombre.replace(' (Plan Beauty)', '').trim();
+      const matchedSrv = availableServices.find(s => isLavadoSencillo(s.nombre)) || servicesList.find(s => isLavadoSencillo(s.nombre));
+      const regularPrice = matchedSrv ? (parseFloat(matchedSrv.precio) || 600) : 600;
       const secondWash = {
         id: Date.now() + Math.random(),
-        service_id: `srv-wash-extra-${Date.now()}`,
-        nombre: `${item.nombre.replace(' (Plan Beauty)', '')} (Adicional)`,
+        service_id: matchedSrv?.id || `srv-wash-extra-${Date.now()}`,
+        nombre: `${cleanName} (Adicional)`,
         precioBase: regularPrice,
         precioAplicado: regularPrice,
         cantidad: 1,
@@ -1496,10 +1498,10 @@ const VisitRecorder = () => {
         descuento: birthdayDiscountActive ? Number((regularPrice * 0.15).toFixed(2)) : 0,
         descuentoPercent: birthdayDiscountActive ? '15' : '0',
         isPlanWash: false,
-        aplica_itbis: 0
+        aplica_itbis: matchedSrv?.aplica_itbis ? 1 : 0
       };
       setLineItems([...lineItems, secondWash]);
-      alert('ℹ️ Plan Beauty incluye 1 solo lavado en cada facturación.\nEl lavado adicional se ha agregado automáticamente a precio regular.');
+      alert('ℹ️ Plan Beauty incluye 1 solo lavado en cada facturación.\nEl lavado adicional se ha agregado automáticamente a precio regular (RD$ ' + regularPrice.toLocaleString('es-DO', { minimumFractionDigits: 2 }) + ').');
       return;
     }
 
