@@ -511,6 +511,16 @@ const ClientProfile = () => {
            rawServices = rawServices.split(',').map(s => s.trim());
         }
       }
+      if (!Array.isArray(rawServices) || rawServices.length === 0) {
+        if (v.items_detail) {
+          try {
+            const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+            if (Array.isArray(parsed)) {
+              rawServices = parsed.map(i => i.nombre || i.servicio || i.name).filter(Boolean);
+            }
+          } catch (e) {}
+        }
+      }
       if (!Array.isArray(rawServices)) rawServices = [];
 
       const formattedServices = rawServices.map(service => {
