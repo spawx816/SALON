@@ -393,44 +393,162 @@ const VisitRecorder = () => {
     return 'Sin suscripción activa';
   };
 
-  const getRegularWashesCount = () => {
-    if (activePlans && activePlans.length > 0) {
-      const plan = activePlans[0];
-      const remaining = plan.remaining_washes !== undefined ? plan.remaining_washes : plan.remaining_base_washes;
-      return remaining !== undefined ? remaining : 0;
+  const getBenefitsDetails = () => {
+    if (!activePlans || activePlans.length === 0) {
+      return {
+        totalBenefitsAvailable: 0,
+        regularWashesCount: 0,
+        extraBenefitsCount: 0,
+        totalAllowedWashes: 4,
+        baseUsed: 0,
+        promoUsed: 0,
+        isPromoActive: false
+      };
     }
-    return 0;
+
+    const plan = activePlans[0];
+    const contract = (clientContracts || []).find(c => c.status === 'Active' || c.status === 'Activo' || c.status === 'Pending_Retry') || clientContracts?.[0];
+
+    // Source of visits: prefer clientVisitsHistory if populated, fallback to plan.pastVisits
+    const visitsSource = (Array.isArray(clientVisitsHistory) && clientVisitsHistory.length > 0)
+      ? clientVisitsHistory
+      : (Array.isArray(plan?.pastVisits) && plan.pastVisits.length > 0 ? plan.pastVisits : []);
+
+    const parseDate = (d) => {
+      if (!d) return 0;
+      if (d instanceof Date) return d.getTime();
+      const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
+      const time = new Date(dateStr).getTime();
+      return isNaN(time) ? new Date(d).getTime() : time;
+    };
+
+    const lastBillingTime = parseDate(contract?.last_billed_date || plan?.last_billed_date || contract?.created_at || contract?.signed_at);
+    const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
+    const cycleVisits = visitsSource.filter(v => parseDate(v.visited_at) >= threshold);
+
+    const usageMap = {};
+    cycleVisits.forEach(v => {
+      let sList = v.servicios || [];
+      if (typeof sList === 'string') {
+        try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
+      }
+      if (Array.isArray(sList)) {
+        sList.forEach(s => {
+          if (typeof s === 'string') {
+            const cleanS = s.trim();
+            usageMap[cleanS] = (usageMap[cleanS] || 0) + 1;
+            const noNum = cleanS.replace(/^\d+\s*/, '').trim();
+            if (noNum && noNum !== cleanS) {
+              usageMap[noNum] = (usageMap[noNum] || 0) + 1;
+            }
+          }
+        });
+      }
+      try {
+        if (v.items_detail) {
+          const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+          if (Array.isArray(parsed)) {
+            parsed.forEach(i => {
+              if (i.isPlanWash || (i.nombre && (i.nombre.toLowerCase().includes('plan beauty') || i.nombre.toLowerCase().includes('lavado')))) {
+                usageMap['Lavados y Secados'] = (usageMap['Lavados y Secados'] || 0) + (Number(i.cantidad) || 1);
+                usageMap['Lavado y Secado'] = (usageMap['Lavado y Secado'] || 0) + (Number(i.cantidad) || 1);
+              }
+            });
+          }
+        }
+      } catch (e) {}
+    });
+
+    const peel = (data) => {
+      let current = data;
+      let limit = 0;
+      while (typeof current === 'string' && limit < 5) {
+        try {
+          const p = JSON.parse(current);
+          if (p === current) break;
+          current = p;
+          limit++;
+        } catch { break; }
+      }
+      return current;
+    };
+
+    const signedAt = new Date(contract?.created_at || contract?.signed_at || plan?.created_at || new Date());
+    const promoDuration = Number(contract?.contract_promo_duration ?? plan?.contract_promo_duration ?? 0);
+    const promoExpiry = new Date(signedAt);
+    promoExpiry.setMonth(promoExpiry.getMonth() + promoDuration);
+    const isPromoActive = promoDuration > 0 && new Date() < promoExpiry;
+
+    const baseSnapshot = peel(contract?.contract_services) || plan.baseServices || plan.services || [];
+    const promoSnapshot = peel(contract?.contract_promo_services) || plan.promoServices || [];
+    const baseArray = Array.isArray(baseSnapshot) ? baseSnapshot : [];
+    const promoArray = Array.isArray(promoSnapshot) ? promoSnapshot : [];
+
+    let totalAllowedWashes = 4;
+    let baseUsed = 0;
+    const baseWashEntry = baseArray.find(s => typeof s === 'string' && s.toLowerCase().includes('lavado')) || '4 Lavados y Secados';
+    if (baseWashEntry) {
+      const match = String(baseWashEntry).match(/^(\d+)\s*(.*)$/);
+      if (match) {
+        totalAllowedWashes = parseInt(match[1], 10) || 4;
+      }
+      const baseName = match ? match[2] : baseWashEntry;
+      baseUsed = usageMap[baseWashEntry] || usageMap[baseName] || usageMap[(baseName || '').trim()] || usageMap['Lavados y Secados'] || usageMap['Lavado y Secado'] || 0;
+    } else {
+      baseUsed = usageMap['Lavados y Secados'] || usageMap['Lavado y Secado'] || 0;
+    }
+
+    // Current ticket in-cart plan wash count (if user already added it to lineItems)
+    const currentTicketPlanWashCount = (lineItems || []).filter(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty'))).length;
+    const remainingBaseWashes = Math.max(0, totalAllowedWashes - baseUsed - currentTicketPlanWashCount);
+
+    let totalPromoAllowed = 0;
+    let promoUsed = 0;
+    if (isPromoActive && promoArray.length > 0) {
+      promoArray.forEach(pService => {
+        if (typeof pService === 'string') {
+          let pQuota = 1;
+          let pBaseName = pService;
+          const pMatch = pService.match(/^(\d+)\s*(.*)$/);
+          if (pMatch) {
+            pQuota = parseInt(pMatch[1], 10) || 1;
+            pBaseName = pMatch[2];
+          }
+          totalPromoAllowed += pQuota;
+          const pCount = usageMap[pService] || usageMap[pBaseName] || usageMap[(pBaseName || '').trim()] || 0;
+          promoUsed += pCount;
+        }
+      });
+    }
+
+    const remainingPromoServices = Math.max(0, totalPromoAllowed - promoUsed);
+    const totalBenefitsAvailable = remainingBaseWashes + remainingPromoServices;
+
+    return {
+      totalBenefitsAvailable,
+      regularWashesCount: remainingBaseWashes,
+      extraBenefitsCount: remainingPromoServices,
+      totalAllowedWashes,
+      baseUsed,
+      promoUsed,
+      isPromoActive
+    };
+  };
+
+  const getRegularWashesCount = () => {
+    return getBenefitsDetails().regularWashesCount;
   };
 
   const getExtraBenefitsCount = () => {
-    if (activePlans && activePlans.length > 0) {
-      const plan = activePlans[0];
-      if (plan.remaining_promo_services !== undefined) {
-        return plan.remaining_promo_services;
-      }
-      return (plan.promoServices && plan.promoServices.length > 0) && plan.isPromoActive !== false ? 1 : 0;
-    }
-    return 0;
+    return getBenefitsDetails().extraBenefitsCount;
   };
 
   const getBenefitsCount = () => {
-    if (activePlans && activePlans.length > 0) {
-      const plan = activePlans[0];
-      if (plan.total_benefits_available !== undefined) {
-        return plan.total_benefits_available;
-      }
-      const regular = getRegularWashesCount();
-      const extra = getExtraBenefitsCount();
-      return regular + extra;
-    }
-    return 0;
+    return getBenefitsDetails().totalBenefitsAvailable;
   };
 
   const getTotalBenefitsCount = () => {
-    if (activePlans && activePlans.length > 0) {
-      return activePlans[0]?.total_washes || 4;
-    }
-    return 4;
+    return getBenefitsDetails().totalAllowedWashes;
   };
 
   const getClientAvatar = (client) => {
@@ -789,9 +907,8 @@ const VisitRecorder = () => {
     setClientSearchTerm('');
     setEmployeeDiscountApplied(false);
     setBirthdayDiscountActive(false);
-    setClientVisitsHistory([]);
-    await loadClientPlanData(client.id, client.nombre || client.name);
-    await loadClientVisitsHistory(client.id || client.nombre || client.name);
+    await loadClientPlanData(client.id, client.nombre || client.name, null, client);
+    await loadClientVisitsHistory(client.id || client.cedula || client.nombre || client.name);
 
     // Check birthday discount (7-day window)
     const isBday = checkClientBirthday(client);
@@ -945,9 +1062,8 @@ const VisitRecorder = () => {
         const match = (allClients || []).find(c => String(c.id) === String(ticket.client_id) || (c.cedula && c.cedula === ticket.client_cedula) || (c.nombre || c.name) === ticket.client_name);
         targetClient = match || { id: ticket.client_id, nombre: ticket.client_name || 'Cliente' };
         setClientFound(targetClient);
-        setClientVisitsHistory([]);
-        await loadClientPlanData(ticket.client_id, ticket.client_name, ticket);
-        await loadClientVisitsHistory(ticket.client_id || ticket.client_name);
+        await loadClientPlanData(targetClient.id || ticket.client_id, targetClient.nombre || ticket.client_name, ticket, targetClient);
+        await loadClientVisitsHistory(targetClient.id || targetClient.cedula || ticket.client_id || ticket.client_name);
       } else {
         targetClient = { id: 'INVITADO', nombre: ticket.client_name || 'Cliente General', name: ticket.client_name || 'Cliente General', es_invitado: true };
         setClientFound(targetClient);
@@ -985,21 +1101,30 @@ const VisitRecorder = () => {
     setLineItems(sanitizedItems);
   };
 
-  const loadClientPlanData = async (clientId, clientName, ticketObj = null) => {
+  const loadClientPlanData = async (clientId, clientName, ticketObj = null, customClient = null) => {
     try {
-      if (!clientId || clientId === 'INVITADO' || String(clientId).startsWith('INVITADO')) {
+      const clientQueryId = (clientId && clientId !== 'INVITADO' && !String(clientId).startsWith('INVITADO')) 
+        ? clientId 
+        : (customClient?.id && customClient.id !== 'INVITADO' ? customClient.id : null);
+      const clientQueryCedula = customClient?.cedula || clientFound?.cedula || ticketObj?.client_cedula;
+      const clientQueryName = clientName || customClient?.nombre || customClient?.name || clientFound?.nombre || ticketObj?.client_name;
+
+      if (!clientQueryId && !clientQueryCedula && !clientQueryName) {
         setActivePlans([]);
         setClientContracts([]);
         return;
       }
 
-      // Multi-stage contract lookup strictly for registered client ID or Cedula
+      // Multi-stage contract lookup strictly for registered client ID or Cedula or Name
       let contractsFound = [];
-      if (clientId && clientId !== 'INVITADO') {
-        contractsFound = await dataService.getContractByClient(clientId);
+      if (clientQueryId) {
+        contractsFound = await dataService.getContractByClient(clientQueryId);
       }
-      if ((!contractsFound || contractsFound.length === 0) && clientFound?.cedula) {
-        contractsFound = await dataService.getContractByClient(String(clientFound.cedula).trim());
+      if ((!contractsFound || contractsFound.length === 0) && clientQueryCedula) {
+        contractsFound = await dataService.getContractByClient(String(clientQueryCedula).trim());
+      }
+      if ((!contractsFound || contractsFound.length === 0) && clientQueryName) {
+        contractsFound = await dataService.getContractByClient(clientQueryName);
       }
       if ((!contractsFound || contractsFound.length === 0) && ticketObj?.plan_beauty_id) {
         contractsFound = await dataService.getContractByClient(ticketObj.plan_beauty_id);
@@ -1007,20 +1132,25 @@ const VisitRecorder = () => {
 
       setClientContracts(contractsFound || []);
 
-      // Filter only Active contracts
+      // Filter only Active / Pending_Retry contracts
       const activeContracts = (Array.isArray(contractsFound) ? contractsFound : []).filter(
-        c => c.status === 'Active' || c.status === 'Activo'
+        c => c.status === 'Active' || c.status === 'Activo' || c.status === 'Pending_Retry'
       );
 
       let pastVisits = [];
-      if (clientId && clientId !== 'INVITADO') {
-        pastVisits = await dataService.getVisitsByClient(clientId).catch(() => []) || [];
+      if (clientQueryId) {
+        pastVisits = await dataService.getVisitsByClient(clientQueryId).catch(() => []) || [];
       }
-      if ((!pastVisits || pastVisits.length === 0) && clientFound?.cedula) {
-        pastVisits = await dataService.getVisitsByClient(String(clientFound.cedula).trim()).catch(() => []) || [];
+      if ((!pastVisits || pastVisits.length === 0) && clientQueryCedula) {
+        pastVisits = await dataService.getVisitsByClient(String(clientQueryCedula).trim()).catch(() => []) || [];
       }
-      if ((!pastVisits || pastVisits.length === 0) && (clientName || clientFound?.nombre || clientFound?.name)) {
-        pastVisits = await dataService.getVisitsByClient(clientName || clientFound?.nombre || clientFound?.name).catch(() => []) || [];
+      if ((!pastVisits || pastVisits.length === 0) && clientQueryName) {
+        pastVisits = await dataService.getVisitsByClient(clientQueryName).catch(() => []) || [];
+      }
+
+      // Immediately synchronize clientVisitsHistory in state
+      if (pastVisits && pastVisits.length > 0) {
+        setClientVisitsHistory(pastVisits);
       }
 
       const allPlans = await dataService.getPlans().catch(() => []) || [];
@@ -1065,7 +1195,7 @@ const VisitRecorder = () => {
           ? [...baseArray, ...promoArray]
           : (baseArray.length > 0 ? baseArray : (matchedPlan?.services || []));
 
-        const lastBillingTime = parseDate(contract.last_billed_date);
+        const lastBillingTime = parseDate(contract.last_billed_date || contract.created_at || contract.signed_at);
         const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
         
         // Filter visits in the current billing cycle
@@ -1156,6 +1286,7 @@ const VisitRecorder = () => {
           services: allServices.length > 0 ? allServices : ['Lavado y Secado', 'Tratamiento Profundo'],
           baseServices: baseArray,
           promoServices: promoArray,
+          pastVisits,
           cycleVisitsCount: baseUsed,
           used_washes: baseUsed,
           total_washes: totalAllowedWashes,
@@ -2807,7 +2938,7 @@ const VisitRecorder = () => {
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase'
                     }}>
-                      {isGuestClient ? 'SIN PLAN BEAUTY ACTIVO' : (isPendingPayment ? 'BENEFICIOS DISPONIBLES (SUSPENDIDO)' : (isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : 'BENEFICIOS DISPONIBLES'))}
+                      {isGuestClient ? 'SIN PLAN BEAUTY ACTIVO' : (isPendingPayment ? 'BENEFICIOS DISPONIBLES (SUSPENDIDO)' : (isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : (benefitsCount === 1 ? 'BENEFICIO DISPONIBLE' : 'BENEFICIOS DISPONIBLES')))}
                     </span>
 
                     <button
