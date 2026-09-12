@@ -1958,6 +1958,30 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
       const cleanServiceName = rawServiceName.replace(/\s*\(Plan Beauty\)/i, '').replace(/\s*\(Adicional\)/i, '').trim();
       const serviceName = rawServiceName;
 
+      // REGLA CRÍTICA: Si el empleado no tiene un esquema de comisiones asignado, NO se le calcula comisión
+      if (!schemeId || isNaN(parseInt(schemeId, 10)) || parseInt(schemeId, 10) <= 0) {
+        // Limpiar cualquier registro pendiente previo si el empleado no tiene esquema asignado
+        await pool.query(
+          'DELETE FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ? AND status = "Pendiente"',
+          [visitId, empId, serviceName]
+        );
+        continue;
+      }
+
+      // Verificar que el esquema asignado exista y esté activo
+      const [schemeInfo] = await pool.query(
+        'SELECT id, nombre, estado FROM commission_schemes WHERE id = ?',
+        [schemeId]
+      );
+      if (schemeInfo.length === 0 || schemeInfo[0].estado === 'Inactivo') {
+        await pool.query(
+          'DELETE FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ? AND status = "Pendiente"',
+          [visitId, empId, serviceName]
+        );
+        continue;
+      }
+      const schemeName = schemeInfo[0].nombre || 'Esquema';
+
       const price = parseFloat(item.precioAplicado !== undefined ? item.precioAplicado : (item.precio || item.precioBase || 0));
       const qty = parseInt(item.cantidad) || 1;
       const desc = parseFloat(item.descuento) || 0;
@@ -1973,81 +1997,93 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
       }
 
       let commissionType = 'Porcentaje';
-      let commissionVal = 15.00;
-      let ruleDesc = 'Categoría Base';
+      let commissionVal = 0.00;
+      let ruleDesc = '';
 
-      // Fetch service details (category & fallback rule)
+      // Fetch service details (category)
       const [srvRows] = await pool.query(
-        'SELECT categoria, genera_comision, tipo_comision, comision_valor FROM services WHERE LOWER(nombre) = LOWER(?) OR LOWER(nombre) = LOWER(?) OR id = ? LIMIT 1',
+        'SELECT categoria, genera_comision FROM services WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?)) OR LOWER(TRIM(nombre)) = LOWER(TRIM(?)) OR id = ? LIMIT 1',
         [cleanServiceName, rawServiceName, item.service_id || '']
       );
       const srvData = srvRows[0] || {};
-      const serviceCategory = srvData.categoria || 'General';
+      const serviceCategory = (srvData.categoria || '').trim();
 
       if (srvData.genera_comision === 0) {
         commissionVal = 0;
         ruleDesc = 'Servicio no genera comisión';
       } else {
+        const [schemeRules] = await pool.query(
+          'SELECT * FROM commission_scheme_rules WHERE scheme_id = ? ORDER BY prioridad ASC, id ASC',
+          [schemeId]
+        );
+
         let ruleFound = false;
 
-        // Priority 1 & Priority 2: Check employee's scheme rules
-        if (schemeId) {
-          const [schemeRules] = await pool.query(
-            'SELECT * FROM commission_scheme_rules WHERE scheme_id = ? ORDER BY prioridad ASC, id ASC',
-            [schemeId]
+        // Prioridad 1: Regla específica por Servicio dentro del esquema del empleado
+        const serviceRule = schemeRules.find(r => 
+          r.rule_type === 'servicio' && 
+          r.service_name && 
+          (r.service_name.toLowerCase().trim() === cleanServiceName.toLowerCase().trim() || 
+           r.service_name.toLowerCase().trim() === rawServiceName.toLowerCase().trim())
+        );
+
+        if (serviceRule) {
+          commissionType = serviceRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+          commissionVal = parseFloat(serviceRule.valor) || 0;
+          ruleDesc = `Esquema (${schemeName}) - Servicio: ${serviceRule.service_name}`;
+          ruleFound = true;
+        }
+
+        // Prioridad 2: Regla por Categoría dentro del esquema del empleado
+        if (!ruleFound && serviceCategory) {
+          const catRule = schemeRules.find(r => 
+            r.rule_type === 'categoria' && 
+            r.category_name && 
+            (r.category_name.toLowerCase().trim() === serviceCategory.toLowerCase().trim())
           );
-
-          // Priority 1: Service specific exception rule
-          const serviceRule = schemeRules.find(r => r.rule_type === 'servicio' && r.service_name && (r.service_name.toLowerCase() === cleanServiceName.toLowerCase() || r.service_name.toLowerCase() === rawServiceName.toLowerCase()));
-          if (serviceRule) {
-            commissionType = serviceRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
-            commissionVal = parseFloat(serviceRule.valor) || 0;
-            ruleDesc = `Excepción por Servicio (${cleanServiceName})`;
+          if (catRule) {
+            commissionType = catRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+            commissionVal = parseFloat(catRule.valor) || 0;
+            ruleDesc = `Esquema (${schemeName}) - Categoría: ${serviceCategory}`;
             ruleFound = true;
-          }
-
-          // Priority 2: Category rule
-          if (!ruleFound) {
-            const catRule = schemeRules.find(r => r.rule_type === 'categoria' && r.category_name && r.category_name.toLowerCase() === serviceCategory.toLowerCase());
-            if (catRule) {
-              commissionType = catRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
-              commissionVal = parseFloat(catRule.valor) || 0;
-              ruleDesc = `Regla por Categoría (${serviceCategory})`;
-              ruleFound = true;
-            }
           }
         }
 
-        // Priority 3: Fallback custom legacy employee rule or default service rule
+        // Prioridad 3: Regla General del Esquema (si el esquema define una regla general o comodín)
         if (!ruleFound) {
-          const [legacyRules] = await pool.query(
-            'SELECT * FROM employee_commission_rules WHERE employee_id = ? AND (LOWER(service_name) = LOWER(?) OR service_name = "General") ORDER BY service_name DESC LIMIT 1',
-            [empId, cleanServiceName]
+          const generalRule = schemeRules.find(r => 
+            r.rule_type === 'general' || 
+            (r.rule_type === 'categoria' && (r.category_name?.toLowerCase() === 'general' || r.category_name?.toLowerCase() === 'todos'))
           );
-          if (legacyRules.length > 0) {
-            commissionType = legacyRules[0].tipo_comision;
-            commissionVal = parseFloat(legacyRules[0].comision_valor) || 0;
-            ruleDesc = 'Regla Específica de Empleado';
-          } else if (srvRows.length > 0) {
-            commissionType = srvData.tipo_comision || 'Porcentaje';
-            commissionVal = parseFloat(srvData.comision_valor) || 0;
-            ruleDesc = 'Regla General de Servicio';
+          if (generalRule) {
+            commissionType = generalRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+            commissionVal = parseFloat(generalRule.valor) || 0;
+            ruleDesc = `Esquema (${schemeName}) - Regla General (${generalRule.valor}%)`;
+            ruleFound = true;
           }
+        }
+
+        // Si el servicio no coincide con ninguna regla del esquema, comisión es 0 (no calcula)
+        if (!ruleFound) {
+          commissionVal = 0;
+          ruleDesc = `Sin regla en esquema (${schemeName})`;
         }
       }
 
       let earnedCommission = 0;
-      if (commissionType === 'Porcentaje') {
-        earnedCommission = (baseAmt * commissionVal) / 100;
-      } else {
-        earnedCommission = commissionVal * qty;
+      if (commissionVal > 0) {
+        if (commissionType === 'Porcentaje') {
+          earnedCommission = (baseAmt * commissionVal) / 100;
+        } else {
+          earnedCommission = commissionVal * qty;
+        }
+        earnedCommission = parseFloat(Number(earnedCommission).toFixed(2));
       }
-      earnedCommission = parseFloat(Number(earnedCommission).toFixed(2));
 
       if (earnedCommission > 0) {
         // Check if commission was already logged for this visit, employee, and service
         const [existingLog] = await pool.query(
-          'SELECT id, status, monto_comision, rule_applied_description FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ?',
+          'SELECT id, status, monto_comision, rule_applied_description, comision_valor FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ?',
           [visitId, empId, serviceName]
         );
 
@@ -2061,7 +2097,7 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
         } else if (existingLog[0].status === 'Pendiente') {
           // If the scheme or rule was added/updated later, update the pending commission to match the new scheme calculation
           const currentLog = existingLog[0];
-          if (Number(currentLog.monto_comision) !== earnedCommission || currentLog.rule_applied_description !== ruleDesc) {
+          if (Number(currentLog.monto_comision) !== earnedCommission || currentLog.rule_applied_description !== ruleDesc || currentLog.comision_valor !== commissionVal) {
             await pool.query(
               `UPDATE employee_commissions_log SET 
                 tipo_comision = ?, 
@@ -2075,6 +2111,12 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
             );
           }
         }
+      } else {
+        // Si la comisión calculada es 0 o no aplica, eliminar cualquier registro previo en estado Pendiente
+        await pool.query(
+          'DELETE FROM employee_commissions_log WHERE visit_id = ? AND employee_id = ? AND service_name = ? AND status = "Pendiente"',
+          [visitId, empId, serviceName]
+        );
       }
     }
   } catch (err) {
@@ -3823,6 +3865,13 @@ app.get('/api/commissions', async (req, res) => {
   try {
     // Auto-sync missing commissions from Facturado visits
     try {
+      // Auto-clean any pending commissions for employees who currently do not have a commission scheme assigned
+      await pool.query(`
+        DELETE c FROM employee_commissions_log c
+        LEFT JOIN staff_records s ON (c.employee_id = s.id OR c.employee_name = s.nombre)
+        WHERE c.status = 'Pendiente' AND (s.commission_scheme_id IS NULL OR s.commission_scheme_id = 0)
+      `);
+
       const [visitsToProcess] = await pool.query(`
         SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
         FROM visits v 
