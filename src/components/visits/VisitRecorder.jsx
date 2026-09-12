@@ -4666,7 +4666,7 @@ const VisitRecorder = () => {
                                 </span>
                               </div>
 
-                              {/* Fila: Lavados disponibles con icono de auto */}
+                              {/* Fila: Lavados disponibles con icono de cabello */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                                 <svg
                                   width="24"
@@ -4674,17 +4674,15 @@ const VisitRecorder = () => {
                                   viewBox="0 0 24 24"
                                   fill="none"
                                   stroke="#334155"
-                                  strokeWidth="2.3"
+                                  strokeWidth="2.2"
                                   strokeLinecap="round"
                                   strokeLinejoin="round"
                                   style={{ flexShrink: 0 }}
                                 >
-                                  <path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11" />
-                                  <rect x="3" y="11" width="18" height="8" rx="2" />
-                                  <circle cx="7.5" cy="15" r="1.4" fill="#334155" />
-                                  <circle cx="16.5" cy="15" r="1.4" fill="#334155" />
-                                  <path d="M5 19v2" />
-                                  <path d="M19 19v2" />
+                                  <path d="M12 2.5C8 2.5 5.5 5.5 5.5 10c0 4 1.5 7.5 2 11.5" />
+                                  <path d="M12 2.5c4 0 6.5 3 6.5 7.5 0 4-1.5 7.5-2 11.5" />
+                                  <path d="M9 9.5c1-1 2-1.5 3-1.5s2 .5 3 1.5" />
+                                  <path d="M9.5 14c.8.8 1.6 1.2 2.5 1.2s1.7-.4 2.5-1.2" />
                                 </svg>
                                 <span
                                   style={{
