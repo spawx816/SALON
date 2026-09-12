@@ -4531,10 +4531,10 @@ const VisitRecorder = () => {
                       <div
                         style={{
                           background: '#ffffff',
-                          border: '1.5px solid #e2e8f0',
-                          borderRadius: '18px',
-                          marginBottom: '1rem',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '12px',
+                          marginBottom: '0.85rem',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
                           overflow: 'hidden',
                           transition: 'all 0.2s ease'
                         }}
@@ -4543,17 +4543,17 @@ const VisitRecorder = () => {
                         <div
                           style={{
                             background: '#f8fafc',
-                            padding: '0.85rem 1.15rem',
+                            padding: '0.5rem 0.85rem',
                             borderBottom: '1px solid #f1f5f9',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '0.65rem'
+                            gap: '0.5rem'
                           }}
                         >
                           <div
                             style={{
-                              width: '28px',
-                              height: '28px',
+                              width: '18px',
+                              height: '18px',
                               borderRadius: '50%',
                               background: '#22c55e',
                               display: 'flex',
@@ -4563,24 +4563,24 @@ const VisitRecorder = () => {
                               flexShrink: 0
                             }}
                           >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
                               <polyline points="20 6 9 17 4 12" />
                             </svg>
                           </div>
-                          <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.01em' }}>
                             Cliente Seleccionado
                           </h4>
                         </div>
 
                         {/* Cuerpo de la tarjeta */}
-                        <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                        <div style={{ padding: '0.65rem 0.85rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           {/* Fila del cliente: Avatar + Nombre + Botón Cambiar */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', overflow: 'hidden' }}>
                               <div
                                 style={{
-                                  width: '42px',
-                                  height: '42px',
+                                  width: '30px',
+                                  height: '30px',
                                   borderRadius: '50%',
                                   background: '#e2e8f0',
                                   display: 'flex',
@@ -4590,12 +4590,12 @@ const VisitRecorder = () => {
                                   flexShrink: 0
                                 }}
                               >
-                                <User size={24} color="#64748b" />
+                                <User size={16} color="#64748b" />
                               </div>
                               <span
                                 style={{
-                                  fontSize: '1.18rem',
-                                  fontWeight: 800,
+                                  fontSize: '0.92rem',
+                                  fontWeight: 700,
                                   color: '#0f172a',
                                   whiteSpace: 'nowrap',
                                   textOverflow: 'ellipsis',
@@ -4618,18 +4618,18 @@ const VisitRecorder = () => {
                                 background: 'transparent',
                                 border: 'none',
                                 color: '#0284c7',
-                                fontWeight: 800,
-                                fontSize: '1.05rem',
+                                fontWeight: 700,
+                                fontSize: '0.82rem',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '0.25rem',
+                                gap: '0.15rem',
                                 cursor: 'pointer',
-                                padding: '0.2rem 0.4rem',
+                                padding: '0.15rem 0.3rem',
                                 transition: 'all 0.15s'
                               }}
                             >
                               <span>Cambiar</span>
-                              <span style={{ fontSize: '1.25rem', fontWeight: 800, lineHeight: 1 }}>›</span>
+                              <span style={{ fontSize: '1rem', fontWeight: 700, lineHeight: 1 }}>›</span>
                             </button>
                           </div>
 
@@ -4638,17 +4638,17 @@ const VisitRecorder = () => {
 
                           {/* Estado de Membresía y Lavados Disponibles */}
                           {loadingTicketMembership ? (
-                            <div style={{ padding: '0.3rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.9rem', fontWeight: 600 }}>
+                            <div style={{ padding: '0.2rem 0', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#64748b', fontSize: '0.8rem', fontWeight: 600 }}>
                               <span style={{ display: 'inline-block' }}>⏳</span> Verificando membresía...
                             </div>
                           ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                               {/* Fila: Estado de membresía */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <div
                                   style={{
-                                    width: '14px',
-                                    height: '14px',
+                                    width: '10px',
+                                    height: '10px',
                                     borderRadius: '50%',
                                     background: (!ticketClientMembership || !ticketClientMembership.hasContract)
                                       ? '#94a3b8'
@@ -4658,8 +4658,8 @@ const VisitRecorder = () => {
                                 ></div>
                                 <span
                                   style={{
-                                    fontSize: '1.05rem',
-                                    fontWeight: 700,
+                                    fontSize: '0.82rem',
+                                    fontWeight: 600,
                                     color: ticketClientMembership?.statusColor || '#047857',
                                     letterSpacing: '-0.01em'
                                   }}
@@ -4669,20 +4669,20 @@ const VisitRecorder = () => {
                               </div>
 
                               {/* Fila: Lavados disponibles con icono de cabello solicitado */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <img
                                   src="/beauty-hair-logo.png"
                                   alt="Lavados"
                                   style={{
-                                    width: '19px',
-                                    height: '19px',
+                                    width: '15px',
+                                    height: '15px',
                                     objectFit: 'contain',
                                     flexShrink: 0
                                   }}
                                 />
                                 <span
                                   style={{
-                                    fontSize: '1.05rem',
+                                    fontSize: '0.85rem',
                                     fontWeight: 700,
                                     color: '#1e293b',
                                     letterSpacing: '-0.01em'
