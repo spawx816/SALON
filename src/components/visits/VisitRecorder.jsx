@@ -4530,98 +4530,176 @@ const VisitRecorder = () => {
                     {selectedClientForTicket && (
                       <div
                         style={{
-                          background: ticketClientMembership?.statusBg || '#f8fafc',
-                          border: `1.5px solid ${ticketClientMembership?.statusBorder || '#e2e8f0'}`,
-                          padding: '0.95rem 1.15rem',
-                          borderRadius: '16px',
-                          marginBottom: '0.85rem',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                          background: '#ffffff',
+                          border: '1.5px solid #e2e8f0',
+                          borderRadius: '18px',
+                          marginBottom: '1rem',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
+                          overflow: 'hidden',
                           transition: 'all 0.2s ease'
                         }}
                       >
-                        {/* Header con nombre del cliente y botón Cambiar */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <span style={{ fontSize: '0.95rem' }}>✅</span>
-                            <strong style={{ color: '#0f172a', fontSize: '0.92rem', fontWeight: 800 }}>
-                              Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}
-                            </strong>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedClientForTicket(null);
-                              setModalClientSearchTerm('');
-                              setTicketClientMembership(null);
-                            }}
+                        {/* Header superior: Cliente Seleccionado */}
+                        <div
+                          style={{
+                            background: '#f8fafc',
+                            padding: '0.85rem 1.15rem',
+                            borderBottom: '1px solid #f1f5f9',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.65rem'
+                          }}
+                        >
+                          <div
                             style={{
-                              background: '#fee2e2',
-                              border: 'none',
-                              color: '#dc2626',
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                              fontSize: '0.75rem',
-                              padding: '0.25rem 0.65rem',
-                              borderRadius: '8px',
-                              transition: 'all 0.15s'
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '50%',
+                              background: '#22c55e',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#ffffff',
+                              flexShrink: 0
                             }}
                           >
-                            Cambiar
-                          </button>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          </div>
+                          <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>
+                            Cliente Seleccionado
+                          </h4>
                         </div>
 
-                        {/* Estado de Membresía y Lavados Disponibles (Minimalista y Sincronizado) */}
-                        {loadingTicketMembership ? (
-                          <div style={{ padding: '0.4rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.85rem', fontWeight: 600 }}>
-                            <span style={{ display: 'inline-block' }}>⏳</span> Verificando membresía...
-                          </div>
-                        ) : ticketClientMembership ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {/* Cuerpo de la tarjeta */}
+                        <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                          {/* Fila del cliente: Avatar + Nombre + Botón Cambiar */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
                               <div
                                 style={{
-                                  fontSize: '1.25rem',
-                                  fontWeight: 800,
-                                  color: ticketClientMembership.statusColor,
-                                  letterSpacing: '-0.01em',
-                                  lineHeight: 1.2
+                                  width: '42px',
+                                  height: '42px',
+                                  borderRadius: '50%',
+                                  background: '#e2e8f0',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: '#64748b',
+                                  flexShrink: 0
                                 }}
                               >
-                                {ticketClientMembership.statusLabel}
+                                <User size={24} color="#64748b" />
                               </div>
-                              {ticketClientMembership.planName && (
-                                <span
-                                  style={{
-                                    fontSize: '0.75rem',
-                                    fontWeight: 700,
-                                    color: '#6b21a8',
-                                    background: 'rgba(255,255,255,0.85)',
-                                    padding: '0.2rem 0.6rem',
-                                    borderRadius: '6px',
-                                    border: '1px solid rgba(107,33,168,0.2)'
-                                  }}
-                                >
-                                  {ticketClientMembership.planName}
-                                </span>
-                              )}
+                              <span
+                                style={{
+                                  fontSize: '1.18rem',
+                                  fontWeight: 800,
+                                  color: '#0f172a',
+                                  whiteSpace: 'nowrap',
+                                  textOverflow: 'ellipsis',
+                                  overflow: 'hidden',
+                                  letterSpacing: '-0.01em'
+                                }}
+                              >
+                                {selectedClientForTicket.nombre || selectedClientForTicket.name}
+                              </span>
                             </div>
 
-                            {ticketClientMembership.hasContract && (
-                              <div
-                                style={{
-                                  fontSize: '1.35rem',
-                                  fontWeight: 900,
-                                  color: '#1e293b',
-                                  letterSpacing: '-0.02em',
-                                  lineHeight: 1.2,
-                                  marginTop: '0.15rem'
-                                }}
-                              >
-                                Lavados disponibles: {ticketClientMembership.washesAvailable}
-                              </div>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedClientForTicket(null);
+                                setModalClientSearchTerm('');
+                                setTicketClientMembership(null);
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#0284c7',
+                                fontWeight: 800,
+                                fontSize: '1.05rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                cursor: 'pointer',
+                                padding: '0.2rem 0.4rem',
+                                transition: 'all 0.15s'
+                              }}
+                            >
+                              <span>Cambiar</span>
+                              <span style={{ fontSize: '1.25rem', fontWeight: 800, lineHeight: 1 }}>›</span>
+                            </button>
                           </div>
-                        ) : null}
+
+                          {/* Línea divisoria sutil */}
+                          <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                          {/* Estado de Membresía y Lavados Disponibles */}
+                          {loadingTicketMembership ? (
+                            <div style={{ padding: '0.3rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.9rem', fontWeight: 600 }}>
+                              <span style={{ display: 'inline-block' }}>⏳</span> Verificando membresía...
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                              {/* Fila: Estado de membresía */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                <div
+                                  style={{
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    background: ticketClientMembership?.statusColor === '#dc2626' ? '#ef4444' : (ticketClientMembership?.statusColor === '#d97706' ? '#f59e0b' : '#22c55e'),
+                                    flexShrink: 0
+                                  }}
+                                ></div>
+                                <span
+                                  style={{
+                                    fontSize: '1.18rem',
+                                    fontWeight: 800,
+                                    color: ticketClientMembership?.statusColor || '#047857',
+                                    letterSpacing: '-0.01em'
+                                  }}
+                                >
+                                  {ticketClientMembership ? ticketClientMembership.statusLabel : 'Membresía Activa'}
+                                </span>
+                              </div>
+
+                              {/* Fila: Lavados disponibles con icono de auto */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                <svg
+                                  width="24"
+                                  height="24"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="#334155"
+                                  strokeWidth="2.3"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  style={{ flexShrink: 0 }}
+                                >
+                                  <path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11" />
+                                  <rect x="3" y="11" width="18" height="8" rx="2" />
+                                  <circle cx="7.5" cy="15" r="1.4" fill="#334155" />
+                                  <circle cx="16.5" cy="15" r="1.4" fill="#334155" />
+                                  <path d="M5 19v2" />
+                                  <path d="M19 19v2" />
+                                </svg>
+                                <span
+                                  style={{
+                                    fontSize: '1.25rem',
+                                    fontWeight: 800,
+                                    color: '#1e293b',
+                                    letterSpacing: '-0.01em'
+                                  }}
+                                >
+                                  Lavados disponibles: {ticketClientMembership ? ticketClientMembership.washesAvailable : '...'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
