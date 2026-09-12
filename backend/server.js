@@ -6142,12 +6142,12 @@ app.post('/api/contracts/renew-manual', async (req, res) => {
   }
 });
 
-// === AUTOMATED BILLING WORKER (CRON SIMULATION) ===
-app.post('/api/cron/process-subscriptions', async (req, res) => {
+// === AUTOMATED BILLING WORKER (INTERNAL & CRON) ===
+async function processSubscriptionsInternal(reqIp = "127.0.0.1") {
   const results = { processed: 0, successful: 0, failed: 0, retries: 0, logs: [] };
   
   try {
-    // 1. Fetch contracts due for regular billing OR due for retry
+    // 1. Fetch contracts due for regular billing OR due for retry (Active, Pending_Retry, Pending_Payment, Past_Due)
     const [dueContracts] = await pool.query(`
       SELECT c.*, cl.nombre, cl.email, cl.cardnet_customer_id, 
              COALESCE(c.contract_price, p.price) as effective_price,
@@ -6155,15 +6155,15 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
       FROM contracts c
       JOIN clients cl ON c.client_id = cl.id
       JOIN plans p ON c.plan_id = p.id
-      WHERE (c.status = 'Active' AND c.next_billing_date <= NOW())
-         OR (c.status = 'Pending_Retry' AND c.next_retry_date <= NOW() AND c.retry_count < 90)
+      WHERE (c.status IN ('Active', 'Activo') AND c.next_billing_date <= NOW())
+         OR (c.status IN ('Pending_Retry', 'Pending_Payment', 'Pendiente_Pago', 'Past_Due') AND (c.next_retry_date <= NOW() OR c.next_retry_date IS NULL OR c.next_billing_date <= NOW()) AND (c.retry_count < 90 OR c.retry_count IS NULL))
     `);
 
-    console.log(`[CRON] Processing ${dueContracts.length} contracts for billing/retry...`);
+    console.log(`[CRON] Processing ${dueContracts.length} contracts for billing/retry at ${new Date().toISOString()}...`);
 
     for (const contract of dueContracts) {
       results.processed++;
-      const isRetry = contract.status === 'Pending_Retry';
+      const isRetry = contract.status === 'Pending_Retry' || contract.status === 'Pending_Payment' || contract.status === 'Pendiente_Pago' || contract.status === 'Past_Due';
       
       try {
         // --- ANNUAL RENEWAL LOGIC ---
@@ -6191,7 +6191,7 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
           Description: annualFeeApplied 
             ? `Mensualidad ${contract.plan_title} + Renovación Anual` 
             : `Mensualidad ${contract.plan_title} (Auto)`,
-          CustomerIP: req.ip || "127.0.0.1",
+          CustomerIP: reqIp || "127.0.0.1",
           MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
           MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
           DataDo: { Tax: "0", Invoice: `INV-${Date.now().toString().slice(-6)}` }
@@ -6265,7 +6265,7 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
         );
 
         if (isSystemError) {
-          const newRetryCount = contract.retry_count + 1;
+          const newRetryCount = (contract.retry_count || 0) + 1;
           let newStatus = 'Pending_Retry';
           if (newRetryCount >= 90) {
             newStatus = 'Suspended';
@@ -6302,7 +6302,7 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
           );
         } else {
           // Real decline (e.g. Card rejected, insufficient funds, etc.)
-          const newRetryCount = contract.retry_count + 1;
+          const newRetryCount = (contract.retry_count || 0) + 1;
           let newStatus = 'Pending_Retry';
           if (newRetryCount >= 90) {
             newStatus = 'Suspended';
@@ -6341,9 +6341,27 @@ app.post('/api/cron/process-subscriptions', async (req, res) => {
       }
     }
 
-    res.json(results);
+    return results;
   } catch (err) {
     console.error('[CRON ERROR]', err);
+    throw err;
+  }
+}
+
+app.post('/api/cron/process-subscriptions', async (req, res) => {
+  try {
+    const results = await processSubscriptionsInternal(req.ip);
+    res.json({ success: true, ...results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/subscriptions/process-now', async (req, res) => {
+  try {
+    const results = await processSubscriptionsInternal(req.ip);
+    res.json({ success: true, ...results });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -7359,36 +7377,47 @@ const startInternalScheduler = () => {
     console.log('[SCHEDULER] Desactivado en entorno local / desarrollo.');
     return;
   }
-  // En producción, ejecutamos la revisión cada 1 hora; en pruebas cada 2 minutos
+
+  // 1. Ejecutar de inmediato al arrancar el servidor (con 5 segundos de gracia)
+  setTimeout(async () => {
+    console.log('[SCHEDULER] Verificación inicial de suscripciones al iniciar servidor...');
+    try {
+      const res = await processSubscriptionsInternal("127.0.0.1");
+      console.log(`[SCHEDULER] Verificación inicial completada. Procesados: ${res.processed}, Éxitos: ${res.successful}, Fallidos: ${res.failed}`);
+    } catch (e) {
+      console.error('[SCHEDULER] Error en verificación inicial:', e.message);
+    }
+  }, 5000);
+
+  // En producción, ejecutamos la revisión cada 15 minutos para no perder el corte de las 5pm ni retrasar por reinicios
   const checkInterval = CARDNET_CONFIG.ENV === 'PRODUCTION' 
-    ? 1000 * 60 * 60 * 1  // 1 hora en producción
-    : 1000 * 60 * 2;      // 2 minutos en pruebas
+    ? 1000 * 60 * 15  // 15 minutos en producción
+    : 1000 * 60 * 2;   // 2 minutos en pruebas
   
   console.log(`[SCHEDULER] Iniciando ciclo cada ${checkInterval / 1000 / 60} minutos (Modo: ${CARDNET_CONFIG.ENV})`);
   
   setInterval(async () => {
     const now = new Date();
-    console.log(`[SCHEDULER] Triggering billing process at ${now.toLocaleString()}...`);
-    const port = process.env.PORT || 5005;
+    console.log(`[SCHEDULER] Running scheduled subscriptions check at ${now.toLocaleString()}...`);
     
-    // 1. Process plan billing/subscriptions
+    // 1. Process plan billing/subscriptions directly
     try {
-      await axios.post(`http://localhost:${port}/api/cron/process-subscriptions`);
-      console.log('[SCHEDULER] Billing process completed successfully.');
+      const res = await processSubscriptionsInternal("127.0.0.1");
+      console.log(`[SCHEDULER] Billing process completed. Procesados: ${res.processed}, Éxitos: ${res.successful}, Fallidos: ${res.failed}`);
     } catch (err) {
       console.error('[SCHEDULER] Billing process failed:', err.message);
     }
 
     // 2. Process automated birthday greetings (runs once daily)
     try {
-      // Get today's date in DR format (taking local timezone offset)
       const drTime = new Date(new Date().getTime() - (4 * 60 * 60 * 1000)); // Dominican Republic is UTC-4
       const todayStr = drTime.toISOString().split('T')[0];
       
       if (lastBirthdaySentDate !== todayStr) {
         console.log(`[SCHEDULER] Triggering daily automated birthday emails for: ${todayStr}...`);
-        const bRes = await axios.post(`http://localhost:${port}/api/marketing/send-daily-birthdays`);
-        if (bRes.data && bRes.data.success) {
+        const port = process.env.PORT || 5005;
+        const bRes = await axios.post(`http://localhost:${port}/api/marketing/send-daily-birthdays`).catch(() => null);
+        if (bRes?.data?.success) {
           lastBirthdaySentDate = todayStr;
           console.log(`[SCHEDULER] Daily automated birthdays processed. Sent: ${bRes.data.sent}`);
         }
