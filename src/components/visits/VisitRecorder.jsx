@@ -1487,12 +1487,18 @@ const VisitRecorder = () => {
 
         // Build usageMap exactly as ClientProfile and ClientDashboard
         const usageMap = {};
+        let totalCycleWashesUsed = 0;
+        let totalCyclePromoUsed = 0;
+
         cycleVisits.forEach(v => {
           let sList = v.servicios || [];
           if (typeof sList === 'string') {
             try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
           }
-          if (Array.isArray(sList)) {
+          let visitWashCount = 0;
+          let visitPromoCount = 0;
+
+          if (Array.isArray(sList) && sList.length > 0) {
             sList.forEach(s => {
               if (typeof s === 'string') {
                 const cleanS = s.trim();
@@ -1500,6 +1506,12 @@ const VisitRecorder = () => {
                 const noNum = cleanS.replace(/^\d+\s*/, '').trim();
                 if (noNum && noNum !== cleanS) {
                   usageMap[noNum] = (usageMap[noNum] || 0) + 1;
+                }
+                if (cleanS.toLowerCase().includes('lavado')) {
+                  visitWashCount++;
+                }
+                if (cleanS.toLowerCase().includes('tratamiento') || cleanS.toLowerCase().includes('promo') || cleanS.toLowerCase().includes('extra')) {
+                  visitPromoCount++;
                 }
               }
             });
@@ -1510,30 +1522,35 @@ const VisitRecorder = () => {
               const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
               if (Array.isArray(parsed)) {
                 parsed.forEach(i => {
-                  if (i.isPlanWash || (i.nombre && (i.nombre.toLowerCase().includes('plan beauty') || i.nombre.toLowerCase().includes('lavado')))) {
-                    usageMap['Lavados y Secados'] = (usageMap['Lavados y Secados'] || 0) + (Number(i.cantidad) || 1);
-                    usageMap['Lavado y Secado'] = (usageMap['Lavado y Secado'] || 0) + (Number(i.cantidad) || 1);
+                  const iName = (i.nombre || i.servicio || '').toLowerCase();
+                  const qty = Number(i.cantidad) || 1;
+                  if (i.isPlanWash || iName.includes('plan beauty') || iName.includes('lavado')) {
+                    usageMap['Lavados y Secados'] = (usageMap['Lavados y Secados'] || 0) + qty;
+                    usageMap['Lavado y Secado'] = (usageMap['Lavado y Secado'] || 0) + qty;
+                    if (visitWashCount === 0) visitWashCount += qty;
+                  }
+                  if (iName.includes('promo') || iName.includes('tratamiento')) {
+                    if (visitPromoCount === 0) visitPromoCount += qty;
                   }
                 });
               }
             }
           } catch (e) {}
+
+          totalCycleWashesUsed += visitWashCount;
+          totalCyclePromoUsed += visitPromoCount;
         });
 
         // Determine base wash quota and used count
         let totalAllowedWashes = 4;
-        let baseUsed = 0;
         const baseWashEntry = baseArray.find(s => typeof s === 'string' && s.toLowerCase().includes('lavado')) || '4 Lavados y Secados';
         if (baseWashEntry) {
           const match = String(baseWashEntry).match(/^(\d+)\s*(.*)$/);
           if (match) {
             totalAllowedWashes = parseInt(match[1], 10) || 4;
           }
-          const baseName = match ? match[2] : baseWashEntry;
-          baseUsed = usageMap[baseWashEntry] || usageMap[baseName] || usageMap[(baseName || '').trim()] || usageMap['Lavados y Secados'] || usageMap['Lavado y Secado'] || 0;
-        } else {
-          baseUsed = usageMap['Lavados y Secados'] || usageMap['Lavado y Secado'] || 0;
         }
+        const baseUsed = Math.min(totalAllowedWashes, totalCycleWashesUsed);
         const remainingBaseWashes = Math.max(0, totalAllowedWashes - baseUsed);
 
         // Determine promo / extra treatments quota & used count
@@ -1555,6 +1572,9 @@ const VisitRecorder = () => {
             }
           });
         }
+        const excessWashes = Math.max(0, totalCycleWashesUsed - totalAllowedWashes);
+        promoUsed = Math.max(promoUsed, totalCyclePromoUsed, excessWashes);
+
         const remainingPromoServices = Math.max(0, totalPromoAllowed - promoUsed);
         const totalBenefitsAvailable = remainingBaseWashes + remainingPromoServices;
 
@@ -1962,7 +1982,8 @@ const VisitRecorder = () => {
     }
 
     const isWash = (service.nombre || '').toLowerCase().includes('lavado');
-    const hasPlanWashAvailable = Boolean(activePlans && activePlans.length > 0 && (activePlans[0]?.remaining_washes || 0) > 0);
+    const availableBenefits = getBenefitsCount();
+    const hasPlanWashAvailable = Boolean(hasActivePlan && availableBenefits > 0);
     const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
 
     const match = availableServices.find(s =>
