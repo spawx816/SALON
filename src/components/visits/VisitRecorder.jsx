@@ -2662,7 +2662,9 @@ const VisitRecorder = () => {
       }
       await fetchPendingTickets();
       if (activeRegister) {
-        await fetchActiveRegisterMovements(activeRegister.id);
+        await fetchRegisterMovements(activeRegister.id);
+        const invs = await dataService.getCashRegisterInvoices(activeRegister.id).catch(() => []);
+        setCajaInvoices(invs);
       }
     } catch (err) {
       alert('Error al anular factura: ' + err.message);
