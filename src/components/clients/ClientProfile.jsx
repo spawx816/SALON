@@ -214,10 +214,16 @@ const ClientProfile = () => {
 
   const handleSaveEdit = async () => {
     try {
-      await dataService.updateClient(client.id, editForm);
-      setClient({ ...client, ...editForm });
+      const cleanBday = editForm.fecha_nacimiento ? editForm.fecha_nacimiento.split('T')[0] : '';
+      const payload = {
+        ...editForm,
+        fecha_nacimiento: cleanBday,
+        fechaNacimiento: cleanBday
+      };
+      await dataService.updateClient(client.id, payload);
+      setClient({ ...client, ...payload, fecha_nacimiento: cleanBday });
       setIsEditing(false);
-      showNotification('Perfil actualizado con éxito');
+      showNotification('Perfil actualizado con éxito', 'success');
     } catch (e) {
       showNotification('Error al actualizar: ' + e.message, 'error');
     }
@@ -1111,6 +1117,31 @@ const ClientProfile = () => {
 
                     <div className="grid-2" style={{ marginTop: '1rem' }}>
                       <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left' }}>
+                        <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Fecha de Nacimiento</p>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <span style={{ fontSize: '1.1rem' }}>🎂</span>
+                          <div>
+                            <p style={{ fontSize: '0.8125rem', fontWeight: 700, margin: 0, color: client.fecha_nacimiento ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                              {(() => {
+                                if (!client.fecha_nacimiento) return 'Sin fecha registrada';
+                                try {
+                                  const dateOnly = String(client.fecha_nacimiento).split('T')[0];
+                                  const [yr, mo, dy] = dateOnly.split('-');
+                                  if (yr && mo && dy) {
+                                    const d = new Date(parseInt(yr, 10), parseInt(mo, 10) - 1, parseInt(dy, 10));
+                                    return d.toLocaleDateString('es-DO', { day: 'numeric', month: 'long', year: 'numeric' });
+                                  }
+                                  return dateOnly;
+                                } catch (e) {
+                                  return String(client.fecha_nacimiento).split('T')[0];
+                                }
+                              })()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left' }}>
                         <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Sucursal Principal</p>
                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                           <div style={{ color: 'var(--text-primary)' }}><Store size={16} /></div>
@@ -1119,18 +1150,19 @@ const ClientProfile = () => {
                           </p>
                         </div>
                       </div>
-                      <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left' }}>
-                        <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Dirección</p>
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                          <div style={{ color: 'var(--text-primary)', marginTop: '2px' }}><MapPin size={16} /></div>
-                          <div>
-                            <p style={{ fontSize: '0.8125rem', fontWeight: 700, marginBottom: '0.1rem' }}>
-                              {client.calle || 'Sin calle'} {client.numero ? `#${client.numero}` : ''}
-                            </p>
-                            <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                              {client.sector || 'Sin sector'}{client.ciudad ? `, ${client.ciudad}` : ''}
-                            </p>
-                          </div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left', marginTop: '1rem' }}>
+                      <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Dirección</p>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                        <div style={{ color: 'var(--text-primary)', marginTop: '2px' }}><MapPin size={16} /></div>
+                        <div>
+                          <p style={{ fontSize: '0.8125rem', fontWeight: 700, marginBottom: '0.1rem' }}>
+                            {client.calle || 'Sin calle'} {client.numero ? `#${client.numero}` : ''}
+                          </p>
+                          <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                            {client.sector || 'Sin sector'}{client.ciudad ? `, ${client.ciudad}` : ''}
+                          </p>
                         </div>
                       </div>
                     </div>

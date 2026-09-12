@@ -1556,7 +1556,7 @@ app.delete('/api/salons/:id', async (req, res) => {
 app.get('/api/clients', async (req, res) => {
   try {
     const [clients] = await pool.query(`
-      SELECT id, nombre, telefono, email, cedula, frecuencia, salon_id, status, registration_source, created_at 
+      SELECT id, nombre, telefono, email, cedula, frecuencia, salon_id, status, registration_source, created_at, calle, numero, sector, ciudad, fecha_nacimiento
       FROM clients 
       ORDER BY nombre ASC
     `);
@@ -1580,6 +1580,18 @@ app.get('/api/clients', async (req, res) => {
 
     const result = clients.map(cl => {
       const c = contractMap[cl.id] || contractMap[cl.cedula] || null;
+      let formattedBday = null;
+      if (cl.fecha_nacimiento) {
+        if (cl.fecha_nacimiento instanceof Date) {
+          const yr = cl.fecha_nacimiento.getFullYear();
+          const mo = String(cl.fecha_nacimiento.getMonth() + 1).padStart(2, '0');
+          const dy = String(cl.fecha_nacimiento.getDate()).padStart(2, '0');
+          formattedBday = `${yr}-${mo}-${dy}`;
+        } else {
+          formattedBday = String(cl.fecha_nacimiento).split('T')[0];
+        }
+      }
+
       return {
         id: cl.id,
         nombre: cl.nombre,
@@ -1589,6 +1601,11 @@ app.get('/api/clients', async (req, res) => {
         frecuencia: cl.frecuencia,
         salon_id: cl.salon_id,
         status: cl.status || 'Active',
+        calle: cl.calle || null,
+        numero: cl.numero || null,
+        sector: cl.sector || null,
+        ciudad: cl.ciudad || null,
+        fecha_nacimiento: formattedBday,
         registration_source: cl.registration_source || 'Self',
         created_at: cl.created_at,
         contract_status: c ? c.status : null,
@@ -1607,11 +1624,14 @@ app.get('/api/clients', async (req, res) => {
 app.post('/api/clients', async (req, res) => {
   try {
     const id = Date.now().toString();
-    const { cedula, nombre, telefono, email, frecuencia, salon_id, calle, numero, sector, ciudad, fechaNacimiento, registration_source } = req.body;
+    const { cedula, nombre, telefono, email, frecuencia, salon_id, calle, numero, sector, ciudad, fechaNacimiento, fecha_nacimiento, registration_source } = req.body;
     const [existing] = await pool.query('SELECT id FROM clients WHERE email = ? OR cedula = ?', [email, cedula]);
     if (existing.length > 0) {
       return res.status(400).json({ error: 'Ya existe un usuario con este correo o cédula' });
     }
+
+    const bday = fecha_nacimiento || fechaNacimiento || null;
+    const cleanBday = bday && String(bday).trim() ? String(bday).split('T')[0] : null;
 
     // Generate Random Password (8 chars)
     const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -1620,7 +1640,7 @@ app.post('/api/clients', async (req, res) => {
 
     await pool.query(
       'INSERT INTO clients (id, cedula, nombre, telefono, email, password, must_change_password, frecuencia, salon_id, calle, numero, sector, ciudad, status, role_id, tipo, fecha_nacimiento, registration_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, cedula, nombre, telefono, email, tempPassword, 1, frecuencia || 'Mensual', salon_id || 1, calle || null, numero || null, sector || null, ciudad || null, 'Active', 2, 'client', fechaNacimiento || null, registration_source || 'Self']
+      [id, cedula, nombre, telefono, email, tempPassword, 1, frecuencia || 'Mensual', salon_id || 1, calle || null, numero || null, sector || null, ciudad || null, 'Active', 2, 'client', cleanBday, registration_source || 'Self']
     );
 
     // Send Email
@@ -1671,7 +1691,7 @@ app.post('/api/clients', async (req, res) => {
       }
     }
 
-    res.json({ id, cedula, nombre, email, status: 'Active' });
+    res.json({ id, cedula, nombre, email, status: 'Active', fecha_nacimiento: cleanBday });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1711,30 +1731,71 @@ app.post('/api/auth/activate', async (req, res) => {
   }
 });
 
-// === CLIENT UPDATES ===
-app.put('/api/clients/:id', async (req, res) => {
-  const { id } = req.params;
-  const { cedula, nombre, telefono, email, calle, numero, sector, ciudad, fecha_nacimiento, salon_id } = req.body;
+// === CLIENT GET BY ID OR IDENTIFIER ===
+app.get('/api/clients/:id', async (req, res) => {
   try {
-    await pool.query(
-      'UPDATE clients SET cedula = ?, nombre = ?, telefono = ?, email = ?, calle = ?, numero = ?, sector = ?, ciudad = ?, fecha_nacimiento = ?, salon_id = COALESCE(?, salon_id) WHERE id = ?',
-      [cedula, nombre, telefono, email, calle || null, numero || null, sector || null, ciudad || null, fecha_nacimiento || null, salon_id || null, id]
-    );
-    if (salon_id) {
-      await pool.query('UPDATE contracts SET salon_id = ? WHERE client_id = ?', [salon_id, id]);
+    const target = req.params.id ? String(req.params.id).trim() : '';
+    if (!target) return res.status(400).json({ error: 'ID is required' });
+
+    const [rows] = await pool.query('SELECT * FROM clients WHERE id = ? OR cedula = ? OR email = ? LIMIT 1', [target, target, target]);
+    if (rows.length > 0) {
+      const client = rows[0];
+      if (client.fecha_nacimiento) {
+        if (client.fecha_nacimiento instanceof Date) {
+          const yr = client.fecha_nacimiento.getFullYear();
+          const mo = String(client.fecha_nacimiento.getMonth() + 1).padStart(2, '0');
+          const dy = String(client.fecha_nacimiento.getDate()).padStart(2, '0');
+          client.fecha_nacimiento = `${yr}-${mo}-${dy}`;
+        } else {
+          client.fecha_nacimiento = String(client.fecha_nacimiento).split('T')[0];
+        }
+      }
+      const [contracts] = await pool.query("SELECT plan_id FROM contracts WHERE client_id = ? AND status != 'Cancelled'", [client.id]);
+      client.active_plan_ids = contracts.map(c => c.plan_id.toString());
+      return res.json(client);
     }
-    res.json({ success: true });
+    res.status(404).json({ error: 'Client not found' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// === CLIENT UPDATES ===
+app.put('/api/clients/:id', async (req, res) => {
+  const { id } = req.params;
+  const { cedula, nombre, telefono, email, calle, numero, sector, ciudad, fecha_nacimiento, fechaNacimiento, salon_id } = req.body;
+  const bday = fecha_nacimiento || fechaNacimiento || null;
+  const cleanBday = bday && String(bday).trim() ? String(bday).split('T')[0] : null;
+
+  try {
+    await pool.query(
+      'UPDATE clients SET cedula = ?, nombre = ?, telefono = ?, email = ?, calle = ?, numero = ?, sector = ?, ciudad = ?, fecha_nacimiento = ?, salon_id = COALESCE(?, salon_id) WHERE id = ?',
+      [cedula, nombre, telefono, email, calle || null, numero || null, sector || null, ciudad || null, cleanBday, salon_id || null, id]
+    );
+    if (salon_id) {
+      await pool.query('UPDATE contracts SET salon_id = ? WHERE client_id = ?', [salon_id, id]);
+    }
+    res.json({ success: true, fecha_nacimiento: cleanBday });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/clients/cedula/:cedula', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM clients WHERE cedula = ?', [req.params.cedula]);
     if (rows.length > 0) {
       const client = rows[0];
+      if (client.fecha_nacimiento) {
+        if (client.fecha_nacimiento instanceof Date) {
+          const yr = client.fecha_nacimiento.getFullYear();
+          const mo = String(client.fecha_nacimiento.getMonth() + 1).padStart(2, '0');
+          const dy = String(client.fecha_nacimiento.getDate()).padStart(2, '0');
+          client.fecha_nacimiento = `${yr}-${mo}-${dy}`;
+        } else {
+          client.fecha_nacimiento = String(client.fecha_nacimiento).split('T')[0];
+        }
+      }
       const [contracts] = await pool.query("SELECT plan_id FROM contracts WHERE client_id = ? AND status != 'Cancelled'", [client.id]);
       client.active_plan_ids = contracts.map(c => c.plan_id.toString());
       return res.json(client);
