@@ -4128,6 +4128,9 @@ app.delete('/api/commissions/schemes/:id', async (req, res) => {
     res.json({ success: true, message: 'Esquema y sus reglas eliminados' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Asignar Colaboradores al Esquema ---
 app.post('/api/commissions/schemes/:id/assign-employees', async (req, res) => {
   try {

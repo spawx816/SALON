@@ -778,7 +778,7 @@ const CommissionManagement = () => {
             <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 4px 10px rgba(0,0,0,0.02)' }}>
               <span style={{ fontSize: '0.73rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>💰 TOTAL COMISIONES GENERADAS</span>
               <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#166534', marginTop: '0.25rem' }}>
-                RD$ {metrics.totalGenerado.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                RD$ {(metrics?.totalGenerado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
               </div>
               <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Generadas automáticamente por POS</span>
             </div>
@@ -961,14 +961,14 @@ const CommissionManagement = () => {
                       <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.45rem 0.85rem', borderRadius: '12px', textAlign: 'right' }}>
                         <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Monto Base (Sin ITBIS)</span>
                         <strong style={{ fontSize: '0.9rem', color: '#0f172a', fontWeight: 800 }}>
-                          RD$ {group.totalMontoBase.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          RD$ {(group?.totalMontoBase || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
 
                       <div style={{ background: '#dcfce7', border: '1.5px solid #86efac', padding: '0.45rem 1rem', borderRadius: '12px', textAlign: 'right', boxShadow: '0 2px 6px rgba(22,101,52,0.06)' }}>
                         <span style={{ fontSize: '0.68rem', color: '#166534', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Total Comisión Ganada</span>
                         <strong style={{ fontSize: '1.15rem', color: '#15803d', fontWeight: 900 }}>
-                          RD$ {group.totalComision.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          RD$ {(group?.totalComision || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
                     </div>
@@ -1026,11 +1026,11 @@ const CommissionManagement = () => {
                             SUBTOTAL PARA {group.name.toUpperCase()} ({group.items.length} {group.items.length === 1 ? 'servicio' : 'servicios'}):
                           </td>
                           <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
-                            RD$ {group.totalMontoBase.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                            RD$ {(group?.totalMontoBase || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                           </td>
                           <td></td>
                           <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#15803d', fontSize: '1.05rem' }}>
-                            RD$ {group.totalComision.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                            RD$ {(group?.totalComision || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                           </td>
                         </tr>
                       </tfoot>
