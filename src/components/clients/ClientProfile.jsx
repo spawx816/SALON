@@ -77,7 +77,7 @@ const ClientProfile = () => {
     };
     fetchAll();
     fetchEmployees();
-  }, [client]); // Keep client as dependency if you want to refresh list after selection updates
+  }, []); // Load once on mount
 
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
@@ -131,18 +131,32 @@ const ClientProfile = () => {
   const selectClient = async (found) => {
     setCardInfo(null); // Reset state before new fetch
     setClient(found);
+    const initialBday = found.fecha_nacimiento ? String(found.fecha_nacimiento).split('T')[0] : '';
     setEditForm({
-      nombre: found.nombre,
-      email: found.email,
-      telefono: found.telefono,
-      cedula: found.cedula,
+      nombre: found.nombre || '',
+      email: found.email || '',
+      telefono: found.telefono || '',
+      cedula: found.cedula || '',
       calle: found.calle || '',
       numero: found.numero || '',
       sector: found.sector || '',
       ciudad: found.ciudad || '',
       salon_id: found.salon_id || 1,
-      fecha_nacimiento: found.fecha_nacimiento ? found.fecha_nacimiento.split('T')[0] : ''
+      fecha_nacimiento: initialBday
     });
+
+    // Also fetch fresh client data from server in background to avoid any stale data
+    if (found.id) {
+      dataService.getClientById(found.id).then(freshClient => {
+        if (freshClient) {
+          setClient(prev => ({ ...prev, ...freshClient }));
+          if (freshClient.fecha_nacimiento) {
+            const freshBday = String(freshClient.fecha_nacimiento).split('T')[0];
+            setEditForm(prev => ({ ...prev, fecha_nacimiento: freshBday }));
+          }
+        }
+      }).catch(() => {});
+    }
 
     try {
       // Execute all independent API fetches in parallel for maximum speed
@@ -221,7 +235,9 @@ const ClientProfile = () => {
         fechaNacimiento: cleanBday
       };
       await dataService.updateClient(client.id, payload);
-      setClient({ ...client, ...payload, fecha_nacimiento: cleanBday });
+      const updatedClient = { ...client, ...payload, fecha_nacimiento: cleanBday };
+      setClient(updatedClient);
+      setAllClients(prev => (prev || []).map(c => (String(c.id) === String(client.id) || (c.cedula && c.cedula === client.cedula)) ? { ...c, ...payload, fecha_nacimiento: cleanBday } : c));
       setIsEditing(false);
       showNotification('Perfil actualizado con éxito', 'success');
     } catch (e) {
@@ -807,7 +823,23 @@ const ClientProfile = () => {
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '6px', background: 'var(--text-primary)' }}></div>
                 
                 <button 
-                  onClick={() => setIsEditing(!isEditing)}
+                  onClick={() => {
+                    if (!isEditing && client) {
+                      setEditForm({
+                        nombre: client.nombre || '',
+                        email: client.email || '',
+                        telefono: client.telefono || '',
+                        cedula: client.cedula || '',
+                        calle: client.calle || '',
+                        numero: client.numero || '',
+                        sector: client.sector || '',
+                        ciudad: client.ciudad || '',
+                        salon_id: client.salon_id || 1,
+                        fecha_nacimiento: client.fecha_nacimiento ? String(client.fecha_nacimiento).split('T')[0] : ''
+                      });
+                    }
+                    setIsEditing(!isEditing);
+                  }}
                   style={{ position: 'absolute', top: '15px', right: '15px', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)', zIndex: 10 }}
                   title="Editar Perfil"
                 >

@@ -1768,14 +1768,14 @@ app.put('/api/clients/:id', async (req, res) => {
   const cleanBday = bday && String(bday).trim() ? String(bday).split('T')[0] : null;
 
   try {
-    await pool.query(
-      'UPDATE clients SET cedula = ?, nombre = ?, telefono = ?, email = ?, calle = ?, numero = ?, sector = ?, ciudad = ?, fecha_nacimiento = ?, salon_id = COALESCE(?, salon_id) WHERE id = ?',
-      [cedula, nombre, telefono, email, calle || null, numero || null, sector || null, ciudad || null, cleanBday, salon_id || null, id]
+    const [result] = await pool.query(
+      'UPDATE clients SET cedula = ?, nombre = ?, telefono = ?, email = ?, calle = ?, numero = ?, sector = ?, ciudad = ?, fecha_nacimiento = ?, salon_id = COALESCE(?, salon_id) WHERE id = ? OR cedula = ?',
+      [cedula, nombre, telefono, email, calle || null, numero || null, sector || null, ciudad || null, cleanBday, salon_id || null, id, cedula || id]
     );
     if (salon_id) {
-      await pool.query('UPDATE contracts SET salon_id = ? WHERE client_id = ?', [salon_id, id]);
+      await pool.query('UPDATE contracts SET salon_id = ? WHERE client_id = ? OR client_id = (SELECT id FROM clients WHERE cedula = ? LIMIT 1)', [salon_id, id, cedula || id]);
     }
-    res.json({ success: true, fecha_nacimiento: cleanBday });
+    res.json({ success: true, fecha_nacimiento: cleanBday, affectedRows: result.affectedRows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3926,11 +3926,11 @@ app.get('/api/commissions', async (req, res) => {
   try {
     // Auto-sync missing commissions from Facturado visits
     try {
-      // Auto-clean any pending commissions for employees who currently do not have a commission scheme assigned
+      // Auto-clean any commissions for employees who currently do not have a commission scheme assigned, or legacy fallback records
       await pool.query(`
         DELETE c FROM employee_commissions_log c
         LEFT JOIN staff_records s ON (c.employee_id = s.id OR c.employee_name = s.nombre)
-        WHERE c.status = 'Pendiente' AND (s.commission_scheme_id IS NULL OR s.commission_scheme_id = 0)
+        WHERE (s.commission_scheme_id IS NULL OR s.commission_scheme_id = 0 OR c.rule_applied_description = 'Categoría Base')
       `);
 
       const [visitsToProcess] = await pool.query(`
@@ -3997,6 +3997,8 @@ app.get('/api/commissions', async (req, res) => {
     if (status) {
       query += ' AND c.status = ?';
       params.push(status);
+    } else {
+      query += " AND c.status != 'Anulada'";
     }
     if (service_name) {
       query += ' AND c.service_name LIKE ?';
@@ -4124,6 +4126,52 @@ app.delete('/api/commissions/schemes/:id', async (req, res) => {
     await pool.query('DELETE FROM commission_schemes WHERE id = ?', [id]);
     await pool.query('DELETE FROM commission_scheme_rules WHERE scheme_id = ?', [id]);
     res.json({ success: true, message: 'Esquema y sus reglas eliminados' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+// --- Asignar Colaboradores al Esquema ---
+app.post('/api/commissions/schemes/:id/assign-employees', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { employee_ids } = req.body;
+    const schemeId = parseInt(id, 10);
+    if (isNaN(schemeId)) return res.status(400).json({ error: 'ID de esquema inválido' });
+
+    const empIds = Array.isArray(employee_ids) ? employee_ids.map(x => parseInt(x, 10)).filter(x => !isNaN(x)) : [];
+
+    if (empIds.length > 0) {
+      const placeholders = empIds.map(() => '?').join(',');
+      // Asignar esquema a los seleccionados
+      await pool.query(`UPDATE staff_records SET commission_scheme_id = ?, scheme_effective_date = NOW() WHERE id IN (${placeholders})`, [schemeId, ...empIds]);
+      // Quitar esquema a los que antes pertenecían a este esquema y no fueron seleccionados
+      await pool.query(`UPDATE staff_records SET commission_scheme_id = NULL WHERE commission_scheme_id = ? AND id NOT IN (${placeholders})`, [schemeId, ...empIds]);
+    } else {
+      // Quitar todos los colaboradores de este esquema
+      await pool.query('UPDATE staff_records SET commission_scheme_id = NULL WHERE commission_scheme_id = ?', [schemeId]);
+    }
+
+    // Auto-limpiar comisiones de empleados que quedaron sin esquema
+    await pool.query(`
+      DELETE c FROM employee_commissions_log c
+      LEFT JOIN staff_records s ON (c.employee_id = s.id OR c.employee_name = s.nombre)
+      WHERE (s.commission_scheme_id IS NULL OR s.commission_scheme_id = 0)
+    `);
+
+    // Recalcular comisiones pendientes de visitas facturadas para actualizar con el nuevo esquema
+    try {
+      const [visitsToProcess] = await pool.query(`
+        SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
+        FROM visits v 
+        WHERE v.status = 'Facturado' AND v.items_detail IS NOT NULL 
+        ORDER BY v.visited_at DESC LIMIT 200
+      `);
+      for (const uv of visitsToProcess) {
+        await processVisitCommissions(uv.id, uv.items_detail, uv.ticket_number, uv.visited_at);
+      }
+    } catch (recalcErr) {
+      console.warn('[RECALC ASSIGNED ERROR]:', recalcErr.message);
+    }
+
+    res.json({ success: true, message: 'Colaboradores asignados al esquema correctamente' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

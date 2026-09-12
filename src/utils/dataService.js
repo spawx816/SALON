@@ -547,6 +547,23 @@ export const dataService = {
     }
   },
 
+  assignEmployeesToScheme: async (schemeId, employeeIds) => {
+    try {
+      const res = await fetch(`${API_URL}/commissions/schemes/${schemeId}/assign-employees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_ids: employeeIds })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Error asignando colaboradores al esquema');
+      }
+      return await res.json();
+    } catch (e) {
+      throw e;
+    }
+  },
+
   getSchemeRules: async (schemeId) => {
     try {
       const res = await fetch(`${API_URL}/commissions/schemes/${schemeId}/rules`);

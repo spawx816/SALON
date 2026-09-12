@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Percent, DollarSign, Calendar, User, Filter, CheckCircle2, Clock, 
   Search, ShieldCheck, Plus, FileText, Tag, Sparkles, Layers,
-  Trash2, Edit2, Info, ArrowRight, MapPin, ChevronDown, ChevronUp, Check, X
+  Trash2, Edit2, Info, ArrowRight, MapPin, ChevronDown, ChevronUp, Check, X, Users
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
@@ -49,6 +49,12 @@ const CommissionManagement = () => {
     valor: '',
     prioridad: 1
   });
+
+  // Modal Asignar Colaboradores a Esquema
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [schemeToAssign, setSchemeToAssign] = useState(null);
+  const [selectedEmpIds, setSelectedEmpIds] = useState([]);
+  const [isSavingAssignment, setIsSavingAssignment] = useState(false);
 
   useEffect(() => {
     loadAllData();
@@ -194,6 +200,37 @@ const CommissionManagement = () => {
     }
   };
 
+  const handleOpenAssignEmployees = (scheme) => {
+    setSchemeToAssign(scheme);
+    const assigned = (employees || []).filter(e => String(e.commission_scheme_id) === String(scheme.id)).map(e => e.id);
+    setSelectedEmpIds(assigned);
+    setAssignModalOpen(true);
+  };
+
+  const handleToggleEmp = (empId) => {
+    setSelectedEmpIds(prev => 
+      prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId]
+    );
+  };
+
+  const handleSaveAssignment = async () => {
+    if (!schemeToAssign) return;
+    setIsSavingAssignment(true);
+    try {
+      await dataService.assignEmployeesToScheme(schemeToAssign.id, selectedEmpIds);
+      await loadAllData();
+      if (activeTab === 'registro') {
+        await loadCommissions();
+      }
+      setAssignModalOpen(false);
+      alert('Colaboradores asignados al esquema correctamente');
+    } catch (err) {
+      alert('Error asignando colaboradores: ' + err.message);
+    } finally {
+      setIsSavingAssignment(false);
+    }
+  };
+
   // --- HANDLERS: REGLAS DE ESQUEMA ---
   const handleOpenRuleModal = () => {
     if (!selectedSchemeId) return alert('Selecciona primero un esquema');
@@ -276,6 +313,7 @@ const CommissionManagement = () => {
     const groupsMap = new Map();
     
     commissions.forEach(c => {
+      const isAnulada = c.status === 'Anulada' || c.status === 'Cancelada';
       const empKey = c.employee_id || c.employee_name || 'Desconocido';
       const empName = c.employee_name || 'Colaborador';
       const location = c.localidad || c.emp_localidad || 'Todas las localidades';
@@ -293,9 +331,11 @@ const CommissionManagement = () => {
       }
       
       const group = groupsMap.get(empKey);
-      group.totalComision += Number(c.monto_comision || 0);
-      group.totalMontoBase += Number(c.monto_base || 0);
-      group.totalServicios += Number(c.cantidad || 1);
+      if (!isAnulada) {
+        group.totalComision += Number(c.monto_comision || 0);
+        group.totalMontoBase += Number(c.monto_base || 0);
+        group.totalServicios += Number(c.cantidad || 1);
+      }
       group.items.push(c);
     });
     
@@ -511,8 +551,28 @@ const CommissionManagement = () => {
                             {s.tipo}
                           </span>
                         </td>
-                        <td style={{ padding: '0.6rem 0.6rem', textAlign: 'center', fontWeight: 800, color: '#334155' }}>
-                          {s.colaboradores_asignados || 0}
+                        <td style={{ padding: '0.6rem 0.6rem', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleOpenAssignEmployees(s); }}
+                            style={{
+                              background: s.colaboradores_asignados > 0 ? '#fdf2f8' : '#f8fafc',
+                              border: `1px solid ${s.colaboradores_asignados > 0 ? '#fbcfe8' : '#e2e8f0'}`,
+                              color: s.colaboradores_asignados > 0 ? '#be185d' : '#64748b',
+                              borderRadius: '8px',
+                              padding: '3px 8px',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title="Haz clic para asignar colaboradores a este esquema"
+                          >
+                            <Users size={12} />
+                            {s.colaboradores_asignados || 0}
+                          </button>
                         </td>
                         <td style={{ padding: '0.6rem 0.6rem', textAlign: 'center' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: s.estado === 'Activo' ? '#f0fdf4' : '#fef2f2', color: s.estado === 'Activo' ? '#166534' : '#991b1b', padding: '2px 7px', borderRadius: '99px', fontSize: '0.68rem', fontWeight: 800 }}>
@@ -521,8 +581,9 @@ const CommissionManagement = () => {
                           </span>
                         </td>
                         <td style={{ padding: '0.6rem 0.4rem', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => handleOpenSchemeModal(s)} style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: '2px' }}><Edit2 size={13} /></button>
-                          <button onClick={() => handleDeleteScheme(s.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '2px' }}><Trash2 size={13} /></button>
+                          <button onClick={() => handleOpenAssignEmployees(s)} style={{ border: 'none', background: 'transparent', color: '#be185d', cursor: 'pointer', padding: '2px', marginRight: '4px' }} title="Asignar colaboradores"><Users size={13} /></button>
+                          <button onClick={() => handleOpenSchemeModal(s)} style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', padding: '2px', marginRight: '4px' }} title="Editar esquema"><Edit2 size={13} /></button>
+                          <button onClick={() => handleDeleteScheme(s.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '2px' }} title="Eliminar esquema"><Trash2 size={13} /></button>
                         </td>
                       </tr>
                     ))}
@@ -1226,6 +1287,120 @@ const CommissionManagement = () => {
                 <button type="submit" style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}>Guardar Regla</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 4: ASIGNAR COLABORADORES A ESQUEMA --- */}
+      {assignModalOpen && schemeToAssign && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div style={{ background: '#ffffff', borderRadius: '24px', width: '100%', maxWidth: '560px', padding: '1.75rem', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid #f1f5f9' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Users size={20} color="#be185d" />
+                  Asignar Colaboradores
+                </h3>
+                <p style={{ margin: '3px 0 0 0', fontSize: '0.78rem', color: '#64748b' }}>
+                  Esquema seleccionado: <strong style={{ color: '#be185d' }}>{schemeToAssign.nombre}</strong> ({schemeToAssign.tipo})
+                </p>
+              </div>
+              <button onClick={() => setAssignModalOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+            </div>
+
+            <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: '12px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.75rem', color: '#9f1239', lineHeight: 1.4 }}>
+              💡 <strong>Regla del sistema:</strong> Solo los colaboradores marcados tendrán este esquema activo y generarán comisiones. Si un empleado no tiene ningún esquema asignado, no generará comisiones.
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {employees && employees.length > 0 ? (
+                employees.map(emp => {
+                  const isChecked = selectedEmpIds.includes(emp.id);
+                  const otherScheme = schemes.find(s => s.id !== schemeToAssign.id && String(s.id) === String(emp.commission_scheme_id));
+                  
+                  return (
+                    <div 
+                      key={emp.id}
+                      onClick={() => handleToggleEmp(emp.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '12px',
+                        border: `1.5px solid ${isChecked ? '#f472b6' : '#e2e8f0'}`,
+                        background: isChecked ? '#fdf2f8' : '#ffffff',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <input 
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}} // Handled by outer div
+                          style={{ width: '18px', height: '18px', accentColor: '#be185d', cursor: 'pointer' }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a' }}>
+                            {emp.nombre}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                            {emp.posicion || 'Colaborador'} • {emp.localidad || 'Sin sucursal fija'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        {isChecked ? (
+                          <span style={{ background: '#be185d', color: '#ffffff', padding: '3px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 800 }}>
+                            Asignado
+                          </span>
+                        ) : otherScheme ? (
+                          <span style={{ background: '#f1f5f9', color: '#64748b', padding: '3px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 700 }}>
+                            En: {otherScheme.nombre}
+                          </span>
+                        ) : (
+                          <span style={{ background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 700 }}>
+                            Sin Esquema
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                  No hay colaboradores registrados.
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 700 }}>
+                {selectedEmpIds.length} colaborador(es) seleccionado(s)
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button 
+                  type="button" 
+                  onClick={() => setAssignModalOpen(false)} 
+                  disabled={isSavingAssignment}
+                  style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleSaveAssignment} 
+                  disabled={isSavingAssignment}
+                  style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  {isSavingAssignment ? 'Guardando...' : 'Guardar Asignaciones'}
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}
