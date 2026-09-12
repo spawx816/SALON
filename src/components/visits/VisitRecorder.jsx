@@ -100,6 +100,8 @@ const VisitRecorder = () => {
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [modalClientSearchTerm, setModalClientSearchTerm] = useState('');
   const [selectedClientForTicket, setSelectedClientForTicket] = useState(null);
+  const [ticketClientMembership, setTicketClientMembership] = useState(null);
+  const [loadingTicketMembership, setLoadingTicketMembership] = useState(false);
   const [newTicketClientName, setNewTicketClientName] = useState('');
   const [newTicketCedula, setNewTicketCedula] = useState('');
   const [ticketType, setTicketType] = useState('general'); // 'general' | 'plan_beauty' | 'empleado'
@@ -138,6 +140,164 @@ const VisitRecorder = () => {
       return (diffDays >= 0 && diffDays <= 6);
     } catch (e) {
       return false;
+    }
+  };
+
+  // Cargar rápidamente el estado de membresía y lavados disponibles del cliente en modal de ticket
+  const loadTicketClientMembership = async (client) => {
+    if (!client) {
+      setTicketClientMembership(null);
+      return;
+    }
+    setLoadingTicketMembership(true);
+    try {
+      let contracts = [];
+      if (client.id) {
+        contracts = await dataService.getContractByClient(client.id);
+      }
+      if ((!contracts || contracts.length === 0) && client.cedula) {
+        contracts = await dataService.getContractByClient(String(client.cedula).trim());
+      }
+      if ((!contracts || contracts.length === 0) && (client.nombre || client.name)) {
+        contracts = await dataService.getContractByClient(client.nombre || client.name);
+      }
+      const contractList = Array.isArray(contracts) ? contracts : [];
+
+      // Prioridad: Active -> Pending_Retry -> Suspended -> Cancelled -> otros
+      let chosenContract = contractList.find(c => c.status === 'Active' || c.status === 'Activo');
+      if (!chosenContract) {
+        chosenContract = contractList.find(c => c.status === 'Pending_Retry');
+      }
+      if (!chosenContract) {
+        chosenContract = contractList.find(c => c.status === 'Suspended' || c.status === 'Suspendido');
+      }
+      if (!chosenContract) {
+        chosenContract = contractList[0] || null;
+      }
+
+      if (!chosenContract) {
+        setTicketClientMembership({
+          hasContract: false,
+          statusLabel: 'Sin Membresía Activa',
+          statusColor: '#64748b',
+          statusBg: '#f8fafc',
+          statusBorder: '#e2e8f0',
+          washesAvailable: 0,
+          planName: null
+        });
+        return;
+      }
+
+      // Determinar etiqueta y colores
+      let statusLabel = 'Membresía Activa';
+      let statusColor = '#047857';
+      let statusBg = '#f0fdf4';
+      let statusBorder = '#86efac';
+
+      const s = (chosenContract.status || '').toLowerCase();
+      if (s === 'pending_retry') {
+        statusLabel = 'Membresía Suspendida (Cobro Pendiente)';
+        statusColor = '#d97706';
+        statusBg = '#fffbeb';
+        statusBorder = '#fde68a';
+      } else if (s.includes('suspend')) {
+        statusLabel = 'Membresía Suspendida';
+        statusColor = '#dc2626';
+        statusBg = '#fef2f2';
+        statusBorder = '#fca5a5';
+      } else if (s.includes('cancel')) {
+        statusLabel = 'Membresía Cancelada';
+        statusColor = '#dc2626';
+        statusBg = '#fef2f2';
+        statusBorder = '#fca5a5';
+      } else if (s !== 'active' && s !== 'activo') {
+        statusLabel = `Membresía ${chosenContract.status}`;
+        statusColor = '#64748b';
+        statusBg = '#f8fafc';
+        statusBorder = '#cbd5e1';
+      }
+
+      // Obtener visitas del cliente para calcular consumo en el ciclo
+      let pastVisits = [];
+      if (client.id) {
+        pastVisits = await dataService.getVisitsByClient(client.id).catch(() => []) || [];
+      }
+      if ((!pastVisits || pastVisits.length === 0) && client.cedula) {
+        pastVisits = await dataService.getVisitsByClient(String(client.cedula).trim()).catch(() => []) || [];
+      }
+      if ((!pastVisits || pastVisits.length === 0) && (client.nombre || client.name)) {
+        pastVisits = await dataService.getVisitsByClient(client.nombre || client.name).catch(() => []) || [];
+      }
+
+      // Parsear fecha de última facturación o inicio de ciclo
+      const lastBillingStr = chosenContract.last_billed_date || chosenContract.created_at || chosenContract.signed_at;
+      let lastBillingTime = 0;
+      if (lastBillingStr) {
+        const dStr = String(lastBillingStr).endsWith('Z') ? String(lastBillingStr) : String(lastBillingStr).replace(' ', 'T') + 'Z';
+        const t = new Date(dStr).getTime();
+        lastBillingTime = isNaN(t) ? new Date(lastBillingStr).getTime() : t;
+      }
+      const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
+      const cycleVisits = pastVisits.filter(v => {
+        const vTime = new Date(v.visited_at).getTime();
+        return vTime >= threshold;
+      });
+
+      // Total de lavados del contrato (por defecto 4 si no se especifica)
+      let totalAllowed = 4;
+      try {
+        let serv = chosenContract.contract_services;
+        if (typeof serv === 'string') {
+          try { serv = JSON.parse(serv); } catch { serv = [serv]; }
+        }
+        if (Array.isArray(serv)) {
+          const washItem = serv.find(item => typeof item === 'string' && item.toLowerCase().includes('lavado'));
+          if (washItem) {
+            const m = String(washItem).match(/^(\d+)/);
+            if (m) totalAllowed = parseInt(m[1], 10);
+          }
+        }
+      } catch (e) {}
+
+      // Contar lavados utilizados en el ciclo
+      let usedWashes = 0;
+      cycleVisits.forEach(v => {
+        let sList = v.servicios || [];
+        if (typeof sList === 'string') {
+          try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
+        }
+        if (Array.isArray(sList) && sList.some(item => typeof item === 'string' && item.toLowerCase().includes('lavado'))) {
+          usedWashes++;
+        } else if (v.items_detail) {
+          try {
+            const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+            if (Array.isArray(parsed) && parsed.some(i => i.isPlanWash || (i.nombre && i.nombre.toLowerCase().includes('lavado')))) {
+              usedWashes += Number(i.cantidad) || 1;
+            }
+          } catch (e) {}
+        }
+      });
+
+      const washesAvailable = Math.max(0, totalAllowed - usedWashes);
+
+      setTicketClientMembership({
+        hasContract: true,
+        contract: chosenContract,
+        status: chosenContract.status,
+        statusLabel,
+        statusColor,
+        statusBg,
+        statusBorder,
+        washesAvailable,
+        totalAllowed,
+        usedWashes,
+        planName: chosenContract.plan_name || chosenContract.plan_title || 'Plan Beauty'
+      });
+    } catch (err) {
+      console.error('Error loading ticket client membership:', err);
+      setTicketClientMembership(null);
+    } finally {
+      setLoadingTicketMembership(false);
     }
   };
 
@@ -777,15 +937,19 @@ const VisitRecorder = () => {
       setNewTicketCedula('');
       setClientSearchTerm('');
       setModalClientSearchTerm('');
+      const currentMembership = ticketClientMembership;
       setSelectedClientForTicket(null);
+      setTicketClientMembership(null);
       setSelectedEmployeeForTicket(null);
       await fetchPendingTickets();
 
       // Detect if client has active Plan Beauty or Birthday
       const isClientBday = checkClientBirthday(selectedClientForTicket);
-      let isPlanActive = ticketType === 'plan_beauty';
-      let washesAvailable = '____';
-      if (selectedClientForTicket?.id) {
+      let isPlanActive = ticketType === 'plan_beauty' || (currentMembership?.hasContract && (currentMembership?.status === 'Active' || currentMembership?.status === 'Activo'));
+      let washesAvailable = currentMembership?.washesAvailable !== undefined
+        ? String(currentMembership.washesAvailable)
+        : '____';
+      if (selectedClientForTicket?.id && washesAvailable === '____') {
         try {
           const contracts = await dataService.getContractByClient(selectedClientForTicket.id);
           const activeC = (Array.isArray(contracts) ? contracts : []).filter(c => c.status === 'Active' || c.status === 'Activo');
@@ -4080,7 +4244,11 @@ const VisitRecorder = () => {
               </div>
               <button
                 type="button"
-                onClick={() => setShowNewTicketModal(false)}
+                onClick={() => {
+                  setShowNewTicketModal(false);
+                  setSelectedClientForTicket(null);
+                  setTicketClientMembership(null);
+                }}
                 style={{ background: '#f1f5f9', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
               >
                 <X size={18} />
@@ -4100,6 +4268,7 @@ const VisitRecorder = () => {
                     onClick={() => {
                       setTicketType('general');
                       setSelectedClientForTicket(null);
+                      setTicketClientMembership(null);
                       setSelectedEmployeeForTicket(null);
                     }}
                     style={{
@@ -4155,6 +4324,7 @@ const VisitRecorder = () => {
                     onClick={() => {
                       setTicketType('empleado');
                       setSelectedClientForTicket(null);
+                      setTicketClientMembership(null);
                     }}
                     style={{
                       padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
@@ -4251,6 +4421,7 @@ const VisitRecorder = () => {
                           onChange={(e) => {
                             setModalClientSearchTerm(e.target.value);
                             setSelectedClientForTicket(null);
+                            setTicketClientMembership(null);
                           }}
                           style={{ width: '100%', padding: '0.75rem 1rem 0.75rem 2.6rem', borderRadius: '12px', border: '2px solid #a855f7', fontSize: '0.9rem', fontWeight: 600, color: '#0f172a', outline: 'none', background: '#ffffff' }}
                         />
@@ -4274,6 +4445,7 @@ const VisitRecorder = () => {
                                     setModalClientSearchTerm(cli.nombre || cli.name);
                                     setNewTicketClientName(cli.nombre || cli.name);
                                     setNewTicketCedula(cli.cedula || '');
+                                    loadTicketClientMembership(cli);
                                   }}
                                   style={{ padding: '0.6rem 0.8rem', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', fontSize: '0.85rem' }}
                                   className="hover-lift"
@@ -4290,27 +4462,100 @@ const VisitRecorder = () => {
                     </div>
 
                     {selectedClientForTicket && (
-                      <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', padding: '0.75rem', borderRadius: '12px', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong style={{ color: '#7e22ce', fontSize: '0.85rem' }}>
-                            ✅ Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}
-                          </strong>
-                          {selectedClientForTicket.cedula && (
-                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#6b21a8' }}>
-                              Cédula: {selectedClientForTicket.cedula}
-                            </p>
-                          )}
+                      <div
+                        style={{
+                          background: ticketClientMembership?.statusBg || '#f8fafc',
+                          border: `1.5px solid ${ticketClientMembership?.statusBorder || '#e2e8f0'}`,
+                          padding: '0.9rem 1.1rem',
+                          borderRadius: '14px',
+                          marginBottom: '0.85rem',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        {/* Header con nombre del cliente y botón Cambiar */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.55rem', borderBottom: '1px solid rgba(0,0,0,0.06)', paddingBottom: '0.45rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ fontSize: '0.95rem' }}>✅</span>
+                            <strong style={{ color: '#0f172a', fontSize: '0.9rem', fontWeight: 800 }}>
+                              Cliente Seleccionado: {selectedClientForTicket.nombre || selectedClientForTicket.name}
+                            </strong>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedClientForTicket(null);
+                              setModalClientSearchTerm('');
+                              setTicketClientMembership(null);
+                            }}
+                            style={{
+                              background: '#fee2e2',
+                              border: 'none',
+                              color: '#dc2626',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              padding: '0.25rem 0.6rem',
+                              borderRadius: '8px',
+                              transition: 'all 0.15s'
+                            }}
+                          >
+                            Cambiar
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedClientForTicket(null);
-                            setModalClientSearchTerm('');
-                          }}
-                          style={{ background: 'transparent', border: 'none', color: '#ef4444', fontWeight: 700, cursor: 'pointer', fontSize: '0.75rem' }}
-                        >
-                          Cambiar
-                        </button>
+
+                        {/* Estado de Membresía y Lavados Disponibles */}
+                        {loadingTicketMembership ? (
+                          <div style={{ padding: '0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', fontSize: '0.85rem', fontWeight: 600 }}>
+                            <span style={{ display: 'inline-block' }}>⏳</span> Verificando membresía...
+                          </div>
+                        ) : ticketClientMembership ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.4rem' }}>
+                              <div
+                                style={{
+                                  fontSize: '1.2rem',
+                                  fontWeight: 800,
+                                  color: ticketClientMembership.statusColor,
+                                  letterSpacing: '-0.01em',
+                                  lineHeight: 1.2
+                                }}
+                              >
+                                {ticketClientMembership.statusLabel}
+                              </div>
+                              {ticketClientMembership.planName && (
+                                <span
+                                  style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    color: '#6b21a8',
+                                    background: 'rgba(255,255,255,0.85)',
+                                    padding: '0.2rem 0.55rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(107,33,168,0.2)'
+                                  }}
+                                >
+                                  {ticketClientMembership.planName}
+                                </span>
+                              )}
+                            </div>
+
+                            {ticketClientMembership.hasContract && (
+                              <div
+                                style={{
+                                  fontSize: '1.35rem',
+                                  fontWeight: 900,
+                                  color: '#1e293b',
+                                  letterSpacing: '-0.02em',
+                                  lineHeight: 1.2,
+                                  marginTop: '0.25rem'
+                                }}
+                              >
+                                Lavados disponibles: {ticketClientMembership.washesAvailable}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                     )}
 
@@ -4388,7 +4633,11 @@ const VisitRecorder = () => {
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                 <button
                   type="button"
-                  onClick={() => setShowNewTicketModal(false)}
+                  onClick={() => {
+                    setShowNewTicketModal(false);
+                    setSelectedClientForTicket(null);
+                    setTicketClientMembership(null);
+                  }}
                   style={{ flex: 1, padding: '0.8rem', borderRadius: '14px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer' }}
                 >
                   Cancelar
