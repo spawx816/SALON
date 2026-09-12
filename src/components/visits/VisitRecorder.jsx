@@ -4644,20 +4644,22 @@ const VisitRecorder = () => {
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                               {/* Fila: Estado de membresía */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                                 <div
                                   style={{
-                                    width: '18px',
-                                    height: '18px',
+                                    width: '14px',
+                                    height: '14px',
                                     borderRadius: '50%',
-                                    background: ticketClientMembership?.statusColor === '#dc2626' ? '#ef4444' : (ticketClientMembership?.statusColor === '#d97706' ? '#f59e0b' : '#22c55e'),
+                                    background: (!ticketClientMembership || !ticketClientMembership.hasContract)
+                                      ? '#94a3b8'
+                                      : (ticketClientMembership?.statusColor === '#dc2626' ? '#ef4444' : (ticketClientMembership?.statusColor === '#d97706' ? '#f59e0b' : '#22c55e')),
                                     flexShrink: 0
                                   }}
                                 ></div>
                                 <span
                                   style={{
-                                    fontSize: '1.18rem',
-                                    fontWeight: 800,
+                                    fontSize: '1.05rem',
+                                    fontWeight: 700,
                                     color: ticketClientMembership?.statusColor || '#047857',
                                     letterSpacing: '-0.01em'
                                   }}
@@ -4667,21 +4669,21 @@ const VisitRecorder = () => {
                               </div>
 
                               {/* Fila: Lavados disponibles con icono de cabello solicitado */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                                 <img
                                   src="/beauty-hair-logo.png"
                                   alt="Lavados"
                                   style={{
-                                    width: '26px',
-                                    height: '26px',
+                                    width: '19px',
+                                    height: '19px',
                                     objectFit: 'contain',
                                     flexShrink: 0
                                   }}
                                 />
                                 <span
                                   style={{
-                                    fontSize: '1.25rem',
-                                    fontWeight: 800,
+                                    fontSize: '1.05rem',
+                                    fontWeight: 700,
                                     color: '#1e293b',
                                     letterSpacing: '-0.01em'
                                   }}
