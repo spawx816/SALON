@@ -4666,9 +4666,18 @@ const VisitRecorder = () => {
                                 </span>
                               </div>
 
-                              {/* Fila: Lavados disponibles con icono de brillo / belleza */}
+                              {/* Fila: Lavados disponibles con icono de cabello solicitado */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                                <Sparkles size={22} color="#ec4899" style={{ flexShrink: 0 }} />
+                                <img
+                                  src="/beauty-hair-logo.png"
+                                  alt="Lavados"
+                                  style={{
+                                    width: '26px',
+                                    height: '26px',
+                                    objectFit: 'contain',
+                                    flexShrink: 0
+                                  }}
+                                />
                                 <span
                                   style={{
                                     fontSize: '1.25rem',
