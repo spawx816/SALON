@@ -377,10 +377,10 @@ const VisitRecorder = () => {
   const getRenewalDateText = () => {
     if (activePlans && activePlans.length > 0) {
       const plan = activePlans[0];
-      if (plan?.end_date) return plan.end_date;
       if (plan?.next_billing_date) {
         return new Date(plan.next_billing_date).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
       }
+      if (plan?.end_date) return plan.end_date;
       return 'En ciclo activo';
     }
     const cancelledContract = (clientContracts || []).find(c => c.status === 'Cancelled' || c.status === 'Cancelado');
@@ -397,7 +397,7 @@ const VisitRecorder = () => {
     if (activePlans && activePlans.length > 0) {
       const plan = activePlans[0];
       const remaining = plan.remaining_washes !== undefined ? plan.remaining_washes : plan.remaining_base_washes;
-      return remaining !== undefined ? remaining : 3;
+      return remaining !== undefined ? remaining : 0;
     }
     return 0;
   };
@@ -405,13 +405,20 @@ const VisitRecorder = () => {
   const getExtraBenefitsCount = () => {
     if (activePlans && activePlans.length > 0) {
       const plan = activePlans[0];
-      return (plan.promoServices && plan.promoServices.length > 0) || plan.isPromoActive !== false ? 1 : 0;
+      if (plan.remaining_promo_services !== undefined) {
+        return plan.remaining_promo_services;
+      }
+      return (plan.promoServices && plan.promoServices.length > 0) && plan.isPromoActive !== false ? 1 : 0;
     }
     return 0;
   };
 
   const getBenefitsCount = () => {
     if (activePlans && activePlans.length > 0) {
+      const plan = activePlans[0];
+      if (plan.total_benefits_available !== undefined) {
+        return plan.total_benefits_available;
+      }
       const regular = getRegularWashesCount();
       const extra = getExtraBenefitsCount();
       return regular + extra;
@@ -667,9 +674,19 @@ const VisitRecorder = () => {
           if (activeC.length > 0) {
             isPlanActive = true;
             const pastV = await dataService.getVisitsByClient(selectedClientForTicket.id).catch(() => []) || [];
-            const lastB = activeC[0].last_billed_date ? new Date(activeC[0].last_billed_date).getTime() : 0;
-            const used = pastV.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && new Date(v.visited_at).getTime() >= lastB && (v.metodo_pago || '').toLowerCase().includes('plan')).length;
-            washesAvailable = String(Math.max(0, 4 - used));
+            const lastB = activeC[0].last_billed_date ? new Date(activeC[0].last_billed_date).getTime() - 60000 : 0;
+            const cycleV = pastV.filter(v => new Date(v.visited_at).getTime() >= lastB);
+            let usedW = 0;
+            cycleV.forEach(v => {
+              let sList = v.servicios || [];
+              if (typeof sList === 'string') {
+                try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
+              }
+              if (Array.isArray(sList) && sList.some(s => typeof s === 'string' && s.toLowerCase().includes('lavado'))) {
+                usedW++;
+              }
+            });
+            washesAvailable = String(Math.max(0, 4 - usedW));
           }
         } catch (e) { }
       }
@@ -995,7 +1012,17 @@ const VisitRecorder = () => {
         c => c.status === 'Active' || c.status === 'Activo'
       );
 
-      const pastVisits = await dataService.getVisitsByClient(clientId).catch(() => []) || [];
+      let pastVisits = [];
+      if (clientId && clientId !== 'INVITADO') {
+        pastVisits = await dataService.getVisitsByClient(clientId).catch(() => []) || [];
+      }
+      if ((!pastVisits || pastVisits.length === 0) && clientFound?.cedula) {
+        pastVisits = await dataService.getVisitsByClient(String(clientFound.cedula).trim()).catch(() => []) || [];
+      }
+      if ((!pastVisits || pastVisits.length === 0) && (clientName || clientFound?.nombre || clientFound?.name)) {
+        pastVisits = await dataService.getVisitsByClient(clientName || clientFound?.nombre || clientFound?.name).catch(() => []) || [];
+      }
+
       const allPlans = await dataService.getPlans().catch(() => []) || [];
 
       const peel = (data) => {
@@ -1012,46 +1039,110 @@ const VisitRecorder = () => {
         return current;
       };
 
+      const parseDate = (d) => {
+        if (!d) return 0;
+        if (d instanceof Date) return d.getTime();
+        const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
+        const time = new Date(dateStr).getTime();
+        return isNaN(time) ? new Date(d).getTime() : time;
+      };
+
       let planesConContrato = activeContracts.map(contract => {
         const matchedPlan = allPlans.find(p => p.id === contract.plan_id || String(p.id) === String(contract.plan_id));
-        const baseServices = peel(contract.contract_services) || matchedPlan?.services || [];
-        const promoServices = peel(contract.contract_promo_services) || matchedPlan?.promo_services || [];
-        const allServices = [...(Array.isArray(baseServices) ? baseServices : []), ...(Array.isArray(promoServices) ? promoServices : [])];
+        const baseSnapshot = peel(contract.contract_services) || matchedPlan?.services || [];
+        const promoSnapshot = peel(contract.contract_promo_services) || matchedPlan?.promo_services || [];
+        const baseArray = Array.isArray(baseSnapshot) ? baseSnapshot : [];
+        const promoArray = Array.isArray(promoSnapshot) ? promoSnapshot : [];
 
-        const parseDate = (d) => {
-          if (!d) return 0;
-          if (d instanceof Date) return d.getTime();
-          const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
-          const time = new Date(dateStr).getTime();
-          return isNaN(time) ? new Date(d).getTime() : time;
-        };
+        // Snapshot & Promo Logic
+        const signedAt = new Date(contract.created_at || contract.signed_at || contract.start_date || new Date());
+        const promoDuration = Number(contract.contract_promo_duration) || 0;
+        const promoExpiry = new Date(signedAt);
+        promoExpiry.setMonth(promoExpiry.getMonth() + promoDuration);
+        const isPromoActive = promoDuration > 0 && new Date() < promoExpiry;
+
+        const allServices = isPromoActive 
+          ? [...baseArray, ...promoArray]
+          : (baseArray.length > 0 ? baseArray : (matchedPlan?.services || []));
 
         const lastBillingTime = parseDate(contract.last_billed_date);
-        const threshold = lastBillingTime > 0 ? lastBillingTime : 0;
-        // Count only visits that actually redeemed a Plan Beauty wash in the current cycle
-        const cycleVisits = pastVisits.filter(v => {
-          if (v.status !== 'Facturado' && v.status !== 'Completado') return false;
-          if (parseDate(v.visited_at) < threshold) return false;
+        const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
+        
+        // Filter visits in the current billing cycle
+        const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
 
-          const method = (v.metodo_pago || '').toLowerCase();
-          if (method.includes('plan')) return true;
-
-          let hasPlanWashItem = false;
+        // Build usageMap exactly as ClientProfile and ClientDashboard
+        const usageMap = {};
+        cycleVisits.forEach(v => {
+          let sList = v.servicios || [];
+          if (typeof sList === 'string') {
+            try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
+          }
+          if (Array.isArray(sList)) {
+            sList.forEach(s => {
+              if (typeof s === 'string') {
+                const cleanS = s.trim();
+                usageMap[cleanS] = (usageMap[cleanS] || 0) + 1;
+                const noNum = cleanS.replace(/^\d+\s*/, '').trim();
+                if (noNum && noNum !== cleanS) {
+                  usageMap[noNum] = (usageMap[noNum] || 0) + 1;
+                }
+              }
+            });
+          }
+          // Also count items_detail if present
           try {
             if (v.items_detail) {
               const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
               if (Array.isArray(parsed)) {
-                hasPlanWashItem = parsed.some(i => i.isPlanWash || (i.nombre && i.nombre.toLowerCase().includes('plan beauty')));
+                parsed.forEach(i => {
+                  if (i.isPlanWash || (i.nombre && (i.nombre.toLowerCase().includes('plan beauty') || i.nombre.toLowerCase().includes('lavado')))) {
+                    usageMap['Lavados y Secados'] = (usageMap['Lavados y Secados'] || 0) + (Number(i.cantidad) || 1);
+                    usageMap['Lavado y Secado'] = (usageMap['Lavado y Secado'] || 0) + (Number(i.cantidad) || 1);
+                  }
+                });
               }
             }
-          } catch (e) { }
-
-          return hasPlanWashItem;
+          } catch (e) {}
         });
 
-        const usedCount = cycleVisits.length;
-        const totalAllowed = 4;
-        const remainingWashes = Math.max(0, totalAllowed - usedCount);
+        // Determine base wash quota and used count
+        let totalAllowedWashes = 4;
+        let baseUsed = 0;
+        const baseWashEntry = baseArray.find(s => typeof s === 'string' && s.toLowerCase().includes('lavado')) || '4 Lavados y Secados';
+        if (baseWashEntry) {
+          const match = String(baseWashEntry).match(/^(\d+)\s*(.*)$/);
+          if (match) {
+            totalAllowedWashes = parseInt(match[1], 10) || 4;
+          }
+          const baseName = match ? match[2] : baseWashEntry;
+          baseUsed = usageMap[baseWashEntry] || usageMap[baseName] || usageMap[(baseName || '').trim()] || usageMap['Lavados y Secados'] || usageMap['Lavado y Secado'] || 0;
+        } else {
+          baseUsed = usageMap['Lavados y Secados'] || usageMap['Lavado y Secado'] || 0;
+        }
+        const remainingBaseWashes = Math.max(0, totalAllowedWashes - baseUsed);
+
+        // Determine promo / extra treatments quota & used count
+        let totalPromoAllowed = 0;
+        let promoUsed = 0;
+        if (isPromoActive && promoArray.length > 0) {
+          promoArray.forEach(pService => {
+            if (typeof pService === 'string') {
+              let pQuota = 1;
+              let pBaseName = pService;
+              const pMatch = pService.match(/^(\d+)\s*(.*)$/);
+              if (pMatch) {
+                pQuota = parseInt(pMatch[1], 10) || 1;
+                pBaseName = pMatch[2];
+              }
+              totalPromoAllowed += pQuota;
+              const pCount = usageMap[pService] || usageMap[pBaseName] || usageMap[(pBaseName || '').trim()] || 0;
+              promoUsed += pCount;
+            }
+          });
+        }
+        const remainingPromoServices = Math.max(0, totalPromoAllowed - promoUsed);
+        const totalBenefitsAvailable = remainingBaseWashes + remainingPromoServices;
 
         const formattedExpiry = contract.next_billing_date
           ? new Date(contract.next_billing_date).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -1063,15 +1154,20 @@ const VisitRecorder = () => {
           contract_id: contract.id,
           title: contract.planTitle || matchedPlan?.title || 'Plan Beauty',
           services: allServices.length > 0 ? allServices : ['Lavado y Secado', 'Tratamiento Profundo'],
-          baseServices,
-          promoServices,
-          cycleVisitsCount: usedCount,
-          used_washes: usedCount,
-          total_washes: totalAllowed,
-          remaining_base_washes: remainingWashes,
-          remaining_washes: remainingWashes,
+          baseServices: baseArray,
+          promoServices: promoArray,
+          cycleVisitsCount: baseUsed,
+          used_washes: baseUsed,
+          total_washes: totalAllowedWashes,
+          remaining_base_washes: remainingBaseWashes,
+          remaining_washes: remainingBaseWashes,
+          total_promo_allowed: totalPromoAllowed,
+          promo_used: promoUsed,
+          remaining_promo_services: remainingPromoServices,
+          total_benefits_available: totalBenefitsAvailable,
           end_date: formattedExpiry,
-          isPromoActive: true
+          next_billing_date: contract.next_billing_date,
+          isPromoActive
         };
       });
 
@@ -1085,6 +1181,10 @@ const VisitRecorder = () => {
           total_washes: 4,
           remaining_base_washes: 4,
           remaining_washes: 4,
+          total_promo_allowed: 1,
+          promo_used: 0,
+          remaining_promo_services: 1,
+          total_benefits_available: 5,
           end_date: '23 Sep 2026',
           isPromoActive: true
         }];
@@ -1256,9 +1356,19 @@ const VisitRecorder = () => {
           if (activeC.length > 0) {
             isPlanActive = true;
             const pastV = await dataService.getVisitsByClient(clientObj.id).catch(() => []) || [];
-            const lastB = activeC[0].last_billed_date ? new Date(activeC[0].last_billed_date).getTime() : 0;
-            const used = pastV.filter(v => (v.status === 'Facturado' || v.status === 'Completado') && new Date(v.visited_at).getTime() >= lastB && (v.metodo_pago || '').toLowerCase().includes('plan')).length;
-            washesAvailable = String(Math.max(0, 4 - used));
+            const lastB = activeC[0].last_billed_date ? new Date(activeC[0].last_billed_date).getTime() - 60000 : 0;
+            const cycleV = pastV.filter(v => new Date(v.visited_at).getTime() >= lastB);
+            let usedW = 0;
+            cycleV.forEach(v => {
+              let sList = v.servicios || [];
+              if (typeof sList === 'string') {
+                try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
+              }
+              if (Array.isArray(sList) && sList.some(s => typeof s === 'string' && s.toLowerCase().includes('lavado'))) {
+                usedW++;
+              }
+            });
+            washesAvailable = String(Math.max(0, 4 - usedW));
           }
         } catch (e) { }
       }
@@ -1376,20 +1486,29 @@ const VisitRecorder = () => {
 
   // Plan Beauty Wash Direct Redemption (RD$ 0.00 Included)
   const addPlanWashToTicket = () => {
-    if (!activePlans || activePlans.length === 0 || (activePlans[0]?.remaining_washes || 0) <= 0) {
-      alert('El cliente no tiene lavados disponibles en su Plan Beauty.');
+    const regWashes = getRegularWashesCount();
+    const extraWashes = getExtraBenefitsCount();
+    const totalAvail = getBenefitsCount();
+
+    if (!hasActivePlan || totalAvail <= 0) {
+      alert('El cliente no tiene beneficios disponibles en su Plan Beauty para este ciclo.');
       return;
     }
     const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
     if (alreadyHasPlanWash) {
-      alert('ℹ️ Ya se ha incluido el lavado del Plan Beauty en esta factura.');
+      alert('ℹ️ Ya se ha incluido el beneficio del Plan Beauty en esta factura.');
       return;
     }
 
+    const isExtra = regWashes <= 0 && extraWashes > 0;
+    const washTitle = isExtra 
+      ? 'Lavado Extra / Tratamiento Profundo (Plan Beauty Promo)'
+      : 'Lavado y Secado (Plan Beauty)';
+
     const newWashItem = {
       id: Date.now() + Math.random(),
-      service_id: 'plan-beauty-wash',
-      nombre: 'Lavado y Secado (Plan Beauty)',
+      service_id: isExtra ? 'plan-beauty-promo' : 'plan-beauty-wash',
+      nombre: washTitle,
       precioBase: 0,
       precioAplicado: 0,
       descuento: 0,
@@ -5981,28 +6100,49 @@ const VisitRecorder = () => {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {/* ITEM 1: LAVADOS Y SECADOS */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: (isPendingPayment || isContractCancelled) ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
-                      {(isPendingPayment || isContractCancelled) ? '✕' : '✓'}
-                    </div>
-                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: (isPendingPayment || isContractCancelled) ? '#64748b' : '#1e293b' }}>
-                      {isPendingPayment 
-                        ? '0/4 Lavados y Secados (Suspendido)' 
-                        : (isContractCancelled 
-                          ? '0/4 Lavados y Secados (Cancelado)' 
-                          : `${getRegularWashesCount()}/${getTotalBenefitsCount()} Lavados y Secados`)}
-                    </span>
-                  </div>
+                  {(() => {
+                    const regCount = getRegularWashesCount();
+                    const totalAllowed = getTotalBenefitsCount();
+                    const isAvailable = regCount > 0 && !isPendingPayment && !isContractCancelled;
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: isAvailable ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                          {isAvailable ? '✓' : '✕'}
+                        </div>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isAvailable ? '#1e293b' : '#64748b' }}>
+                          {isPendingPayment 
+                            ? '0/4 Lavados y Secados (Suspendido)' 
+                            : (isContractCancelled 
+                              ? '0/4 Lavados y Secados (Cancelado)' 
+                              : (regCount > 0 
+                                ? `${regCount}/${totalAllowed} Lavados y Secados` 
+                                : `0/${totalAllowed} Lavados y Secados (Agotados en este ciclo)`))}
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   {/* ITEM 2: EXTRA O TRATAMIENTO */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: (isPendingPayment || isContractCancelled) ? '#ef4444' : '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
-                      {(isPendingPayment || isContractCancelled) ? '✕' : '✓'}
-                    </div>
-                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: (isPendingPayment || isContractCancelled) ? '#64748b' : '#1e293b' }}>
-                      {(isPendingPayment || isContractCancelled) ? 'Sin tratamientos bonificados' : '1 Lavado y secado extra o 1 uso de tratamiento profundo'}
-                    </span>
-                  </div>
+                  {(() => {
+                    const extraCount = getExtraBenefitsCount();
+                    const isAvailable = extraCount > 0 && !isPendingPayment && !isContractCancelled;
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{ width: '22px', height: '22px', borderRadius: '6px', background: isAvailable ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '13px', fontWeight: 900, flexShrink: 0 }}>
+                          {isAvailable ? '✓' : '✕'}
+                        </div>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isAvailable ? '#1e293b' : '#64748b' }}>
+                          {(isPendingPayment || isContractCancelled) 
+                            ? 'Sin tratamientos bonificados' 
+                            : (extraCount > 0 
+                              ? `${extraCount}/1 Lavado y secado extra o 1 uso de tratamiento profundo` 
+                              : '0/1 Lavado y secado extra o tratamiento profundo (Agotado)')}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -6064,8 +6204,8 @@ const VisitRecorder = () => {
             </div>
 
             {/* MODAL FOOTER */}
-            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: hasActivePlan ? 'space-between' : 'flex-end', alignItems: 'center', gap: '0.75rem' }}>
-              {hasActivePlan && (
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: (hasActivePlan && getBenefitsCount() > 0) ? 'space-between' : 'flex-end', alignItems: 'center', gap: '0.75rem' }}>
+              {hasActivePlan && getBenefitsCount() > 0 && (
                 <button
                   type="button"
                   onClick={() => {
@@ -6074,7 +6214,7 @@ const VisitRecorder = () => {
                   }}
                   style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
                 >
-                  <span>+ Canjear Lavado</span>
+                  <span>+ Canjear {getRegularWashesCount() > 0 ? 'Lavado' : 'Beneficio Extra'}</span>
                 </button>
               )}
               <button
