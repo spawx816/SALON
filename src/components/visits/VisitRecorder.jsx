@@ -143,7 +143,7 @@ const VisitRecorder = () => {
     }
   };
 
-  // Cargar rápidamente el estado de membresía y lavados disponibles del cliente en modal de ticket
+  // Cargar rápidamente el estado de membresía y lavados disponibles del cliente en modal de ticket (sincronizado con ClientProfile)
   const loadTicketClientMembership = async (client) => {
     if (!client) {
       setTicketClientMembership(null);
@@ -151,16 +151,39 @@ const VisitRecorder = () => {
     }
     setLoadingTicketMembership(true);
     try {
+      const peel = (data) => {
+        let current = data;
+        let limit = 0;
+        while (typeof current === 'string' && limit < 5) {
+          try {
+            const p = JSON.parse(current);
+            if (p === current) break;
+            current = p;
+            limit++;
+          } catch { break; }
+        }
+        return current;
+      };
+
+      const parseDate = (d) => {
+        if (!d) return 0;
+        if (d instanceof Date) return d.getTime();
+        const dateStr = String(d).endsWith('Z') ? String(d) : String(d).replace(' ', 'T') + 'Z';
+        const time = new Date(dateStr).getTime();
+        return isNaN(time) ? new Date(d).getTime() : time;
+      };
+
+      // 1. Obtener contratos, planes y visitas en paralelo
       let contracts = [];
-      if (client.id) {
-        contracts = await dataService.getContractByClient(client.id);
-      }
-      if ((!contracts || contracts.length === 0) && client.cedula) {
-        contracts = await dataService.getContractByClient(String(client.cedula).trim());
-      }
-      if ((!contracts || contracts.length === 0) && (client.nombre || client.name)) {
-        contracts = await dataService.getContractByClient(client.nombre || client.name);
-      }
+      if (client.id) contracts = await dataService.getContractByClient(client.id);
+      if ((!contracts || contracts.length === 0) && client.cedula) contracts = await dataService.getContractByClient(String(client.cedula).trim());
+      if ((!contracts || contracts.length === 0) && (client.nombre || client.name)) contracts = await dataService.getContractByClient(client.nombre || client.name);
+
+      const [allPlans, pastVisits] = await Promise.all([
+        dataService.getPlans().catch(() => []) || [],
+        client.id ? (dataService.getVisitsByClient(client.id).catch(() => []) || []) : (client.cedula ? (dataService.getVisitsByClient(String(client.cedula).trim()).catch(() => []) || []) : [])
+      ]);
+
       const contractList = Array.isArray(contracts) ? contracts : [];
 
       // Prioridad: Active -> Pending_Retry -> Suspended -> Cancelled -> otros
@@ -183,6 +206,8 @@ const VisitRecorder = () => {
           statusBg: '#f8fafc',
           statusBorder: '#e2e8f0',
           washesAvailable: 0,
+          totalAvailableCount: 0,
+          servicesList: [],
           planName: null
         });
         return;
@@ -217,68 +242,107 @@ const VisitRecorder = () => {
         statusBorder = '#cbd5e1';
       }
 
-      // Obtener visitas del cliente para calcular consumo en el ciclo
-      let pastVisits = [];
-      if (client.id) {
-        pastVisits = await dataService.getVisitsByClient(client.id).catch(() => []) || [];
-      }
-      if ((!pastVisits || pastVisits.length === 0) && client.cedula) {
-        pastVisits = await dataService.getVisitsByClient(String(client.cedula).trim()).catch(() => []) || [];
-      }
-      if ((!pastVisits || pastVisits.length === 0) && (client.nombre || client.name)) {
-        pastVisits = await dataService.getVisitsByClient(client.nombre || client.name).catch(() => []) || [];
-      }
-
-      // Parsear fecha de última facturación o inicio de ciclo
-      const lastBillingStr = chosenContract.last_billed_date || chosenContract.created_at || chosenContract.signed_at;
-      let lastBillingTime = 0;
-      if (lastBillingStr) {
-        const dStr = String(lastBillingStr).endsWith('Z') ? String(lastBillingStr) : String(lastBillingStr).replace(' ', 'T') + 'Z';
-        const t = new Date(dStr).getTime();
-        lastBillingTime = isNaN(t) ? new Date(lastBillingStr).getTime() : t;
-      }
+      // Cálculo de ciclo idéntico a ClientProfile.jsx
+      const lastBillingTime = parseDate(chosenContract.last_billed_date || chosenContract.created_at || chosenContract.signed_at);
       const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
-      const cycleVisits = pastVisits.filter(v => {
-        const vTime = new Date(v.visited_at).getTime();
-        return vTime >= threshold;
-      });
+      const cycleVisits = (pastVisits || []).filter(v => parseDate(v.visited_at) >= threshold);
 
-      // Total de lavados del contrato (por defecto 4 si no se especifica)
-      let totalAllowed = 4;
-      try {
-        let serv = chosenContract.contract_services;
-        if (typeof serv === 'string') {
-          try { serv = JSON.parse(serv); } catch { serv = [serv]; }
-        }
-        if (Array.isArray(serv)) {
-          const washItem = serv.find(item => typeof item === 'string' && item.toLowerCase().includes('lavado'));
-          if (washItem) {
-            const m = String(washItem).match(/^(\d+)/);
-            if (m) totalAllowed = parseInt(m[1], 10);
-          }
-        }
-      } catch (e) {}
-
-      // Contar lavados utilizados en el ciclo
-      let usedWashes = 0;
+      const usageMap = {};
       cycleVisits.forEach(v => {
         let sList = v.servicios || [];
         if (typeof sList === 'string') {
           try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
         }
-        if (Array.isArray(sList) && sList.some(item => typeof item === 'string' && item.toLowerCase().includes('lavado'))) {
-          usedWashes++;
-        } else if (v.items_detail) {
-          try {
-            const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
-            if (Array.isArray(parsed) && parsed.some(i => i.isPlanWash || (i.nombre && i.nombre.toLowerCase().includes('lavado')))) {
-              usedWashes += Number(i.cantidad) || 1;
+        if (Array.isArray(sList)) {
+          sList.forEach(srv => {
+            if (typeof srv === 'string') {
+              const cleanS = srv.trim();
+              usageMap[cleanS] = (usageMap[cleanS] || 0) + 1;
+              const noNum = cleanS.replace(/^\d+\s*/, '').trim();
+              if (noNum && noNum !== cleanS) {
+                usageMap[noNum] = (usageMap[noNum] || 0) + 1;
+              }
             }
-          } catch (e) {}
+          });
         }
+        // items_detail
+        try {
+          if (v.items_detail) {
+            const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+            if (Array.isArray(parsed)) {
+              parsed.forEach(i => {
+                if (i.isPlanWash || (i.nombre && (i.nombre.toLowerCase().includes('plan beauty') || i.nombre.toLowerCase().includes('lavado')))) {
+                  usageMap['Lavados y Secados'] = (usageMap['Lavados y Secados'] || 0) + (Number(i.cantidad) || 1);
+                  usageMap['Lavado y Secado'] = (usageMap['Lavado y Secado'] || 0) + (Number(i.cantidad) || 1);
+                }
+              });
+            }
+          }
+        } catch (e) {}
       });
 
-      const washesAvailable = Math.max(0, totalAllowed - usedWashes);
+      // Lógica de Promo y Snapshots idéntica a ClientProfile.jsx
+      const signedAt = new Date(chosenContract.created_at || chosenContract.signed_at || new Date());
+      const promoDuration = Number(chosenContract.contract_promo_duration) || 0;
+      const promoExpiry = new Date(signedAt);
+      promoExpiry.setMonth(promoExpiry.getMonth() + promoDuration);
+      const isPromoActive = promoDuration > 0 && new Date() < promoExpiry;
+
+      const baseSnapshot = peel(chosenContract.contract_services) || [];
+      const promoSnapshot = peel(chosenContract.contract_promo_services) || [];
+      const baseArray = Array.isArray(baseSnapshot) ? baseSnapshot : [];
+      const promoArray = Array.isArray(promoSnapshot) ? promoSnapshot : [];
+
+      const matchedPlan = (allPlans || []).find(p => p.id === chosenContract.plan_id || String(p.id) === String(chosenContract.plan_id));
+
+      let effectiveServices = [];
+      if (isPromoActive) {
+        effectiveServices = [...baseArray, ...promoArray];
+      } else {
+        effectiveServices = baseArray.length > 0 ? baseArray : (matchedPlan?.services || []);
+      }
+      if (!Array.isArray(effectiveServices)) effectiveServices = [];
+
+      let totalAvailableCount = 0;
+      let primaryWashAvailable = 0;
+      const servicesList = effectiveServices.filter(s => s && typeof s === 'string' && s.trim().length > 0).map(service => {
+        const lower = (service || '').toLowerCase();
+        let quota = 1;
+        let baseName = service;
+        let isUnlimited = false;
+
+        if (lower.includes('ilimitad')) {
+          isUnlimited = true;
+          baseName = service.replace(/ilimitad[oa]s?/i, '').trim();
+        } else {
+          const match = service.match(/^(\d+)\s*(.*)$/);
+          if (match) {
+            quota = parseInt(match[1], 10);
+            baseName = match[2] || service;
+          }
+        }
+
+        const currentUsage = usageMap[service] || usageMap[baseName] || usageMap[(baseName || '').trim()] || 0;
+        const available = isUnlimited ? 999 : Math.max(0, quota - currentUsage);
+
+        if (!isUnlimited) {
+          totalAvailableCount += available;
+        }
+
+        if (lower.includes('lavado') || lower.includes('secado')) {
+          primaryWashAvailable += (isUnlimited ? 999 : available);
+        }
+
+        return {
+          service,
+          name: baseName,
+          quota,
+          currentUsage,
+          available,
+          isUnlimited,
+          isPromo: promoArray.includes(service)
+        };
+      });
 
       setTicketClientMembership({
         hasContract: true,
@@ -288,10 +352,12 @@ const VisitRecorder = () => {
         statusColor,
         statusBg,
         statusBorder,
-        washesAvailable,
-        totalAllowed,
-        usedWashes,
-        planName: chosenContract.plan_name || chosenContract.plan_title || 'Plan Beauty'
+        isPromoActive,
+        promoExpiry,
+        servicesList,
+        totalAvailableCount,
+        washesAvailable: primaryWashAvailable,
+        planName: chosenContract.planTitle || chosenContract.plan_name || matchedPlan?.title || 'Plan Beauty'
       });
     } catch (err) {
       console.error('Error loading ticket client membership:', err);
@@ -4510,7 +4576,8 @@ const VisitRecorder = () => {
                             <span style={{ display: 'inline-block' }}>⏳</span> Verificando membresía...
                           </div>
                         ) : ticketClientMembership ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            {/* Estatus, PROMO badge y Plan */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.4rem' }}>
                               <div
                                 style={{
@@ -4523,35 +4590,97 @@ const VisitRecorder = () => {
                               >
                                 {ticketClientMembership.statusLabel}
                               </div>
-                              {ticketClientMembership.planName && (
-                                <span
-                                  style={{
-                                    fontSize: '0.72rem',
-                                    fontWeight: 700,
-                                    color: '#6b21a8',
-                                    background: 'rgba(255,255,255,0.85)',
-                                    padding: '0.2rem 0.55rem',
-                                    borderRadius: '6px',
-                                    border: '1px solid rgba(107,33,168,0.2)'
-                                  }}
-                                >
-                                  {ticketClientMembership.planName}
-                                </span>
-                              )}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                {ticketClientMembership.isPromoActive && (
+                                  <span
+                                    style={{
+                                      fontSize: '0.62rem',
+                                      background: '#166534',
+                                      color: 'white',
+                                      padding: '0.2rem 0.5rem',
+                                      borderRadius: '99px',
+                                      fontWeight: 900,
+                                      letterSpacing: '0.02em'
+                                    }}
+                                  >
+                                    PROMO ACTIVA
+                                  </span>
+                                )}
+                                {ticketClientMembership.planName && (
+                                  <span
+                                    style={{
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      color: '#6b21a8',
+                                      background: 'rgba(255,255,255,0.85)',
+                                      padding: '0.2rem 0.55rem',
+                                      borderRadius: '6px',
+                                      border: '1px solid rgba(107,33,168,0.2)'
+                                    }}
+                                  >
+                                    {ticketClientMembership.planName}
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
+                            {/* Desglose de Servicios del Plan y Beneficios (sincronizado con Perfil del Cliente) */}
+                            {ticketClientMembership.hasContract && ticketClientMembership.servicesList && ticketClientMembership.servicesList.length > 0 && (
+                              <div style={{ marginTop: '0.3rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                <p style={{ margin: '0 0 0.15rem', fontSize: '0.68rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                  Servicios del Plan y Beneficios:
+                                </p>
+                                {ticketClientMembership.servicesList.map((svc, idx) => (
+                                  <div
+                                    key={idx}
+                                    style={{
+                                      background: '#ffffff',
+                                      border: svc.available > 0 ? '1.5px solid #86efac' : '1.5px solid #fecaca',
+                                      padding: '0.45rem 0.7rem',
+                                      borderRadius: '8px',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>
+                                        {svc.name}
+                                      </span>
+                                      {svc.isPromo && (
+                                        <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#dcfce7', color: '#166534', padding: '0.1rem 0.35rem', borderRadius: '4px' }}>
+                                          PROMO
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span
+                                      style={{
+                                        fontSize: '0.75rem',
+                                        fontWeight: 800,
+                                        color: svc.available > 0 ? '#047857' : '#ef4444'
+                                      }}
+                                    >
+                                      {svc.currentUsage} / {svc.isUnlimited ? '∞' : svc.quota} usados ({svc.isUnlimited ? 'Ilimitados' : svc.available} disponibles)
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Resumen Total */}
                             {ticketClientMembership.hasContract && (
                               <div
                                 style={{
-                                  fontSize: '1.35rem',
+                                  fontSize: '1.25rem',
                                   fontWeight: 900,
                                   color: '#1e293b',
                                   letterSpacing: '-0.02em',
                                   lineHeight: 1.2,
-                                  marginTop: '0.25rem'
+                                  marginTop: '0.35rem'
                                 }}
                               >
-                                Lavados disponibles: {ticketClientMembership.washesAvailable}
+                                Lavados y Beneficios disponibles: {ticketClientMembership.totalAvailableCount}
                               </div>
                             )}
                           </div>
