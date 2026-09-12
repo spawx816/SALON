@@ -4666,24 +4666,9 @@ const VisitRecorder = () => {
                                 </span>
                               </div>
 
-                              {/* Fila: Lavados disponibles con icono de cabello */}
+                              {/* Fila: Lavados disponibles con icono de brillo / belleza */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                                <svg
-                                  width="24"
-                                  height="24"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="#334155"
-                                  strokeWidth="2.2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  style={{ flexShrink: 0 }}
-                                >
-                                  <path d="M12 2.5C8 2.5 5.5 5.5 5.5 10c0 4 1.5 7.5 2 11.5" />
-                                  <path d="M12 2.5c4 0 6.5 3 6.5 7.5 0 4-1.5 7.5-2 11.5" />
-                                  <path d="M9 9.5c1-1 2-1.5 3-1.5s2 .5 3 1.5" />
-                                  <path d="M9.5 14c.8.8 1.6 1.2 2.5 1.2s1.7-.4 2.5-1.2" />
-                                </svg>
+                                <Sparkles size={22} color="#ec4899" style={{ flexShrink: 0 }} />
                                 <span
                                   style={{
                                     fontSize: '1.25rem',
