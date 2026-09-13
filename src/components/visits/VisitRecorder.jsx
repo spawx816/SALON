@@ -2239,7 +2239,9 @@ const VisitRecorder = () => {
     const pct = parseFloat(discountPercent) || 0;
     const item = lineItems[index];
     const isAutoPermitted = isEmployeeClient || employeeDiscountApplied || birthdayDiscountActive || (activePlans && activePlans.length > 0 && pct === 20);
-    if (pct > 0 && !isAdminAuthorized && !isAutoPermitted) {
+    const isThisItemAuthorized = item?.isDiscountAuthorized && item?.authorizedDiscountPct === pct;
+
+    if (pct > 0 && !isThisItemAuthorized && !isAutoPermitted) {
       triggerAdminPinModal({
         type: 'discount',
         index,
@@ -2255,6 +2257,10 @@ const VisitRecorder = () => {
       const discountAmt = (targetItem.precioBase * targetItem.cantidad) * (pct / 100);
       targetItem.descuento = discountAmt;
       targetItem.descuentoPercent = pct;
+      if (pct === 0) {
+        targetItem.isDiscountAuthorized = false;
+        targetItem.authorizedDiscountPct = 0;
+      }
       setLineItems(updated);
     }
   };
@@ -2288,8 +2294,10 @@ const VisitRecorder = () => {
       return;
     }
 
-    // ONLY if strictly BELOW base price and not yet authorized, debounce 2500ms before showing auth modal
-    if (val < item.precioBase && !isAdminAuthorized) {
+    const isThisItemPriceAuthorized = item?.isPriceAuthorized && item?.authorizedPrice === val;
+
+    // ONLY if strictly BELOW base price and not yet authorized for this specific item, debounce 2500ms before showing auth modal
+    if (val < item.precioBase && !isThisItemPriceAuthorized) {
       // Lavado Sencillo for employee is 200 by business rule - no PIN needed
       if (isEmployeeClient && isLavadoSencillo(item.nombre) && val >= LAVADO_SENCILLO_PRICE) {
         return;
@@ -2298,7 +2306,7 @@ const VisitRecorder = () => {
       priceChangeTimerRef.current = setTimeout(() => {
         setLineItems(currentItems => {
           const currentItem = currentItems[index];
-          if (currentItem && currentItem.precioAplicado < currentItem.precioBase && !isAdminAuthorized) {
+          if (currentItem && currentItem.precioAplicado < currentItem.precioBase && !(currentItem.isPriceAuthorized && currentItem.authorizedPrice === currentItem.precioAplicado)) {
             triggerAdminPinModal({
               type: 'price',
               index,
@@ -2320,6 +2328,7 @@ const VisitRecorder = () => {
         const { index, previousPrice } = pendingDiscountItem;
         if (updated[index]) {
           updated[index].precioAplicado = previousPrice !== undefined ? previousPrice : updated[index].precioBase;
+          updated[index].isPriceAuthorized = false;
           setLineItems(updated);
         }
       } else if (pendingDiscountItem.type === 'discount') {
@@ -2327,13 +2336,14 @@ const VisitRecorder = () => {
         if (updated[index]) {
           updated[index].descuentoPercent = previousPct || 0;
           updated[index].descuento = previousDiscount || 0;
+          updated[index].isDiscountAuthorized = Boolean(previousPct > 0);
           setLineItems(updated);
         }
       }
     } else {
       // Revert any unauthorized below-base item prices
       const updated = lineItems.map(it => {
-        if (it.precioAplicado !== undefined && it.precioAplicado < it.precioBase && !isAdminAuthorized) {
+        if (it.precioAplicado !== undefined && it.precioAplicado < it.precioBase && !it.isPriceAuthorized) {
           return { ...it, precioAplicado: it.precioBase };
         }
         return it;
@@ -2359,7 +2369,6 @@ const VisitRecorder = () => {
       });
 
       if (res?.valid || clean === '2026' || clean === '1234' || clean === '8888') {
-        setIsAdminAuthorized(true);
         setShowAdminPinModal(false);
         if (pendingDiscountItem) {
           const updated = [...lineItems];
@@ -2370,11 +2379,15 @@ const VisitRecorder = () => {
               const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
               updated[index].descuento = discountAmt;
               updated[index].descuentoPercent = pct;
+              updated[index].isDiscountAuthorized = true;
+              updated[index].authorizedDiscountPct = pct;
             }
           } else if (pendingDiscountItem.type === 'price' || pendingDiscountItem.val !== undefined) {
             const { index, val } = pendingDiscountItem;
             if (updated[index]) {
               updated[index].precioAplicado = val;
+              updated[index].isPriceAuthorized = true;
+              updated[index].authorizedPrice = val;
             }
           }
           setLineItems(updated);
@@ -2388,7 +2401,6 @@ const VisitRecorder = () => {
       }
     } catch (err) {
       if (clean === '2026' || clean === '1234' || clean === '8888') {
-        setIsAdminAuthorized(true);
         setShowAdminPinModal(false);
         if (pendingDiscountItem) {
           const updated = [...lineItems];
@@ -2399,11 +2411,15 @@ const VisitRecorder = () => {
               const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
               updated[index].descuento = discountAmt;
               updated[index].descuentoPercent = pct;
+              updated[index].isDiscountAuthorized = true;
+              updated[index].authorizedDiscountPct = pct;
             }
           } else if (pendingDiscountItem.type === 'price' || pendingDiscountItem.val !== undefined) {
             const { index, val } = pendingDiscountItem;
             if (updated[index]) {
               updated[index].precioAplicado = val;
+              updated[index].isPriceAuthorized = true;
+              updated[index].authorizedPrice = val;
             }
           }
           setLineItems(updated);
@@ -2411,6 +2427,7 @@ const VisitRecorder = () => {
         }
         setAdminPin('');
         setCurrentSecurityRequestId(null);
+        setCurrentSecurityAuthCode('');
       } else {
         alert('❌ Clave o Código de Autorización incorrecto.');
       }
@@ -2769,24 +2786,43 @@ const VisitRecorder = () => {
       return;
     }
 
-    // Ensure no unauthorized discount or reduced price is present
+    // Ensure each item with unauthorized discount or reduced price is authorized individually
     // Employee discounts (20% or $200 lavado), birthday discounts (15%), or plan discounts paying via regular methods do NOT require admin PIN
     if (!isEmployeeClient && !employeeDiscountApplied) {
-      const hasUnauthorized = lineItems.some(item => {
-        if (item.precioAplicado !== undefined && item.precioAplicado < item.precioBase) return true;
-        const pct = parseFloat(item.descuentoPercent) || 0;
-        if (pct > 0 || (item.descuento && item.descuento > 0)) {
-          if (birthdayDiscountActive && (pct === 15 || Math.abs(pct - 15) < 0.1)) return false;
-          if (activePlans && activePlans.length > 0 && (pct === 20 || Math.abs(pct - 20) < 0.1)) return false;
-          return true;
-        }
-        return false;
-      });
+      let unauthorizedItemInfo = null;
 
-      if (hasUnauthorized && !isAdminAuthorized) {
+      for (let idx = 0; idx < lineItems.length; idx++) {
+        const item = lineItems[idx];
+        if (item.precioAplicado !== undefined && item.precioAplicado < item.precioBase && !item.isPriceAuthorized) {
+          unauthorizedItemInfo = {
+            type: 'price',
+            index: idx,
+            val: item.precioAplicado,
+            previousPrice: item.precioBase
+          };
+          break;
+        }
+
+        const pct = parseFloat(item.descuentoPercent) || 0;
+        if ((pct > 0 || (item.descuento && item.descuento > 0)) && !item.isDiscountAuthorized) {
+          if (birthdayDiscountActive && (pct === 15 || Math.abs(pct - 15) < 0.1)) continue;
+          if (activePlans && activePlans.length > 0 && (pct === 20 || Math.abs(pct - 20) < 0.1)) continue;
+
+          unauthorizedItemInfo = {
+            type: 'discount',
+            index: idx,
+            pct: pct,
+            previousPct: 0,
+            previousDiscount: 0
+          };
+          break;
+        }
+      }
+
+      if (unauthorizedItemInfo) {
         if (priceChangeTimerRef.current) clearTimeout(priceChangeTimerRef.current);
-        alert('⚠️ Se requiere Autorización de Administrador para los precios reducidos o descuentos manuales aplicados en esta factura.');
-        setShowAdminPinModal(true);
+        alert('⚠️ Se requiere Autorización de Administrador individual para cada descuento o precio reducido aplicado.');
+        triggerAdminPinModal(unauthorizedItemInfo);
         return;
       }
     }
