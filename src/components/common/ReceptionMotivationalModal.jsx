@@ -71,6 +71,18 @@ const ReceptionMotivationalModal = ({
     return () => clearTimeout(timer);
   }, [isOpen, autoCloseSec, onClose]);
 
+  // Cerrar al presionar Escape o tecla para reanudar actividad
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        if (onClose) onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const handleNext = (e) => {
     if (e) e.stopPropagation();
     const next = advanceToNextPhrase();

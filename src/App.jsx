@@ -41,6 +41,7 @@ import AdminSurveys from './components/surveys/AdminSurveys';
 import GiftCardValidator from './components/admin/GiftCardValidator';
 import AttendanceKiosk from './pages/AttendanceKiosk';
 import AttendanceLogs from './components/admin/AttendanceLogs';
+import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
 
 import './index.css';
 import Landing from './pages/Landing';
@@ -205,6 +206,51 @@ const AppContent = () => {
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
+  const isReceptionist = Boolean(
+    user &&
+    !isClient &&
+    (
+      user?.role?.toLowerCase()?.includes('recep') ||
+      user?.role_name?.toLowerCase()?.includes('recep') ||
+      user?.role?.toLowerCase() === 'cajero' ||
+      user?.role_name?.toLowerCase() === 'cajero' ||
+      (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits)) ||
+      location.pathname === '/visitas'
+    )
+  );
+
+  const [isMotivationalModalOpen, setIsMotivationalModalOpen] = useState(false);
+
+  // Inactividad de 10 minutos (600,000 ms) para perfil de recepcionista
+  useEffect(() => {
+    if (!isReceptionist) {
+      setIsMotivationalModalOpen(false);
+      return;
+    }
+
+    const INACTIVITY_LIMIT_MS = 10 * 60 * 1000; // 10 minutos
+    let inactivityTimer;
+
+    const resetTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        setIsMotivationalModalOpen(true);
+      }, INACTIVITY_LIMIT_MS);
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    const handleActivity = () => {
+      resetTimer();
+    };
+
+    activityEvents.forEach(evt => window.addEventListener(evt, handleActivity, { passive: true }));
+    resetTimer();
+
+    return () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
+    };
+  }, [isReceptionist, location.pathname]);
 
   if (location.pathname === '/asistencia') {
     return (
@@ -425,6 +471,13 @@ const AppContent = () => {
       <GiftCardValidator 
         isOpen={isGiftCardModalOpen} 
         onClose={() => setIsGiftCardModalOpen(false)} 
+      />
+
+      <ReceptionMotivationalModal
+        isOpen={isMotivationalModalOpen}
+        onClose={() => setIsMotivationalModalOpen(false)}
+        userName={user?.nombre || user?.name || 'Recepción'}
+        salonName={user?.salon_name || 'Plan Beauty'}
       />
     </div>
   );
