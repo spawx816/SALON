@@ -1620,9 +1620,10 @@ export default function InvoiceHistory() {
                 <input
                   type="text"
                   placeholder="Tu nombre o usuario..."
-                  value={voidUser}
-                  onChange={(e) => setVoidUser(e.target.value)}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', boxSizing: 'border-box' }}
+                  value={voidUser || getLoggedUserName()}
+                  readOnly
+                  disabled
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem', boxSizing: 'border-box', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', fontWeight: 700 }}
                 />
               </div>
             </div>

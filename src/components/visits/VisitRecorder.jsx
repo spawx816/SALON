@@ -5640,10 +5640,11 @@ const VisitRecorder = () => {
                 </label>
                 <input
                   type="text"
-                  value={voidUser}
-                  onChange={(e) => setVoidUser(e.target.value)}
+                  value={voidUser || getLoggedUserName()}
+                  readOnly
+                  disabled
                   placeholder="Ej: Administrator / Nombre Cajero"
-                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', outline: 'none' }}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.85rem', outline: 'none', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', fontWeight: 700 }}
                 />
               </div>
             </div>
