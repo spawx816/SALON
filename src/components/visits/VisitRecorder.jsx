@@ -212,6 +212,8 @@ const VisitRecorder = () => {
   const [pendingDiscountItem, setPendingDiscountItem] = useState(null);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
   const [employeeDiscountApplied, setEmployeeDiscountApplied] = useState(false); // tracks if 20% employee discount was applied
+  const [currentSecurityRequestId, setCurrentSecurityRequestId] = useState(null);
+  const [isVerifyingAdminPin, setIsVerifyingAdminPin] = useState(false);
 
   // Nómina checkout (employee payroll deduction)
   const [showNominaModal, setShowNominaModal] = useState(false);
@@ -2196,19 +2198,51 @@ const VisitRecorder = () => {
     setLineItems(updated);
   };
 
+  const triggerAdminPinModal = async (discountOrPriceItem) => {
+    setPendingDiscountItem(discountOrPriceItem);
+    setShowAdminPinModal(true);
+
+    try {
+      let sName = 'Autorización de Descuento / Ajuste de Precio';
+      if (discountOrPriceItem?.type === 'discount') {
+        const it = lineItems[discountOrPriceItem.index];
+        sName = `Descuento ${discountOrPriceItem.pct}% en ${it?.nombre || 'Servicio'}`;
+      } else if (discountOrPriceItem?.type === 'price') {
+        const it = lineItems[discountOrPriceItem.index];
+        sName = `Precio RD$ ${discountOrPriceItem.val} (Base RD$ ${discountOrPriceItem.previousPrice || it?.precioBase}) en ${it?.nombre || 'Servicio'}`;
+      }
+
+      const clientDisplayName = clientFound?.nombre || selectedTicket?.client_name || 'Cliente General (Recepción POS)';
+      const staffDisplayName = getLoggedUserName() || 'Caja Recepción';
+
+      const res = await dataService.requestSecurityAuth({
+        clientId: clientFound?.id || selectedTicket?.client_id || 'POS',
+        clientName: clientDisplayName,
+        serviceName: sName,
+        staffName: staffDisplayName,
+        type: 'discount_price'
+      });
+
+      if (res?.requestId) {
+        setCurrentSecurityRequestId(res.requestId);
+      }
+    } catch (err) {
+      console.warn('Error auto-generating security request:', err);
+    }
+  };
+
   const handleDiscountChange = (index, discountPercent) => {
     const pct = parseFloat(discountPercent) || 0;
     const item = lineItems[index];
     const isAutoPermitted = isEmployeeClient || employeeDiscountApplied || birthdayDiscountActive || (activePlans && activePlans.length > 0 && pct === 20);
     if (pct > 0 && !isAdminAuthorized && !isAutoPermitted) {
-      setPendingDiscountItem({
+      triggerAdminPinModal({
         type: 'discount',
         index,
         pct,
         previousPct: item?.descuentoPercent || 0,
         previousDiscount: item?.descuento || 0
       });
-      setShowAdminPinModal(true);
       return;
     }
     const updated = [...lineItems];
@@ -2261,13 +2295,12 @@ const VisitRecorder = () => {
         setLineItems(currentItems => {
           const currentItem = currentItems[index];
           if (currentItem && currentItem.precioAplicado < currentItem.precioBase && !isAdminAuthorized) {
-            setPendingDiscountItem({
+            triggerAdminPinModal({
               type: 'price',
               index,
               val: currentItem.precioAplicado,
               previousPrice: currentItem.precioBase
             });
-            setShowAdminPinModal(true);
           }
           return currentItems;
         });
@@ -2306,34 +2339,77 @@ const VisitRecorder = () => {
     setShowAdminPinModal(false);
     setPendingDiscountItem(null);
     setAdminPin('');
+    setCurrentSecurityRequestId(null);
   };
 
-  const verifyAdminPin = () => {
-    if (adminPin === '2026' || adminPin === '1234' || adminPin === '8888') {
-      setIsAdminAuthorized(true);
-      setShowAdminPinModal(false);
-      if (pendingDiscountItem) {
-        const updated = [...lineItems];
-        if (pendingDiscountItem.type === 'discount') {
-          const { index, pct } = pendingDiscountItem;
-          const item = updated[index];
-          if (item) {
-            const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
-            updated[index].descuento = discountAmt;
-            updated[index].descuentoPercent = pct;
+  const verifyAdminPin = async () => {
+    const clean = (adminPin || '').trim();
+    if (!clean) return;
+    setIsVerifyingAdminPin(true);
+
+    try {
+      const res = await dataService.verifySecurityAuth({
+        pin: clean,
+        requestId: currentSecurityRequestId
+      });
+
+      if (res?.valid || clean === '2026' || clean === '1234' || clean === '8888') {
+        setIsAdminAuthorized(true);
+        setShowAdminPinModal(false);
+        if (pendingDiscountItem) {
+          const updated = [...lineItems];
+          if (pendingDiscountItem.type === 'discount') {
+            const { index, pct } = pendingDiscountItem;
+            const item = updated[index];
+            if (item) {
+              const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
+              updated[index].descuento = discountAmt;
+              updated[index].descuentoPercent = pct;
+            }
+          } else if (pendingDiscountItem.type === 'price' || pendingDiscountItem.val !== undefined) {
+            const { index, val } = pendingDiscountItem;
+            if (updated[index]) {
+              updated[index].precioAplicado = val;
+            }
           }
-        } else if (pendingDiscountItem.type === 'price' || pendingDiscountItem.val !== undefined) {
-          const { index, val } = pendingDiscountItem;
-          if (updated[index]) {
-            updated[index].precioAplicado = val;
-          }
+          setLineItems(updated);
+          setPendingDiscountItem(null);
         }
-        setLineItems(updated);
-        setPendingDiscountItem(null);
+        setAdminPin('');
+        setCurrentSecurityRequestId(null);
+      } else {
+        alert('❌ Clave o Código de Autorización incorrecto o expirado.');
       }
-      setAdminPin('');
-    } else {
-      alert('Clave de Autorización de Administrador incorrecta');
+    } catch (err) {
+      if (clean === '2026' || clean === '1234' || clean === '8888') {
+        setIsAdminAuthorized(true);
+        setShowAdminPinModal(false);
+        if (pendingDiscountItem) {
+          const updated = [...lineItems];
+          if (pendingDiscountItem.type === 'discount') {
+            const { index, pct } = pendingDiscountItem;
+            const item = updated[index];
+            if (item) {
+              const discountAmt = (item.precioBase * item.cantidad) * (pct / 100);
+              updated[index].descuento = discountAmt;
+              updated[index].descuentoPercent = pct;
+            }
+          } else if (pendingDiscountItem.type === 'price' || pendingDiscountItem.val !== undefined) {
+            const { index, val } = pendingDiscountItem;
+            if (updated[index]) {
+              updated[index].precioAplicado = val;
+            }
+          }
+          setLineItems(updated);
+          setPendingDiscountItem(null);
+        }
+        setAdminPin('');
+        setCurrentSecurityRequestId(null);
+      } else {
+        alert('❌ Clave o Código de Autorización incorrecto.');
+      }
+    } finally {
+      setIsVerifyingAdminPin(false);
     }
   };
 
@@ -5016,29 +5092,37 @@ const VisitRecorder = () => {
 
       {/* MODAL: AUTORIZACIÓN PIN ADMINISTRADOR (DESCUENTO / PRECIO BASE) */}
       {showAdminPinModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '400px', borderRadius: '16px', padding: '1.5rem' }}>
-            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-              <ShieldAlert size={36} style={{ color: '#be185d', marginBottom: '0.5rem' }} />
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>Autorización de Administrador</h3>
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '420px', borderRadius: '20px', padding: '1.75rem', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: '#fdf2f8', color: '#be185d', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem' }}>
+                <ShieldAlert size={32} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>Autorización de Administrador</h3>
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.825rem', color: '#64748b' }}>
                 {pendingDiscountItem?.type === 'price'
-                  ? 'Se requiere PIN de administrador para autorizar un precio menor al precio base'
-                  : 'Se requiere PIN de administrador para autorizar este descuento'}
+                  ? 'Se requiere PIN de administrador o código del Monitor de Seguridad para autorizar un precio menor al base.'
+                  : 'Se requiere PIN de administrador o código del Monitor de Seguridad para autorizar este descuento.'}
               </p>
+
+              <div style={{ marginTop: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '4px 12px', borderRadius: '99px', fontSize: '0.75rem', color: '#16a34a', fontWeight: 800 }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#16a34a', display: 'inline-block' }}></span>
+                <span>Código activo en Monitor de Seguridad</span>
+              </div>
             </div>
 
             <div style={{ marginBottom: '1.25rem' }}>
               <input
                 type="password"
-                placeholder="Ingresa Clave PIN Admin"
+                placeholder="Código de 6 dígitos o PIN Admin"
                 value={adminPin}
                 onChange={(e) => setAdminPin(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') verifyAdminPin();
                   if (e.key === 'Escape') cancelAdminPin();
                 }}
-                style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: 700, textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px' }}
+                disabled={isVerifyingAdminPin}
+                style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', border: '1.5px solid #cbd5e1', fontWeight: 800, textAlign: 'center', fontSize: '1.3rem', letterSpacing: '4px', outline: 'none' }}
                 autoFocus
               />
             </div>
@@ -5047,16 +5131,18 @@ const VisitRecorder = () => {
               <button
                 type="button"
                 onClick={cancelAdminPin}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 700, cursor: 'pointer' }}
+                disabled={isVerifyingAdminPin}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: 800, color: '#475569', cursor: 'pointer' }}
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={verifyAdminPin}
-                style={{ flex: 1, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}
+                disabled={isVerifyingAdminPin || !adminPin.trim()}
+                style={{ flex: 1, padding: '0.75rem', borderRadius: '12px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 900, cursor: isVerifyingAdminPin ? 'not-allowed' : 'pointer', boxShadow: '0 4px 12px rgba(190,24,93,0.35)' }}
               >
-                Autorizar
+                {isVerifyingAdminPin ? 'Verificando...' : 'Autorizar'}
               </button>
             </div>
           </div>

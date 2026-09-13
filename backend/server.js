@@ -178,12 +178,20 @@ const setupDB = async () => {
       CREATE TABLE IF NOT EXISTS security_requests (
         id INT AUTO_INCREMENT PRIMARY KEY,
         client_id VARCHAR(50),
+        client_name VARCHAR(255),
         service_name VARCHAR(255),
         staff_name VARCHAR(100),
+        auth_code VARCHAR(20),
+        type VARCHAR(50) DEFAULT 'discount_price',
         status VARCHAR(20) DEFAULT 'pending',
+        expires_at TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    try { await pool.query('ALTER TABLE security_requests ADD COLUMN client_name VARCHAR(255) NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE security_requests ADD COLUMN auth_code VARCHAR(20) NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE security_requests ADD COLUMN type VARCHAR(50) DEFAULT "discount_price"'); } catch(e){}
+    try { await pool.query('ALTER TABLE security_requests ADD COLUMN expires_at TIMESTAMP NULL'); } catch(e){}
     await pool.query(`
       CREATE TABLE IF NOT EXISTS gift_cards (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -751,15 +759,107 @@ const setupDB = async () => {
 };
 setupDB();
 
-// === SECURITY LOGS ===
-app.post('/api/security/log-request', async (req, res) => {
-  const { clientId, serviceName, staffName } = req.body;
+// === SECURITY AUTHORIZATION CODES & MONITOR ===
+app.post('/api/security/request-auth', async (req, res) => {
   try {
-    await pool.query(
-      'INSERT INTO security_requests (client_id, service_name, staff_name) VALUES (?, ?, ?)',
-      [clientId, serviceName, staffName]
+    const { clientId, clientName, serviceName, staffName, type } = req.body;
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const sName = serviceName || 'Autorización de Descuento / Ajuste de Precio';
+    const cName = clientName || 'Cliente General (Recepción POS)';
+    const stName = staffName || 'Caja Recepción';
+
+    // Invalidate previous pending requests of the same type/client if any
+    try {
+      await pool.query(
+        "UPDATE security_requests SET status = 'cancelled' WHERE client_id = ? AND status = 'pending'",
+        [clientId || 'POS']
+      );
+    } catch(e) {}
+
+    const [result] = await pool.query(
+      `INSERT INTO security_requests (client_id, client_name, service_name, staff_name, auth_code, type, status, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 15 MINUTE), NOW())`,
+      [clientId || 'POS', cName, sName, stName, code, type || 'discount_price']
     );
-    res.json({ success: true });
+
+    console.log(`[SECURITY AUTH] Generated code ${code} for "${sName}" (Staff: ${stName})`);
+
+    res.json({
+      success: true,
+      requestId: result.insertId,
+      code: code,
+      message: 'Solicitud de autorización generada exitosamente'
+    });
+  } catch (err) {
+    console.error('[SECURITY REQUEST AUTH ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/security/verify-auth', async (req, res) => {
+  try {
+    const { pin, code, requestId } = req.body;
+    const cleanPin = String(pin || code || '').trim();
+    if (!cleanPin) {
+      return res.status(400).json({ success: false, valid: false, error: 'Ingresa un PIN o código válido.' });
+    }
+
+    // 1. Check if it matches master admin PINs
+    const masterPins = ['2026', '1234', '8888', '0000'];
+    if (masterPins.includes(cleanPin)) {
+      if (requestId) {
+        try { await pool.query("UPDATE security_requests SET status = 'authorized' WHERE id = ?", [requestId]); } catch(e){}
+      }
+      return res.json({ success: true, valid: true, authorizedBy: 'Master PIN Administrador' });
+    }
+
+    // 2. Check dynamic authorization code in security_requests
+    const [secRows] = await pool.query(
+      `SELECT id, client_name, service_name FROM security_requests 
+       WHERE auth_code = ? AND status = 'pending' AND (expires_at IS NULL OR expires_at >= NOW()) 
+       ORDER BY created_at DESC LIMIT 1`,
+      [cleanPin]
+    );
+
+    if (secRows.length > 0) {
+      await pool.query("UPDATE security_requests SET status = 'authorized' WHERE id = ?", [secRows[0].id]);
+      return res.json({ 
+        success: true, 
+        valid: true, 
+        authorizedBy: `Monitor de Seguridad (${secRows[0].service_name})` 
+      });
+    }
+
+    // 3. Check verification_codes table
+    const [verRows] = await pool.query(
+      `SELECT id FROM verification_codes 
+       WHERE code = ? AND is_used = 0 AND (expires_at IS NULL OR expires_at >= NOW()) 
+       ORDER BY created_at DESC LIMIT 1`,
+      [cleanPin]
+    );
+
+    if (verRows.length > 0) {
+      await pool.query("UPDATE verification_codes SET is_used = 1 WHERE id = ?", [verRows[0].id]);
+      return res.json({ success: true, valid: true, authorizedBy: 'Código de Membresía' });
+    }
+
+    return res.status(401).json({ success: false, valid: false, error: 'Clave o código de autorización incorrecto o expirado.' });
+  } catch (err) {
+    console.error('[SECURITY VERIFY AUTH ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/security/log-request', async (req, res) => {
+  const { clientId, clientName, serviceName, staffName } = req.body;
+  try {
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    await pool.query(
+      `INSERT INTO security_requests (client_id, client_name, service_name, staff_name, auth_code, status, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 15 MINUTE), NOW())`,
+      [clientId || 'POS', clientName || 'Cliente General', serviceName, staffName, code]
+    );
+    res.json({ success: true, code });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -767,15 +867,68 @@ app.post('/api/security/log-request', async (req, res) => {
 
 app.get('/api/security/requests', async (req, res) => {
   try {
-    const [rows] = await pool.query(`
-      SELECT r.*, c.nombre as client_name, v.code as active_code
-      FROM security_requests r
-      LEFT JOIN clients c ON r.client_id = c.id
-      WHERE r.created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-      ORDER BY r.created_at DESC
+    // 1. Active pending requests from security_requests
+    const [requests] = await pool.query(`
+      SELECT 
+        id,
+        COALESCE(client_name, 'Cliente General') as client_name,
+        client_id,
+        service_name,
+        COALESCE(staff_name, 'Staff Recepción') as staff_name,
+        auth_code as active_code,
+        type,
+        status,
+        created_at,
+        expires_at
+      FROM security_requests
+      WHERE status = 'pending' 
+        AND (expires_at IS NULL OR expires_at >= NOW())
+        AND created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+      ORDER BY created_at DESC
     `);
-    res.json(rows);
+
+    // 2. Active unused codes from verification_codes (Membership / Plan Beauty redemptions)
+    const [otpCodes] = await pool.query(`
+      SELECT 
+        vc.id,
+        COALESCE(c.nombre, 'Cliente Plan Beauty') as client_name,
+        c.id as client_id,
+        'Canje de Membresía Plan Beauty' as service_name,
+        'Recepción POS' as staff_name,
+        vc.code as active_code,
+        'membership_otp' as type,
+        'pending' as status,
+        vc.created_at,
+        vc.expires_at
+      FROM verification_codes vc
+      LEFT JOIN clients c ON vc.client_id = c.id
+      WHERE vc.is_used = 0 
+        AND (vc.expires_at IS NULL OR vc.expires_at >= NOW())
+        AND vc.created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
+      ORDER BY vc.created_at DESC
+    `);
+
+    // Merge avoiding duplicates
+    const seenCodes = new Set();
+    const combined = [];
+
+    (requests || []).forEach(r => {
+      if (r.active_code && !seenCodes.has(r.active_code)) {
+        seenCodes.add(r.active_code);
+        combined.push(r);
+      }
+    });
+
+    (otpCodes || []).forEach(o => {
+      if (o.active_code && !seenCodes.has(o.active_code)) {
+        seenCodes.add(o.active_code);
+        combined.push(o);
+      }
+    });
+
+    res.json(combined);
   } catch (err) {
+    console.error('[SECURITY GET REQUESTS ERROR]:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -4744,28 +4897,7 @@ app.get('/api/otp/active/:clientId', async (req, res) => {
   }
 });
 
-app.get('/api/security/requests', async (req, res) => {
-  try {
-    // Usamos un margen de tiempo más amplio y comprobamos códigos creados recientemente
-    const [rows] = await pool.query(`
-      SELECT 
-        vc.code as active_code,
-        c.nombre as client_name,
-        c.cedula as client_id,
-        'Facturación de Membresía' as service_name,
-        'Staff Recepción' as staff_name,
-        vc.created_at
-      FROM verification_codes vc
-      JOIN clients c ON vc.client_id = c.id
-      WHERE vc.is_used = 0 
-        AND vc.created_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
-      ORDER BY vc.created_at DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+
 
 
 

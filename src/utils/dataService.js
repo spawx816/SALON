@@ -1317,6 +1317,35 @@ export const dataService = {
     } catch (e) { console.error(e); }
   },
 
+  requestSecurityAuth: async (authData) => {
+    try {
+      const res = await fetch(`${API_URL}/security/request-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(authData)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error requestSecurityAuth:', e);
+      return null;
+    }
+  },
+
+  verifySecurityAuth: async (verifyData) => {
+    try {
+      const res = await fetch(`${API_URL}/security/verify-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(verifyData)
+      });
+      const data = await res.json();
+      return { ok: res.ok, ...data };
+    } catch (e) {
+      console.error('Error verifySecurityAuth:', e);
+      return { ok: false, valid: false, error: e.message };
+    }
+  },
+
   getSecurityRequests: async () => {
     try {
       const res = await fetch(`${API_URL}/security/requests`);
