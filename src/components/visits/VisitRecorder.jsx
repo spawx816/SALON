@@ -2038,7 +2038,7 @@ const VisitRecorder = () => {
         empleadoPeluquera: lineItems[0]?.empleado || 'Wendy'
       };
 
-      await dataService.verifyOTPAndDiscount(clientId, otpCodeInput.trim(), visitData);
+      await dataService.verifyOTP(clientId, otpCodeInput.trim());
 
       setShowOtpVerificationModal(false);
       setPendingPlanService(null);
@@ -2488,11 +2488,26 @@ const VisitRecorder = () => {
   const cambioAmount = Math.max(0, cashAppliedSum - neededForCashPortion);
   const effectiveCashCovered = Math.min(cashAppliedSum, neededForCashPortion);
   const pendienteAmount = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
-  const isFinalizeEnabled = pendienteAmount <= 0.01 && appliedPayments.length > 0 && lineItems.length > 0;
+  const hasPlanWashInItems = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+  const isPlanZeroTotal = finalTotalAmount === 0 && lineItems.length > 0 && (hasPlanWashInItems || hasActivePlan);
+  const isFinalizeEnabled = lineItems.length > 0 && (isPlanZeroTotal || (pendienteAmount <= 0.01 && appliedPayments.length > 0));
 
-  // Initialize default single cash payment in blank so cashier types
+  // Initialize default single cash payment in blank so cashier types, or Plan Beauty if covered
   useEffect(() => {
-    if (appliedPayments.length === 0 && finalTotalAmount > 0) {
+    const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+    if (finalTotalAmount === 0 && lineItems.length > 0 && (hasPlanWash || hasActivePlan)) {
+      if (!appliedPayments.some(p => p.method === 'Plan Beauty')) {
+        setAppliedPayments([
+          {
+            id: `pay-plan-beauty-${Date.now()}`,
+            method: 'Plan Beauty',
+            amount: '0',
+            giftCardCode: '',
+            giftCardInfo: null
+          }
+        ]);
+      }
+    } else if (appliedPayments.length === 0 && finalTotalAmount > 0) {
       setAppliedPayments([
         {
           id: `pay-default-${Date.now()}`,
@@ -2503,7 +2518,7 @@ const VisitRecorder = () => {
         }
       ]);
     }
-  }, [finalTotalAmount]);
+  }, [finalTotalAmount, lineItems, hasActivePlan]);
 
   // Handlers for Applied Payments Multi-Tender Selection
   const handleToggleMethod = (methodName) => {
@@ -2741,12 +2756,15 @@ const VisitRecorder = () => {
       return;
     }
 
-    if (appliedPayments.length === 0) {
+    const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+    const isPlanZero = finalTotalAmount === 0 && (hasPlanWash || hasActivePlan);
+
+    if (!isPlanZero && appliedPayments.length === 0) {
       alert('⚠️ Debes aplicar al menos un método de pago en la sección "Aplicar Pago" antes de finalizar la factura.');
       return;
     }
 
-    if (pendienteAmount > 0.01) {
+    if (!isPlanZero && pendienteAmount > 0.01) {
       alert(`⚠️ Aún queda un monto pendiente de RD$ ${pendienteAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}. Por favor completa los pagos aplicados hasta que Pendiente sea RD$ 0.`);
       return;
     }
@@ -2774,7 +2792,6 @@ const VisitRecorder = () => {
     }
 
     // Check if invoice includes a Plan Beauty wash that requires client email OTP verification
-    const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
     if (hasPlanWash) {
       const cId = clientFound?.id || selectedTicket?.client_id;
       const cEmail = clientFound?.email || selectedTicket?.client_email;
@@ -2839,8 +2856,10 @@ const VisitRecorder = () => {
       let finalMontoRecibido = finalTotalAmount;
       let finalDevuelta = cambioAmount;
 
-      if (hasPlanWash && finalTotalAmount === 0) {
+      if (finalTotalAmount === 0 && (hasPlanWash || hasActivePlan || activePayments.some(p => p.method === 'Plan Beauty'))) {
         finalMetodoPago = 'Plan Beauty';
+        finalMontoRecibido = 0;
+        finalDevuelta = 0;
       } else if (activePayments.some(p => p.method === 'Nomina')) {
         finalMetodoPago = 'Nomina';
         finalMontoRecibido = finalTotalAmount;
