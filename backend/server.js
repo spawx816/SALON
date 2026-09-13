@@ -6876,12 +6876,18 @@ app.get('/api/dashboard/summary', async (req, res) => {
       WHERE c.status = 'Active'
     `);
 
-    // 4. Ventas Diarias (Suma de pagos hoy)
-    const [dailySales] = await pool.query(`
+    // 4. Ventas Diarias (Suma de pagos de planes + ventas POS facturadas hoy)
+    const [dailySalesPayments] = await pool.query(`
       SELECT SUM(amount) as total
       FROM payments
       WHERE DATE(created_at) = CURRENT_DATE() AND status = 'Aprobado'
     `);
+    const [dailySalesVisits] = await pool.query(`
+      SELECT SUM(total) as total
+      FROM visits
+      WHERE DATE(visited_at) = CURRENT_DATE() AND status = 'Facturado' AND total > 0
+    `);
+    const totalDailySales = (Number(dailySalesPayments[0]?.total) || 0) + (Number(dailySalesVisits[0]?.total) || 0);
 
     // 5. Tráfico semanal (Últimos 7 días para el gráfico)
     const [weeklyTraffic] = await pool.query(`
@@ -6946,7 +6952,7 @@ app.get('/api/dashboard/summary', async (req, res) => {
       membersBreakdownBySalon[sId].count = Number(r.count) || 0;
     });
 
-    // Breakdown: Ventas Diarias
+    // Breakdown: Ventas Diarias (Pagos de Planes/Suscripciones)
     const [todayPaymentsRows] = await pool.query(`
       SELECT p.id, 
              COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) as salon_id, 
@@ -6956,10 +6962,23 @@ app.get('/api/dashboard/summary', async (req, res) => {
       LEFT JOIN clients cl ON p.client_id = cl.id
       WHERE DATE(p.created_at) = CURRENT_DATE() AND p.status = 'Aprobado'
     `);
+
+    // Breakdown: Ventas Diarias (Ventas Genéricas / Servicios Sueltos Facturados en POS)
+    const [todayVisitsSalesRows] = await pool.query(`
+      SELECT v.id, 
+             COALESCE(v.salon_id, cl.salon_id, 1) as salon_id, 
+             v.total as amount, 
+             v.metodo_pago as method
+      FROM visits v
+      LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
+      WHERE DATE(v.visited_at) = CURRENT_DATE() AND v.status = 'Facturado' AND v.total > 0
+    `);
+
     const salesBreakdownBySalon = {};
     salonsData.forEach(s => {
       salesBreakdownBySalon[s.id] = { salon_id: s.id, salon_name: s.name, plan_beauty: 0, generica: 0, total: 0 };
     });
+
     todayPaymentsRows.forEach(p => {
       const sId = salesBreakdownBySalon[p.salon_id] ? p.salon_id : salonsData[0].id;
       const amt = Number(p.amount) || 0;
@@ -6974,12 +6993,19 @@ app.get('/api/dashboard/summary', async (req, res) => {
       salesBreakdownBySalon[sId].total += amt;
     });
 
+    todayVisitsSalesRows.forEach(v => {
+      const sId = salesBreakdownBySalon[v.salon_id] ? v.salon_id : salonsData[0].id;
+      const amt = Number(v.amount) || 0;
+      salesBreakdownBySalon[sId].generica += amt;
+      salesBreakdownBySalon[sId].total += amt;
+    });
+
     res.json({
       metrics: {
         todayVisits: todayVisits[0].count,
         activeClients: activeClients[0].count,
         monthlyRevenue: monthlyRevenue[0].total || 0,
-        dailySales: dailySales[0].total || 0
+        dailySales: totalDailySales
       },
       breakdowns: {
         salons: salonsData,
@@ -7091,16 +7117,27 @@ app.get('/api/reports/analytics', async (req, res) => {
     const payParams = salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59'];
     const visParams = salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59'];
 
-    // 1. Daily Sales
+    // 1. Daily Sales (Combined Plan Payments + POS Visits Sales)
     const [dailySales] = await pool.query(`
-      SELECT DATE(p.created_at) as date, SUM(p.amount) as total
-      FROM payments p
-      LEFT JOIN contracts c ON (p.client_id = c.client_id)
-      LEFT JOIN clients cl ON p.client_id = cl.id
-      WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
-      GROUP BY DATE(p.created_at)
-      ORDER BY DATE(p.created_at) ASC
-    `, payParams);
+      SELECT date, SUM(total) as total FROM (
+        SELECT DATE(p.created_at) as date, SUM(p.amount) as total
+        FROM payments p
+        LEFT JOIN contracts c ON (p.client_id = c.client_id)
+        LEFT JOIN clients cl ON p.client_id = cl.id
+        WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
+        GROUP BY DATE(p.created_at)
+
+        UNION ALL
+
+        SELECT DATE(v.visited_at) as date, SUM(v.total) as total
+        FROM visits v
+        LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
+        WHERE v.visited_at >= ? AND v.visited_at <= ? AND v.status = 'Facturado' AND v.total > 0 ${salon_id !== 'all' ? 'AND COALESCE(v.salon_id, cl.salon_id, 1) = ?' : ''}
+        GROUP BY DATE(v.visited_at)
+      ) combined_sales
+      GROUP BY date
+      ORDER BY date ASC
+    `, salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id, startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59', startDate, endDate + ' 23:59:59']);
 
     // 2. Renewal Revenue
     const [renewalRow] = await pool.query(`
@@ -7157,16 +7194,25 @@ app.get('/api/reports/analytics', async (req, res) => {
       LIMIT 50
     `);
 
-    // 6. Payment breakdown by method
+    // 6. Payment breakdown by method (Combined Payments + POS Visits)
     const [paymentBreakdown] = await pool.query(`
-      SELECT p.method, COUNT(*) as count, SUM(p.amount) as total
-      FROM payments p
-      LEFT JOIN contracts c ON (p.client_id = c.client_id)
-      LEFT JOIN clients cl ON p.client_id = cl.id
-      WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
-      GROUP BY p.method
+      SELECT method, COUNT(*) as count, SUM(amount) as total FROM (
+        SELECT p.method, p.amount
+        FROM payments p
+        LEFT JOIN contracts c ON (p.client_id = c.client_id)
+        LEFT JOIN clients cl ON p.client_id = cl.id
+        WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
+
+        UNION ALL
+
+        SELECT COALESCE(v.metodo_pago, 'Efectivo') as method, v.total as amount
+        FROM visits v
+        LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
+        WHERE v.visited_at >= ? AND v.visited_at <= ? AND v.status = 'Facturado' AND v.total > 0 ${salon_id !== 'all' ? 'AND COALESCE(v.salon_id, cl.salon_id, 1) = ?' : ''}
+      ) combined_pay
+      GROUP BY method
       ORDER BY total DESC
-    `, payParams);
+    `, salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id, startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59', startDate, endDate + ' 23:59:59']);
 
     // 7. Visit Frequency in date range
     const [clientVisitCounts] = await pool.query(`
@@ -7198,33 +7244,59 @@ app.get('/api/reports/analytics', async (req, res) => {
       LIMIT 100
     `, payParams);
 
-    // 9. Detailed Payments by Client
+    // 9. Detailed Payments by Client (Combined Plan Payments & POS Generic Sales)
+    const combinedParams = salon_id !== 'all' 
+      ? [startDate, endDate + ' 23:59:59', startDate, endDate + ' 23:59:59', salon_id]
+      : [startDate, endDate + ' 23:59:59', startDate, endDate + ' 23:59:59'];
+
     const [detailedPayments] = await pool.query(`
-      SELECT p.id, 
-             p.created_at, 
-             p.amount, 
-             p.method, 
-             p.status,
-             COALESCE(p.description, 
-               CASE 
-                 WHEN p.plan_id IS NOT NULL AND p.plan_id != '' THEN CONCAT('Plan: ', p.plan_id)
-                 ELSE 'Cobro de Plan / Servicio'
-               END
-             ) as description,
-             p.gateway_ref,
-             p.applied_by,
-             COALESCE(cl.nombre, p.client_id, 'Cliente General') as client_name,
-             COALESCE(cl.telefono, 'N/D') as client_phone,
-             COALESCE(s.name, 'Abatte Peluquería San Vicente') as salon_name,
-             COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) as salon_id
-      FROM payments p
-      LEFT JOIN contracts c ON (p.client_id = c.client_id)
-      LEFT JOIN clients cl ON p.client_id = cl.id
-      LEFT JOIN salons s ON (COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) = s.id)
-      WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
-      ORDER BY p.created_at DESC
-      LIMIT 300
-    `, payParams);
+      SELECT * FROM (
+        SELECT p.id, 
+               p.created_at, 
+               p.amount, 
+               p.method, 
+               p.status,
+               COALESCE(p.description, 
+                 CASE 
+                   WHEN p.plan_id IS NOT NULL AND p.plan_id != '' THEN CONCAT('Plan: ', p.plan_id)
+                   ELSE 'Cobro de Plan / Suscripción'
+                 END
+               ) as description,
+               p.gateway_ref,
+               p.applied_by,
+               COALESCE(cl.nombre, p.client_id, 'Cliente General') as client_name,
+               COALESCE(cl.telefono, 'N/D') as client_phone,
+               COALESCE(s.name, 'Abatte Peluquería San Vicente') as salon_name,
+               COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) as salon_id
+        FROM payments p
+        LEFT JOIN contracts c ON (p.client_id = c.client_id)
+        LEFT JOIN clients cl ON p.client_id = cl.id
+        LEFT JOIN salons s ON (COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) = s.id)
+        WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado'
+
+        UNION ALL
+
+        SELECT v.id,
+               v.visited_at as created_at,
+               v.total as amount,
+               COALESCE(v.metodo_pago, 'Efectivo') as method,
+               'Aprobado' as status,
+               CONCAT('Venta POS / Servicio: Ticket #', COALESCE(v.ticket_number, v.id)) as description,
+               v.ticket_number as gateway_ref,
+               'Caja POS' as applied_by,
+               COALESCE(v.client_name, cl.nombre, 'Cliente General') as client_name,
+               COALESCE(cl.telefono, 'N/D') as client_phone,
+               COALESCE(s.name, 'Abatte Peluquería San Vicente') as salon_name,
+               COALESCE(v.salon_id, cl.salon_id, 1) as salon_id
+        FROM visits v
+        LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
+        LEFT JOIN salons s ON (COALESCE(v.salon_id, cl.salon_id, 1) = s.id)
+        WHERE v.visited_at >= ? AND v.visited_at <= ? AND v.status = 'Facturado' AND v.total > 0
+      ) combined
+      WHERE 1=1 ${salon_id !== 'all' ? 'AND combined.salon_id = ?' : ''}
+      ORDER BY combined.created_at DESC
+      LIMIT 500
+    `, combinedParams);
 
     res.json({
       dailySales,

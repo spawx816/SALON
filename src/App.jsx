@@ -275,7 +275,7 @@ const AppContent = () => {
               {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
                 <SidebarLink to="/registro-cliente" icon={UserPlus} label="Registrar Cliente" active={location.pathname === '/registro-cliente'} onClick={closeMobileMenu} />
               )}
-              {(isAdmin || (user?.permissions && (user.permissions.manage_services || user.permissions.process_payments))) && (
+              {(isAdmin || (user?.permissions && user.permissions.manage_services)) && (
                 <SidebarLink to="/servicios" icon={Sparkles} label="Gestión de Servicios" active={location.pathname === '/servicios'} onClick={closeMobileMenu} />
               )}
               {(isAdmin || (user?.permissions && (user.permissions.manage_commissions || user.permissions.manage_staff))) && (
