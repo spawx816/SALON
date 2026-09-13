@@ -770,6 +770,57 @@ const setupDB = async () => {
     } catch (e) {
       console.warn('[DB] Could not check retry contracts:', e.message);
     }
+
+    // Deduplicate same-day recurring payment attempts in DB (keep only 1 per day per client)
+    try {
+      const [allFailedPayments] = await pool.query(`
+        SELECT id, client_id, DATE(created_at) as date_only, created_at 
+        FROM payments 
+        WHERE method = 'CardNet_Auto' OR status LIKE 'Fallido%' OR status LIKE 'Error_Conexion%'
+        ORDER BY client_id, created_at ASC
+      `);
+
+      const seenKey = new Set();
+      const idsToDelete = [];
+
+      for (const pay of allFailedPayments) {
+        const key = `${pay.client_id}_${pay.date_only}`;
+        if (seenKey.has(key)) {
+          idsToDelete.push(pay.id);
+        } else {
+          seenKey.add(key);
+        }
+      }
+
+      if (idsToDelete.length > 0) {
+        for (let i = 0; i < idsToDelete.length; i += 100) {
+          const batch = idsToDelete.slice(i, i + 100);
+          await pool.query('DELETE FROM payments WHERE id IN (?)', [batch]);
+        }
+        console.log(`[DB] Cleaned up ${idsToDelete.length} duplicate recurring payment attempts.`);
+      }
+
+      // Re-sync retry_count for contracts to reflect the actual number of unique daily failed attempts
+      const [contractsToSync] = await pool.query(`
+        SELECT id, client_id FROM contracts WHERE status IN ('Pending_Retry', 'Pending_Payment', 'Pendiente_Pago', 'Past_Due')
+      `);
+
+      for (const contract of contractsToSync) {
+        const [countRes] = await pool.query(`
+          SELECT COUNT(DISTINCT DATE(created_at)) as actual_days 
+          FROM payments 
+          WHERE client_id = ? AND (status LIKE 'Fallido%' OR status LIKE 'Error_Conexion%')
+        `, [contract.client_id]);
+
+        const actualDays = countRes[0]?.actual_days || 0;
+        await pool.query(`
+          UPDATE contracts SET retry_count = ? WHERE id = ?
+        `, [actualDays, contract.id]);
+      }
+      console.log('[DB] Synchronized contract retry counts with unique daily attempts.');
+    } catch (dedupErr) {
+      console.warn('[DB] Could not deduplicate payment attempts:', dedupErr.message);
+    }
   } catch (err) {
     console.error('Database connection failed:', err.message);
   }
@@ -6713,6 +6764,59 @@ app.post('/api/subscriptions/process-now', async (req, res) => {
   try {
     const results = await processSubscriptionsInternal(req.ip);
     res.json({ success: true, ...results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin Endpoint: Cleanup historical duplicate payments within the same day
+app.post('/api/payments/clean-duplicates', async (req, res) => {
+  try {
+    const [allFailedPayments] = await pool.query(`
+      SELECT id, client_id, DATE(created_at) as date_only, created_at 
+      FROM payments 
+      WHERE method = 'CardNet_Auto' OR status LIKE 'Fallido%' OR status LIKE 'Error_Conexion%'
+      ORDER BY client_id, created_at ASC
+    `);
+
+    const seenKey = new Set();
+    const idsToDelete = [];
+
+    for (const pay of allFailedPayments) {
+      const key = `${pay.client_id}_${pay.date_only}`;
+      if (seenKey.has(key)) {
+        idsToDelete.push(pay.id);
+      } else {
+        seenKey.add(key);
+      }
+    }
+
+    if (idsToDelete.length > 0) {
+      for (let i = 0; i < idsToDelete.length; i += 100) {
+        const batch = idsToDelete.slice(i, i + 100);
+        await pool.query('DELETE FROM payments WHERE id IN (?)', [batch]);
+      }
+    }
+
+    // Re-sync retry_count for contracts
+    const [contractsToSync] = await pool.query(`
+      SELECT id, client_id FROM contracts WHERE status IN ('Pending_Retry', 'Pending_Payment', 'Pendiente_Pago', 'Past_Due')
+    `);
+
+    for (const contract of contractsToSync) {
+      const [countRes] = await pool.query(`
+        SELECT COUNT(DISTINCT DATE(created_at)) as actual_days 
+        FROM payments 
+        WHERE client_id = ? AND (status LIKE 'Fallido%' OR status LIKE 'Error_Conexion%')
+      `, [contract.client_id]);
+
+      const actualDays = countRes[0]?.actual_days || 0;
+      await pool.query(`
+        UPDATE contracts SET retry_count = ? WHERE id = ?
+      `, [actualDays, contract.id]);
+    }
+
+    res.json({ success: true, deletedDuplicates: idsToDelete.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
