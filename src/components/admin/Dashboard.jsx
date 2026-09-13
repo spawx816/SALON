@@ -66,11 +66,6 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
 
-  // Permisos: Si no tiene view_analytics, redirigir o mostrar acceso denegado
-  const hasAccess = currentUser?.role === 'admin' || 
-                    currentUser?.role_name === 'Administrador' || 
-                    (currentUser?.permissions && currentUser?.permissions.view_analytics);
-
   const [stats, setStats] = useState({ todayVisits: 0, activeClients: 0, monthlyRevenue: 0, dailySales: 0 });
   const [breakdowns, setBreakdowns] = useState({ salons: [], visits: [], memberships: [], dailySales: [] });
   const [activeDetailModal, setActiveDetailModal] = useState(null); // 'visits' | 'memberships' | 'dailySales' | null
@@ -96,12 +91,6 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    if (!hasAccess) {
-      // Si no tiene acceso, lo mandamos a la gestión de visitas por defecto
-      navigate('/visitas');
-      return;
-    }
-
     const load = async () => {
       const summary = await dataService.getDashboardSummary();
       const usages = await dataService.getPlanUsages();
