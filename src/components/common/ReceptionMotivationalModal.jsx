@@ -42,7 +42,8 @@ const ReceptionMotivationalModal = ({
   onClose, 
   userName = 'Recepción', 
   salonName = 'Sistema de Gestión',
-  autoCloseSec = 0
+  autoCloseSec = 0,
+  continueText = 'Continuar al Panel'
 }) => {
   const [phrase, setPhrase] = useState(getCurrentMotivationalPhrase());
   const [showNextPrompt, setShowNextPrompt] = useState(false);
@@ -293,7 +294,7 @@ const ReceptionMotivationalModal = ({
                 onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
                 onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
               >
-                <span>Continuar a Facturación</span>
+                <span>{continueText}</span>
                 <ArrowRight size={18} />
               </button>
             </motion.div>

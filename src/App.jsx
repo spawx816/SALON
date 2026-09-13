@@ -221,14 +221,16 @@ const AppContent = () => {
 
   const [isMotivationalModalOpen, setIsMotivationalModalOpen] = useState(false);
 
-  // Inactividad de 10 minutos (600,000 ms) para perfil de recepcionista
+  // Inactividad de 30 minutos (1,800,000 ms) en el Dashboard para mostrar frases motivacionales
+  const isDashboard = location.pathname === '/' && user && !isClient;
+
   useEffect(() => {
-    if (!isReceptionist) {
+    if (!isDashboard) {
       setIsMotivationalModalOpen(false);
       return;
     }
 
-    const INACTIVITY_LIMIT_MS = 10 * 60 * 1000; // 10 minutos
+    const INACTIVITY_LIMIT_MS = 30 * 60 * 1000; // 30 minutos
     let inactivityTimer;
 
     const resetTimer = () => {
@@ -250,7 +252,7 @@ const AppContent = () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
       activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
     };
-  }, [isReceptionist, location.pathname]);
+  }, [isDashboard]);
 
   if (location.pathname === '/asistencia') {
     return (

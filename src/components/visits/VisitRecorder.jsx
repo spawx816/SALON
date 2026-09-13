@@ -2628,7 +2628,6 @@ const VisitRecorder = () => {
       });
       setActiveRegister(res.register || { id: res.registerId, register_number: res.registerNumber });
       setShowRegisterOpenModal(false);
-      setShowMotivationalModal(true); // Desplegar automáticamente la pantalla de frase motivacional del turno
     } catch (e) {
       alert('Error abriendo caja: ' + e.message);
     } finally {
@@ -3142,29 +3141,6 @@ const VisitRecorder = () => {
           }}>
             {pendingTickets.length}
           </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowMotivationalModal(true)}
-          style={{
-            background: 'linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%)',
-            color: '#be185d',
-            border: '1.5px solid rgba(244,114,182,0.35)',
-            padding: '0.65rem 1.05rem',
-            borderRadius: '12px',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.45rem',
-            boxShadow: '0 2px 6px rgba(190,24,93,0.06)'
-          }}
-          title="Ver frase motivacional del turno de recepción (rotación cada 30 min)"
-        >
-          <Sparkles size={16} color="#ec4899" />
-          <span>Frase del Turno</span>
         </button>
 
         <button
