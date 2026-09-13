@@ -16,6 +16,28 @@ const DISCOUNT_TYPES = [
   { id: 'Otro', label: 'Otro Descuento', icon: CreditCard, color: '#475569', bg: '#f8fafc', border: '#e2e8f0' }
 ];
 
+const formatLocalDate = (d) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDateSafe = (dateVal) => {
+  if (!dateVal) return 'N/A';
+  const str = String(dateVal).trim();
+  const datePart = str.split('T')[0].split(' ')[0];
+  const parts = datePart.split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    if (year && month && day) {
+      return `${parseInt(day, 10)}/${parseInt(month, 10)}/${year}`;
+    }
+  }
+  const d = new Date(dateVal);
+  return isNaN(d.getTime()) ? dateVal : d.toLocaleDateString('es-DO');
+};
+
 const EmployeeDiscountsModule = () => {
   const [discounts, setDiscounts] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -35,13 +57,13 @@ const EmployeeDiscountsModule = () => {
     const day = now.getDate();
     if (day <= 15) {
       return {
-        start: new Date(year, month, 1).toISOString().split('T')[0],
-        end: new Date(year, month, 15).toISOString().split('T')[0]
+        start: formatLocalDate(new Date(year, month, 1)),
+        end: formatLocalDate(new Date(year, month, 15))
       };
     } else {
       return {
-        start: new Date(year, month, 16).toISOString().split('T')[0],
-        end: new Date(year, month + 1, 0).toISOString().split('T')[0]
+        start: formatLocalDate(new Date(year, month, 16)),
+        end: formatLocalDate(new Date(year, month + 1, 0))
       };
     }
   };
@@ -58,7 +80,7 @@ const EmployeeDiscountsModule = () => {
     employee_name: '',
     type: 'Consumo_Servicio',
     amount: '',
-    date: new Date().toISOString().split('T')[0],
+    date: formatLocalDate(new Date()),
     notes: '',
     status: 'Pendiente'
   });
@@ -123,25 +145,17 @@ const EmployeeDiscountsModule = () => {
     const month = now.getMonth();
     
     if (type === 'q1_actual') {
-      const s = new Date(year, month, 1);
-      const e = new Date(year, month, 15);
-      setStartDate(s.toISOString().split('T')[0]);
-      setEndDate(e.toISOString().split('T')[0]);
+      setStartDate(formatLocalDate(new Date(year, month, 1)));
+      setEndDate(formatLocalDate(new Date(year, month, 15)));
     } else if (type === 'q2_actual') {
-      const s = new Date(year, month, 16);
-      const e = new Date(year, month + 1, 0);
-      setStartDate(s.toISOString().split('T')[0]);
-      setEndDate(e.toISOString().split('T')[0]);
+      setStartDate(formatLocalDate(new Date(year, month, 16)));
+      setEndDate(formatLocalDate(new Date(year, month + 1, 0)));
     } else if (type === 'mes_actual') {
-      const s = new Date(year, month, 1);
-      const e = new Date(year, month + 1, 0);
-      setStartDate(s.toISOString().split('T')[0]);
-      setEndDate(e.toISOString().split('T')[0]);
+      setStartDate(formatLocalDate(new Date(year, month, 1)));
+      setEndDate(formatLocalDate(new Date(year, month + 1, 0)));
     } else if (type === 'mes_anterior') {
-      const s = new Date(year, month - 1, 1);
-      const e = new Date(year, month, 0);
-      setStartDate(s.toISOString().split('T')[0]);
-      setEndDate(e.toISOString().split('T')[0]);
+      setStartDate(formatLocalDate(new Date(year, month - 1, 1)));
+      setEndDate(formatLocalDate(new Date(year, month, 0)));
     }
   };
 
@@ -152,7 +166,7 @@ const EmployeeDiscountsModule = () => {
       employee_name: employees[0]?.nombre || '',
       type: 'Consumo_Servicio',
       amount: '',
-      date: new Date().toISOString().split('T')[0],
+      date: formatLocalDate(new Date()),
       notes: '',
       status: 'Pendiente'
     });
@@ -168,7 +182,7 @@ const EmployeeDiscountsModule = () => {
       employee_name: item.employee_name,
       type: item.type,
       amount: item.amount,
-      date: item.date ? item.date.split('T')[0] : new Date().toISOString().split('T')[0],
+      date: item.date ? item.date.split('T')[0] : formatLocalDate(new Date()),
       notes: item.notes || '',
       status: item.status || 'Pendiente'
     });
@@ -215,8 +229,9 @@ const EmployeeDiscountsModule = () => {
   };
 
   const handleToggleStatus = async (item) => {
+    if (item.status === 'Anulado') return;
     const newStatus = item.status === 'Pendiente' ? 'Aplicado' : 'Pendiente';
-    const cleanDate = item.date ? (String(item.date).includes('T') ? String(item.date).split('T')[0] : String(item.date).split(' ')[0]) : new Date().toISOString().split('T')[0];
+    const cleanDate = item.date ? (String(item.date).includes('T') ? String(item.date).split('T')[0] : String(item.date).split(' ')[0]) : formatLocalDate(new Date());
     try {
       await dataService.updateEmployeeDiscount(item.id, { 
         ...item, 
@@ -229,9 +244,12 @@ const EmployeeDiscountsModule = () => {
     }
   };
 
-  // Filtered list based on search term
+  // Filtered list based on search term & status
   const filteredDiscounts = useMemo(() => {
     return discounts.filter(d => {
+      if (selectedStatus === 'all' && d.status === 'Anulado') return false;
+      if (selectedStatus !== 'all' && d.status !== selectedStatus) return false;
+
       if (!searchTerm.trim()) return true;
       const term = searchTerm.toLowerCase();
       return (
@@ -242,10 +260,10 @@ const EmployeeDiscountsModule = () => {
         (d.localidad || '').toLowerCase().includes(term)
       );
     });
-  }, [discounts, searchTerm]);
+  }, [discounts, searchTerm, selectedStatus]);
 
-  // Overall KPI Calculations
-  const totalAmount = filteredDiscounts.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  // Overall KPI Calculations (excluding Anulado)
+  const totalAmount = filteredDiscounts.filter(d => d.status !== 'Anulado').reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const totalPending = filteredDiscounts.filter(d => d.status === 'Pendiente').reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const totalApplied = filteredDiscounts.filter(d => d.status === 'Aplicado').reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const countPending = filteredDiscounts.filter(d => d.status === 'Pendiente').length;
@@ -277,9 +295,11 @@ const EmployeeDiscountsModule = () => {
       
       const group = groupsMap.get(empKey);
       const amt = Number(d.amount || 0);
-      group.totalAmount += amt;
-      if (d.status === 'Pendiente') group.totalPending += amt;
-      else if (d.status === 'Aplicado') group.totalApplied += amt;
+      if (d.status !== 'Anulado') {
+        group.totalAmount += amt;
+        if (d.status === 'Pendiente') group.totalPending += amt;
+        else if (d.status === 'Aplicado') group.totalApplied += amt;
+      }
       group.items.push(d);
     });
     
@@ -298,7 +318,7 @@ const EmployeeDiscountsModule = () => {
       d.localidad || 'Principal',
       d.type,
       Number(d.amount || 0).toFixed(2),
-      d.date ? d.date.split('T')[0] : '',
+      d.date ? formatDateSafe(d.date) : '',
       d.status,
       (d.notes || '').replace(/"/g, '""')
     ]);
@@ -308,7 +328,7 @@ const EmployeeDiscountsModule = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `descuentos_empleados_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `descuentos_empleados_${formatLocalDate(new Date())}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -509,9 +529,10 @@ const EmployeeDiscountsModule = () => {
             onChange={(e) => setSelectedStatus(e.target.value)}
             style={{ padding: '0.55rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.825rem', fontWeight: 700, outline: 'none', background: '#ffffff' }}
           >
-            <option value="all">Todos los Estatus</option>
+            <option value="all">Todos los Estatus Activos</option>
             <option value="Pendiente">⏳ Pendiente</option>
             <option value="Aplicado">✅ Aplicado</option>
+            <option value="Anulado">❌ Anulado</option>
           </select>
 
           <button
@@ -655,6 +676,7 @@ const EmployeeDiscountsModule = () => {
                         const typeObj = DISCOUNT_TYPES.find(t => t.id === item.type) || DISCOUNT_TYPES[0];
                         const Icon = typeObj.icon;
                         const isPending = item.status === 'Pendiente';
+                        const isVoided = item.status === 'Anulado';
 
                         // Extract ticket number if present in notes or ticket field
                         let displayTicket = `DISC-${item.id}`;
@@ -664,7 +686,7 @@ const EmployeeDiscountsModule = () => {
                         }
 
                         return (
-                          <tr key={item.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                          <tr key={item.id} style={{ borderBottom: '1px solid #f8fafc', background: isVoided ? '#f8fafc' : 'transparent', opacity: isVoided ? 0.75 : 1 }}>
                             <td style={{ padding: '0.65rem 1rem', fontWeight: 800, color: '#0f172a' }}>
                               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#f1f5f9', padding: '2px 8px', borderRadius: '6px', fontSize: '0.78rem' }}>
                                 <Receipt size={12} color="#64748b" />
@@ -673,7 +695,7 @@ const EmployeeDiscountsModule = () => {
                             </td>
 
                             <td style={{ padding: '0.65rem 1rem', color: '#475569', fontSize: '0.78rem', fontWeight: 600 }}>
-                              {item.date ? new Date(item.date).toLocaleDateString('es-DO') : 'N/A'}
+                              {formatDateSafe(item.date)}
                             </td>
 
                             <td style={{ padding: '0.65rem 1rem' }}>
@@ -683,42 +705,50 @@ const EmployeeDiscountsModule = () => {
                               </div>
                             </td>
 
-                            <td style={{ padding: '0.65rem 1rem', color: '#1e293b', fontWeight: 600, maxWidth: '340px' }}>
-                              <span style={{ display: 'block', fontSize: '0.8rem' }}>
+                            <td style={{ padding: '0.65rem 1rem', color: isVoided ? '#64748b' : '#1e293b', fontWeight: 600, maxWidth: '340px' }}>
+                              <span style={{ display: 'block', fontSize: '0.8rem', textDecoration: isVoided ? 'line-through' : 'none' }}>
                                 {item.notes || '(Sin observaciones detalladas)'}
                               </span>
                             </td>
 
-                            <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: 900, color: '#dc2626', fontSize: '0.92rem' }}>
+                            <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontWeight: 900, color: isVoided ? '#94a3b8' : '#dc2626', fontSize: '0.92rem', textDecoration: isVoided ? 'line-through' : 'none' }}>
                               - RD$ {Number(item.amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                             </td>
 
                             <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleStatus(item)}
-                                style={{
-                                  border: 'none', cursor: 'pointer', padding: '3px 10px', borderRadius: '99px',
-                                  fontSize: '0.7rem', fontWeight: 900,
-                                  background: isPending ? '#fee2e2' : '#dcfce7',
-                                  color: isPending ? '#b91c1c' : '#15803d'
-                                }}
-                                title="Haz clic para alternar entre Pendiente y Aplicado"
-                              >
-                                {isPending ? '⏳ PENDIENTE' : '✔ APLICADO'}
-                              </button>
+                              {isVoided ? (
+                                <span style={{ padding: '3px 10px', borderRadius: '99px', fontSize: '0.7rem', fontWeight: 900, background: '#f1f5f9', color: '#94a3b8', border: '1px solid #e2e8f0' }}>
+                                  ❌ ANULADO
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStatus(item)}
+                                  style={{
+                                    border: 'none', cursor: 'pointer', padding: '3px 10px', borderRadius: '99px',
+                                    fontSize: '0.7rem', fontWeight: 900,
+                                    background: isPending ? '#fee2e2' : '#dcfce7',
+                                    color: isPending ? '#b91c1c' : '#15803d'
+                                  }}
+                                  title="Haz clic para alternar entre Pendiente y Aplicado"
+                                >
+                                  {isPending ? '⏳ PENDIENTE' : '✔ APLICADO'}
+                                </button>
+                              )}
                             </td>
 
                             <td style={{ padding: '0.65rem 1rem', textAlign: 'center' }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEditModal(item)}
-                                  style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer', color: '#0f172a' }}
-                                  title="Editar"
-                                >
-                                  <Edit3 size={13} />
-                                </button>
+                                {!isVoided && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditModal(item)}
+                                    style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer', color: '#0f172a' }}
+                                    title="Editar"
+                                  >
+                                    <Edit3 size={13} />
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleDeleteDiscount(item.id)}

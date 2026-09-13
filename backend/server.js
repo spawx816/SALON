@@ -242,9 +242,11 @@ const setupDB = async () => {
         notes TEXT,
         status VARCHAR(50) DEFAULT 'Pendiente',
         created_by VARCHAR(100),
+        visit_id VARCHAR(100) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    try { await pool.query('ALTER TABLE employee_discounts ADD COLUMN visit_id VARCHAR(100) NULL'); } catch(e){}
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS services (
@@ -2324,13 +2326,14 @@ async function handleCheckoutVisit(req, res) {
       // Also register in employee_discounts table for full sync with Admin Deducciones / Nómina module
       try {
         await pool.query(
-          `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
-           VALUES (?, ?, 'Consumo_Servicio', ?, CURDATE(), ?, 'Pendiente', 'Caja POS (Nómina)', NOW())`,
+          `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, visit_id, created_at)
+           VALUES (?, ?, 'Consumo_Servicio', ?, CURDATE(), ?, 'Pendiente', 'Caja POS (Nómina)', ?, NOW())`,
           [
             rawEmpId,
             empName,
             discountAmount,
-            discountNotes
+            discountNotes,
+            id
           ]
         );
       } catch (discErr) {
@@ -2480,7 +2483,7 @@ app.post('/api/visits/:id/void', async (req, res) => {
 
     // 3. Mark related employee commissions as 'Anulada'
     await pool.query(
-      "UPDATE employee_commissions_log SET status = 'Anulada' WHERE (visit_id = ? OR ticket_number = ?) AND status = 'Pendiente'",
+      "UPDATE employee_commissions_log SET status = 'Anulada' WHERE (visit_id = ? OR ticket_number = ?) AND status != 'Anulada'",
       [id, visit.ticket_number || id]
     );
 
@@ -2489,6 +2492,19 @@ app.post('/api/visits/:id/void', async (req, res) => {
       await pool.query(
         "UPDATE employee_consumptions SET status = 'Anulado' WHERE visit_id = ?",
         [id]
+      );
+    } catch(e) {}
+
+    // 4b. Mark related employee discounts / deductions as 'Anulado' so they are not charged in Nómina
+    try {
+      await pool.query(
+        "UPDATE employee_discounts SET status = 'Anulado' WHERE (visit_id = ? OR notes LIKE ? OR notes LIKE ? OR notes LIKE ?)",
+        [
+          id, 
+          `%#${visit.ticket_number}%`, 
+          `%#${id}%`, 
+          `%${visit.ticket_number}%`
+        ]
       );
     } catch(e) {}
 
@@ -3185,6 +3201,16 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
 // === EMPLOYEE DISCOUNTS & DEDUCTIONS MODULE ===
 app.get('/api/employee-discounts', async (req, res) => {
   try {
+    // Auto-cascade/clean any existing deductions linked to voided visits
+    try {
+      await pool.query(`
+        UPDATE employee_discounts ed
+        JOIN visits v ON (ed.visit_id = v.id OR ed.notes LIKE CONCAT('%#', v.ticket_number, '%') OR ed.notes LIKE CONCAT('%#', v.id, '%'))
+        SET ed.status = 'Anulado'
+        WHERE v.status = 'Anulado' AND ed.status != 'Anulado'
+      `);
+    } catch (syncErr) {}
+
     const { employee_id, status, type, start_date, end_date } = req.query;
     let query = `
       SELECT ed.id, ed.employee_id, ed.type, ed.amount, DATE_FORMAT(ed.date, '%Y-%m-%d') as date, 
@@ -3204,6 +3230,9 @@ app.get('/api/employee-discounts', async (req, res) => {
     if (status && status !== 'all') {
       query += ' AND ed.status = ?';
       params.push(status);
+    } else {
+      // By default exclude voided deductions
+      query += " AND (ed.status != 'Anulado' OR ed.status IS NULL)";
     }
     if (type && type !== 'all') {
       query += ' AND ed.type = ?';
