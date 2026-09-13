@@ -3495,58 +3495,6 @@ const VisitRecorder = () => {
                     </button>
                   </div>
 
-                  {/* BANNER CUMPLEAÑOS — 15% descuento automático en ventana de 7 días */}
-                  {birthdayDiscountActive && !isEmployeeClient && (
-                    <div style={{
-                      background: 'linear-gradient(135deg, #fff7f3 0%, #fff1f2 100%)',
-                      border: '1.5px solid #fb923c',
-                      borderRadius: '16px',
-                      padding: '0.85rem 1rem',
-                      margin: '0.5rem 0',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.5rem'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ fontSize: '1.4rem' }}>🎂</span>
-                        <div>
-                          <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: '#c2410c' }}>¡Semana de Cumpleaños!</p>
-                          <p style={{ margin: 0, fontSize: '0.7rem', color: '#9a3412', fontWeight: 600 }}>15% de descuento disponible en servicios</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Apply 15% to all non-wash items
-                          const updated = lineItems.map(item => {
-                            if (item.isPlanWash || item.precioBase === 0 || isLavadoSencillo(item.nombre)) return item;
-                            const baseTotal = (Number(item.precioAplicado !== undefined ? item.precioAplicado : item.precioBase) || 0) * (Number(item.cantidad) || 1);
-                            return {
-                              ...item,
-                              descuentoPercent: '15',
-                              descuento: Number((baseTotal * 0.15).toFixed(2))
-                            };
-                          });
-                          setLineItems(updated);
-                          alert('¡15% de descuento de cumpleaños aplicado a los servicios adicionales!');
-                        }}
-                        style={{
-                          background: '#ea580c',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '10px',
-                          padding: '0.45rem 0.75rem',
-                          fontSize: '0.75rem',
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                          width: '100%'
-                        }}
-                      >
-                        Aplicar 15% Descuento Cumpleaños
-                      </button>
-                    </div>
-                  )}
-
                   {/* DETAIL LIST ROW 1: ESTADO DEL PLAN */}
                   <div style={{
                     display: 'flex',
