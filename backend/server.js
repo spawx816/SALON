@@ -821,6 +821,29 @@ const setupDB = async () => {
     } catch (dedupErr) {
       console.warn('[DB] Could not deduplicate payment attempts:', dedupErr.message);
     }
+
+    // Sync payments salon_id with client/contract location
+    try {
+      await pool.query('ALTER TABLE payments ADD COLUMN salon_id INT NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE payments ADD COLUMN applied_by VARCHAR(100) NULL');
+    } catch (e) {}
+    try {
+      await pool.query(`
+        UPDATE payments p 
+        JOIN contracts c ON p.client_id = c.client_id 
+        SET p.salon_id = c.salon_id 
+        WHERE (p.salon_id IS NULL OR p.salon_id = 1) AND c.salon_id IS NOT NULL AND c.salon_id != 1
+      `);
+      await pool.query(`
+        UPDATE payments p 
+        JOIN clients cl ON p.client_id = cl.id 
+        SET p.salon_id = cl.salon_id 
+        WHERE (p.salon_id IS NULL OR p.salon_id = 1) AND cl.salon_id IS NOT NULL AND cl.salon_id != 1
+      `);
+      console.log('[DB] Synchronized payments salon_id with contracts/clients branches.');
+    } catch (e) {}
   } catch (err) {
     console.error('Database connection failed:', err.message);
   }
@@ -5928,12 +5951,20 @@ app.post('/api/cardnet/customer/:customerId/charge-profile', async (req, res) =>
 
     if (isApproved) {
       const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `CN-${Date.now().toString().slice(-6)}`;
-      const payId = `PAY-MAN-${Date.now()}`;
-      
+      let targetSalonId = 1;
+      if (clientId) {
+        const [cRows] = await pool.query('SELECT salon_id FROM contracts WHERE client_id = ? LIMIT 1', [clientId]);
+        if (cRows.length > 0 && cRows[0].salon_id) targetSalonId = cRows[0].salon_id;
+        else {
+          const [clRows] = await pool.query('SELECT salon_id FROM clients WHERE id = ? LIMIT 1', [clientId]);
+          if (clRows.length > 0 && clRows[0].salon_id) targetSalonId = clRows[0].salon_id;
+        }
+      }
+
       // Registrar pago aprobado en la base de datos
       await pool.query(
-        'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [payId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Aprobado', gatewayRef, description || 'Cobro Manual de Suscripción']
+        'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description, salon_id, applied_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [payId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Aprobado', gatewayRef, description || 'Cobro Manual de Suscripción', targetSalonId, 'Admin']
       );
 
       // Si el pago es exitoso, reactivar al cliente
@@ -6059,6 +6090,8 @@ app.post('/api/contracts', async (req, res) => {
     const [clients] = await pool.query('SELECT * FROM clients WHERE id = ?', [clientId]);
     if (clients.length === 0) throw new Error('Client not found');
     const client = clients[0];
+
+    const contractSalonId = parseInt(req.body.salon_id || req.body.salonId || client.salon_id || 1, 10);
 
     const [plans] = await pool.query('SELECT * FROM plans WHERE id = ?', [planId]);
     if (plans.length === 0) throw new Error('Plan not found');
@@ -6342,7 +6375,7 @@ app.post('/api/contracts', async (req, res) => {
         persistentToken, 
         todayStr, 
         nextBillingStr, 
-        client.salon_id || 1,
+        contractSalonId,
         'Active',
         1,
         documentPhoto || null,
@@ -6353,12 +6386,12 @@ app.post('/api/contracts', async (req, res) => {
     // LOG INITIAL PAYMENT
     const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `CN-${id.slice(-6)}`;
     await pool.query(
-      'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [`PAY-INIT-${id}`, clientId, planId, totalAmount, 'CardNet_Recurring_Setup', 'Aprobado', gatewayRef, activationFee > 0 ? `Inscripción + Primer Mes: ${plan.title}` : `Activación de Plan: ${plan.title}`]
+      'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description, salon_id, applied_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [`PAY-INIT-${id}`, clientId, planId, totalAmount, 'CardNet_Recurring_Setup', 'Aprobado', gatewayRef, activationFee > 0 ? `Inscripción + Primer Mes: ${plan.title}` : `Activación de Plan: ${plan.title}`, contractSalonId, 'CardNet Gateway']
     );
 
-    // UPDATE CLIENT STATUS TO ACTIVE
-    await pool.query('UPDATE clients SET status = "Active" WHERE id = ?', [clientId]);
+    // UPDATE CLIENT STATUS AND SALON_ID IF NEEDED
+    await pool.query('UPDATE clients SET status = "Active", salon_id = COALESCE(salon_id, ?) WHERE id = ?', [contractSalonId, clientId]);
 
     // SEND PAYMENT RECEIPT EMAIL
     sendPaymentReceiptEmail(clientId, client.nombre, client.email, totalAmount, activationFee > 0 ? `Inscripción + Primer Mes: ${plan.title}` : `Activación de Plan: ${plan.title}`, gatewayRef);
@@ -6649,8 +6682,8 @@ async function processSubscriptionsInternal(reqIp = "127.0.0.1") {
 
           const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `AUTO-${contract.id.slice(-4)}`;
           await pool.query(
-            'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [`PAY-AUTO-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, chargeAmount, 'CardNet_Auto', 'Aprobado', gatewayRef, annualFeeApplied ? `Mensualidad + Renovación Anual: ${contract.plan_title}` : `Cobro Mensual Recurrente: ${contract.plan_title}`, JSON.stringify(purchaseRes.data)]
+            'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description, cardnet_raw_response, salon_id, applied_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [`PAY-AUTO-${Date.now()}-${contract.id.slice(-4)}`, contract.client_id, contract.plan_id, chargeAmount, 'CardNet_Auto', 'Aprobado', gatewayRef, annualFeeApplied ? `Mensualidad + Renovación Anual: ${contract.plan_title}` : `Cobro Mensual Recurrente: ${contract.plan_title}`, JSON.stringify(purchaseRes.data), contract.salon_id || 1, 'Auto-Billing Worker']
           );
 
           // SEND PAYMENT RECEIPT EMAIL
@@ -6874,8 +6907,9 @@ app.get('/api/dashboard/summary', async (req, res) => {
 
     // Breakdown: Visitas de Hoy
     const [todayVisitsRows] = await pool.query(`
-      SELECT v.id, COALESCE(v.salon_id, 1) as salon_id, v.total, v.metodo_pago, v.servicios
+      SELECT v.id, COALESCE(v.salon_id, cl.salon_id, 1) as salon_id, v.total, v.metodo_pago, v.servicios
       FROM visits v
+      LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
       WHERE DATE(v.visited_at) = CURRENT_DATE()
     `);
     const visitsBreakdownBySalon = {};
@@ -6897,10 +6931,11 @@ app.get('/api/dashboard/summary', async (req, res) => {
 
     // Breakdown: Membresías Activas
     const [activeMembersRows] = await pool.query(`
-      SELECT COALESCE(c.salon_id, 1) as salon_id, COUNT(DISTINCT c.client_id) as count
+      SELECT COALESCE(c.salon_id, cl.salon_id, 1) as salon_id, COUNT(DISTINCT c.client_id) as count
       FROM contracts c
-      WHERE c.status = 'Active'
-      GROUP BY c.salon_id
+      LEFT JOIN clients cl ON c.client_id = cl.id
+      WHERE c.status IN ('Active', 'Activo')
+      GROUP BY COALESCE(c.salon_id, cl.salon_id, 1)
     `);
     const membersBreakdownBySalon = {};
     salonsData.forEach(s => {
@@ -6913,8 +6948,12 @@ app.get('/api/dashboard/summary', async (req, res) => {
 
     // Breakdown: Ventas Diarias
     const [todayPaymentsRows] = await pool.query(`
-      SELECT p.id, COALESCE(p.salon_id, 1) as salon_id, p.amount, p.plan_id, p.method
+      SELECT p.id, 
+             COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) as salon_id, 
+             p.amount, p.plan_id, p.method
       FROM payments p
+      LEFT JOIN contracts c ON (p.client_id = c.client_id)
+      LEFT JOIN clients cl ON p.client_id = cl.id
       WHERE DATE(p.created_at) = CURRENT_DATE() AND p.status = 'Aprobado'
     `);
     const salesBreakdownBySalon = {};
@@ -6924,7 +6963,9 @@ app.get('/api/dashboard/summary', async (req, res) => {
     todayPaymentsRows.forEach(p => {
       const sId = salesBreakdownBySalon[p.salon_id] ? p.salon_id : salonsData[0].id;
       const amt = Number(p.amount) || 0;
-      const isPlan = (p.plan_id && p.plan_id !== '' && p.plan_id !== 'gift_card') || (p.method && p.method.toLowerCase().includes('plan'));
+      const isPlan = (p.plan_id && p.plan_id !== '' && p.plan_id !== 'gift_card') || 
+                     (p.method && p.method.toLowerCase().includes('plan')) ||
+                     (p.method && p.method.toLowerCase().includes('cardnet'));
       if (isPlan) {
         salesBreakdownBySalon[sId].plan_beauty += amt;
       } else {
