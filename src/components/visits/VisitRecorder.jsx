@@ -221,6 +221,35 @@ const VisitRecorder = () => {
   const [nominaOtpVerifying, setNominaOtpVerifying] = useState(false);
   const [nominaOtpError, setNominaOtpError] = useState('');
 
+  // Detección de cliente empleado, invitado y planes activos
+  const isEmployeeClient = Boolean(
+    clientFound?.is_employee ||
+    clientFound?.isEmployee ||
+    clientFound?.tipo === 'Empleado' ||
+    employeeDiscountApplied ||
+    String(clientFound?.id || '').startsWith('EMP-') ||
+    clientFound?.id === 'EMPLEADO' ||
+    selectedTicket?.ticket_type === 'empleado' ||
+    selectedTicket?.is_employee === true ||
+    String(selectedTicket?.client_id || '').startsWith('EMP-') ||
+    selectedTicket?.client_id === 'EMPLEADO' ||
+    selectedTicket?.client_id === 'Colaborador' ||
+    selectedTicket?.draft_data?.isEmployeeTicket === true ||
+    (typeof selectedTicket?.draft_data === 'string' && selectedTicket.draft_data.includes('"isEmployeeTicket":true'))
+  );
+
+  const isGuestClient = Boolean(
+    !isEmployeeClient && (
+      !clientFound ||
+      clientFound?.id === 'INVITADO' ||
+      clientFound?.es_invitado ||
+      selectedTicket?.client_id === 'INVITADO' ||
+      String(clientFound?.id || '').startsWith('INVITADO')
+    )
+  );
+
+  const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && activePlans && activePlans.length > 0);
+
   // Birthday discount tracking
   const [birthdayDiscountActive, setBirthdayDiscountActive] = useState(false);
 
@@ -2056,23 +2085,6 @@ const VisitRecorder = () => {
     setLineItems([newWashItem, ...lineItems]);
   };
 
-  // Detección de cliente empleado
-  const isEmployeeClient = Boolean(
-    clientFound?.is_employee ||
-    clientFound?.isEmployee ||
-    clientFound?.tipo === 'Empleado' ||
-    employeeDiscountApplied ||
-    String(clientFound?.id || '').startsWith('EMP-') ||
-    clientFound?.id === 'EMPLEADO' ||
-    selectedTicket?.ticket_type === 'empleado' ||
-    selectedTicket?.is_employee === true ||
-    String(selectedTicket?.client_id || '').startsWith('EMP-') ||
-    selectedTicket?.client_id === 'EMPLEADO' ||
-    selectedTicket?.client_id === 'Colaborador' ||
-    selectedTicket?.draft_data?.isEmployeeTicket === true ||
-    (typeof selectedTicket?.draft_data === 'string' && selectedTicket.draft_data.includes('"isEmployeeTicket":true'))
-  );
-
   // Line Items Controls (Price rules & Intelligent matching)
   const addServiceToLineItems = (service) => {
     if (!clientFound && !selectedTicket) {
@@ -2847,17 +2859,7 @@ const VisitRecorder = () => {
     }
   };
 
-  // Scope principal: Detección de tipo de cliente y membresía Plan Beauty activa
-  const isGuestClient = Boolean(
-    !isEmployeeClient && (
-      !clientFound ||
-      clientFound?.id === 'INVITADO' ||
-      clientFound?.es_invitado ||
-      selectedTicket?.client_id === 'INVITADO' ||
-      String(clientFound?.id || '').startsWith('INVITADO')
-    )
-  );
-  const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && activePlans && activePlans.length > 0);
+  // Scope principal: Detección de estado del cliente y suspensión
   const isPendingPayment = Boolean(
     !isEmployeeClient && !isGuestClient && (
       clientFound?.status === 'Pending_Payment' ||
