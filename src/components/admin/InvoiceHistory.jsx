@@ -47,6 +47,23 @@ export default function InvoiceHistory() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  const getLoggedUserName = () => {
+    return (
+      user?.nombre ||
+      user?.name ||
+      user?.username ||
+      (() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem('salon_pro_user') || localStorage.getItem('user') || '{}');
+          return saved?.nombre || saved?.name || saved?.username || '';
+        } catch (e) {
+          return '';
+        }
+      })() ||
+      'Administrador'
+    );
+  };
+
   // Row Expand, Void Modal, Print Modal State
   const [expandedId, setExpandedId] = useState(null);
   const [showVoidModal, setShowVoidModal] = useState(false);
@@ -54,8 +71,30 @@ export default function InvoiceHistory() {
   const [targetVisitToVoid, setTargetVisitToVoid] = useState(null);
   const [voidReasonCategory, setVoidReasonCategory] = useState('Error de cobro / método de pago');
   const [voidCustomReason, setVoidCustomReason] = useState('');
-  const [voidUser, setVoidUser] = useState(user?.nombre || user?.name || 'Administrador');
+  const [voidUser, setVoidUser] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('salon_pro_user') || localStorage.getItem('user') || '{}');
+      return saved?.nombre || saved?.name || saved?.username || '';
+    } catch (e) {
+      return '';
+    }
+  });
   const [isSubmittingVoid, setIsSubmittingVoid] = useState(false);
+
+  const handleOpenVoidModal = (visit) => {
+    setTargetVisitToVoid(visit);
+    setVoidReasonCategory('Error de cobro / método de pago');
+    setVoidCustomReason('');
+    setVoidUser(getLoggedUserName());
+    setShowVoidModal(true);
+  };
+
+  useEffect(() => {
+    if (!voidUser || voidUser === 'Administrador') {
+      const uname = getLoggedUserName();
+      if (uname) setVoidUser(uname);
+    }
+  }, [user]);
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -1146,10 +1185,7 @@ export default function InvoiceHistory() {
                           {!isVoided && canVoid && (
                             <button
                               type="button"
-                              onClick={() => {
-                                setTargetVisitToVoid(visit);
-                                setShowVoidModal(true);
-                              }}
+                              onClick={() => handleOpenVoidModal(visit)}
                               style={{ background: '#fff1f2', color: '#be185d', border: '1px solid #fbcfe8', padding: '3px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
                               title="Anular esta factura con trazabilidad"
                             >

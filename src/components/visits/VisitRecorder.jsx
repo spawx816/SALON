@@ -510,14 +510,57 @@ const VisitRecorder = () => {
   const [otpSentEmail, setOtpSentEmail] = useState('');
   const [adminOtpCode, setAdminOtpCode] = useState('');
 
+  // Helper to obtain active logged in user or cashier
+  const getLoggedUserName = () => {
+    return (
+      currentUser?.nombre ||
+      currentUser?.name ||
+      currentUser?.username ||
+      activeRegister?.employee_name ||
+      (() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem('salon_pro_user') || localStorage.getItem('user') || '{}');
+          return saved?.nombre || saved?.name || saved?.username || '';
+        } catch (e) {
+          return '';
+        }
+      })() ||
+      'Administrador'
+    );
+  };
+
   // Invoice Voiding / Anulación (Section 16 Audit)
   const [showVoidModal, setShowVoidModal] = useState(false);
   const [targetVisitToVoid, setTargetVisitToVoid] = useState(null);
   const [voidReasonCategory, setVoidReasonCategory] = useState('Error de cobro / método de pago');
   const [voidCustomReason, setVoidCustomReason] = useState('');
-  const [voidUser, setVoidUser] = useState('');
+  const [voidUser, setVoidUser] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('salon_pro_user') || localStorage.getItem('user') || '{}');
+      return saved?.nombre || saved?.name || saved?.username || '';
+    } catch (e) {
+      return '';
+    }
+  });
   const [isSubmittingVoid, setIsSubmittingVoid] = useState(false);
   const [expandedVisitId, setExpandedVisitId] = useState(null);
+
+  const handleOpenVoidModal = (visit) => {
+    setTargetVisitToVoid(visit);
+    setVoidReasonCategory('Error de cobro / método de pago');
+    setVoidCustomReason('');
+    setVoidUser(getLoggedUserName());
+    setShowVoidModal(true);
+  };
+
+  useEffect(() => {
+    if (!voidUser) {
+      const autoUser = getLoggedUserName();
+      if (autoUser) {
+        setVoidUser(autoUser);
+      }
+    }
+  }, [currentUser, activeRegister]);
 
   // Payment & Cash Register
   const [activeRegister, setActiveRegister] = useState(null);
@@ -2723,7 +2766,7 @@ const VisitRecorder = () => {
     try {
       await dataService.voidVisit(targetVisitToVoid.id, {
         reason: finalReason,
-        voided_by: voidUser.trim() || 'Cajero / Admin'
+        voided_by: voidUser.trim() || getLoggedUserName()
       });
 
       alert(`✅ Factura #${targetVisitToVoid.ticket_number || targetVisitToVoid.id} anulada exitosamente.\n\nSe ha generado el registro inmutable de auditoría y ajustado el cuadre de caja.`);
@@ -5420,10 +5463,7 @@ const VisitRecorder = () => {
                             {!isVoided && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setTargetVisitToVoid(visit);
-                                  setShowVoidModal(true);
-                                }}
+                                onClick={() => handleOpenVoidModal(visit)}
                                 style={{ background: '#fff1f2', color: '#be185d', border: '1px solid #fbcfe8', padding: '4px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
                                 title="Anular esta factura con trazabilidad de auditoría"
                               >
@@ -7054,10 +7094,7 @@ const VisitRecorder = () => {
                                 {!isVoid && (
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      setTargetVisitToVoid(inv);
-                                      setShowVoidModal(true);
-                                    }}
+                                    onClick={() => handleOpenVoidModal(inv)}
                                     style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '0.35rem 0.6rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}
                                     title="Anular Factura con Auditoría"
                                   >

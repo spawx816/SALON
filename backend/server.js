@@ -5429,7 +5429,7 @@ app.get('/api/cardnet/status', async (req, res) => {
       active: true,
       env: process.env.CARDNET_ENV || 'TEST',
       latency,
-      message: `La plataforma está conectada exitosamente al entorno de ${process.env.CARDNET_ENV === 'PROD' ? 'producción' : 'pruebas'} de CardNet Dominicana.`
+      message: `La plataforma está conectada exitosamente al entorno de ${['PROD', 'PRODUCTION'].includes(process.env.CARDNET_ENV) ? 'producción' : 'pruebas'} de CardNet Dominicana.`
     });
   } catch (err) {
     const latency = Date.now() - start;
@@ -6332,7 +6332,7 @@ async function processSubscriptionsInternal(reqIp = "127.0.0.1") {
       JOIN clients cl ON c.client_id = cl.id
       JOIN plans p ON c.plan_id = p.id
       WHERE (c.status IN ('Active', 'Activo') AND c.next_billing_date <= NOW())
-         OR (c.status IN ('Pending_Retry', 'Pending_Payment', 'Pendiente_Pago', 'Past_Due') AND (c.next_retry_date <= NOW() OR c.next_retry_date IS NULL OR c.next_billing_date <= NOW()) AND (c.retry_count < 90 OR c.retry_count IS NULL))
+         OR (c.status IN ('Pending_Retry', 'Pending_Payment', 'Pendiente_Pago', 'Past_Due') AND (c.next_retry_date <= NOW() OR (c.next_retry_date IS NULL AND c.next_billing_date <= NOW())) AND (c.retry_count < 90 OR c.retry_count IS NULL))
     `);
 
     console.log(`[CRON] Processing ${dueContracts.length} contracts for billing/retry at ${new Date().toISOString()}...`);

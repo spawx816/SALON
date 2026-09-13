@@ -8,11 +8,11 @@ const Payments = () => {
   const [stats, setStats] = useState({ totalEstimated: 0, activeSubscriptions: 0, lastAutoBilling: null, totalApproved: 0, totalFailedCount: 0 });
   const [gatewayStatus, setGatewayStatus] = useState({
     active: true,
-    env: 'TEST',
+    env: 'PRODUCTION',
     latency: 240,
     uptime: '99.9%',
     loading: false,
-    message: 'La plataforma está conectada exitosamente al entorno de pruebas de CardNet Dominicana.'
+    message: 'La plataforma está conectada exitosamente al entorno de producción de CardNet Dominicana.'
   });
 
   const checkStatus = async () => {
@@ -257,7 +257,7 @@ const Payments = () => {
                 <p style={{ color: gatewayStatus.active ? '#166534' : '#991b1b', fontSize: '0.9rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0 }}>
                   <div className={gatewayStatus.active ? "pulse-green" : "pulse-red"} style={{ width: '10px', height: '10px', background: gatewayStatus.active ? '#22c55e' : '#ef4444', borderRadius: '50%' }}></div>
                   {gatewayStatus.active 
-                    ? (gatewayStatus.env === 'PROD' ? 'CardNet Producción Activo' : 'CardNet Lab Activo')
+                    ? (['PROD', 'PRODUCTION'].includes(gatewayStatus.env) ? 'CardNet Producción Activo' : 'CardNet Lab Activo')
                     : 'CardNet Desconectado'
                   }
                 </p>
