@@ -1144,16 +1144,16 @@ app.post('/api/otp/verify', async (req, res) => {
       let rows = [];
       if (clientId) {
         const [res1] = await pool.query(
-          'SELECT * FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+          'SELECT * FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0 AND (expires_at > NOW() OR created_at > DATE_SUB(NOW(), INTERVAL 20 MINUTE)) ORDER BY id DESC LIMIT 1',
           [clientId, cleanCode]
         );
         rows = res1;
       }
 
       if (!rows || rows.length === 0) {
-        // Fallback: Check globally by code if within expiration
+        // Fallback: Check globally by code if within 20 mins
         const [res2] = await pool.query(
-          'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
+          'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND (expires_at > NOW() OR created_at > DATE_SUB(NOW(), INTERVAL 20 MINUTE)) ORDER BY id DESC LIMIT 1',
           [cleanCode]
         );
         rows = res2;

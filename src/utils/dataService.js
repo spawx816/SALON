@@ -720,7 +720,17 @@ export const dataService = {
         body: JSON.stringify({ clientId, clientEmail })
       });
       if (res.ok) {
-        return await res.json();
+        const data = await res.json();
+        if (data && data.code) {
+          try {
+            sessionStorage.setItem(`otp_${clientId}`, JSON.stringify({
+              code: data.code,
+              clientEmail: data.email || clientEmail,
+              expiresAt: Date.now() + 15 * 60 * 1000
+            }));
+          } catch {}
+        }
+        return data;
       }
     } catch (e) {
       console.warn('OTP API endpoint unavailable, generating security code:', e);
@@ -749,18 +759,6 @@ export const dataService = {
   },
 
   verifyOTPAndDiscount: async (clientId, code, visitData) => {
-    try {
-      const res = await fetch(`${API_URL}/otp/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, code, visitData })
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch (e) {
-      console.warn('Backend verify unavailable, validating code:', e);
-    }
     const cleanCode = String(code || '').trim();
     if (cleanCode === '2026' || cleanCode === '1234' || cleanCode === '8888') {
       if (visitData) {
@@ -768,20 +766,38 @@ export const dataService = {
       }
       return { success: true, verified: true };
     }
+
     try {
-      const stored = sessionStorage.getItem(`otp_${clientId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.code === cleanCode && Date.now() <= parsed.expiresAt) {
-          sessionStorage.removeItem(`otp_${clientId}`);
-          if (visitData) {
-            try { await dataService.saveVisit({ ...visitData, clientId }); } catch(err) { console.error(err); }
-          }
-          return { success: true, verified: true };
-        }
+      const res = await fetch(`${API_URL}/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, code: cleanCode, visitData })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.success || data.verified)) {
+        return data;
       }
-    } catch {}
-    throw new Error('Código de verificación incorrecto o expirado.');
+      if (!res.ok) {
+        throw new Error(data.error || 'Código de verificación incorrecto o expirado.');
+      }
+    } catch (e) {
+      if (!e.message?.includes('incorrecto') && !e.message?.includes('expirado')) {
+        try {
+          const stored = sessionStorage.getItem(`otp_${clientId}`);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed.code === cleanCode && Date.now() <= parsed.expiresAt) {
+              sessionStorage.removeItem(`otp_${clientId}`);
+              if (visitData) {
+                try { await dataService.saveVisit({ ...visitData, clientId }); } catch(err) { console.error(err); }
+              }
+              return { success: true, verified: true };
+            }
+          }
+        } catch {}
+      }
+      throw e;
+    }
   },
 
   verifyOTP: async (clientId, code) => {
@@ -789,16 +805,34 @@ export const dataService = {
     if (cleanCode === '2026' || cleanCode === '1234' || cleanCode === '8888') {
       return { success: true, verified: true };
     }
+
     try {
-      const stored = sessionStorage.getItem(`otp_${clientId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.code === cleanCode && Date.now() <= parsed.expiresAt) {
-          return { success: true, verified: true };
-        }
+      const res = await fetch(`${API_URL}/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, code: cleanCode })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.success || data.verified)) {
+        return { success: true, verified: true };
       }
-    } catch {}
-    throw new Error('Código de verificación incorrecto');
+      if (!res.ok) {
+        throw new Error(data.error || 'Código de verificación incorrecto o expirado.');
+      }
+    } catch (e) {
+      if (!e.message?.includes('incorrecto') && !e.message?.includes('expirado')) {
+        try {
+          const stored = sessionStorage.getItem(`otp_${clientId}`);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed.code === cleanCode && Date.now() <= parsed.expiresAt) {
+              return { success: true, verified: true };
+            }
+          }
+        } catch {}
+      }
+      throw e;
+    }
   },
 
   // Settings
