@@ -202,9 +202,17 @@ const VisitRecorder = () => {
   const [ticketClientMembership, setTicketClientMembership] = useState(null);
   const [loadingTicketMembership, setLoadingTicketMembership] = useState(false);
   const [newTicketClientName, setNewTicketClientName] = useState('');
-  const [newTicketCedula, setNewTicketCedula] = useState('');
-  const [ticketType, setTicketType] = useState('general'); // 'general' | 'plan_beauty' | 'empleado'
   const [selectedEmployeeForTicket, setSelectedEmployeeForTicket] = useState(null);
+
+  // Auto-disparo automático de impresión al abrir el ticket térmico
+  useEffect(() => {
+    if (showPrintModal && printableTicketData) {
+      const timer = setTimeout(() => {
+        window.print();
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [showPrintModal, printableTicketData]);
 
   // Pricing & Admin Auth
   const [showAdminPinModal, setShowAdminPinModal] = useState(false);
