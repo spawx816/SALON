@@ -6700,19 +6700,6 @@ async function processSubscriptionsInternal(reqIp = "127.0.0.1") {
   }
 }
 
-function startInternalScheduler() {
-  console.log('[SCHEDULER] Internal billing and birthday scheduler initialized.');
-  // Execute subscription processing periodically (every 30 mins)
-  // Thanks to the 1-attempt-per-day guard, running frequently is completely safe and won't double-charge
-  setInterval(async () => {
-    try {
-      await processSubscriptionsInternal('127.0.0.1');
-    } catch (e) {
-      console.error('[SCHEDULER ERROR] Recurring worker failed:', e.message);
-    }
-  }, 30 * 60 * 1000);
-}
-
 app.post('/api/cron/process-subscriptions', async (req, res) => {
   try {
     const results = await processSubscriptionsInternal(req.ip);
