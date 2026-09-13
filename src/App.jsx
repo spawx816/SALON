@@ -42,6 +42,7 @@ import GiftCardValidator from './components/admin/GiftCardValidator';
 import AttendanceKiosk from './pages/AttendanceKiosk';
 import AttendanceLogs from './components/admin/AttendanceLogs';
 import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
+import ReceptionDashboard from './components/reception/ReceptionDashboard';
 
 import './index.css';
 import Landing from './pages/Landing';
@@ -206,16 +207,16 @@ const AppContent = () => {
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
-  const isReceptionist = Boolean(
-    user &&
+  const isReceptionProfile = Boolean(
+    !isAdmin &&
     !isClient &&
     (
       user?.role?.toLowerCase()?.includes('recep') ||
       user?.role_name?.toLowerCase()?.includes('recep') ||
       user?.role?.toLowerCase() === 'cajero' ||
       user?.role_name?.toLowerCase() === 'cajero' ||
-      (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits)) ||
-      location.pathname === '/visitas'
+      user?.role?.toLowerCase() === 'staff' ||
+      (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits) && !user?.permissions?.view_analytics)
     )
   );
 
@@ -429,7 +430,7 @@ const AppContent = () => {
               style={{ minHeight: '100%' }}
             >
               <Routes location={location}>
-                <Route path="/" element={isClient ? <ClientDashboard /> : <Dashboard />} />
+                <Route path="/" element={isClient ? <ClientDashboard /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)} />
                 <Route path="/registro-cliente" element={isClient ? <Navigate to="/" /> : <ClientRegistration />} />
                 <Route path="/lista-clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
                 <Route path="/visitas" element={isClient ? <Navigate to="/" /> : <VisitRecorder />} />
