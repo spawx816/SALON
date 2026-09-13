@@ -2456,23 +2456,32 @@ const VisitRecorder = () => {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  // Calculate Plan Beauty discount when consumePlanWash is ON and client has active plan
+  // Calculate Plan Beauty discount when consumePlanWash is ON and client has active plan with available quota
   const calculatePlanDiscount = () => {
     if (!consumePlanWash || !activePlans || activePlans.length === 0) return 0;
+    const availableBenefits = getBenefitsCount();
+    if (availableBenefits <= 0) return 0;
+
+    // If an item is already marked as isPlanWash with 0 price, no additional discount is needed
+    if (lineItems.some(i => i.isPlanWash && (i.precioAplicado === 0 || i.precioBase === 0))) {
+      return 0;
+    }
+
     // Find the first wash/covered item in line items
     const washItem = lineItems.find(item =>
-      (item.nombre || '').toLowerCase().includes('lavado') ||
+      !item.isPlanWash &&
+      ((item.nombre || '').toLowerCase().includes('lavado') ||
       (item.nombre || '').toLowerCase().includes('secado') ||
       String(item.service_id).includes('plan') ||
       item.id === 'plan-washes' ||
-      item.id === 'plan-treatment'
+      item.id === 'plan-treatment')
     );
     if (washItem) {
-      return (washItem.precioAplicado * washItem.cantidad);
+      return (washItem.precioAplicado * 1);
     }
-    // If paymentMethod is Plan Beauty and items exist, cover the first item
+    // If paymentMethod is Plan Beauty and items exist, cover the first item only if benefits available
     if (paymentMethod === 'Plan Beauty' && lineItems.length > 0) {
-      return (lineItems[0].precioAplicado * lineItems[0].cantidad);
+      return (lineItems[0].precioAplicado * 1);
     }
     return 0;
   };
@@ -2516,13 +2525,15 @@ const VisitRecorder = () => {
   const effectiveCashCovered = Math.min(cashAppliedSum, neededForCashPortion);
   const pendienteAmount = Math.max(0, finalTotalAmount - (nonCashAppliedSum + effectiveCashCovered));
   const hasPlanWashInItems = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
-  const isPlanZeroTotal = finalTotalAmount === 0 && lineItems.length > 0 && (hasPlanWashInItems || hasActivePlan);
+  const hasAvailablePlanBenefits = getBenefitsCount() > 0;
+  const isPlanZeroTotal = finalTotalAmount === 0 && lineItems.length > 0 && (hasPlanWashInItems || (hasActivePlan && hasAvailablePlanBenefits));
   const isFinalizeEnabled = lineItems.length > 0 && (isPlanZeroTotal || (pendienteAmount <= 0.01 && appliedPayments.length > 0));
 
   // Initialize default single cash payment in blank so cashier types, or Plan Beauty if covered
   useEffect(() => {
     const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
-    if (finalTotalAmount === 0 && lineItems.length > 0 && (hasPlanWash || hasActivePlan)) {
+    const hasBenefits = getBenefitsCount() > 0;
+    if (finalTotalAmount === 0 && lineItems.length > 0 && (hasPlanWash || (hasActivePlan && hasBenefits))) {
       if (!appliedPayments.some(p => p.method === 'Plan Beauty')) {
         setAppliedPayments([
           {
@@ -2544,6 +2555,9 @@ const VisitRecorder = () => {
           giftCardInfo: null
         }
       ]);
+    } else if (finalTotalAmount > 0 && appliedPayments.some(p => p.method === 'Plan Beauty')) {
+      // Remove automatic 0 Plan Beauty payment method if total is now > 0
+      setAppliedPayments(prev => prev.filter(p => p.method !== 'Plan Beauty'));
     }
   }, [finalTotalAmount, lineItems, hasActivePlan]);
 
@@ -2783,7 +2797,7 @@ const VisitRecorder = () => {
     }
 
     const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
-    const isPlanZero = finalTotalAmount === 0 && (hasPlanWash || hasActivePlan);
+    const isPlanZero = finalTotalAmount === 0 && (hasPlanWash || (hasActivePlan && getBenefitsCount() > 0));
 
     if (!isPlanZero && appliedPayments.length === 0) {
       alert('⚠️ Debes aplicar al menos un método de pago en la sección "Aplicar Pago" antes de finalizar la factura.');
