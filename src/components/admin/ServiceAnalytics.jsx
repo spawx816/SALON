@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Users, UserX, Calendar, CreditCard, Filter, ChevronRight, 
-  MapPin, Clock, ArrowDown, ArrowUp, BarChart2, List, Banknote, Receipt
+  MapPin, Clock, ArrowDown, ArrowUp, BarChart2, List, Banknote, Receipt, Search
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
@@ -15,6 +15,7 @@ const ServiceAnalytics = () => {
   const [reports, setReports] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeReport, setActiveReport] = useState('sales');
+  const [clientPaymentSearch, setClientPaymentSearch] = useState('');
   
   // Date range state
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
@@ -54,12 +55,13 @@ const ServiceAnalytics = () => {
 
   const reportMenu = [
     { id: 'sales', label: 'Ventas Diarias', icon: DollarSign, color: '#10b981' },
+    { id: 'client_payments', label: 'Cobros por Cliente', icon: CreditCard, color: '#8b5cf6' },
     { id: 'invoices', label: 'Facturas & Ventas', icon: Receipt, color: '#be185d' },
     { id: 'cash', label: 'Pagos en Efectivo', icon: Banknote, color: '#059669' },
     { id: 'commissions', label: 'Comisiones Colaboradores', icon: Users, color: '#ec4899' },
     { id: 'clients', label: 'Estado de Clientes', icon: Users, color: '#3b82f6' },
     { id: 'inactive', label: 'Clientes Inactivos (>15d)', icon: Clock, color: '#ef4444' },
-    { id: 'payments', label: 'Desglose de Pagos', icon: CreditCard, color: '#8b5cf6' },
+    { id: 'payments', label: 'Desglose de Pagos', icon: BarChart2, color: '#6366f1' },
     { id: 'frequency', label: 'Frecuencia de Visitas', icon: Calendar, color: '#f59e0b' },
   ];
 
@@ -94,14 +96,24 @@ const ServiceAnalytics = () => {
           <div className="report-view">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
               <h3 style={{ margin: 0, fontWeight: 800 }}>Ventas Diarias ({startDate} al {endDate})</h3>
-              <button
-                type="button"
-                onClick={() => setActiveReport('invoices')}
-                style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(190,24,93,0.25)' }}
-              >
-                <Receipt size={15} />
-                <span>Ver Registro de Facturas</span>
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveReport('client_payments')}
+                  style={{ background: '#8b5cf6', color: '#ffffff', border: 'none', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(139,92,246,0.25)' }}
+                >
+                  <CreditCard size={15} />
+                  <span>Ver Cobros por Cliente</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveReport('invoices')}
+                  style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', boxShadow: '0 2px 6px rgba(190,24,93,0.25)' }}
+                >
+                  <Receipt size={15} />
+                  <span>Ver Registro de Facturas</span>
+                </button>
+              </div>
             </div>
             
             {/* New Prominent Indicator */}
@@ -151,6 +163,211 @@ const ServiceAnalytics = () => {
             </div>
           </div>
         );
+
+      case 'client_payments': {
+        const rawPayments = reports.detailedPayments || [];
+        const filteredPayments = rawPayments.filter(p => {
+          if (!clientPaymentSearch.trim()) return true;
+          const query = clientPaymentSearch.toLowerCase();
+          const name = (p.client_name || '').toLowerCase();
+          const phone = (p.client_phone || '').toLowerCase();
+          const salon = (p.salon_name || '').toLowerCase();
+          const desc = (p.description || '').toLowerCase();
+          const method = (p.method || '').toLowerCase();
+          return name.includes(query) || phone.includes(query) || salon.includes(query) || desc.includes(query) || method.includes(query);
+        });
+
+        const totalCharged = filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+        const avgTicket = filteredPayments.length > 0 ? totalCharged / filteredPayments.length : 0;
+
+        return (
+          <div className="report-view">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <h3 style={{ margin: 0, fontWeight: 800, fontSize: '1.25rem' }}>Desglose de Cobros por Cliente</h3>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Detalle individual de pagos y suscripciones ({startDate} al {endDate})
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente, teléfono, sucursal..."
+                    value={clientPaymentSearch}
+                    onChange={(e) => setClientPaymentSearch(e.target.value)}
+                    style={{
+                      padding: '0.55rem 1rem 0.55rem 2.25rem',
+                      borderRadius: '12px',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-canvas)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.85rem',
+                      outline: 'none',
+                      minWidth: '260px'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Quick KPI summary */}
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+              gap: '1rem', 
+              marginBottom: '1.5rem' 
+            }}>
+              <div style={{ 
+                background: 'linear-gradient(135deg, #09090b, #18181b)', 
+                color: 'white', 
+                padding: '1.25rem 1.5rem', 
+                borderRadius: '18px',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem'
+              }}>
+                <div style={{ background: 'rgba(212, 175, 55, 0.15)', padding: '0.75rem', borderRadius: '14px' }}>
+                  <DollarSign size={22} color="#d4af37" />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', opacity: 0.6 }}>Total Recaudado</p>
+                  <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#facc15' }}>
+                    RD$ {Number(totalCharged).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ 
+                background: 'var(--bg-canvas)', 
+                padding: '1.25rem 1.5rem', 
+                borderRadius: '18px',
+                border: '1px solid var(--border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem'
+              }}>
+                <div style={{ background: 'rgba(139, 92, 246, 0.12)', padding: '0.75rem', borderRadius: '14px' }}>
+                  <CreditCard size={22} color="#8b5cf6" />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Transacciones</p>
+                  <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: 'var(--text-primary)' }}>
+                    {filteredPayments.length} <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>cobros</span>
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ 
+                background: 'var(--bg-canvas)', 
+                padding: '1.25rem 1.5rem', 
+                borderRadius: '18px',
+                border: '1px solid var(--border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem'
+              }}>
+                <div style={{ background: 'rgba(16, 185, 129, 0.12)', padding: '0.75rem', borderRadius: '14px' }}>
+                  <Receipt size={22} color="#10b981" />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Ticket Promedio</p>
+                  <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#10b981' }}>
+                    RD$ {Number(avgTicket).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="table-responsive" style={{ borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card, #18181b)' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-canvas, #09090b)' }}>
+                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Cliente</th>
+                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Teléfono</th>
+                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Sucursal</th>
+                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Concepto / Detalle</th>
+                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Método</th>
+                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', textAlign: 'right' }}>Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPayments.length > 0 ? (
+                    filteredPayments.map((pay, idx) => {
+                      const methodClean = pay.method === 'CardNet_Recurring_Setup' ? 'CardNet' :
+                                          pay.method === 'CardNet_Auto' ? 'CardNet Auto' :
+                                          pay.method === 'Tarjeta_Guardada' ? 'CardNet Manual' :
+                                          pay.method || 'Efectivo/POS';
+                      
+                      const isSirena = (pay.salon_name || '').toLowerCase().includes('sirena') || (pay.salon_name || '').toLowerCase().includes('villa mella');
+
+                      return (
+                        <tr 
+                          key={pay.id || idx} 
+                          style={{ 
+                            borderBottom: '1px solid var(--border-subtle)', 
+                            background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+                            transition: 'background 0.2s'
+                          }}
+                        >
+                          <td style={{ padding: '1rem', fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary, #ffffff)' }}>
+                            {pay.client_name}
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            <span style={{ 
+                              display: 'inline-block', 
+                              padding: '0.2rem 0.6rem', 
+                              borderRadius: '6px', 
+                              background: 'rgba(255,255,255,0.08)', 
+                              fontSize: '0.82rem', 
+                              fontFamily: 'monospace',
+                              fontWeight: 600,
+                              color: 'var(--text-secondary, #a1a1aa)'
+                            }}>
+                              {pay.client_phone || 'N/D'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1rem', fontSize: '0.88rem', fontWeight: 700, color: isSirena ? '#38bdf8' : '#e2e8f0' }}>
+                            {pay.salon_name || 'San Vicente'}
+                          </td>
+                          <td style={{ padding: '1rem', fontSize: '0.86rem', color: 'var(--text-secondary, #a1a1aa)', fontStyle: 'italic' }}>
+                            {pay.description || 'Cobro de Plan / Servicio'}
+                          </td>
+                          <td style={{ padding: '1rem' }}>
+                            <span style={{ 
+                              display: 'inline-block',
+                              fontSize: '0.78rem', 
+                              padding: '0.25rem 0.65rem', 
+                              borderRadius: '8px', 
+                              fontWeight: 700,
+                              background: methodClean.includes('CardNet') ? 'rgba(139, 92, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                              color: methodClean.includes('CardNet') ? '#c084fc' : '#34d399'
+                            }}>
+                              {methodClean}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1rem', fontSize: '0.95rem', fontWeight: 900, textAlign: 'right', color: 'var(--text-primary, #ffffff)' }}>
+                            RD$ {Number(pay.amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        No se encontraron cobros registrados para el rango de fechas y filtros seleccionados.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      }
 
       case 'commissions':
         return (
