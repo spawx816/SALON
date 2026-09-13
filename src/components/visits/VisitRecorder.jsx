@@ -2248,10 +2248,10 @@ const VisitRecorder = () => {
   const handleDiscountChange = (index, discountPercent) => {
     const pct = parseFloat(discountPercent) || 0;
     const item = lineItems[index];
-    const isAutoPermitted = isEmployeeClient || employeeDiscountApplied || birthdayDiscountActive || (activePlans && activePlans.length > 0 && pct === 20);
     const isThisItemAuthorized = item?.isDiscountAuthorized && item?.authorizedDiscountPct === pct;
 
-    if (pct > 0 && !isThisItemAuthorized && !isAutoPermitted) {
+    // Exigir siempre código PIN de administrador cuando se intente modificar manualmente el descuento
+    if (pct > 0 && !isThisItemAuthorized) {
       triggerAdminPinModal({
         type: 'discount',
         index,
