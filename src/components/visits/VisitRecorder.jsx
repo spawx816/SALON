@@ -648,6 +648,24 @@ const VisitRecorder = () => {
   const [otpSentEmail, setOtpSentEmail] = useState('');
   const [adminOtpCode, setAdminOtpCode] = useState('');
 
+  // Payment & Cash Register
+  const [activeRegister, setActiveRegister] = useState(null);
+  const [showRegisterOpenModal, setShowRegisterOpenModal] = useState(false);
+  const [registerInitialAmount, setRegisterInitialAmount] = useState('1000.00');
+  const [showRegisterDetailsModal, setShowRegisterDetailsModal] = useState(false);
+  const [closeRegisterAmount, setCloseRegisterAmount] = useState('');
+  const [closeRegisterNotes, setCloseRegisterNotes] = useState('');
+  const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
+
+  // Real-Time Cash Movements States
+  const [registerMovements, setRegisterMovements] = useState([]);
+  const [registerSummary, setRegisterSummary] = useState(null);
+  const [movementActiveTab, setMovementActiveTab] = useState('resumen');
+  const [newMovementType, setNewMovementType] = useState('Gasto_Imprevisto');
+  const [newMovementAmount, setNewMovementAmount] = useState('');
+  const [newMovementConcept, setNewMovementConcept] = useState('');
+  const [movementEmployeeId, setMovementEmployeeId] = useState('');
+
   // Helper to obtain active logged in user or cashier
   const getLoggedUserName = () => {
     return (
@@ -699,24 +717,6 @@ const VisitRecorder = () => {
       }
     }
   }, [currentUser, activeRegister]);
-
-  // Payment & Cash Register
-  const [activeRegister, setActiveRegister] = useState(null);
-  const [showRegisterOpenModal, setShowRegisterOpenModal] = useState(false);
-  const [registerInitialAmount, setRegisterInitialAmount] = useState('1000.00');
-  const [showRegisterDetailsModal, setShowRegisterDetailsModal] = useState(false);
-  const [closeRegisterAmount, setCloseRegisterAmount] = useState('');
-  const [closeRegisterNotes, setCloseRegisterNotes] = useState('');
-  const [showConfirmCloseModal, setShowConfirmCloseModal] = useState(false);
-
-  // Real-Time Cash Movements States
-  const [registerMovements, setRegisterMovements] = useState([]);
-  const [registerSummary, setRegisterSummary] = useState(null);
-  const [movementActiveTab, setMovementActiveTab] = useState('resumen');
-  const [newMovementType, setNewMovementType] = useState('Gasto_Imprevisto');
-  const [newMovementAmount, setNewMovementAmount] = useState('');
-  const [newMovementConcept, setNewMovementConcept] = useState('');
-  const [movementEmployeeId, setMovementEmployeeId] = useState('');
 
   const [paymentMethod, setPaymentMethod] = useState('Efectivo');
   const [montoRecibido, setMontoRecibido] = useState('');
