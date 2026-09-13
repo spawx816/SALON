@@ -5370,159 +5370,256 @@ const VisitRecorder = () => {
                   boxSizing: 'border-box'
                 }}
               >
-                {/* 1. CABECERA PRINCIPAL */}
-                <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-                  <h1 style={{ margin: '0 0 2px 0', fontSize: '22px', fontWeight: 900, letterSpacing: '1.5px', color: '#000000' }}>
-                    PLAN BEAUTY
-                  </h1>
-                  {/* Flor de Loto Estilizada */}
-                  <div style={{ fontSize: '15px', lineHeight: '1', margin: '1px 0 2px 0', color: '#000000' }}>
-                    🪷
+                {/* 1. CABECERA PRINCIPAL (MARCA ABATTE PELUQUERIA + PLAN BEAUTY) */}
+                <div style={{ textAlign: 'center', marginBottom: '6px' }}>
+                  <div style={{
+                    display: 'inline-block',
+                    borderRight: '2px solid #000000',
+                    padding: '0 8px 0 4px',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{
+                      fontSize: '26px',
+                      fontWeight: 900,
+                      letterSpacing: '4px',
+                      lineHeight: '1',
+                      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                    }}>
+                      ABATTE
+                    </div>
+                    <div style={{
+                      borderTop: '2px solid #000000',
+                      borderBottom: '2px solid #000000',
+                      padding: '2px 0',
+                      marginTop: '3px',
+                      fontSize: '11px',
+                      fontWeight: 900,
+                      letterSpacing: '4.5px',
+                      lineHeight: '1.1'
+                    }}>
+                      PELUQUERIA
+                    </div>
                   </div>
-                  <h2 style={{ margin: '0 0 4px 0', fontSize: '15px', fontWeight: 900, letterSpacing: '0.8px', color: '#000000' }}>
-                    ABATTE PELUQUERÍA
-                  </h2>
-                  <p style={{ margin: 0, fontSize: '9px', fontWeight: 700, letterSpacing: '0.3px', textTransform: 'uppercase', lineHeight: '1.2' }}>
-                    PRE-CUENTA PARA USO INTERNO<br />Y REVISIÓN DEL CLIENTE
-                  </p>
+                  <div style={{
+                    fontSize: '15px',
+                    fontWeight: 900,
+                    letterSpacing: '4.5px',
+                    marginTop: '6px',
+                    color: '#000000'
+                  }}>
+                    PLAN BEAUTY
+                  </div>
                 </div>
 
                 {/* LÍNEA SEPARADORA PUNTEADA */}
-                <div style={{ borderBottom: '1px dashed #000000', margin: '8px 0' }} />
+                <div style={{ borderBottom: '1.5px dotted #000000', margin: '8px 0 10px 0' }} />
 
                 {/* 2. METADATOS DEL TICKET */}
                 <div style={{ fontSize: '10.5px', lineHeight: '1.45', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
-                    <span style={{ fontWeight: 800, minWidth: '92px' }}>TICKET No.:</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '3px' }}>
+                    <span style={{ fontWeight: 800, minWidth: '95px' }}>TICKET No.:</span>
                     <span style={{ fontWeight: 900, fontSize: '14px', letterSpacing: '0.5px' }}>
-                      {printableTicketData.ticketNumber || 'SD-0249'}
+                      {printableTicketData.ticketNumber || 'SD-0251'}
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '3px' }}>
                     <span style={{ fontWeight: 800, minWidth: '60px' }}>FECHA:</span>
                     <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 600 }}>
                       {printableTicketData.dateFormatted || new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '3px' }}>
                     <span style={{ fontWeight: 800, minWidth: '60px' }}>HORA:</span>
                     <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 600 }}>
                       {printableTicketData.timeFormatted || new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true })}
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
-                    <span style={{ fontWeight: 800, minWidth: '60px' }}>CLIENTE:</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '3px' }}>
+                    <span style={{ fontWeight: 800, minWidth: '65px' }}>CLIENTE:</span>
                     <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 800, textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {printableTicketData.clientName || 'CLIENTE GENERAL'}
                     </span>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'baseline' }}>
-                    <span style={{ fontWeight: 800, minWidth: '92px' }}>RECEPCIONISTA:</span>
+                    <span style={{ fontWeight: 800, minWidth: '110px' }}>RECEPCIONISTA:</span>
                     <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '4px', fontWeight: 600, textTransform: 'capitalize' }}>
                       {printableTicketData.receptionistName || currentUser?.nombre || currentUser?.name || 'Staff Recepción'}
                     </span>
                   </div>
                 </div>
 
-                {/* 3. CAJAS DE BENEFICIOS (PLAN BEAUTY Y CUMPLEAÑOS) */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', margin: '8px 0 10px 0' }}>
+                {/* 3. CAJA DE BENEFICIOS (PLAN BEAUTY Y CUMPLEAÑOS) */}
+                <div style={{
+                  border: '1.5px solid #000000',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  margin: '8px 0 10px 0',
+                  padding: '6px 8px',
+                  alignItems: 'center'
+                }}>
                   {/* Tarjeta Plan Beauty */}
-                  <div style={{ border: '1px solid #000000', borderRadius: '4px', padding: '5px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', lineHeight: 1 }}>💎</span>
-                    <div style={{ fontSize: '8px', lineHeight: 1.15 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '6px', borderRight: '1.5px solid #000000', paddingRight: '6px' }}>
+                    <span style={{ fontSize: '18px', lineHeight: 1 }}>💎</span>
+                    <div style={{ fontSize: '8px', lineHeight: 1.2 }}>
                       <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>PLAN BEAUTY ACTIVO</div>
-                      <div style={{ marginTop: '2px', color: '#222' }}>
-                        Lavados disp: <strong style={{ textDecoration: 'underline' }}>{printableTicketData.isPlanBeauty ? (printableTicketData.planWashesAvailable || '4') : '____'}</strong>
+                      <div style={{ fontSize: '11px', fontWeight: 900, marginTop: '1px' }}>
+                        {printableTicketData.isPlanBeauty ? (printableTicketData.planWashesAvailable ? `${printableTicketData.planWashesAvailable} disp.` : 'Lavado disp.') : 'Lavado disp.'}
                       </div>
                     </div>
                   </div>
 
                   {/* Tarjeta Cumpleaños */}
-                  <div style={{ border: '1px solid #000000', borderRadius: '4px', padding: '5px 4px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', lineHeight: 1 }}>🎂</span>
-                    <div style={{ fontSize: '8px', lineHeight: 1.15 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '8px' }}>
+                    <span style={{ fontSize: '18px', lineHeight: 1 }}>📅</span>
+                    <div style={{ fontSize: '8px', lineHeight: 1.2 }}>
                       <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>SEMANA CUMPLEAÑOS</div>
-                      <div style={{ marginTop: '2px', fontWeight: 700 }}>
-                        {printableTicketData.isBirthday ? '15% DESC. APLICABLE' : '15% DESC. DISPONIBLE'}
+                      <div style={{ fontSize: '8.5px', fontWeight: 800, marginTop: '1px' }}>
+                        15% DESC. DISPONIBLE
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* 4. TABLA DE SERVICIOS PRE-IMPRESA PARA LLENADO DE ESTILISTA */}
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px', lineHeight: 1.25 }}>
-                  <thead>
-                    <tr style={{ background: '#000000', color: '#ffffff' }}>
-                      <th style={{ textAlign: 'left', padding: '3px 4px', fontWeight: 800, textTransform: 'uppercase', width: '52%' }}>SERVICIO</th>
-                      <th style={{ textAlign: 'center', padding: '3px 2px', fontWeight: 800, textTransform: 'uppercase', width: '22%' }}>EMPLEADO</th>
-                      <th style={{ textAlign: 'right', padding: '3px 4px', fontWeight: 800, textTransform: 'uppercase', width: '26%' }}>PRECIO (RD$)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      'LAVADO Y SECADO CON LÍNEAS',
-                      'LAVADO Y SECADO',
-                      'CORTE',
-                      'CORTE DE PUNTA',
-                      'TINTE',
-                      'RETOQUE DE TINTE',
-                      'LIGHT (RAYITOS)',
-                      'CELLOPHANE',
-                      'TEXTURIZADO',
-                      'RETOQUE DE TEXTURIZADO',
-                      'APLICACIÓN PRODUCTO TERMINACIÓN',
-                      'TRATAMIENTO',
-                      'PLANCHA',
-                      'PENETRAITT',
-                      'MASCARILLA',
-                      'PEINADO',
-                      'GOTAS',
-                      'MAQUILLAJE',
-                      'DEPILACIÓN BIGOTE',
-                      'DEPILACIÓN CEJAS',
-                      'DEPILACIÓN AXILAS',
-                      'DEPILACIÓN ÁREA DE BIKINI',
-                      'MANICURE',
-                      'PEDICURE',
-                      'UÑAS ACRÍLICAS',
-                      'RETOQUE DE UÑAS',
-                      'APLICACIÓN DE PRODUCTOS',
-                      'LAVADO Y SECADO EXTENSIONES'
-                    ].map((srv, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px dashed #d1d5db' }}>
-                        <td style={{ padding: '3px 2px', fontWeight: 700, fontSize: '8.5px', textTransform: 'uppercase' }}>
-                          {srv}
-                        </td>
-                        <td style={{ textAlign: 'center', padding: '3px 2px', borderLeft: '1px dashed #e5e7eb', borderRight: '1px dashed #e5e7eb' }}>
-                          <span style={{ letterSpacing: '-1px', color: '#6b7280' }}>___________</span>
-                        </td>
-                        <td style={{ textAlign: 'right', padding: '3px 2px', fontWeight: 600, fontSize: '8.5px', whiteSpace: 'nowrap' }}>
-                          RD$ <span style={{ letterSpacing: '-1px', color: '#6b7280' }}>________</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {/* 4. TABLA DE SERVICIOS PRE-IMPRESA */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontWeight: 900,
+                  fontSize: '10px',
+                  letterSpacing: '2.5px',
+                  borderBottom: '1.5px solid #000000',
+                  paddingBottom: '3px',
+                  marginBottom: '4px'
+                }}>
+                  <span>SERVICIO</span>
+                  <span>PRECIO</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {[
+                    'Lavado y secado con línea',
+                    'Lavado y secado',
+                    'Corte',
+                    'Tinte',
+                    'Texturizado',
+                    'Aplicación productos',
+                    'Maquillaje',
+                    'Cejas',
+                    'Depilación tintado',
+                    'Manicure',
+                    'Pedicure',
+                    'Gel',
+                    'Uñas acrílicas',
+                    'Extensiones'
+                  ].map((srv, idx) => {
+                    const matchedService = printableTicketData.services?.find?.(s =>
+                      s.nombre?.toLowerCase()?.trim() === srv.toLowerCase().trim() ||
+                      s.nombre?.toLowerCase()?.includes(srv.toLowerCase()) ||
+                      srv.toLowerCase()?.includes(s.nombre?.toLowerCase() || '')
+                    );
+                    return (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '10px' }}>
+                        <span style={{ fontWeight: 600, color: '#000000' }}>{srv}</span>
+                        <div style={{ display: 'flex', alignItems: 'baseline', minWidth: '95px', justifyContent: 'flex-end' }}>
+                          <span style={{ fontWeight: 700, marginRight: '4px', fontSize: '9px' }}>RD$</span>
+                          <span style={{ borderBottom: '1px solid #777777', width: '65px', display: 'inline-block', textAlign: 'right', fontWeight: 800, fontSize: '9.5px' }}>
+                            {matchedService?.precio ? Number(matchedService.precio).toLocaleString('es-DO') : ''}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
 
                 {/* 5. SECCIÓN TOTAL RD$ */}
-                <div style={{ borderTop: '1px dashed #000000', margin: '10px 0 8px 0', paddingTop: '8px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '16px', fontWeight: 900, letterSpacing: '0.5px' }}>
-                      TOTAL RD$
-                    </span>
-                    <div style={{ border: '2px solid #000000', borderRadius: '4px', width: '120px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '13px' }}>
-                      {printableTicketData.totalAmount ? `RD$ ${Number(printableTicketData.totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : ''}
-                    </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '10px 0 8px 0', paddingTop: '4px' }}>
+                  <span style={{ fontSize: '15px', fontWeight: 900, letterSpacing: '0.5px' }}>
+                    TOTAL RD$
+                  </span>
+                  <div style={{
+                    border: '1.5px solid #000000',
+                    width: '110px',
+                    height: '24px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 900,
+                    fontSize: '12px'
+                  }}>
+                    {printableTicketData.totalAmount ? `RD$ ${Number(printableTicketData.totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : ''}
                   </div>
                 </div>
 
-                {/* 6. PIE DEL TICKET */}
-                <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '9px', fontWeight: 800, letterSpacing: '1px' }}>
-                  ¡GRACIAS POR PREFERIRNOS!
+                {/* 6. PIE DEL TICKET CON QR Y MENÚ DE SERVICIOS */}
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', margin: '8px 0 6px 0' }}>
+                  {/* QR Code */}
+                  <svg width="44" height="44" viewBox="0 0 100 100" style={{ shapeRendering: 'crispEdges' }}>
+                    <rect width="100" height="100" fill="#ffffff" />
+                    <rect x="5" y="5" width="28" height="28" fill="#000000" />
+                    <rect x="9" y="9" width="20" height="20" fill="#ffffff" />
+                    <rect x="13" y="13" width="12" height="12" fill="#000000" />
+
+                    <rect x="67" y="5" width="28" height="28" fill="#000000" />
+                    <rect x="71" y="9" width="20" height="20" fill="#ffffff" />
+                    <rect x="75" y="13" width="12" height="12" fill="#000000" />
+
+                    <rect x="5" y="67" width="28" height="28" fill="#000000" />
+                    <rect x="9" y="71" width="20" height="20" fill="#ffffff" />
+                    <rect x="13" y="75" width="12" height="12" fill="#000000" />
+
+                    <rect x="37" y="9" width="4" height="4" fill="#000000" />
+                    <rect x="45" y="9" width="4" height="4" fill="#000000" />
+                    <rect x="53" y="9" width="4" height="4" fill="#000000" />
+                    <rect x="9" y="37" width="4" height="4" fill="#000000" />
+                    <rect x="9" y="45" width="4" height="4" fill="#000000" />
+                    <rect x="9" y="53" width="4" height="4" fill="#000000" />
+
+                    <rect x="40" y="25" width="8" height="8" fill="#000000" />
+                    <rect x="52" y="20" width="6" height="6" fill="#000000" />
+                    <rect x="40" y="40" width="20" height="20" fill="#000000" />
+                    <rect x="44" y="44" width="12" height="12" fill="#ffffff" />
+                    <rect x="48" y="48" width="4" height="4" fill="#000000" />
+                    <rect x="68" y="40" width="8" height="14" fill="#000000" />
+                    <rect x="80" y="48" width="12" height="8" fill="#000000" />
+                    <rect x="25" y="42" width="8" height="8" fill="#000000" />
+                    <rect x="20" y="54" width="12" height="6" fill="#000000" />
+                    <rect x="68" y="68" width="12" height="10" fill="#000000" />
+                    <rect x="84" y="68" width="8" height="18" fill="#000000" />
+                    <rect x="40" y="68" width="10" height="12" fill="#000000" />
+                    <rect x="54" y="74" width="8" height="14" fill="#000000" />
+                    <rect x="40" y="86" width="18" height="6" fill="#000000" />
+                  </svg>
+
+                  <div style={{ height: '34px', borderLeft: '1.5px solid #000000' }} />
+
+                  <div style={{
+                    fontSize: '9.5px',
+                    fontWeight: 900,
+                    letterSpacing: '1.5px',
+                    lineHeight: '1.3',
+                    textAlign: 'left'
+                  }}>
+                    MENÚ DE<br />SERVICIOS
+                  </div>
+                </div>
+
+                {/* Cursiva Gracias por preferirnos */}
+                <div style={{
+                  textAlign: 'center',
+                  marginTop: '4px',
+                  fontFamily: '"Dancing Script", "Brush Script MT", "Caveat", cursive',
+                  fontSize: '18px',
+                  fontWeight: 700,
+                  color: '#000000'
+                }}>
+                  Gracias por preferirnos !
+                </div>
+                <div style={{ textAlign: 'center', fontSize: '15px', lineHeight: '1', marginTop: '1px' }}>
+                  ♡
                 </div>
               </div>
 
