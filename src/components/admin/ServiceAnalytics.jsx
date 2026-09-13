@@ -189,7 +189,7 @@ const ServiceAnalytics = () => {
                   Detalle individual de pagos y suscripciones ({startDate} al {endDate})
                 </p>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative' }}>
                   <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
                   <input
@@ -205,10 +205,30 @@ const ServiceAnalytics = () => {
                       color: 'var(--text-primary)',
                       fontSize: '0.85rem',
                       outline: 'none',
-                      minWidth: '260px'
+                      minWidth: '240px'
                     }}
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => loadReports(selectedSalon, startDate, endDate)}
+                  style={{
+                    background: '#8b5cf6',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '0.55rem 1rem',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    boxShadow: '0 2px 8px rgba(139, 92, 246, 0.3)'
+                  }}
+                >
+                  <span>Actualizar</span>
+                </button>
               </div>
             </div>
 
