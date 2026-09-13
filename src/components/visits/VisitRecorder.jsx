@@ -192,6 +192,8 @@ const VisitRecorder = () => {
 
   // Modals & Client Search for Ticket Generation
   const [showNewTicketModal, setShowNewTicketModal] = useState(false);
+  const [ticketType, setTicketType] = useState('general');
+  const [newTicketCedula, setNewTicketCedula] = useState('');
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [printableTicketData, setPrintableTicketData] = useState(null);
