@@ -27,6 +27,105 @@ const DEFAULT_TOP_SERVICES = [
   { id: '10', nombre: 'Botox Capilar', precio: 2200 }
 ];
 
+const LAVADO_SENCILLO_PRICE = 200; // Precio fijo para Lavado Sencillo en tickets de empleado
+const isLavadoSencillo = (nombre) => {
+  const n = (nombre || '').toLowerCase();
+  return n.includes('lavado sencillo') || n === 'lava pelo' || n.includes('lava pelo');
+};
+
+// Helper: Detección de ventana de cumpleaños:
+// Se habilita el MISMO día de cumpleaños (día 0) y los 6 días posteriores (7 días en total).
+// NO se habilita antes de la fecha de cumpleaños.
+const checkClientBirthday = (client) => {
+  if (!client) return false;
+  const dobStr = client.fecha_nacimiento || client.fechaNacimiento || client.dob;
+  if (!dobStr) return false;
+  try {
+    const cleanStr = String(dobStr).split('T')[0];
+    const parts = cleanStr.includes('-') ? cleanStr.split('-') : cleanStr.split('/');
+    let month = 0;
+    let day = 1;
+    if (parts.length >= 3) {
+      if (parts[0].length === 4) {
+        month = parseInt(parts[1], 10) - 1;
+        day = parseInt(parts[2], 10);
+      } else {
+        day = parseInt(parts[0], 10);
+        month = parseInt(parts[1], 10) - 1;
+      }
+    }
+    if (isNaN(month) || isNaN(day)) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const bdayThisYear = new Date(today.getFullYear(), month, day);
+    bdayThisYear.setHours(0, 0, 0, 0);
+
+    const diffFromBday = Math.round((today - bdayThisYear) / (1000 * 60 * 60 * 24));
+    return (diffFromBday >= 0 && diffFromBday <= 6);
+  } catch (e) {
+    return false;
+  }
+};
+
+// Helper to calculate days until client's birthday & eligibility for birthday gift
+const getBirthdayCountdown = (client) => {
+  const dobStr = client?.fecha_nacimiento || client?.fechaNacimiento || client?.dob;
+  if (dobStr) {
+    try {
+      const cleanStr = String(dobStr).split('T')[0];
+      const parts = cleanStr.includes('-') ? cleanStr.split('-') : cleanStr.split('/');
+      let month = 0;
+      let day = 1;
+      if (parts.length >= 3) {
+        if (parts[0].length === 4) {
+          month = parseInt(parts[1], 10) - 1;
+          day = parseInt(parts[2], 10);
+        } else {
+          day = parseInt(parts[0], 10);
+          month = parseInt(parts[1], 10) - 1;
+        }
+      }
+      if (isNaN(month) || isNaN(day)) {
+        return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado', diffDays: null };
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const bdayThisYear = new Date(today.getFullYear(), month, day);
+      bdayThisYear.setHours(0, 0, 0, 0);
+
+      const diffFromBday = Math.round((today - bdayThisYear) / (1000 * 60 * 60 * 24));
+      
+      // Ventana de elegibilidad: Se habilita el MISMO día del cumpleaños (0) y dura 7 días en total (0 a 6)
+      // Antes del cumpleaños (diffFromBday < 0) NO está habilitado
+      const isEligibleWindow = (diffFromBday >= 0 && diffFromBday <= 6);
+
+      let nextBday = new Date(today.getFullYear(), month, day);
+      nextBday.setHours(0, 0, 0, 0);
+      if (today > nextBday && !isEligibleWindow) {
+        nextBday.setFullYear(today.getFullYear() + 1);
+      }
+      const diffDays = Math.round((nextBday - today) / (1000 * 60 * 60 * 24));
+
+      if (diffFromBday === 0) {
+        return { isToday: true, isAvailable: true, label: '¡Felicidades en su día! 🎂🎉', text: '¡Hoy es su cumpleaños! 🎉', diffDays: 0 };
+      }
+      if (isEligibleWindow) {
+        const daysLeft = 7 - diffFromBday;
+        return { isToday: false, isAvailable: true, label: '¡Semana de cumpleaños disponible! 🎁', text: `Semana de cumpleaños (${daysLeft} días restantes)`, diffDays: 0 };
+      }
+      if (diffDays > 0) {
+        return { isToday: false, isAvailable: false, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días`, diffDays };
+      }
+      return { isToday: false, isAvailable: false, label: `Cumpleaños en ${diffDays} días`, text: `Cumpleaños en ${diffDays} días`, diffDays };
+    } catch (e) { }
+  }
+  return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado', diffDays: null };
+};
+
 const VisitRecorder = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -124,42 +223,6 @@ const VisitRecorder = () => {
 
   // Birthday discount tracking
   const [birthdayDiscountActive, setBirthdayDiscountActive] = useState(false);
-
-  // Helper: Detección de ventana de cumpleaños:
-  // Se habilita el MISMO día de cumpleaños (día 0) y los 6 días posteriores (7 días en total).
-  // NO se habilita antes de la fecha de cumpleaños.
-  const checkClientBirthday = (client) => {
-    if (!client) return false;
-    const dobStr = client.fecha_nacimiento || client.fechaNacimiento || client.dob;
-    if (!dobStr) return false;
-    try {
-      const cleanStr = String(dobStr).split('T')[0];
-      const parts = cleanStr.includes('-') ? cleanStr.split('-') : cleanStr.split('/');
-      let month = 0;
-      let day = 1;
-      if (parts.length >= 3) {
-        if (parts[0].length === 4) {
-          month = parseInt(parts[1], 10) - 1;
-          day = parseInt(parts[2], 10);
-        } else {
-          day = parseInt(parts[0], 10);
-          month = parseInt(parts[1], 10) - 1;
-        }
-      }
-      if (isNaN(month) || isNaN(day)) return false;
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const bdayThisYear = new Date(today.getFullYear(), month, day);
-      bdayThisYear.setHours(0, 0, 0, 0);
-
-      const diffFromBday = Math.round((today - bdayThisYear) / (1000 * 60 * 60 * 24));
-      return (diffFromBday >= 0 && diffFromBday <= 6);
-    } catch (e) {
-      return false;
-    }
-  };
 
   // Sincronizar automáticamente 15% de descuento en servicios adicionales cuando cumpleaños esté hábil
   useEffect(() => {
@@ -473,11 +536,6 @@ const VisitRecorder = () => {
   };
 
   // Aplicar 20% de descuento global a todos los servicios para empleados (excepto Lavado Sencillo que va a $200)
-  const LAVADO_SENCILLO_PRICE = 200; // Precio fijo para Lavado Sencillo en tickets de empleado
-  const isLavadoSencillo = (nombre) => {
-    const n = (nombre || '').toLowerCase();
-    return n.includes('lavado sencillo') || n === 'lava pelo' || n.includes('lava pelo');
-  };
 
   const handleApply20PercentEmployeeDiscount = () => {
     if (!lineItems || lineItems.length === 0) {
@@ -649,63 +707,6 @@ const VisitRecorder = () => {
   const [quickGeneralName, setQuickGeneralName] = useState('');
   const [isEditingGeneralName, setIsEditingGeneralName] = useState(false);
   const [tempGeneralName, setTempGeneralName] = useState('');
-
-  // Helper to calculate days until client's birthday & eligibility for birthday gift
-  const getBirthdayCountdown = (client) => {
-    const dobStr = client?.fecha_nacimiento || client?.fechaNacimiento || client?.dob;
-    if (dobStr) {
-      try {
-        const cleanStr = String(dobStr).split('T')[0];
-        const parts = cleanStr.includes('-') ? cleanStr.split('-') : cleanStr.split('/');
-        let month = 0;
-        let day = 1;
-        if (parts.length >= 3) {
-          if (parts[0].length === 4) {
-            month = parseInt(parts[1], 10) - 1;
-            day = parseInt(parts[2], 10);
-          } else {
-            day = parseInt(parts[0], 10);
-            month = parseInt(parts[1], 10) - 1;
-          }
-        }
-        if (isNaN(month) || isNaN(day)) {
-          return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado', diffDays: null };
-        }
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const bdayThisYear = new Date(today.getFullYear(), month, day);
-        bdayThisYear.setHours(0, 0, 0, 0);
-
-        const diffFromBday = Math.round((today - bdayThisYear) / (1000 * 60 * 60 * 24));
-        
-        // Ventana de elegibilidad: Se habilita el MISMO día del cumpleaños (0) y dura 7 días en total (0 a 6)
-        // Antes del cumpleaños (diffFromBday < 0) NO está habilitado
-        const isEligibleWindow = (diffFromBday >= 0 && diffFromBday <= 6);
-
-        let nextBday = new Date(today.getFullYear(), month, day);
-        nextBday.setHours(0, 0, 0, 0);
-        if (today > nextBday && !isEligibleWindow) {
-          nextBday.setFullYear(today.getFullYear() + 1);
-        }
-        const diffDays = Math.round((nextBday - today) / (1000 * 60 * 60 * 24));
-
-        if (diffFromBday === 0) {
-          return { isToday: true, isAvailable: true, label: '¡Felicidades en su día! 🎂🎉', text: '¡Hoy es su cumpleaños! 🎉', diffDays: 0 };
-        }
-        if (isEligibleWindow) {
-          const daysLeft = 7 - diffFromBday;
-          return { isToday: false, isAvailable: true, label: '¡Semana de cumpleaños disponible! 🎁', text: `Semana de cumpleaños (${daysLeft} días restantes)`, diffDays: 0 };
-        }
-        if (diffDays > 0) {
-          return { isToday: false, isAvailable: false, label: `Faltan ${diffDays} días para su cumpleaños`, text: `Cumpleaños en ${diffDays} días`, diffDays };
-        }
-        return { isToday: false, isAvailable: false, label: `Cumpleaños en ${diffDays} días`, text: `Cumpleaños en ${diffDays} días`, diffDays };
-      } catch (e) { }
-    }
-    return { isToday: false, isAvailable: false, label: 'Cumpleaños no registrado', text: 'Cumpleaños no registrado', diffDays: null };
-  };
 
   const getLastVisitText = () => {
     if (clientVisitsHistory && clientVisitsHistory.length > 0) {
