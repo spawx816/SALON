@@ -7187,11 +7187,11 @@ app.get('/api/reports/analytics', async (req, res) => {
 
     // 8. Cash payments
     const [cashPayments] = await pool.query(`
-      SELECT p.id, p.created_at, p.amount, p.method, c.nombre as client_name, s.name as salon_name, 'Caja Principal' as applied_by
+      SELECT p.id, p.created_at, p.amount, p.method, cl.nombre as client_name, s.name as salon_name, 'Caja Principal' as applied_by
       FROM payments p
       LEFT JOIN contracts c ON (p.client_id = c.client_id)
-      LEFT JOIN clients c ON p.client_id = c.id
-      LEFT JOIN salons s ON (COALESCE(p.salon_id, c.salon_id, 1) = s.id)
+      LEFT JOIN clients cl ON p.client_id = cl.id
+      LEFT JOIN salons s ON (COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) = s.id)
       WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' 
         AND (LOWER(p.method) LIKE '%efectivo%' OR LOWER(p.method) LIKE '%cash%') ${salonFilterPay}
       ORDER BY p.created_at DESC
