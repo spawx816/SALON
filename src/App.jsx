@@ -418,7 +418,7 @@ const AppContent = () => {
       {/* Main Content Area */}
       <main className="main-surface">
 
-        <div className="content-area hide-scrollbar" style={{ background: location.pathname === '/visitas' ? '#ffffff' : 'var(--bg-canvas)', padding: location.pathname === '/visitas' ? '0' : undefined }}>
+        <div className="content-area hide-scrollbar" style={{ background: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) ? '#ffffff' : 'var(--bg-canvas)', padding: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) ? '0' : undefined }}>
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={location.pathname}
@@ -427,7 +427,11 @@ const AppContent = () => {
               exit={{ opacity: 0, y: -5 }}
               transition={{ duration: 0.15 }}
               className="content-wrapper"
-              style={{ minHeight: '100%' }}
+              style={{ 
+                minHeight: '100%',
+                maxWidth: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) ? '100%' : undefined,
+                margin: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) ? '0' : '0 auto'
+              }}
             >
               <Routes location={location}>
                 <Route path="/" element={isClient ? <ClientDashboard /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)} />
