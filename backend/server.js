@@ -754,16 +754,21 @@ const setupDB = async () => {
       console.error('[COMMISSION REPAIR WARN]:', repairErr.message);
     }
 
-    // Auto-fix any contracts with retry_count >= 3 or historical runaway counts
+    // Auto-fix retry contracts: restore any contracts with < 90 retries and suspend only when >= 90
     try {
       await pool.query(`
         UPDATE contracts 
-        SET status = 'Suspended', retry_count = 3, next_retry_date = NULL 
-        WHERE (retry_count >= 3) AND status IN ('Pending_Retry', 'Pending_Payment', 'Pendiente_Pago', 'Past_Due')
+        SET status = 'Pending_Retry' 
+        WHERE status = 'Suspended' AND retry_count < 90
       `);
-      console.log('[DB] Overdue retry contracts checked and suspended.');
+      await pool.query(`
+        UPDATE contracts 
+        SET status = 'Suspended', retry_count = 90, next_retry_date = NULL 
+        WHERE (retry_count >= 90) AND status IN ('Pending_Retry', 'Pending_Payment', 'Pendiente_Pago', 'Past_Due')
+      `);
+      console.log('[DB] Retry contracts checked (max 90 attempts).');
     } catch (e) {
-      console.warn('[DB] Could not cleanup retry contracts:', e.message);
+      console.warn('[DB] Could not check retry contracts:', e.message);
     }
   } catch (err) {
     console.error('Database connection failed:', err.message);
@@ -6492,14 +6497,15 @@ app.post('/api/contracts/renew-manual', async (req, res) => {
 });
 
 // === AUTOMATED BILLING WORKER (INTERNAL & CRON) ===
-const MAX_RETRY_COUNT = 3;
+const MAX_RETRY_COUNT = 90;
 
 async function processSubscriptionsInternal(reqIp = "127.0.0.1") {
   const results = { processed: 0, successful: 0, failed: 0, retries: 0, logs: [] };
   
   try {
     // 1. Fetch contracts due for regular billing OR due for retry (Active, Pending_Retry, Pending_Payment, Past_Due)
-    // REGLA ESTRICTA: Máximo 1 intento por día calendario (CURRENT_DATE) y máximo 3 intentos fallidos totales.
+    // BLINDAJE TOTAL: Estrictamente 1 solo intento por día calendario (CURRENT_DATE) y máximo 90 intentos totales.
+    // Sin importar cuántas veces se reinicie el servidor o se ejecute el cron, si ya hay un registro de pago/intento hoy, se omite.
     const [dueContracts] = await pool.query(`
       SELECT c.*, cl.nombre, cl.email, cl.cardnet_customer_id, 
              COALESCE(c.contract_price, p.price) as effective_price,
@@ -6517,7 +6523,6 @@ async function processSubscriptionsInternal(reqIp = "127.0.0.1") {
       AND NOT EXISTS (
         SELECT 1 FROM payments py 
         WHERE py.client_id = c.client_id 
-          AND py.plan_id = c.plan_id
           AND DATE(py.created_at) = CURRENT_DATE()
       )
     `);
