@@ -213,6 +213,7 @@ const VisitRecorder = () => {
   const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
   const [employeeDiscountApplied, setEmployeeDiscountApplied] = useState(false); // tracks if 20% employee discount was applied
   const [currentSecurityRequestId, setCurrentSecurityRequestId] = useState(null);
+  const [currentSecurityAuthCode, setCurrentSecurityAuthCode] = useState('');
   const [isVerifyingAdminPin, setIsVerifyingAdminPin] = useState(false);
 
   // Nómina checkout (employee payroll deduction)
@@ -2226,6 +2227,9 @@ const VisitRecorder = () => {
       if (res?.requestId) {
         setCurrentSecurityRequestId(res.requestId);
       }
+      if (res?.code) {
+        setCurrentSecurityAuthCode(res.code);
+      }
     } catch (err) {
       console.warn('Error auto-generating security request:', err);
     }
@@ -2340,6 +2344,7 @@ const VisitRecorder = () => {
     setPendingDiscountItem(null);
     setAdminPin('');
     setCurrentSecurityRequestId(null);
+    setCurrentSecurityAuthCode('');
   };
 
   const verifyAdminPin = async () => {
@@ -2377,6 +2382,7 @@ const VisitRecorder = () => {
         }
         setAdminPin('');
         setCurrentSecurityRequestId(null);
+        setCurrentSecurityAuthCode('');
       } else {
         alert('❌ Clave o Código de Autorización incorrecto o expirado.');
       }
@@ -5110,6 +5116,31 @@ const VisitRecorder = () => {
                 <span>Código activo en Monitor de Seguridad</span>
               </div>
             </div>
+
+            {/* VISTA ADMINISTRADOR: CÓDIGO GENERADO VISIBLE DIRECTAMENTE */}
+            {(currentUser?.role_id === 1 || currentUser?.role === 'admin' || currentUser?.role === 'SuperAdmin' || currentUser?.tipo === 'admin' || currentUser?.email === 'admin@planbeauty.com') && currentSecurityAuthCode && (
+              <div style={{ background: '#fdf2f8', border: '1.5px dashed #f472b6', borderRadius: '14px', padding: '0.75rem 1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 2px 8px rgba(244,114,182,0.15)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', textAlign: 'left' }}>
+                  <span style={{ fontSize: '1.3rem' }}>🛡️</span>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#9d174d' }}>Vista Administrador:</div>
+                    <div style={{ fontSize: '0.7rem', color: '#be185d' }}>Código de autorización activo</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#9d174d', letterSpacing: '3px', background: '#ffffff', padding: '4px 12px', borderRadius: '8px', border: '1px solid #fbcfe8' }}>
+                    {currentSecurityAuthCode}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAdminPin(currentSecurityAuthCode)}
+                    style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '6px 12px', fontSize: '0.775rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 5px rgba(190,24,93,0.25)' }}
+                  >
+                    Usar
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div style={{ marginBottom: '1.25rem' }}>
               <input
