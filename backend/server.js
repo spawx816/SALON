@@ -5928,9 +5928,47 @@ app.post('/api/cardnet/customer/:customerId/charge-profile', async (req, res) =>
       console.log("[CARDNET BYPASS] [ENTORNO TEST] Aprobando cobro manual simulado automáticamente.");
     } else {
       // 2. Realizar cobro real vía CardNet
+      let tokenToCharge = paymentProfileId;
+      let altToken = null;
+
+      // Buscar si tenemos el card_token alfanumérico guardado en contratos
+      if (clientId) {
+        try {
+          const [cRows] = await pool.query(
+            'SELECT card_token, payment_profile_id FROM contracts WHERE client_id = ? AND status != "Cancelled" ORDER BY id DESC LIMIT 1',
+            [clientId]
+          );
+          if (cRows.length > 0 && cRows[0].card_token && !String(cRows[0].card_token).startsWith('mock_')) {
+            tokenToCharge = cRows[0].card_token;
+            altToken = cRows[0].payment_profile_id || paymentProfileId;
+          }
+        } catch (dbErr) {
+          console.warn('[CARDNET] Error consultando contrato para token:', dbErr.message);
+        }
+      }
+
+      // Si no tenemos token alfanumérico CT_ o TK_, consultar CardNet directamente
+      if (customerId && (!tokenToCharge || /^\d+$/.test(String(tokenToCharge)))) {
+        try {
+          const custRes = await axios.get(
+            `${CARDNET_CONFIG.BASE_URL}/api/Customer/${customerId}`,
+            { headers: getCardNetAuthHeaders(), timeout: 8000 }
+          );
+          const fullCust = custRes.data.Response || custRes.data;
+          const profiles = fullCust.PaymentProfiles || [];
+          const matched = profiles.find(p => String(p.PaymentProfileId) === String(paymentProfileId)) || profiles[0];
+          if (matched && matched.Token) {
+            tokenToCharge = matched.Token;
+            altToken = paymentProfileId;
+          }
+        } catch (apiGetErr) {
+          console.warn('[CARDNET] No se pudo recuperar token desde perfil CardNet:', apiGetErr.message);
+        }
+      }
+
       const amountCents = Math.round(parseFloat(amount) * 100);
-      const purchasePayload = {
-        TrxToken: paymentProfileId,
+      const buildPayload = (tkn) => ({
+        TrxToken: tkn,
         Order: `MAN-${Date.now().toString().slice(-6)}`,
         Amount: amountCents,
         Currency: "DOP",
@@ -5940,14 +5978,14 @@ app.post('/api/cardnet/customer/:customerId/charge-profile', async (req, res) =>
         MerchantNumber: CARDNET_CONFIG.MERCHANT_NUMBER,
         MerchantTerminal: CARDNET_CONFIG.TERMINAL_ID,
         DataDo: { Tax: "0", Invoice: `INV-${Date.now().toString().slice(-6)}` }
-      };
+      });
 
-      console.log('[CARDNET] Enviando Payload de Compra Manual:', JSON.stringify(purchasePayload, null, 2));
+      console.log(`[CARDNET] Token seleccionado para cobro: ${tokenToCharge} (Alt: ${altToken})`);
 
       try {
-        const response = await axios.post(
+        let response = await axios.post(
           `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
-          purchasePayload,
+          buildPayload(tokenToCharge),
           { headers: getCardNetAuthHeaders(), timeout: 15000 }
         );
 
@@ -5960,9 +5998,37 @@ app.post('/api/cardnet/customer/:customerId/charge-profile', async (req, res) =>
             ResponseMessage: response.data.Errors[0].Message
           };
         }
+
         isApproved = purchaseResult.Transaction?.Status === "Approved" || 
                      purchaseResult.ResponseCode === "00" ||
                      purchaseResult.Transaction?.Steps?.some(s => s.ResponseCode === "00");
+
+        // Si falló por token inválido y tenemos token alternativo, reintentar con el alternativo
+        const errorMsg = (purchaseResult.ResponseMessage || "").toLowerCase();
+        if (!isApproved && altToken && altToken !== tokenToCharge && (errorMsg.includes('token') || errorMsg.includes('inválido') || errorMsg.includes('invalido'))) {
+          console.log(`[CARDNET] Primer intento con ${tokenToCharge} falló por token. Reintentando con alternativo: ${altToken}`);
+          try {
+            response = await axios.post(
+              `${CARDNET_CONFIG.BASE_URL}/api/Purchase`,
+              buildPayload(altToken),
+              { headers: getCardNetAuthHeaders(), timeout: 15000 }
+            );
+            purchaseResult = response.data.Response || response.data;
+            if (response.data.Errors && response.data.Errors.length > 0) {
+              purchaseResult = {
+                ...purchaseResult,
+                Errors: response.data.Errors,
+                ResponseCode: response.data.Errors[0].ErrorCode,
+                ResponseMessage: response.data.Errors[0].Message
+              };
+            }
+            isApproved = purchaseResult.Transaction?.Status === "Approved" || 
+                         purchaseResult.ResponseCode === "00" ||
+                         purchaseResult.Transaction?.Steps?.some(s => s.ResponseCode === "00");
+          } catch (altErr) {
+            console.warn('[CARDNET] Falló reintento con token alternativo:', altErr.message);
+          }
+        }
         
         // Bypass TR005 en Sandbox
         if (!isApproved && !isProductionEnv) {
