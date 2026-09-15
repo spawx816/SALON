@@ -2681,8 +2681,10 @@ const VisitRecorder = () => {
         observaciones: closeRegisterNotes.trim()
       });
       const diffVal = res.summary?.diferencia || 0;
+      const prestamosCount = res.summary?.prestamosRegistrados || 0;
       const diffText = diffVal === 0 ? '🟢 Cuadre Perfecto (Sin diferencia)' : diffVal > 0 ? `🔷 Sobrante: + RD$ ${diffVal.toFixed(2)}` : `🔴 Faltante: - RD$ ${Math.abs(diffVal).toFixed(2)}`;
-      alert(`🔒 Arqueo y Cierre de Caja Finalizado Exitosamente.\n\n${diffText}`);
+      const prestamosText = prestamosCount > 0 ? `\n\n🤝 Se registraron ${prestamosCount} préstamo(s) a empleadas automáticamente como Descuento / Deducción en nómina.` : '';
+      alert(`🔒 Arqueo y Cierre de Caja Finalizado Exitosamente.\n\n${diffText}${prestamosText}`);
       setActiveRegister(null);
       setShowConfirmCloseModal(false);
       setShowRegisterDetailsModal(false);
@@ -6177,7 +6179,7 @@ const VisitRecorder = () => {
                       <div>📥 Entradas Adicionales de Caja: <strong>+ RD$ {(registerSummary?.entradasTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                       <div>💸 Gastos Imprevistos en Efectivo: <strong>- RD$ {(registerSummary?.gastosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                       {(registerSummary?.prestamosTotal > 0) && (
-                        <div>🤝 De los cuales Préstamos a Empleados: <strong style={{ color: '#be185d' }}>- RD$ {(registerSummary.prestamosTotal).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                        <div>🤝 De los cuales Préstamos a Empleadas: <strong style={{ color: '#be185d' }}>- RD$ {(registerSummary.prestamosTotal).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong> <span style={{ fontSize: '0.68rem', color: '#be185d', fontWeight: 600 }}>(se aplicarán a nómina como descuento)</span></div>
                       )}
                       <div>📤 Retiros de Efectivo / Sangrías: <strong>- RD$ {(registerSummary?.retirosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                     </div>
@@ -6454,8 +6456,13 @@ const VisitRecorder = () => {
                 </div>
                 {(registerSummary?.prestamosTotal > 0) && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#be185d', paddingLeft: '0.5rem' }}>
-                    <span>🤝 Incluye Préstamos a Empleados:</span>
+                    <span>🤝 Incluye Préstamos a Empleadas:</span>
                     <strong>- RD$ {(registerSummary.prestamosTotal).toFixed(2)}</strong>
+                  </div>
+                )}
+                {(registerSummary?.prestamosTotal > 0) && (
+                  <div style={{ fontSize: '0.7rem', color: '#9d174d', background: '#fdf2f8', border: '1px dashed #fbcfe8', borderRadius: '6px', padding: '0.35rem 0.5rem', marginTop: '0.2rem' }}>
+                    ℹ Al cerrar la caja, los préstamos a empleadas se registrarán automáticamente como <strong>Descuentos de Nómina</strong> pendientes de cobro.
                   </div>
                 )}
               </div>

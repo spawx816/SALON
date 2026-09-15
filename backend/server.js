@@ -251,10 +251,12 @@ const setupDB = async () => {
         status VARCHAR(50) DEFAULT 'Pendiente',
         created_by VARCHAR(100),
         visit_id VARCHAR(100) NULL,
+        cash_register_movement_id INT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     try { await pool.query('ALTER TABLE employee_discounts ADD COLUMN visit_id VARCHAR(100) NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE employee_discounts ADD COLUMN cash_register_movement_id INT NULL'); } catch(e){}
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS services (
@@ -3059,6 +3061,47 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
       [montoEsperado, finalAmt, gastosTotal, diff, observaciones || '', id]
     );
 
+    // REGISTRAR AUTOMÁTICAMENTE PRÉSTAMOS A EMPLEADAS COMO DESCUENTO EN NÓMINA
+    let prestamosRegistrados = 0;
+    try {
+      const prestamoMovements = movements.filter(m => m.type === 'Prestamo_Empleado' && (Number(m.amount) > 0));
+      for (const p of prestamoMovements) {
+        let empId = p.employee_id ? parseInt(p.employee_id, 10) : null;
+        let empName = p.employee_name;
+
+        // If empId is missing or 0, try resolving employee by name in staff_records
+        if (!empId && empName) {
+          const [matched] = await pool.query('SELECT id, nombre FROM staff_records WHERE nombre = ? LIMIT 1', [empName.trim()]);
+          if (matched && matched.length > 0) {
+            empId = matched[0].id;
+            empName = matched[0].nombre;
+          }
+        }
+
+        if (empId) {
+          // Check if already registered to prevent duplicates
+          const [existing] = await pool.query(
+            `SELECT id FROM employee_discounts 
+             WHERE (cash_register_movement_id = ? AND cash_register_movement_id IS NOT NULL) 
+                OR (employee_id = ? AND notes LIKE ? AND date = CURDATE())`,
+            [p.id, empId, `%[Caja #${reg.register_number || id}%`]
+          );
+
+          if (!existing || existing.length === 0) {
+            const noteDesc = `[Caja #${reg.register_number || id}] Préstamo de caja: ${p.concept || 'Adelanto registrado en cierre'}`;
+            await pool.query(
+              `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, cash_register_movement_id, created_at)
+               VALUES (?, ?, 'Prestamo', ?, CURDATE(), ?, 'Pendiente', ?, ?, NOW())`,
+              [empId, empName || 'Colaborador', p.amount, noteDesc, reg.employee_name || 'Cierre de Caja', p.id]
+            );
+            prestamosRegistrados++;
+          }
+        }
+      }
+    } catch (discErr) {
+      console.error('[CLOSE CASH REGISTER - PRESTAMO DISCOUNT SYNC ERROR]:', discErr);
+    }
+
     res.json({
       success: true,
       message: 'Caja cerrada y arqueada exitosamente',
@@ -3066,7 +3109,8 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
         montoEsperado,
         montoDeclarado: finalAmt,
         diferencia: diff,
-        gastosTotal
+        gastosTotal,
+        prestamosRegistrados
       }
     });
   } catch (err) {
