@@ -5993,6 +5993,8 @@ app.post('/api/cardnet/customer/:customerId/charge-profile', async (req, res) =>
       }
     }
 
+    const payId = `PAY-MAN-${Date.now()}`;
+
     if (isApproved) {
       const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `CN-${Date.now().toString().slice(-6)}`;
       let targetSalonId = 1;
@@ -6034,7 +6036,6 @@ app.post('/api/cardnet/customer/:customerId/charge-profile', async (req, res) =>
       });
     } else {
       // Registrar pago fallido en la base de datos para que sea visible en el historial
-      const payId = `PAY-MAN-FAIL-${Date.now()}`;
       await pool.query(
         'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [payId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Rechazado', description || 'Cobro Manual Fallido', JSON.stringify(purchaseResult)]
