@@ -5425,7 +5425,7 @@ const VisitRecorder = () => {
                   <span style={{ paddingRight: '4px' }}>PRECIO</span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[
                     'Lavado y secado con línea',
                     'Lavado y secado',
@@ -5448,7 +5448,7 @@ const VisitRecorder = () => {
                       srv.toLowerCase()?.includes(s.nombre?.toLowerCase() || '')
                     );
                     return (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '9px' }}>
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '9px', padding: '2px 0' }}>
                         <span style={{ fontWeight: 600, color: '#000000' }}>{srv}</span>
                         <div style={{ display: 'flex', alignItems: 'baseline', minWidth: '74px', justifyContent: 'flex-end', paddingRight: '2px' }}>
                           <span style={{ fontWeight: 700, marginRight: '3px', fontSize: '8px' }}>RD$</span>
