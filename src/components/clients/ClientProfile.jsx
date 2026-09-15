@@ -158,6 +158,7 @@ const ClientProfile = () => {
       }).catch(() => {});
     }
 
+    let contractsFound = [];
     try {
       // Execute all independent API fetches in parallel for maximum speed
       const [
@@ -165,7 +166,7 @@ const ClientProfile = () => {
         paymentsData,
         giftsData,
         cardsData,
-        contractsFound,
+        rawContracts,
         allPlans,
         pendingSurveyData
       ] = await Promise.all([
@@ -178,6 +179,7 @@ const ClientProfile = () => {
         dataService.getPendingSurvey(found.id).catch(() => null)
       ]);
 
+      contractsFound = Array.isArray(rawContracts) ? rawContracts : [];
       setVisits(visitsData || []);
       setPayments(paymentsData || []);
       setGiftCards(giftsData || []);
@@ -255,8 +257,11 @@ const ClientProfile = () => {
       console.log("[CARDNET] Iniciando sesión para actualización...");
       const customer = await dataService.cardnetCreateCustomer(client?.email, client?.id);
 
-      if (!customer.CustomerId || !customer.UniqueID) {
-        throw new Error("No se pudo obtener sesión de CardNet.");
+      const uniqueId = customer.uniqueId || customer.UniqueID || customer.fullResponse?.UniqueID;
+      const customerId = customer.customerId || customer.CustomerId || customer.fullResponse?.CustomerId;
+
+      if (!uniqueId) {
+        throw new Error(customer.error || "No se pudo obtener sesión de CardNet.");
       }
 
       const public_key = customer.publicKey || customer.PublicKey || "J_eHXPYlDo9wlFpFXjgalm_I56ONV7HQ";
@@ -325,16 +330,16 @@ const ClientProfile = () => {
         "lang": "ESP",
         "form_id": "checkout_form_fake_profile",
         "checkout_card": "1",
-        "session_id": customer.UniqueID,
+        "session_id": uniqueId,
         "autoSubmit": "false"
       });
 
       let cleanCaptureUrl = capture_url;
       if (!cleanCaptureUrl.endsWith('/')) cleanCaptureUrl += '/';
-      const finalUrl = `${cleanCaptureUrl}?key=${public_key}&session_id=${customer.UniqueID}`;
+      const finalUrl = `${cleanCaptureUrl}?key=${public_key}&session_id=${uniqueId}`;
       
-      window.PWCheckout.OpenIframeCustom(finalUrl, customer.UniqueID);
       setIsProcessingCard(false);
+      window.PWCheckout.OpenIframeCustom(finalUrl, uniqueId);
 
     } catch (e) {
       console.warn("[CARDNET] Error en sesión real. Activando simulación local:", e.message);
