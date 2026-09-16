@@ -712,6 +712,38 @@ const Dashboard = () => {
 
                 return (
                   <div>
+                    {/* Resumen Superior Rápido */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                      <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '14px', padding: '1rem 1.25rem' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Total Facturado Hoy
+                        </div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#5b21b6', marginTop: '0.25rem' }}>
+                          RD$ {Number(grandTotalSales).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '1rem 1.25rem' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Plan Beauty</span>
+                          <span style={{ color: '#8b5cf6' }}>{grandTotalSales > 0 ? Math.round((totalPlanSales / grandTotalSales) * 100) : 0}%</span>
+                        </div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#09090b', marginTop: '0.25rem' }}>
+                          RD$ {Number(totalPlanSales).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </div>
+                      </div>
+
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '1rem 1.25rem' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Servicios POS</span>
+                          <span style={{ color: '#0891b2' }}>{grandTotalSales > 0 ? Math.round((totalGenericaSales / grandTotalSales) * 100) : 0}%</span>
+                        </div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#09090b', marginTop: '0.25rem' }}>
+                          RD$ {Number(totalGenericaSales).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </div>
+                      </div>
+                    </div>
+
                     <div style={{ overflowX: 'auto', background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
                         <thead>

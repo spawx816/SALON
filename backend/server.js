@@ -7066,10 +7066,9 @@ app.get('/api/dashboard/summary', async (req, res) => {
     // Breakdown: Ventas Diarias (Pagos de Planes/Suscripciones)
     const [todayPaymentsRows] = await pool.query(`
       SELECT p.id, 
-             COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) as salon_id, 
+             COALESCE(p.salon_id, cl.salon_id, 1) as salon_id, 
              p.amount, p.plan_id, p.method
       FROM payments p
-      LEFT JOIN contracts c ON (p.client_id = c.client_id)
       LEFT JOIN clients cl ON p.client_id = cl.id
       WHERE DATE(p.created_at) = CURRENT_DATE() AND p.status = 'Aprobado'
     `);
@@ -7093,14 +7092,7 @@ app.get('/api/dashboard/summary', async (req, res) => {
     todayPaymentsRows.forEach(p => {
       const sId = salesBreakdownBySalon[p.salon_id] ? p.salon_id : salonsData[0].id;
       const amt = Number(p.amount) || 0;
-      const isPlan = (p.plan_id && p.plan_id !== '' && p.plan_id !== 'gift_card') || 
-                     (p.method && p.method.toLowerCase().includes('plan')) ||
-                     (p.method && p.method.toLowerCase().includes('cardnet'));
-      if (isPlan) {
-        salesBreakdownBySalon[sId].plan_beauty += amt;
-      } else {
-        salesBreakdownBySalon[sId].generica += amt;
-      }
+      salesBreakdownBySalon[sId].plan_beauty += amt;
       salesBreakdownBySalon[sId].total += amt;
     });
 
@@ -7223,7 +7215,7 @@ app.get('/api/reports/analytics', async (req, res) => {
     const startDate = start_date || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const endDate = end_date || new Date().toISOString().split('T')[0];
 
-    const salonFilterPay = salon_id !== 'all' ? 'AND COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) = ?' : '';
+    const salonFilterPay = salon_id !== 'all' ? 'AND COALESCE(p.salon_id, cl.salon_id, 1) = ?' : '';
     const salonFilterVis = salon_id !== 'all' ? 'AND v.salon_id = ?' : '';
     const payParams = salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59'];
     const visParams = salon_id !== 'all' ? [startDate, endDate + ' 23:59:59', salon_id] : [startDate, endDate + ' 23:59:59'];
@@ -7233,7 +7225,6 @@ app.get('/api/reports/analytics', async (req, res) => {
       SELECT date, SUM(total) as total FROM (
         SELECT DATE(p.created_at) as date, SUM(p.amount) as total
         FROM payments p
-        LEFT JOIN contracts c ON (p.client_id = c.client_id)
         LEFT JOIN clients cl ON p.client_id = cl.id
         WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
         GROUP BY DATE(p.created_at)
@@ -7254,7 +7245,6 @@ app.get('/api/reports/analytics', async (req, res) => {
     const [renewalRow] = await pool.query(`
       SELECT SUM(p.amount) as total
       FROM payments p
-      LEFT JOIN contracts c ON (p.client_id = c.client_id)
       LEFT JOIN clients cl ON p.client_id = cl.id
       WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' 
         AND (p.plan_id IS NOT NULL AND p.plan_id != '' AND p.plan_id != 'gift_card') ${salonFilterPay}
@@ -7310,7 +7300,6 @@ app.get('/api/reports/analytics', async (req, res) => {
       SELECT method, COUNT(*) as count, SUM(amount) as total FROM (
         SELECT p.method, p.amount
         FROM payments p
-        LEFT JOIN contracts c ON (p.client_id = c.client_id)
         LEFT JOIN clients cl ON p.client_id = cl.id
         WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' ${salonFilterPay}
 
@@ -7346,9 +7335,8 @@ app.get('/api/reports/analytics', async (req, res) => {
     const [cashPayments] = await pool.query(`
       SELECT p.id, p.created_at, p.amount, p.method, cl.nombre as client_name, s.name as salon_name, 'Caja Principal' as applied_by
       FROM payments p
-      LEFT JOIN contracts c ON (p.client_id = c.client_id)
       LEFT JOIN clients cl ON p.client_id = cl.id
-      LEFT JOIN salons s ON (COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) = s.id)
+      LEFT JOIN salons s ON (COALESCE(p.salon_id, cl.salon_id, 1) = s.id)
       WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' 
         AND (LOWER(p.method) LIKE '%efectivo%' OR LOWER(p.method) LIKE '%cash%') ${salonFilterPay}
       ORDER BY p.created_at DESC
@@ -7378,11 +7366,10 @@ app.get('/api/reports/analytics', async (req, res) => {
                COALESCE(cl.nombre, p.client_id, 'Cliente General') as client_name,
                COALESCE(cl.telefono, 'N/D') as client_phone,
                COALESCE(s.name, 'Abatte Peluquería San Vicente') as salon_name,
-               COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) as salon_id
+               COALESCE(p.salon_id, cl.salon_id, 1) as salon_id
         FROM payments p
-        LEFT JOIN contracts c ON (p.client_id = c.client_id)
         LEFT JOIN clients cl ON p.client_id = cl.id
-        LEFT JOIN salons s ON (COALESCE(p.salon_id, c.salon_id, cl.salon_id, 1) = s.id)
+        LEFT JOIN salons s ON (COALESCE(p.salon_id, cl.salon_id, 1) = s.id)
         WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado'
 
         UNION ALL
