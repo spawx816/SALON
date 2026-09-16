@@ -1425,7 +1425,6 @@ const ClientProfile = () => {
                                 currentUsage = Math.max(currentUsage, totalCyclePromoUsed, excessWashes);
                               }
                               const percentage = isUnlimited ? 100 : Math.min(100, (currentUsage / quota) * 100);
-                              const isBtnDisabled = (percentage >= 100 && !isUnlimited) || client.status === 'Cancelled' || contract?.status === 'Pending_Retry';
 
                               return (
                                 <div key={idx} style={{ background: 'var(--bg-canvas)', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
@@ -1436,23 +1435,6 @@ const ClientProfile = () => {
                                         {currentUsage} / {isUnlimited ? '∞' : quota} usados ({isUnlimited ? 'Ilimitados' : Math.max(0, quota - currentUsage)} disponibles)
                                       </span>
                                     </div>
-                                    <button 
-                                      onClick={() => startDiscountFlow(service)}
-                                      disabled={isBtnDisabled}
-                                      style={{ 
-                                        padding: '0.4rem 0.75rem', 
-                                        fontSize: '0.65rem', 
-                                        fontWeight: 800, 
-                                        background: isBtnDisabled ? '#f1f5f9' : 'var(--text-primary)',
-                                        color: isBtnDisabled ? '#94a3b8' : 'white',
-                                        border: 'none',
-                                        borderRadius: '6px',
-                                        cursor: isBtnDisabled ? 'not-allowed' : 'pointer',
-                                        textTransform: 'uppercase'
-                                      }}
-                                    >
-                                      {contract?.status === 'Pending_Retry' ? 'Suspendido' : 'Facturar'}
-                                    </button>
                                   </div>
                                   <div style={{ height: '4px', background: '#e2e8f0', borderRadius: '2px', overflow: 'hidden' }}>
                                     <div style={{ 
@@ -1708,14 +1690,8 @@ const ClientProfile = () => {
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {activePlans.find(p => p.id === contract.plan_id)?.servicios?.map((s, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', background: '#f8fafc', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
-                      <p style={{ fontSize: '0.85rem', fontWeight: 700, margin: 0 }}>{s.title || s}</p>
-                      <button 
-                        onClick={() => startDiscountFlow(s.title || s)}
-                        style={{ background: '#09090b', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
-                      >
-                        FACTURAR
-                      </button>
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.85rem 1rem', background: '#f8fafc', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                      <p style={{ fontSize: '0.85rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>{s.title || s}</p>
                     </div>
                   ))}
                 </div>
