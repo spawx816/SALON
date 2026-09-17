@@ -248,10 +248,25 @@ export default function InvoiceHistory() {
     if (rawMethod.includes('transferencia') || rawMethod.includes('transfer')) {
       return {
         displayMethod: 'Transferencia',
-        isPlanBeauty: false,
+        isPlanBeauty: isPlan,
         efectivo: 0,
         tarjeta: 0,
         transferencia: total,
+        planBeauty: 0,
+        total,
+        isVoided: false
+      };
+    }
+
+    // Pure Plan Beauty / Cuota / Suscripción
+    if (rawMethod.includes('plan')) {
+      return {
+        displayMethod: 'Plan Beauty',
+        isPlanBeauty: true,
+        efectivo: 0,
+        tarjeta: 0,
+        transferencia: 0,
+        planBeauty: total,
         total,
         isVoided: false
       };
@@ -261,10 +276,11 @@ export default function InvoiceHistory() {
     if (rawMethod.includes('gift')) {
       return {
         displayMethod: 'Gift Card',
-        isPlanBeauty: false,
+        isPlanBeauty: isPlan,
         efectivo: 0,
         tarjeta: 0,
         transferencia: 0,
+        planBeauty: 0,
         total,
         isVoided: false
       };
@@ -273,10 +289,11 @@ export default function InvoiceHistory() {
     // Default to Cash
     return {
       displayMethod: 'Efectivo',
-      isPlanBeauty: false,
+      isPlanBeauty: isPlan,
       efectivo: total,
       tarjeta: 0,
       transferencia: 0,
+      planBeauty: 0,
       total,
       isVoided: false
     };
@@ -438,6 +455,7 @@ export default function InvoiceHistory() {
     let totalCash = 0;
     let totalCard = 0;
     let totalTransfer = 0;
+    let totalPlanBeauty = 0;
     let voidedCount = 0;
     let voidedAmount = 0;
     let activeCount = 0;
@@ -457,6 +475,7 @@ export default function InvoiceHistory() {
         totalCash += breakdown.efectivo;
         totalCard += breakdown.tarjeta;
         totalTransfer += breakdown.transferencia;
+        totalPlanBeauty += (breakdown.planBeauty || 0);
         if (breakdown.isPlanBeauty) planCount += 1;
       }
     });
@@ -466,6 +485,7 @@ export default function InvoiceHistory() {
       totalCash,
       totalCard,
       totalTransfer,
+      totalPlanBeauty,
       voidedCount,
       voidedAmount,
       activeCount,
@@ -772,80 +792,70 @@ export default function InvoiceHistory() {
       </div>
 
       {/* KPI METRIC CARDS */}
-      <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem', marginBottom: '1.25rem' }}>
+      <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
         
         {/* TOTAL FACTURADO */}
-        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.9rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Facturado</span>
-            <h3 style={{ margin: '0.15rem 0 0', fontSize: '1.3rem', fontWeight: 900, color: '#0f172a' }}>
-              RD$ {kpis.totalBilled.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-            </h3>
-            <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700 }}>
-              {kpis.activeCount} facturas activas
-            </span>
-          </div>
-          <div style={{ background: '#dcfce7', width: '38px', height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
-            <DollarSign size={20} />
-          </div>
+        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Facturado</span>
+          <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', whiteSpace: 'nowrap' }}>
+            RD$ {kpis.totalBilled.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+          </h3>
+          <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700 }}>
+            {kpis.activeCount} facturas activas
+          </span>
         </div>
 
         {/* EFECTIVO */}
-        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.9rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ingresos Efectivo</span>
-            <h3 style={{ margin: '0.15rem 0 0', fontSize: '1.3rem', fontWeight: 900, color: '#047857' }}>
-              RD$ {kpis.totalCash.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-            </h3>
-            <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Cobrado en caja física</span>
-          </div>
-          <div style={{ background: '#ecfdf5', width: '38px', height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
-            <Wallet size={20} />
-          </div>
+        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ingresos Efectivo</span>
+          <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#047857', whiteSpace: 'nowrap' }}>
+            RD$ {kpis.totalCash.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+          </h3>
+          <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Cobrado en caja física</span>
         </div>
 
         {/* TARJETAS */}
-        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.9rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tarjeta / POS</span>
-            <h3 style={{ margin: '0.15rem 0 0', fontSize: '1.3rem', fontWeight: 900, color: '#2563eb' }}>
-              RD$ {kpis.totalCard.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-            </h3>
-            <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Cobro electrónico</span>
-          </div>
-          <div style={{ background: '#eff6ff', width: '38px', height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
-            <CreditCard size={20} />
-          </div>
+        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Tarjeta / POS</span>
+          <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#2563eb', whiteSpace: 'nowrap' }}>
+            RD$ {kpis.totalCard.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+          </h3>
+          <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Cobro electrónico</span>
         </div>
 
         {/* TRANSFERENCIAS */}
-        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.9rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Transferencias</span>
-            <h3 style={{ margin: '0.15rem 0 0', fontSize: '1.3rem', fontWeight: 900, color: '#7c3aed' }}>
-              RD$ {kpis.totalTransfer.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-            </h3>
-            <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Bancos / Transfer</span>
-          </div>
-          <div style={{ background: '#f5f3ff', width: '38px', height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed' }}>
-            <Landmark size={20} />
-          </div>
+        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Transferencias</span>
+          <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#7c3aed', whiteSpace: 'nowrap' }}>
+            RD$ {kpis.totalTransfer.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+          </h3>
+          <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Bancos / Transfer</span>
+        </div>
+
+        {/* PLAN BEAUTY */}
+        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #fce7f3', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(219,39,119,0.04)' }}>
+          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Plan Beauty</span>
+          <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#be185d', whiteSpace: 'nowrap' }}>
+            {kpis.totalPlanBeauty > 0 
+              ? `RD$ ${kpis.totalPlanBeauty.toLocaleString('es-DO', { minimumFractionDigits: 2 })}` 
+              : `${kpis.planCount}`}
+          </h3>
+          <span style={{ fontSize: '0.65rem', color: '#9d174d', fontWeight: 700 }}>
+            {kpis.totalPlanBeauty > 0 
+              ? `${kpis.planCount} canjes / servicios` 
+              : `Servicios redimidos`}
+          </span>
         </div>
 
         {/* ANULACIONES */}
-        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.9rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Anulaciones</span>
-            <h3 style={{ margin: '0.15rem 0 0', fontSize: '1.3rem', fontWeight: 900, color: '#dc2626' }}>
-              {kpis.voidedCount}
-            </h3>
-            <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>
-              RD$ {kpis.voidedAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-          <div style={{ background: '#fef2f2', width: '38px', height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
-            <XCircle size={20} />
-          </div>
+        <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #e2e8f0', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Anulaciones</span>
+          <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#dc2626', whiteSpace: 'nowrap' }}>
+            {kpis.voidedCount}
+          </h3>
+          <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>
+            RD$ {kpis.voidedAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+          </span>
         </div>
 
       </div>
@@ -1413,29 +1423,41 @@ export default function InvoiceHistory() {
                 </div>
 
                 {/* EXECUTIVE SUMMARY BOXES */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                  <div style={{ border: '1px solid #bbf7d0', background: '#f0fdf4', padding: '0.65rem', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '0.65rem', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>Ingreso Efectivo</span>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#15803d' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.6rem', marginBottom: '1.25rem' }}>
+                  <div style={{ border: '1px solid #cbd5e1', background: '#f8fafc', padding: '0.55rem', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '0.6rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase' }}>Total Facturado</span>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>
+                      RD$ {kpis.totalBilled.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid #bbf7d0', background: '#f0fdf4', padding: '0.55rem', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '0.6rem', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>Ingreso Efectivo</span>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#15803d' }}>
                       RD$ {kpis.totalCash.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
-                  <div style={{ border: '1px solid #bfdbfe', background: '#eff6ff', padding: '0.65rem', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '0.65rem', color: '#1e40af', fontWeight: 700, textTransform: 'uppercase' }}>Ingreso Tarjeta</span>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#1d4ed8' }}>
+                  <div style={{ border: '1px solid #bfdbfe', background: '#eff6ff', padding: '0.55rem', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '0.6rem', color: '#1e40af', fontWeight: 700, textTransform: 'uppercase' }}>Ingreso Tarjeta</span>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#1d4ed8' }}>
                       RD$ {kpis.totalCard.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
-                  <div style={{ border: '1px solid #ddd6fe', background: '#f5f3ff', padding: '0.65rem', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '0.65rem', color: '#6b21a8', fontWeight: 700, textTransform: 'uppercase' }}>Transferencias</span>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 900, color: '#6d28d9' }}>
+                  <div style={{ border: '1px solid #ddd6fe', background: '#f5f3ff', padding: '0.55rem', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '0.6rem', color: '#6b21a8', fontWeight: 700, textTransform: 'uppercase' }}>Transferencias</span>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#6d28d9' }}>
                       RD$ {kpis.totalTransfer.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
-                  <div style={{ border: '1px solid #fbcfe8', background: '#fdf2f8', padding: '0.65rem', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '0.65rem', color: '#9d174d', fontWeight: 700, textTransform: 'uppercase' }}>Total Facturado</span>
-                    <div style={{ fontSize: '1.15rem', fontWeight: 900, color: '#be185d' }}>
-                      RD$ {kpis.totalBilled.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                  <div style={{ border: '1px solid #fbcfe8', background: '#fdf2f8', padding: '0.55rem', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '0.6rem', color: '#9d174d', fontWeight: 700, textTransform: 'uppercase' }}>Plan Beauty</span>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#be185d' }}>
+                      {kpis.totalPlanBeauty > 0 ? `RD$ ${kpis.totalPlanBeauty.toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : `${kpis.planCount} canjes`}
+                    </div>
+                  </div>
+                  <div style={{ border: '1px solid #fecaca', background: '#fef2f2', padding: '0.55rem', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '0.6rem', color: '#991b1b', fontWeight: 700, textTransform: 'uppercase' }}>Anulaciones</span>
+                    <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#dc2626' }}>
+                      {kpis.voidedCount} (RD$ {kpis.voidedAmount.toLocaleString('es-DO', { minimumFractionDigits: 0 })})
                     </div>
                   </div>
                 </div>
