@@ -1183,6 +1183,16 @@ export const dataService = {
     } catch { return []; }
   },
 
+  getPayments: async () => {
+    try {
+      const res = await fetch(`${API_URL}/payments`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error("Error en getPayments:", e);
+      return [];
+    }
+  },
+
   // Roles & Users
   getRoles: async () => {
     try {

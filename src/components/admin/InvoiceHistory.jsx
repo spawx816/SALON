@@ -15,6 +15,7 @@ export default function InvoiceHistory() {
 
   const [visits, setVisits] = useState([]);
   const [salons, setSalons] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [emailSendingId, setEmailSendingId] = useState(null);
 
@@ -99,12 +100,14 @@ export default function InvoiceHistory() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [vData, sData] = await Promise.all([
+      const [vData, sData, pData] = await Promise.all([
         dataService.getVisits(),
-        dataService.getSalons()
+        dataService.getSalons(),
+        dataService.getPayments()
       ]);
       setVisits(Array.isArray(vData) ? vData : []);
       setSalons(Array.isArray(sData) ? sData : []);
+      setPayments(Array.isArray(pData) ? pData : []);
     } catch (err) {
       console.error('Error cargando historial general de facturas:', err);
     } finally {
@@ -299,7 +302,7 @@ export default function InvoiceHistory() {
     };
   };
 
-  // Filter Logic
+  // Filter Logic for Visits
   const filteredVisits = useMemo(() => {
     return visits.filter(v => {
       // Search term (ticket, client name, services, employee)
@@ -380,6 +383,44 @@ export default function InvoiceHistory() {
     });
   }, [visits, searchTerm, salonFilter, statusFilter, paymentFilter, dateFilter, startDate, endDate]);
 
+  // Filter Logic for Plan Beauty Subscription Payments
+  const filteredPayments = useMemo(() => {
+    return payments.filter(p => {
+      // Salon / Localidad filter
+      if (salonFilter !== 'all') {
+        const sMatch = String(p.salon_id) === String(salonFilter);
+        if (!sMatch) return false;
+      }
+
+      // Date filter
+      const pTime = new Date(p.created_at || Date.now()).getTime();
+      const now = new Date();
+      if (dateFilter === 'today') {
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        if (pTime < startOfDay) return false;
+      } else if (dateFilter === 'yesterday') {
+        const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
+        const endOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - 1;
+        if (pTime < startOfYesterday || pTime > endOfYesterday) return false;
+      } else if (dateFilter === 'week') {
+        const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+        if (pTime < sevenDaysAgo) return false;
+      } else if (dateFilter === 'month') {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        if (pTime < startOfMonth) return false;
+      } else if (dateFilter === 'last_month') {
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).getTime();
+        if (pTime < startOfLastMonth || pTime > endOfLastMonth) return false;
+      } else if (dateFilter === 'custom') {
+        if (startDate && pTime < new Date(startDate + 'T00:00:00').getTime()) return false;
+        if (endDate && pTime > new Date(endDate + 'T23:59:59').getTime()) return false;
+      }
+
+      return true;
+    });
+  }, [payments, salonFilter, dateFilter, startDate, endDate]);
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(25); // 25, 50, 100, 250, 'all'
@@ -455,11 +496,10 @@ export default function InvoiceHistory() {
     let totalCash = 0;
     let totalCard = 0;
     let totalTransfer = 0;
-    let totalPlanBeauty = 0;
     let voidedCount = 0;
     let voidedAmount = 0;
     let activeCount = 0;
-    let planCount = 0;
+    let planRedemptionCount = 0;
 
     processedVisits.forEach(v => {
       const amt = Number(v.total || 0);
@@ -471,14 +511,19 @@ export default function InvoiceHistory() {
         voidedAmount += amt;
       } else {
         activeCount += 1;
-        totalBilled += breakdown.total;
         totalCash += breakdown.efectivo;
         totalCard += breakdown.tarjeta;
         totalTransfer += breakdown.transferencia;
-        totalPlanBeauty += (breakdown.planBeauty || 0);
-        if (breakdown.isPlanBeauty) planCount += 1;
+        if (breakdown.isPlanBeauty) planRedemptionCount += 1;
       }
     });
+
+    // Total Ingresos por Suscripciones / Cuotas Plan Beauty
+    const totalPlanBeauty = filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    const planPaymentCount = filteredPayments.length;
+
+    // Gran Total Facturado = POS (Efectivo + Tarjeta + Transferencia) + Ingresos Plan Beauty
+    totalBilled = totalCash + totalCard + totalTransfer + totalPlanBeauty;
 
     return {
       totalBilled,
@@ -486,13 +531,14 @@ export default function InvoiceHistory() {
       totalCard,
       totalTransfer,
       totalPlanBeauty,
+      planPaymentCount,
+      planRedemptionCount,
       voidedCount,
       voidedAmount,
       activeCount,
-      planCount,
       totalVisits: processedVisits.length
     };
-  }, [processedVisits]);
+  }, [processedVisits, filteredPayments]);
 
   // Branch / Location label
   const getSalonLabel = () => {
@@ -832,18 +878,14 @@ export default function InvoiceHistory() {
           <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Bancos / Transfer</span>
         </div>
 
-        {/* PLAN BEAUTY */}
+        {/* PLAN BEAUTY (INGRESOS POR SUSCRIPCIONES / CUOTAS) */}
         <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #fce7f3', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(219,39,119,0.04)' }}>
           <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Plan Beauty</span>
           <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#be185d', whiteSpace: 'nowrap' }}>
-            {kpis.totalPlanBeauty > 0 
-              ? `RD$ ${kpis.totalPlanBeauty.toLocaleString('es-DO', { minimumFractionDigits: 2 })}` 
-              : `${kpis.planCount}`}
+            RD$ {kpis.totalPlanBeauty.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
           </h3>
           <span style={{ fontSize: '0.65rem', color: '#9d174d', fontWeight: 700 }}>
-            {kpis.totalPlanBeauty > 0 
-              ? `${kpis.planCount} canjes / servicios` 
-              : `Servicios redimidos`}
+            {kpis.planPaymentCount} cuotas cobradas ({kpis.planRedemptionCount} canjes)
           </span>
         </div>
 
@@ -992,7 +1034,7 @@ export default function InvoiceHistory() {
             📋 Mostrando {filteredVisits.length} facturas registradas ({getPeriodLabel()})
           </span>
           <span style={{ fontSize: '0.725rem', color: '#64748b' }}>
-            {kpis.activeCount} activas • {kpis.voidedCount} anuladas • {kpis.planCount} Plan Beauty
+            {kpis.activeCount} activas • {kpis.voidedCount} anuladas • {kpis.planRedemptionCount} canjes Plan Beauty
           </span>
         </div>
 

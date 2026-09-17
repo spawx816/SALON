@@ -7446,6 +7446,25 @@ app.post('/api/payments', async (req, res) => {
   }
 });
 
+app.get('/api/payments', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT p.*, 
+             COALESCE(p.salon_id, cl.salon_id, 1) as salon_id, 
+             cl.nombre as client_name,
+             pl.title as plan_title
+      FROM payments p
+      LEFT JOIN clients cl ON p.client_id = cl.id
+      LEFT JOIN plans pl ON p.plan_id = pl.id
+      WHERE p.status = 'Aprobado'
+      ORDER BY p.created_at DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/payments/client/:clientId', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM payments WHERE client_id = ? ORDER BY created_at DESC', [req.params.clientId]);
