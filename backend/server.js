@@ -9787,10 +9787,15 @@ app.get('/api/attendance/history', async (req, res) => {
         if (isWorkingDay) {
           // No generar ausencias para fechas anteriores a la contratación del empleado
           if (emp.fecha_entrada) {
-            const empHireDateStr = getDRDateString(new Date(emp.fecha_entrada));
-            if (dateStr < empHireDateStr) {
-              continue;
-            }
+            try {
+              const d = new Date(emp.fecha_entrada);
+              if (!isNaN(d.getTime())) {
+                const empHireDateStr = getDRDateString(d);
+                if (dateStr < empHireDateStr) {
+                  continue;
+                }
+              }
+            } catch (e) {}
           }
 
           const lookupKey = `${emp.id}:${dateStr}`;
@@ -9820,8 +9825,8 @@ app.get('/api/attendance/history', async (req, res) => {
               const punchId = `ABSENT-${Date.now()}-${emp.id}-${dateStr}`;
               const entryTime = effectiveHoraEntrada || '09:00:00';
               await pool.query(
-                `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status) 
-                 VALUES (?, ?, 'Ausencia', NULL, NULL, 'Autogenerado por Sistema', ?, 'Ausente')`,
+                `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes) 
+                 VALUES (?, ?, 'Ausencia', NULL, NULL, 'Autogenerado por Sistema', ?, 'Ausente', 0, 0)`,
                 [punchId, emp.id, `${dateStr} ${entryTime}`]
               );
               punchSet.add(lookupKey);

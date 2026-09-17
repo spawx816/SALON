@@ -437,54 +437,124 @@ const AttendanceLogs = () => {
   };
 
 
+  // Helper function to calculate net daily attendance, compensated tardiness, and overtime
+  const computeDetailedPayroll = (emp, empLogs) => {
+    // Group logs by date (YYYY-MM-DD)
+    const logsByDate = new Map();
+    
+    empLogs.forEach(log => {
+      let dStr = '';
+      try {
+        dStr = new Date(log.timestamp).toISOString().split('T')[0];
+      } catch (e) {
+        dStr = String(log.timestamp).slice(0, 10);
+      }
+      if (!logsByDate.has(dStr)) logsByDate.set(dStr, []);
+      logsByDate.get(dStr).push(log);
+    });
+
+    let daysWorked = 0;
+    let totalLateness = 0; // Net uncompensated lateness / missing time to deduct
+    let totalOvertime = 0; // Net extra minutes
+    let absencesCount = 0;
+    let totalCheckins = 0;
+    let tardyCheckins = 0;
+    let compensatedDaysCount = 0;
+
+    logsByDate.forEach((dayLogs, dateStr) => {
+      const checkIn = dayLogs.find(l => l.type === 'Check-In');
+      const checkOut = dayLogs.find(l => l.type === 'Check-Out');
+      const absent = dayLogs.find(l => l.type === 'Ausencia');
+
+      // If marked as Ausencia and no check-in occurred on this day
+      if (absent && !checkIn) {
+        absencesCount += 1;
+        return; // No lateness, no overtime for absent days
+      }
+
+      if (checkIn) {
+        daysWorked += 1;
+        totalCheckins += 1;
+        const isTardyCheckIn = checkIn.status === 'Tardanza' || (checkIn.lateness_minutes || 0) > 0;
+        if (isTardyCheckIn) tardyCheckins += 1;
+
+        // Extract scheduled hours for this day
+        const horaEntrada = checkIn.hora_entrada || emp.hora_entrada;
+        const horaSalida = checkIn.hora_salida || emp.hora_salida;
+        const latenessMins = Number(checkIn.lateness_minutes) || 0;
+
+        let scheduledMins = 540; // Default 9 hours
+        let isScheduledUntil9PM = false;
+        if (horaEntrada && horaSalida) {
+          try {
+            const [entH, entM] = horaEntrada.split(':').map(Number);
+            const [salH, salM] = horaSalida.split(':').map(Number);
+            scheduledMins = (salH * 60 + salM) - (entH * 60 + entM);
+            if (scheduledMins <= 0) scheduledMins += 1440;
+            if (salH === 21 && salM === 0) isScheduledUntil9PM = true;
+          } catch (e) {}
+        }
+
+        const inTime = new Date(checkIn.timestamp).getTime();
+        let outTime = checkOut ? new Date(checkOut.timestamp).getTime() : null;
+
+        if (outTime && !isNaN(outTime)) {
+          const workedMins = Math.max(0, Math.floor((outTime - inTime) / 60000));
+          
+          // Closing exception check: if scheduled until 9:00 PM and checked out >= 8:00 PM (20:00)
+          const outDate = new Date(checkOut.timestamp);
+          const outHour = outDate.getHours();
+          const isClosingExit = isScheduledUntil9PM && outHour >= 20;
+
+          if (workedMins >= scheduledMins) {
+            // Worked full shift or more -> Tardiness is COMPENSATED (0 min deduction)
+            const extra = workedMins - scheduledMins;
+            totalOvertime += extra;
+            if (isTardyCheckIn) compensatedDaysCount += 1;
+          } else {
+            // Worked less than scheduled hours
+            if (isClosingExit) {
+              // Salon closed early exception -> only uncompensated morning tardiness counts if any
+              if (isTardyCheckIn) {
+                const uncompensated = Math.min(latenessMins, scheduledMins - workedMins);
+                totalLateness += Math.max(0, uncompensated);
+              }
+            } else {
+              // Missing time from schedule to deduct
+              const missing = scheduledMins - workedMins;
+              const toDeduct = Math.max(latenessMins, missing);
+              totalLateness += toDeduct;
+            }
+          }
+        } else {
+          // If only Check-In exists (e.g. today's ongoing shift or missed check-out)
+          if (checkIn.status === 'Tardanza') {
+            totalLateness += latenessMins;
+          }
+        }
+      }
+    });
+
+    const punctualCheckins = Math.max(0, totalCheckins - tardyCheckins);
+    const punctualityRate = totalCheckins > 0 ? Math.round((punctualCheckins / totalCheckins) * 100) : 100;
+
+    return {
+      ...emp,
+      daysWorked,
+      totalLateness,
+      totalOvertime,
+      absencesCount,
+      punctualityRate,
+      tardyCheckins,
+      compensatedDaysCount
+    };
+  };
+
   const handlePrintPayroll = () => {
     // 1. Gather all payroll metrics dynamically per employee in range
     const computedPayroll = employees.map(emp => {
       const empLogs = logs.filter(log => String(log.employee_id) === String(emp.id));
-      
-      // Días Laborados
-      const presentDates = new Set(
-        empLogs
-          .filter(log => log.type !== 'Ausencia')
-          .map(log => new Date(log.timestamp).toISOString().split('T')[0])
-      );
-      const daysWorked = presentDates.size;
-
-      // Tardanza Total (minutos)
-      const totalLateness = empLogs
-        .filter(log => log.type === 'Check-In' && log.status === 'Tardanza')
-        .reduce((sum, log) => sum + (log.lateness_minutes || 0), 0);
-
-      // Horas Extra Totales (minutos)
-      const totalOvertime = empLogs
-        .filter(log => log.type === 'Check-Out')
-        .reduce((sum, log) => sum + (log.extra_minutes || 0), 0);
-
-      // Ausencias (solo contar fechas donde el empleado no haya laborado)
-      const absentDates = new Set(
-        empLogs
-          .filter(log => log.type === 'Ausencia')
-          .map(log => new Date(log.timestamp).toISOString().split('T')[0])
-      );
-      const absencesCount = [...absentDates].filter(d => !presentDates.has(d)).length;
-
-
-      // Tasa Puntualidad
-      const totalCheckins = empLogs.filter(log => log.type === 'Check-In').length;
-      const tardyCheckins = empLogs.filter(log => log.type === 'Check-In' && log.status === 'Tardanza').length;
-      const punctualCheckins = totalCheckins - tardyCheckins;
-      const punctualityRate = totalCheckins > 0 
-        ? Math.round((punctualCheckins / totalCheckins) * 100) 
-        : 100;
-
-      return {
-        ...emp,
-        daysWorked,
-        totalLateness,
-        totalOvertime,
-        absencesCount,
-        punctualityRate
-      };
+      return computeDetailedPayroll(emp, empLogs);
     });
 
     // 2. Filter list based on search term, filters, and parent search filters
@@ -2073,6 +2143,33 @@ const AttendanceLogs = () => {
                                 }
                               }
 
+                              let isCompensatedTardiness = false;
+                              if (log.type === 'Check-In' && (log.status === 'Tardanza' || (log.lateness_minutes || 0) > 0)) {
+                                try {
+                                  const logDateStr = new Date(log.timestamp).toISOString().split('T')[0];
+                                  const sameDayCheckout = logs.find(l => 
+                                    String(l.employee_id) === String(log.employee_id) && 
+                                    l.type === 'Check-Out' && 
+                                    new Date(l.timestamp).toISOString().split('T')[0] === logDateStr
+                                  );
+                                  if (sameDayCheckout) {
+                                    const inTime = new Date(log.timestamp).getTime();
+                                    const outTime = new Date(sameDayCheckout.timestamp).getTime();
+                                    const workedMins = Math.max(0, Math.floor((outTime - inTime) / 60000));
+                                    let scheduledMins = 540;
+                                    if (log.hora_entrada && log.hora_salida) {
+                                      const [entH, entM] = log.hora_entrada.split(':').map(Number);
+                                      const [salH, salM] = log.hora_salida.split(':').map(Number);
+                                      scheduledMins = (salH * 60 + salM) - (entH * 60 + entM);
+                                      if (scheduledMins <= 0) scheduledMins += 1440;
+                                    }
+                                    if (workedMins >= scheduledMins) {
+                                      isCompensatedTardiness = true;
+                                    }
+                                  }
+                                } catch (e) {}
+                              }
+
                               const isTardy = log.status === 'Tardanza' || log.status === 'Ausente';
                               const isEarlyCheckout = log.status === 'Salida Temprana';
 
@@ -2082,12 +2179,18 @@ const AttendanceLogs = () => {
                                   borderRadius: '99px',
                                   fontSize: '0.75rem',
                                   fontWeight: 800,
-                                  background: isTardy ? '#fef2f2' : isEarlyCheckout ? '#fffbeb' : '#f0fdf4',
-                                  color: isTardy ? '#b91c1c' : isEarlyCheckout ? '#b45309' : '#15803d',
-                                  border: isTardy ? '1px solid #fee2e2' : isEarlyCheckout ? '1px solid #fef3c7' : '1px solid #bbf7d0'
+                                  background: isCompensatedTardiness 
+                                    ? '#eff6ff' 
+                                    : (isTardy ? '#fef2f2' : isEarlyCheckout ? '#fffbeb' : '#f0fdf4'),
+                                  color: isCompensatedTardiness 
+                                    ? '#1d4ed8' 
+                                    : (isTardy ? '#b91c1c' : isEarlyCheckout ? '#b45309' : '#15803d'),
+                                  border: isCompensatedTardiness 
+                                    ? '1px solid #bfdbfe' 
+                                    : (isTardy ? '1px solid #fee2e2' : isEarlyCheckout ? '1px solid #fef3c7' : '1px solid #bbf7d0')
                                 }}>
                                   {log.status === 'Tardanza' && log.lateness_minutes > 0
-                                    ? `Tardanza (+${log.lateness_minutes} min)`
+                                    ? (isCompensatedTardiness ? `Tardanza (+${log.lateness_minutes}m) • Compensada` : `Tardanza (+${log.lateness_minutes} min)`)
                                     : (log.type === 'Check-In' && checkInExtraMinutes > 0
                                       ? `${log.status || 'Normal'} (+${checkInExtraMinutes}m Extra)`
                                       : (log.type === 'Check-Out' && log.extra_minutes > 0
@@ -2431,50 +2534,7 @@ const AttendanceLogs = () => {
         // 1. Gather all payroll metrics dynamically per employee in range
         const computedPayroll = employees.map(emp => {
           const empLogs = logs.filter(log => String(log.employee_id) === String(emp.id));
-          
-          // Días Laborados
-          const presentDates = new Set(
-            empLogs
-              .filter(log => log.type !== 'Ausencia')
-              .map(log => new Date(log.timestamp).toISOString().split('T')[0])
-          );
-          const daysWorked = presentDates.size;
-
-          // Tardanza Total (minutos)
-          const totalLateness = empLogs
-            .filter(log => log.type === 'Check-In' && log.status === 'Tardanza')
-            .reduce((sum, log) => sum + (log.lateness_minutes || 0), 0);
-
-          // Horas Extra Totales (minutos)
-          const totalOvertime = empLogs
-            .filter(log => log.type === 'Check-Out')
-            .reduce((sum, log) => sum + (log.extra_minutes || 0), 0);
-
-          // Ausencias (solo contar fechas donde el empleado no haya laborado)
-          const absentDates = new Set(
-            empLogs
-              .filter(log => log.type === 'Ausencia')
-              .map(log => new Date(log.timestamp).toISOString().split('T')[0])
-          );
-          const absencesCount = [...absentDates].filter(d => !presentDates.has(d)).length;
-
-
-          // Tasa Puntualidad
-          const totalCheckins = empLogs.filter(log => log.type === 'Check-In').length;
-          const tardyCheckins = empLogs.filter(log => log.type === 'Check-In' && log.status === 'Tardanza').length;
-          const punctualCheckins = totalCheckins - tardyCheckins;
-          const punctualityRate = totalCheckins > 0 
-            ? Math.round((punctualCheckins / totalCheckins) * 100) 
-            : 100;
-
-          return {
-            ...emp,
-            daysWorked,
-            totalLateness,
-            totalOvertime,
-            absencesCount,
-            punctualityRate
-          };
+          return computeDetailedPayroll(emp, empLogs);
         });
 
         // 2. Filter list based on search term, filters, and parent search filters
