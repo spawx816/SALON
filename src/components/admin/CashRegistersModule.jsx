@@ -27,6 +27,7 @@ const CashRegistersModule = () => {
   const [registerInvoices, setRegisterInvoices] = useState([]);
   const [modalTab, setModalTab] = useState('resumen'); // 'resumen' | 'facturas' | 'movimientos'
   const [loadingModalData, setLoadingModalData] = useState(false);
+  const [movementFilter, setMovementFilter] = useState('gastos'); // 'gastos' | 'todos'
 
   useEffect(() => {
     loadSalonsAndRegisters();
@@ -65,6 +66,7 @@ const CashRegistersModule = () => {
   const handleOpenDetails = async (register, initialTab = 'resumen') => {
     setSelectedRegister(register);
     setModalTab(initialTab);
+    setMovementFilter('gastos');
     setLoadingModalData(true);
     try {
       const [movsRes, invsRes] = await Promise.all([
@@ -651,34 +653,39 @@ const CashRegistersModule = () => {
             </div>
 
             {/* Modal Navigation Tabs */}
-            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-              {[
-                { id: 'resumen', label: 'Resumen Financiero', icon: DollarSign },
-                { id: 'facturas', label: `Facturas (${registerInvoices.length})`, icon: Receipt },
-                { id: 'movimientos', label: `Movimientos (${registerMovements.length})`, icon: Clock }
-              ].map(tab => {
-                const Icon = tab.icon;
-                const isActive = modalTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setModalTab(tab.id)}
-                    style={{
-                      flex: 1, padding: '0.85rem 1rem', border: 'none',
-                      borderBottom: isActive ? '3px solid #be185d' : '3px solid transparent',
-                      background: isActive ? '#ffffff' : 'transparent',
-                      color: isActive ? '#be185d' : '#64748b',
-                      fontWeight: isActive ? 800 : 600,
-                      fontSize: '0.85rem', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem'
-                    }}
-                  >
-                    <Icon size={16} />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            {(() => {
+              const expenseMovements = registerMovements.filter(m => m.type !== 'Ingreso_Venta');
+              return (
+                <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                  {[
+                    { id: 'resumen', label: 'Resumen Financiero', icon: DollarSign },
+                    { id: 'facturas', label: `Facturas (${registerInvoices.length})`, icon: Receipt },
+                    { id: 'movimientos', label: `Movimientos (${expenseMovements.length})`, icon: Clock }
+                  ].map(tab => {
+                    const Icon = tab.icon;
+                    const isActive = modalTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setModalTab(tab.id)}
+                        style={{
+                          flex: 1, padding: '0.85rem 1rem', border: 'none',
+                          borderBottom: isActive ? '3px solid #be185d' : '3px solid transparent',
+                          background: isActive ? '#ffffff' : 'transparent',
+                          color: isActive ? '#be185d' : '#64748b',
+                          fontWeight: isActive ? 800 : 600,
+                          fontSize: '0.85rem', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem'
+                        }}
+                      >
+                        <Icon size={16} />
+                        <span>{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* Modal Content Body */}
             <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
@@ -799,32 +806,169 @@ const CashRegistersModule = () => {
                   )}
                 </div>
               ) : (
-                <div>
-                  {registerMovements.length === 0 ? (
-                    <p style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>No hay movimientos manuales registrados en esta caja.</p>
-                  ) : (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.825rem' }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left', color: '#475569', fontSize: '0.725rem', textTransform: 'uppercase' }}>
-                          <th style={{ padding: '0.65rem 0.5rem' }}>Hora</th>
-                          <th style={{ padding: '0.65rem 0.5rem' }}>Tipo</th>
-                          <th style={{ padding: '0.65rem 0.5rem' }}>Concepto</th>
-                          <th style={{ padding: '0.65rem 0.5rem', textAlign: 'right' }}>Monto</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {registerMovements.map((m, idx) => (
-                          <tr key={m.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                            <td style={{ padding: '0.65rem 0.5rem', color: '#64748b' }}>{new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
-                            <td style={{ padding: '0.65rem 0.5rem', fontWeight: 700 }}>{m.type}</td>
-                            <td style={{ padding: '0.65rem 0.5rem' }}>{m.concept || 'Movimiento'}</td>
-                            <td style={{ padding: '0.65rem 0.5rem', textAlign: 'right', fontWeight: 800 }}>RD$ {Number(m.amount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
+                (() => {
+                  const expenseMovements = registerMovements.filter(m => m.type !== 'Ingreso_Venta');
+                  const displayedMovements = movementFilter === 'gastos' ? expenseMovements : registerMovements;
+                  const totalExpensesAmount = expenseMovements
+                    .filter(m => m.type !== 'Entrada_Adicional')
+                    .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+
+                  return (
+                    <div>
+                      {/* Cabecera descriptiva y resumen de salidas */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem', background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '14px', padding: '0.85rem 1.25rem' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontSize: '1.2rem' }}>💸</span>
+                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#991b1b' }}>
+                              Gastos y Salidas de Caja
+                            </h4>
+                          </div>
+                          <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#b91c1c' }}>
+                            Egresos, compras de insumos, adelantos y retiros de efectivo realizados en esta jornada
+                          </p>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#991b1b', textTransform: 'uppercase', display: 'block' }}>Total Gastos / Salidas</span>
+                            <strong style={{ fontSize: '1.2rem', fontWeight: 900, color: '#dc2626' }}>
+                              - RD$ {totalExpensesAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+
+                          {registerMovements.length > expenseMovements.length && (
+                            <div style={{ display: 'flex', background: '#ffffff', border: '1px solid #fecaca', borderRadius: '10px', padding: '3px' }}>
+                              <button
+                                type="button"
+                                onClick={() => setMovementFilter('gastos')}
+                                style={{
+                                  padding: '5px 11px', borderRadius: '8px', border: 'none',
+                                  fontSize: '0.725rem', fontWeight: 800, cursor: 'pointer',
+                                  background: movementFilter === 'gastos' ? '#be185d' : 'transparent',
+                                  color: movementFilter === 'gastos' ? '#ffffff' : '#64748b'
+                                }}
+                              >
+                                Solo Gastos ({expenseMovements.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setMovementFilter('todos')}
+                                style={{
+                                  padding: '5px 11px', borderRadius: '8px', border: 'none',
+                                  fontSize: '0.725rem', fontWeight: 800, cursor: 'pointer',
+                                  background: movementFilter === 'todos' ? '#be185d' : 'transparent',
+                                  color: movementFilter === 'todos' ? '#ffffff' : '#64748b'
+                                }}
+                              >
+                                Todos ({registerMovements.length})
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {displayedMovements.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '3.5rem 1.5rem', background: '#f8fafc', borderRadius: '16px', border: '1.5px dashed #e2e8f0' }}>
+                          <span style={{ fontSize: '2.2rem', display: 'block', marginBottom: '0.5rem' }}>✨</span>
+                          <strong style={{ fontSize: '1rem', color: '#1e293b', display: 'block' }}>
+                            No hubo gastos ni retiros de efectivo en esta caja
+                          </strong>
+                          <p style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                            Todo el dinero recaudado de las facturas permaneció intacto en caja sin deducciones manuales.
+                          </p>
+                        </div>
+                      ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.825rem' }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0', textAlign: 'left', color: '#475569', fontSize: '0.725rem', textTransform: 'uppercase' }}>
+                              <th style={{ padding: '0.75rem 0.65rem' }}>Hora</th>
+                              <th style={{ padding: '0.75rem 0.65rem' }}>Tipo</th>
+                              <th style={{ padding: '0.75rem 0.65rem' }}>Concepto</th>
+                              <th style={{ padding: '0.75rem 0.65rem', textAlign: 'right' }}>Monto</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {displayedMovements.map((m, idx) => {
+                              const isExpense = m.type === 'Gasto_Imprevisto' || m.type === 'Retiro_Efectivo' || m.type === 'Prestamo_Empleado';
+                              const isIncome = m.type === 'Entrada_Adicional' || m.type === 'Ingreso_Venta';
+
+                              const renderTypeBadge = () => {
+                                switch (m.type) {
+                                  case 'Gasto_Imprevisto':
+                                    return (
+                                      <span style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', padding: '3px 9px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        💸 Gasto Imprevisto
+                                      </span>
+                                    );
+                                  case 'Retiro_Efectivo':
+                                    return (
+                                      <span style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', padding: '3px 9px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        📤 Retiro / Sangría
+                                      </span>
+                                    );
+                                  case 'Prestamo_Empleado':
+                                    return (
+                                      <span style={{ background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe', padding: '3px 9px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        🤝 Préstamo Empleado
+                                      </span>
+                                    );
+                                  case 'Entrada_Adicional':
+                                    return (
+                                      <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '3px 9px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        📥 Entrada Adicional
+                                      </span>
+                                    );
+                                  case 'Ingreso_Venta':
+                                    return (
+                                      <span style={{ background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', padding: '3px 9px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        🧾 Ingreso Venta
+                                      </span>
+                                    );
+                                  default:
+                                    return (
+                                      <span style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '3px 9px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 800 }}>
+                                        {m.type}
+                                      </span>
+                                    );
+                                }
+                              };
+
+                              return (
+                                <tr key={m.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                  <td style={{ padding: '0.75rem 0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                    {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </td>
+                                  <td style={{ padding: '0.75rem 0.65rem' }}>
+                                    {renderTypeBadge()}
+                                  </td>
+                                  <td style={{ padding: '0.75rem 0.65rem', color: '#1e293b', fontWeight: 600 }}>
+                                    {m.concept || 'Movimiento de caja'}
+                                  </td>
+                                  <td style={{ padding: '0.75rem 0.65rem', textAlign: 'right', fontWeight: 900, fontSize: '0.9rem', color: isExpense ? '#dc2626' : isIncome ? '#16a34a' : '#0f172a' }}>
+                                    {isExpense ? '- ' : isIncome ? '+ ' : ''}RD$ {Number(m.amount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          {movementFilter === 'gastos' && expenseMovements.length > 0 && (
+                            <tfoot>
+                              <tr style={{ background: '#fef2f2', borderTop: '2px solid #fecaca' }}>
+                                <td colSpan={3} style={{ padding: '0.85rem 0.65rem', fontWeight: 900, color: '#991b1b', textAlign: 'right', fontSize: '0.85rem' }}>
+                                  TOTAL GASTOS Y RETIROS DE ESTA CAJA:
+                                </td>
+                                <td style={{ padding: '0.85rem 0.65rem', textAlign: 'right', fontWeight: 900, fontSize: '1rem', color: '#dc2626' }}>
+                                  - RD$ {totalExpensesAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          )}
+                        </table>
+                      )}
+                    </div>
+                  );
+                })()
               )}
             </div>
 
