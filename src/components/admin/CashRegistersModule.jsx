@@ -807,11 +807,12 @@ const CashRegistersModule = () => {
                 </div>
               ) : (
                 (() => {
-                  const expenseMovements = registerMovements.filter(m => m.type !== 'Ingreso_Venta');
-                  const displayedMovements = movementFilter === 'gastos' ? expenseMovements : registerMovements;
+                  const safeMovements = Array.isArray(registerMovements) ? registerMovements : [];
+                  const expenseMovements = safeMovements.filter(m => m && m.type !== 'Ingreso_Venta');
+                  const displayedMovements = movementFilter === 'gastos' ? expenseMovements : safeMovements;
                   const totalExpensesAmount = expenseMovements
-                    .filter(m => m.type !== 'Entrada_Adicional')
-                    .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+                    .filter(m => m && m.type !== 'Entrada_Adicional')
+                    .reduce((sum, m) => sum + (Number(m?.amount) || 0), 0);
 
                   return (
                     <div>
@@ -837,7 +838,7 @@ const CashRegistersModule = () => {
                             </strong>
                           </div>
 
-                          {registerMovements.length > expenseMovements.length && (
+                          {safeMovements.length > expenseMovements.length && (
                             <div style={{ display: 'flex', background: '#ffffff', border: '1px solid #fecaca', borderRadius: '10px', padding: '3px' }}>
                               <button
                                 type="button"
@@ -861,7 +862,7 @@ const CashRegistersModule = () => {
                                   color: movementFilter === 'todos' ? '#ffffff' : '#64748b'
                                 }}
                               >
-                                Todos ({registerMovements.length})
+                                Todos ({safeMovements.length})
                               </button>
                             </div>
                           )}
@@ -937,7 +938,15 @@ const CashRegistersModule = () => {
                               return (
                                 <tr key={m.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                   <td style={{ padding: '0.75rem 0.65rem', color: '#64748b', fontWeight: 600 }}>
-                                    {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {(() => {
+                                      try {
+                                        if (!m?.created_at) return '--:--';
+                                        const d = new Date(m.created_at);
+                                        return isNaN(d.getTime()) ? '--:--' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                      } catch {
+                                        return '--:--';
+                                      }
+                                    })()}
                                   </td>
                                   <td style={{ padding: '0.75rem 0.65rem' }}>
                                     {renderTypeBadge()}

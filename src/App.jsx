@@ -10,6 +10,7 @@ import {
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useTranslation } from './context/LanguageContext';
 import { NotificationProvider, useNotification } from './context/NotificationContext';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 // Pages & Components
 import Login from './pages/Login';
@@ -547,15 +548,17 @@ const NotificationBell = () => {
 };
 
 const App = () => (
-  <NotificationProvider>
-    <AuthProvider>
-      <LanguageProvider>
-        <Router>
-          <AppContent />
-        </Router>
-      </LanguageProvider>
-    </AuthProvider>
-  </NotificationProvider>
+  <ErrorBoundary>
+    <NotificationProvider>
+      <AuthProvider>
+        <LanguageProvider>
+          <Router>
+            <AppContent />
+          </Router>
+        </LanguageProvider>
+      </AuthProvider>
+    </NotificationProvider>
+  </ErrorBoundary>
 );
 
 export default App;

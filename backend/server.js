@@ -10767,6 +10767,10 @@ app.get(/.*/, (req, res) => {
     return res.status(404).send('Not Found');
   }
   
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   const fs = require('fs');
   const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
   
