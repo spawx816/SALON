@@ -2020,41 +2020,72 @@ const VisitRecorder = () => {
   };
 
   const handleVerifyOtpAndAddPlanService = async () => {
-    if (adminCodeBypass) {
-      // Gerencial PIN authorization (2026, 1234, 8888)
-      if (adminBypassPin === '2026' || adminBypassPin === '1234' || adminBypassPin === '8888') {
-        setShowOtpVerificationModal(false);
-        setPendingPlanService(null);
-        await executeCheckout();
-        return;
-      } else {
-        alert('Clave gerencial incorrecta.');
-        return;
-      }
+    const cleanBypass = (adminBypassPin || '').trim();
+    const cleanOtp = (otpCodeInput || '').trim();
+    const clean = adminCodeBypass ? cleanBypass : cleanOtp;
+
+    if (!clean) {
+      alert(adminCodeBypass ? 'Por favor ingrese la clave gerencial o PIN.' : 'Por favor ingrese el código de verificación.');
+      return;
     }
 
-    if (!otpCodeInput || otpCodeInput.trim().length < 4) {
-      alert('Por favor ingrese el código de verificación de 6 dígitos.');
+    const masterPins = ['2026', '1234', '8888', '0000'];
+
+    // 1. Coincidencia directa con PIN Maestro Administrador
+    if (masterPins.includes(clean)) {
+      setShowOtpVerificationModal(false);
+      setPendingPlanService(null);
+      await executeCheckout();
+      return;
+    }
+
+    // 2. Coincidencia directa con código de seguridad generado en pantalla para esta sesión
+    if (adminOtpCode && clean === String(adminOtpCode).trim()) {
+      setShowOtpVerificationModal(false);
+      setPendingPlanService(null);
+      await executeCheckout();
+      return;
+    }
+
+    // 3. Coincidencia directa con código activo del Monitor de Seguridad
+    if (currentSecurityAuthCode && clean === String(currentSecurityAuthCode).trim()) {
+      setShowOtpVerificationModal(false);
+      setPendingPlanService(null);
+      await executeCheckout();
       return;
     }
 
     setOtpVerifying(true);
     try {
       const clientId = clientFound?.id || selectedTicket?.client_id || '1779838957032';
-      const visitData = {
-        clientName: clientFound?.nombre || clientFound?.name || selectedTicket?.client_name,
-        servicios: lineItems.map(i => i.nombre),
-        salon_id: salonId,
-        empleadoPeluquera: lineItems[0]?.empleado || 'Wendy'
-      };
 
-      await dataService.verifyOTP(clientId, otpCodeInput.trim());
+      // 4. Si está en modo Clave Gerencial, intentar verificar contra el endpoint de autorización de seguridad
+      if (adminCodeBypass) {
+        try {
+          const secRes = await dataService.verifySecurityAuth({ pin: clean });
+          if (secRes && (secRes.valid || secRes.success)) {
+            setShowOtpVerificationModal(false);
+            setPendingPlanService(null);
+            await executeCheckout();
+            return;
+          }
+        } catch (secErr) {
+          console.warn('verifySecurityAuth error:', secErr);
+        }
+      }
+
+      // 5. Verificación estándar de OTP
+      await dataService.verifyOTP(clientId, clean);
 
       setShowOtpVerificationModal(false);
       setPendingPlanService(null);
       await executeCheckout();
     } catch (err) {
-      alert('Código incorrecto o vencido: ' + (err.message || 'Intente nuevamente'));
+      if (adminCodeBypass) {
+        alert('Clave gerencial o PIN incorrecto. (PINs autorizados: 2026, 1234, 8888, o el código de 6 dígitos mostrado en pantalla)');
+      } else {
+        alert('Código incorrecto o vencido: ' + (err.message || 'Intente nuevamente'));
+      }
     } finally {
       setOtpVerifying(false);
     }
@@ -6607,7 +6638,10 @@ const VisitRecorder = () => {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setOtpCodeInput(adminOtpCode)}
+                    onClick={() => {
+                      setOtpCodeInput(adminOtpCode);
+                      setAdminBypassPin(adminOtpCode);
+                    }}
                     style={{ background: '#be185d', color: '#ffffff', border: 'none', borderRadius: '8px', padding: '5px 10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
                   >
                     Usar
@@ -6629,6 +6663,7 @@ const VisitRecorder = () => {
                     placeholder="------"
                     value={otpCodeInput}
                     onChange={(e) => setOtpCodeInput(e.target.value.replace(/[^0-9]/g, ''))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleVerifyOtpAndAddPlanService(); }}
                     autoFocus
                     style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', border: '2px solid #be185d', fontSize: '1.75rem', fontWeight: 900, textAlign: 'center', letterSpacing: '8px', color: '#0f172a', outline: 'none', background: '#fff' }}
                   />
@@ -6659,12 +6694,22 @@ const VisitRecorder = () => {
                 </label>
                 <input
                   type="password"
-                  placeholder="PIN Gerencial"
+                  placeholder="PIN Gerencial (ej. 2026) o Código"
                   value={adminBypassPin}
                   onChange={(e) => setAdminBypassPin(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleVerifyOtpAndAddPlanService(); }}
                   autoFocus
                   style={{ width: '100%', padding: '0.6rem', borderRadius: '10px', border: '1px solid #f87171', fontSize: '1.2rem', fontWeight: 800, textAlign: 'center', outline: 'none', color: '#991b1b' }}
                 />
+                {adminOtpCode && (
+                  <button
+                    type="button"
+                    onClick={() => setAdminBypassPin(adminOtpCode)}
+                    style={{ background: '#fee2e2', border: '1px dashed #f87171', color: '#991b1b', fontSize: '0.725rem', fontWeight: 800, borderRadius: '8px', padding: '5px 8px', marginTop: '0.45rem', width: '100%', cursor: 'pointer' }}
+                  >
+                    💡 Usar código generado: {adminOtpCode}
+                  </button>
+                )}
                 <button
                   onClick={() => setAdminCodeBypass(false)}
                   style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '0.725rem', fontWeight: 700, cursor: 'pointer', marginTop: '0.5rem', width: '100%', textAlign: 'center' }}
@@ -6687,8 +6732,8 @@ const VisitRecorder = () => {
               </button>
               <button
                 onClick={handleVerifyOtpAndAddPlanService}
-                disabled={otpVerifying || (!adminCodeBypass && otpCodeInput.length < 4)}
-                style={{ flex: 1.3, padding: '0.75rem', borderRadius: '12px', border: 'none', background: '#000000', color: '#ffffff', fontWeight: 900, cursor: 'pointer', fontSize: '0.85rem', opacity: (otpVerifying || (!adminCodeBypass && otpCodeInput.length < 4)) ? 0.6 : 1 }}
+                disabled={otpVerifying || (!adminCodeBypass ? otpCodeInput.trim().length < 4 : adminBypassPin.trim().length < 4)}
+                style={{ flex: 1.3, padding: '0.75rem', borderRadius: '12px', border: 'none', background: '#000000', color: '#ffffff', fontWeight: 900, cursor: 'pointer', fontSize: '0.85rem', opacity: (otpVerifying || (!adminCodeBypass ? otpCodeInput.trim().length < 4 : adminBypassPin.trim().length < 4)) ? 0.6 : 1 }}
               >
                 {otpVerifying ? 'Verificando...' : 'Verificar y Facturar'}
               </button>

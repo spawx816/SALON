@@ -1049,13 +1049,12 @@ app.post('/api/otp/generate', async (req, res) => {
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins validity
 
     // Invalidate previous active codes for this client
-    if (clientId) {
-      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ? AND is_used = 0', [clientId]);
-      await pool.query(
-        'INSERT INTO verification_codes (client_id, code, expires_at, is_used) VALUES (?, ?, ?, 0)',
-        [clientId, code, expiresAt]
-      );
-    }
+    const targetClientId = clientId || 'INVITADO';
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ? AND is_used = 0', [targetClientId]);
+    await pool.query(
+      'INSERT INTO verification_codes (client_id, code, expires_at, is_used) VALUES (?, ?, ?, 0)',
+      [targetClientId, code, expiresAt]
+    );
 
     console.log(`[OTP] Generated 6-digit code: ${code} for email: ${emailToSend}`);
 
@@ -1139,8 +1138,8 @@ app.post('/api/otp/verify', async (req, res) => {
   try {
     let verified = false;
 
-    // Master Bypass PINs (2026, 1234, 8888)
-    if (cleanCode === '2026' || cleanCode === '1234' || cleanCode === '8888') {
+    // Master Bypass PINs (2026, 1234, 8888, 0000)
+    if (['2026', '1234', '8888', '0000'].includes(cleanCode)) {
       verified = true;
     } else {
       let rows = [];
@@ -4943,13 +4942,12 @@ app.post('/api/otp/generate', async (req, res) => {
     }
 
     // Invalidate old codes and insert new code with 15 mins expiration using MySQL's NOW()
-    if (clientId) {
-      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ?', [clientId]);
-      await pool.query(
-        'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))',
-        [clientId, code]
-      );
-    }
+    const targetClientId2 = clientId || 'INVITADO';
+    await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ?', [targetClientId2]);
+    await pool.query(
+      'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))',
+      [targetClientId2, code]
+    );
 
     console.log(`[OTP] Generated code ${code} for client ${clientId} (${emailToSend})`);
     
