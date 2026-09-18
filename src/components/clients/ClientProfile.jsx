@@ -209,7 +209,7 @@ const ClientProfile = () => {
     if (found.status === 'Cancelled' || contractsFound?.some(c => c.status === 'Cancelled')) {
       showNotification('ATENCIÓN: Este cliente tiene su contrato CANCELADO voluntariamente.', 'error');
     } else if (found.status === 'Inactive' || (contractsFound && contractsFound.some(c => c.status === 'Pending_Retry'))) {
-      showNotification('AVISO: Cliente con cobro pendiente en reintento automático diario.', 'warning');
+      showNotification('AVISO: Cliente con cobro pendiente (tarjeta declinada por el banco).', 'warning');
     }
   };
 
@@ -1065,7 +1065,7 @@ const ClientProfile = () => {
                               ⛔ SUSCRIPCIÓN SUSPENDIDA
                             </span>
                             <p style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem', fontWeight: 700 }}>
-                              90 intentos automáticos fallidos consecutivos.
+                              Suscripción suspendida por pago pendiente (tarjeta declinada por el banco).
                             </p>
                           </div>
                         );
@@ -1088,10 +1088,10 @@ const ClientProfile = () => {
                               alignItems: 'center',
                               gap: '0.5rem'
                             }}>
-                              ⚠️ COBRO PENDIENTE ({contract?.retry_count || 1}/90)
+                              ⚠️ COBRO PENDIENTE
                             </span>
                             <p style={{ fontSize: '0.75rem', color: '#b45309', marginTop: '0.5rem', fontWeight: 700 }}>
-                              Tarjeta declinada. Sistema reintentando a diario (Intento {contract?.retry_count || 1} de 90).
+                              Tarjeta declinada por el banco. Cobro pendiente de regularización.
                             </p>
                           </div>
                         );
@@ -1357,7 +1357,7 @@ const ClientProfile = () => {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <p style={{ fontWeight: 700, color: isPromoActive ? '#166534' : (contract?.status === 'Pending_Retry' ? '#d97706' : (contract?.status === 'Cancelled' ? '#dc2626' : '#059669')), marginBottom: '0.25rem', fontSize: '0.9rem' }}>{plan.title}</p>
                             {isPromoActive && <span style={{ fontSize: '0.6rem', background: '#166534', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '99px', fontWeight: 900 }}>PROMO ACTIVA</span>}
-                            {contract?.status === 'Pending_Retry' && <span style={{ fontSize: '0.65rem', background: '#d97706', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '99px', fontWeight: 900 }}>REINTENTO {contract.retry_count || 1}/90</span>}
+                            {contract?.status === 'Pending_Retry' && <span style={{ fontSize: '0.65rem', background: '#d97706', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '99px', fontWeight: 900 }}>COBRO PENDIENTE</span>}
                             {contract?.status === 'Cancelled' && <span style={{ fontSize: '0.65rem', background: '#dc2626', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '99px', fontWeight: 900 }}>CANCELADO</span>}
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: isPromoActive ? '#166534' : (contract?.status === 'Pending_Retry' ? '#b45309' : (contract?.status === 'Cancelled' ? '#991b1b' : '#059669')), fontWeight: 600, marginTop: '0.25rem' }}>
@@ -1847,7 +1847,7 @@ const ClientProfile = () => {
                         borderRadius: '4px', 
                         border: `1px solid ${c.status === 'Active' || c.status === 'Activo' ? '#a7f3d0' : (c.status === 'Cancelled' ? '#fca5a5' : '#fde68a')}` 
                       }}>
-                        {c.status === 'Active' || c.status === 'Activo' ? 'FIRMADO / ACTIVO' : (c.status === 'Cancelled' ? '✕ CANCELADO' : `⚠️ REINTENTO (${c.retry_count || 1}/90)`)}
+                        {c.status === 'Active' || c.status === 'Activo' ? 'FIRMADO / ACTIVO' : (c.status === 'Cancelled' ? '✕ CANCELADO' : (c.status === 'Suspended' ? '🛑 SUSPENDIDO' : '⚠️ COBRO PENDIENTE'))}
                       </span>
                     </div>
                   </div>
@@ -1896,7 +1896,7 @@ const ClientProfile = () => {
                               }
                             })()}
                             <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, marginTop: '0.2rem' }}>
-                              REINTENTO {contract.retry_count}/5
+                              COBRO PENDIENTE
                             </span>
                           </>
                         ) : contract?.next_billing_date ? (
@@ -2114,9 +2114,9 @@ const ClientProfile = () => {
                     boxBg = '#fffbeb';
                     boxBorder = '#fde68a';
                     titleColor = '#d97706';
-                    titleText = `⚠️ COBRO PENDIENTE (${c.retry_count || 1}/90)`;
+                    titleText = '⚠️ COBRO PENDIENTE';
                     valueColor = '#b45309';
-                    valueText = `Reintentando: ${c.planName || 'Plan Beauty'}`;
+                    valueText = `Tarjeta declinada (${c.planName || 'Plan Beauty'})`;
                   } else if (isActive) {
                     topBarColor = '#10b981';
                     boxBg = '#f0fdf4';

@@ -598,7 +598,7 @@ const ClientDashboard = () => {
               </div>
               <div>
                 <h4 style={{ margin: 0, color: '#92400e', fontSize: '1rem', fontWeight: 800 }}>
-                  Cobro Mensual Pendiente (Reintento {contract?.retry_count || 1}/90)
+                  Cobro Mensual Pendiente (Tarjeta Declinada)
                 </h4>
                 <p style={{ margin: '0.25rem 0 0', color: '#b45309', fontSize: '0.85rem', fontWeight: 500 }}>
                   Tu último cobro mensual no pudo ser procesado. Estamos reintentando a diario o puedes actualizar tu método de pago en recepción.

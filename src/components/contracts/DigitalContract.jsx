@@ -1415,7 +1415,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                       alignItems: 'center',
                       gap: '0.3rem'
                     }}>
-                      {contract.status === 'Active' || contract.status === 'Activo' ? '✓ ACTIVO' : (contract.status === 'Pending_Retry' ? `⚠️ REINTENTO (${contract.retry_count || 1}/90)` : (contract.status === 'Cancelled' ? '✕ CANCELADO' : contract.status?.toUpperCase()))}
+                      {contract.status === 'Active' || contract.status === 'Activo' ? '✓ ACTIVO' : (contract.status === 'Pending_Retry' ? '⚠️ COBRO PENDIENTE' : (contract.status === 'Cancelled' ? '✕ CANCELADO' : (contract.status === 'Suspended' ? '🛑 SUSPENDIDO' : contract.status?.toUpperCase())))}
                     </span>
                   </td>
                   <td style={{ padding: '1rem', textAlign: 'right' }}>
