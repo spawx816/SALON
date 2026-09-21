@@ -2753,19 +2753,36 @@ app.post('/api/visits/:id/void', async (req, res) => {
       );
     } catch(e) {}
 
-    // 5. Revert cash register movement if active cash register exists
+    // 5. Revert cash register movement in the matching cash register
     const visitTotal = Number(visit.total || 0);
     if (visitTotal > 0) {
-      const [openRegisters] = await pool.query(
-        "SELECT id FROM cash_registers WHERE status = 'Abierta' ORDER BY opened_at DESC LIMIT 1"
-      );
-      if (openRegisters.length > 0) {
-        const activeRegId = openRegisters[0].id;
+      let targetRegId = null;
+      if (visit.cash_register_id) {
+        const [existingReg] = await pool.query('SELECT id FROM cash_registers WHERE id = ?', [visit.cash_register_id]);
+        if (existingReg.length > 0) {
+          targetRegId = existingReg[0].id;
+        }
+      }
+      if (!targetRegId && visit.salon_id) {
+        const [openRegs] = await pool.query(
+          "SELECT id FROM cash_registers WHERE salon_id = ? AND status = 'Abierta' ORDER BY opened_at DESC LIMIT 1",
+          [visit.salon_id]
+        );
+        if (openRegs.length > 0) targetRegId = openRegs[0].id;
+      }
+      if (!targetRegId) {
+        const [openRegs] = await pool.query(
+          "SELECT id FROM cash_registers WHERE status = 'Abierta' ORDER BY opened_at DESC LIMIT 1"
+        );
+        if (openRegs.length > 0) targetRegId = openRegs[0].id;
+      }
+
+      if (targetRegId) {
         await pool.query(
           `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_name, visit_id, created_at)
            VALUES (?, 'Anulacion_Venta', ?, ?, ?, ?, ?, NOW())`,
           [
-            activeRegId,
+            targetRegId,
             visit.metodo_pago || 'Efectivo',
             -Math.abs(visitTotal),
             `Anulación Factura ${visit.ticket_number || id} - ${voidReasonText}`,
@@ -2923,6 +2940,124 @@ app.post('/api/cash-registers/open', async (req, res) => {
   }
 });
 
+// HELPER CENTRALIZADO PARA CÁLCULO FINANCIERO Y ARQUEO DE CAJA
+function calculateRegisterFinancials(movements = [], initialAmt = 0) {
+  let efectivoTotal = 0;
+  let tarjetaTotal = 0;
+  let transferenciaTotal = 0;
+  let giftCardTotal = 0;
+  let consumoTotal = 0;
+  let planBeautyTotal = 0;
+  let otrosTotal = 0;
+
+  let gastosTotal = 0;
+  let prestamosTotal = 0;
+  let retirosTotal = 0;
+  let entradasTotal = 0;
+
+  const listaGastos = [];
+  const listaPrestamos = [];
+  const listaRetiros = [];
+  const listaEntradas = [];
+  const listaAnulaciones = [];
+  let countVentas = 0;
+
+  movements.forEach(m => {
+    const rawAmt = Math.abs(Number(m.amount) || 0);
+    const isSale = m.type === 'Ingreso_Venta';
+    const isVoid = m.type === 'Anulacion_Venta';
+
+    if (isSale || isVoid) {
+      const sign = isVoid ? -1 : 1;
+      const signedAmt = sign * rawAmt;
+
+      if (isSale) countVentas++;
+      if (isVoid) {
+        countVentas = Math.max(0, countVentas - 1);
+        listaAnulaciones.push({
+          concept: m.concept || 'Factura Anulada',
+          payment_method: m.payment_method || 'Efectivo',
+          amount: rawAmt
+        });
+      }
+
+      const method = (m.payment_method || '').toLowerCase();
+      if (method.includes('mixto')) {
+        let ef = 0, tj = 0, tr = 0;
+        const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+        const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+        const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+        if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
+        if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
+        if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
+        if (ef === 0 && tj === 0 && tr === 0) {
+          ef = rawAmt / 2;
+          tj = rawAmt / 2;
+        }
+        efectivoTotal += (ef * sign);
+        tarjetaTotal += (tj * sign);
+        transferenciaTotal += (tr * sign);
+      } else if (method.includes('efectivo')) {
+        efectivoTotal += signedAmt;
+      } else if (method.includes('tarjeta')) {
+        tarjetaTotal += signedAmt;
+      } else if (method.includes('transferencia')) {
+        transferenciaTotal += signedAmt;
+      } else if (method.includes('gift card') || method.includes('gift_card') || method.includes('gift')) {
+        giftCardTotal += signedAmt;
+      } else if (method.includes('consumo') || method.includes('nomina') || method.includes('nómina') || method.includes('empleado')) {
+        consumoTotal += signedAmt;
+      } else if (method.includes('plan beauty') || method.includes('plan_beauty') || method.includes('plan')) {
+        planBeautyTotal += signedAmt;
+      } else {
+        otrosTotal += signedAmt;
+      }
+    } else if (m.type === 'Gasto_Imprevisto') {
+      gastosTotal += rawAmt;
+      listaGastos.push({ concept: m.concept || 'Gasto no especificado', amount: rawAmt });
+    } else if (m.type === 'Prestamo_Empleado') {
+      prestamosTotal += rawAmt;
+      gastosTotal += rawAmt;
+      listaPrestamos.push({
+        employee_name: m.employee_name || 'Colaboradora',
+        concept: m.concept || 'Adelanto de nómina',
+        amount: rawAmt
+      });
+    } else if (m.type === 'Retiro_Efectivo') {
+      retirosTotal += rawAmt;
+      listaRetiros.push({ concept: m.concept || 'Retiro de caja', amount: rawAmt });
+    } else if (m.type === 'Entrada_Adicional') {
+      entradasTotal += rawAmt;
+      listaEntradas.push({ concept: m.concept || 'Ingreso adicional', amount: rawAmt });
+    }
+  });
+
+  const totalFacturado = efectivoTotal + tarjetaTotal + transferenciaTotal + giftCardTotal + consumoTotal + otrosTotal;
+  const montoEsperado = initialAmt + efectivoTotal + entradasTotal - gastosTotal - retirosTotal;
+
+  return {
+    efectivoTotal,
+    tarjetaTotal,
+    transferenciaTotal,
+    giftCardTotal,
+    consumoTotal,
+    planBeautyTotal,
+    otrosTotal,
+    totalFacturado,
+    gastosTotal,
+    prestamosTotal,
+    retirosTotal,
+    entradasTotal,
+    montoEsperado,
+    countVentas,
+    listaGastos,
+    listaPrestamos,
+    listaRetiros,
+    listaEntradas,
+    listaAnulaciones
+  };
+}
+
 async function syncRegisterInvoicesAndMovements(registerId) {
   try {
     if (!registerId) return;
@@ -2935,35 +3070,35 @@ async function syncRegisterInvoicesAndMovements(registerId) {
 
     let query = `
       SELECT v.* FROM visits v 
-      WHERE v.status = 'Facturado' 
-        AND (
+      WHERE (
           v.cash_register_id = ? 
           OR (
             (v.cash_register_id IS NULL OR v.cash_register_id = 0) 
             AND v.visited_at >= ?
             ${closedAt ? 'AND v.visited_at <= ?' : ''}
+            AND (v.salon_id = ? OR v.salon_id IS NULL)
           )
         )
     `;
-    const params = closedAt ? [registerId, openedAt, closedAt] : [registerId, openedAt];
+    const params = closedAt ? [registerId, openedAt, closedAt, reg.salon_id] : [registerId, openedAt, reg.salon_id];
     const [visits] = await pool.query(query, params);
 
     for (const v of visits) {
-      if (v.cash_register_id !== registerId) {
+      if (v.cash_register_id !== registerId && (v.status === 'Facturado' || v.status === 'Anulado')) {
         await pool.query('UPDATE visits SET cash_register_id = ? WHERE id = ?', [registerId, v.id]);
       }
 
-      const [movExists] = await pool.query(
-        'SELECT id FROM cash_register_movements WHERE cash_register_id = ? AND visit_id = ?',
+      const [saleMovements] = await pool.query(
+        "SELECT id FROM cash_register_movements WHERE cash_register_id = ? AND visit_id = ? AND type = 'Ingreso_Venta'",
         [registerId, v.id]
       );
 
-      if (movExists.length === 0) {
-        const visitTotal = parseFloat(v.total) || 0;
-        const ticketNum = v.ticket_number || v.id;
-        const clientName = v.client_name || 'Cliente';
-        const method = v.metodo_pago || 'Efectivo';
+      const visitTotal = parseFloat(v.total) || 0;
+      const ticketNum = v.ticket_number || v.id;
+      const clientName = v.client_name || 'Cliente';
+      const method = v.metodo_pago || 'Efectivo';
 
+      if (saleMovements.length === 0 && v.status === 'Facturado') {
         await pool.query(
           `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_name, visit_id, created_at)
            VALUES (?, 'Ingreso_Venta', ?, ?, ?, ?, ?, ?)`,
@@ -2977,6 +3112,29 @@ async function syncRegisterInvoicesAndMovements(registerId) {
             v.visited_at || new Date()
           ]
         );
+      }
+
+      // Si la visita fue anulada y existe el ingreso en esta caja pero no la anulación, registrar la anulación
+      if (v.status === 'Anulado' && saleMovements.length > 0) {
+        const [voidMovements] = await pool.query(
+          "SELECT id FROM cash_register_movements WHERE cash_register_id = ? AND visit_id = ? AND type = 'Anulacion_Venta'",
+          [registerId, v.id]
+        );
+        if (voidMovements.length === 0) {
+          await pool.query(
+            `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, user_name, visit_id, created_at)
+             VALUES (?, 'Anulacion_Venta', ?, ?, ?, ?, ?, ?)`,
+            [
+              registerId,
+              method,
+              -Math.abs(visitTotal),
+              `Anulación Factura ${ticketNum} - ${v.void_reason || 'Anulación de cobro'}`,
+              v.voided_by || 'Cajero',
+              v.id,
+              v.voided_at || new Date()
+            ]
+          );
+        }
       }
     }
   } catch (err) {
@@ -2995,49 +3153,15 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
     if (regs.length === 0) return res.status(404).json({ error: 'Caja no encontrada' });
     const reg = regs[0];
 
-    // Fetch movements for full breakdown
     const [movements] = await pool.query(
       'SELECT * FROM cash_register_movements WHERE cash_register_id = ?',
       [id]
     );
 
     const initialAmt = parseFloat(reg.monto_inicial) || 0;
-    let efectivoTotal = 0;
-    let gastosTotal = 0;
-    let retirosTotal = 0;
-    let entradasTotal = 0;
+    const stats = calculateRegisterFinancials(movements, initialAmt);
 
-    movements.forEach(m => {
-      const amt = Number(m.amount) || 0;
-      if (m.type === 'Ingreso_Venta') {
-        const method = (m.payment_method || '').toLowerCase();
-        if (method.includes('mixto')) {
-          let ef = 0, tj = 0, tr = 0;
-          const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
-          const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
-          const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
-          if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
-          if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
-          if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
-          if (ef === 0 && tj === 0 && tr === 0) {
-            ef = amt / 2;
-          }
-          efectivoTotal += ef;
-        } else if (method.includes('efectivo')) {
-          efectivoTotal += amt;
-        }
-      } else if (m.type === 'Gasto_Imprevisto') {
-        gastosTotal += amt;
-      } else if (m.type === 'Prestamo_Empleado') {
-        gastosTotal += amt;
-      } else if (m.type === 'Retiro_Efectivo') {
-        retirosTotal += amt;
-      } else if (m.type === 'Entrada_Adicional') {
-        entradasTotal += amt;
-      }
-    });
-
-    const montoEsperado = initialAmt + efectivoTotal + entradasTotal - gastosTotal - retirosTotal;
+    const montoEsperado = stats.montoEsperado;
     const finalAmt = parseFloat(monto_final) || 0;
     const diff = finalAmt - montoEsperado;
 
@@ -3057,7 +3181,7 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
         diferencia = ?, 
         observaciones = ? 
        WHERE id = ?`,
-      [montoEsperado, finalAmt, gastosTotal, diff, observaciones || '', id]
+      [montoEsperado, finalAmt, stats.gastosTotal, diff, observaciones || '', id]
     );
 
     // REGISTRAR AUTOMÁTICAMENTE PRÉSTAMOS A EMPLEADAS COMO DESCUENTO EN NÓMINA
@@ -3068,7 +3192,6 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
         let empId = p.employee_id ? parseInt(p.employee_id, 10) : null;
         let empName = p.employee_name;
 
-        // If empId is missing or 0, try resolving employee by name in staff_records
         if (!empId && empName) {
           const [matched] = await pool.query('SELECT id, nombre FROM staff_records WHERE nombre = ? LIMIT 1', [empName.trim()]);
           if (matched && matched.length > 0) {
@@ -3078,7 +3201,6 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
         }
 
         if (empId) {
-          // Check if already registered to prevent duplicates
           const [existing] = await pool.query(
             `SELECT id FROM employee_discounts 
              WHERE (cash_register_movement_id = ? AND cash_register_movement_id IS NOT NULL) 
@@ -3113,7 +3235,7 @@ app.post('/api/cash-registers/:id/close', async (req, res) => {
         montoEsperado,
         montoDeclarado: finalAmt,
         diferencia: diff,
-        gastosTotal,
+        gastosTotal: stats.gastosTotal,
         prestamosRegistrados
       }
     });
@@ -3157,81 +3279,28 @@ async function sendCashRegisterCloseSummaryEmail(registerId, observacionesCierre
     );
 
     const initialAmt = parseFloat(reg.monto_inicial) || 0;
-    let efectivoTotal = 0;
-    let tarjetaTotal = 0;
-    let transferenciaTotal = 0;
-    let giftCardTotal = 0;
-    let consumoTotal = 0;
-    let planBeautyTotal = 0;
-    let otrosTotal = 0;
+    const stats = calculateRegisterFinancials(movements, initialAmt);
 
-    let gastosTotal = 0;
-    let prestamosTotal = 0;
-    let retirosTotal = 0;
-    let entradasTotal = 0;
+    const efectivoTotal = stats.efectivoTotal;
+    const tarjetaTotal = stats.tarjetaTotal;
+    const transferenciaTotal = stats.transferenciaTotal;
+    const giftCardTotal = stats.giftCardTotal;
+    const consumoTotal = stats.consumoTotal;
+    const planBeautyTotal = stats.planBeautyTotal;
+    const otrosTotal = stats.otrosTotal;
+    const gastosTotal = stats.gastosTotal;
+    const prestamosTotal = stats.prestamosTotal;
+    const retirosTotal = stats.retirosTotal;
+    const entradasTotal = stats.entradasTotal;
+    const listaGastos = stats.listaGastos;
+    const listaPrestamos = stats.listaPrestamos;
+    const listaRetiros = stats.listaRetiros;
+    const listaEntradas = stats.listaEntradas;
+    const listaAnulaciones = stats.listaAnulaciones;
+    const countVentas = stats.countVentas;
 
-    const listaGastos = [];
-    const listaPrestamos = [];
-    const listaRetiros = [];
-    const listaEntradas = [];
-    let countVentas = 0;
-
-    movements.forEach(m => {
-      const amt = Number(m.amount) || 0;
-      if (m.type === 'Ingreso_Venta') {
-        countVentas++;
-        const method = (m.payment_method || '').toLowerCase();
-        if (method.includes('mixto')) {
-          let ef = 0, tj = 0, tr = 0;
-          const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
-          const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
-          const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
-          if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
-          if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
-          if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
-          if (ef === 0 && tj === 0 && tr === 0) {
-            ef = amt / 2;
-            tj = amt / 2;
-          }
-          efectivoTotal += ef;
-          tarjetaTotal += tj;
-          transferenciaTotal += tr;
-        } else if (method.includes('efectivo')) {
-          efectivoTotal += amt;
-        } else if (method.includes('tarjeta')) {
-          tarjetaTotal += amt;
-        } else if (method.includes('transferencia')) {
-          transferenciaTotal += amt;
-        } else if (method.includes('gift card') || method.includes('gift_card')) {
-          giftCardTotal += amt;
-        } else if (method.includes('consumo') || method.includes('nomina') || method.includes('nómina') || method.includes('empleado')) {
-          consumoTotal += amt;
-        } else if (method.includes('plan beauty') || method.includes('plan_beauty') || method.includes('plan')) {
-          planBeautyTotal += amt;
-        } else {
-          otrosTotal += amt;
-        }
-      } else if (m.type === 'Gasto_Imprevisto') {
-        gastosTotal += amt;
-        listaGastos.push({ concept: m.concept || 'Gasto no especificado', amount: amt });
-      } else if (m.type === 'Prestamo_Empleado') {
-        prestamosTotal += amt;
-        listaPrestamos.push({
-          employee_name: m.employee_name || 'Colaboradora',
-          concept: m.concept || 'Adelanto de nómina',
-          amount: amt
-        });
-      } else if (m.type === 'Retiro_Efectivo') {
-        retirosTotal += amt;
-        listaRetiros.push({ concept: m.concept || 'Retiro de caja', amount: amt });
-      } else if (m.type === 'Entrada_Adicional') {
-        entradasTotal += amt;
-        listaEntradas.push({ concept: m.concept || 'Ingreso adicional', amount: amt });
-      }
-    });
-
-    const totalFacturado = efectivoTotal + tarjetaTotal + transferenciaTotal + giftCardTotal + consumoTotal + otrosTotal;
-    const montoEsperado = initialAmt + efectivoTotal + entradasTotal - (gastosTotal + prestamosTotal) - retirosTotal;
+    const totalFacturado = stats.totalFacturado;
+    const montoEsperado = stats.montoEsperado;
     const finalAmt = parseFloat(reg.monto_final) || 0;
     const diff = parseFloat(reg.diferencia) || (finalAmt - montoEsperado);
 
@@ -3320,18 +3389,18 @@ async function sendCashRegisterCloseSummaryEmail(registerId, observacionesCierre
 
             <!-- CARD 1: VENTAS POR MÉTODO -->
             <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
-              <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">💳 Resumen de Ventas Facturadas (${countVentas} Transacciones)</div>
+              <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 14px; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">💳 Resumen de Ventas Facturadas (${countVentas} Transacciones Activas)</div>
               <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                 <tr style="border-bottom: 1px dashed #e2e8f0;">
-                  <td style="padding: 6px 0;">💵 Efectivo</td>
+                  <td style="padding: 6px 0;">💵 Efectivo Neto</td>
                   <td style="padding: 6px 0; text-align: right; font-weight: 600;">${fmtRD(efectivoTotal)}</td>
                 </tr>
                 <tr style="border-bottom: 1px dashed #e2e8f0;">
-                  <td style="padding: 6px 0;">💳 Tarjeta / Verifone</td>
+                  <td style="padding: 6px 0;">💳 Tarjeta / Verifone Neto</td>
                   <td style="padding: 6px 0; text-align: right; font-weight: 600;">${fmtRD(tarjetaTotal)}</td>
                 </tr>
                 <tr style="border-bottom: 1px dashed #e2e8f0;">
-                  <td style="padding: 6px 0;">📲 Transferencia</td>
+                  <td style="padding: 6px 0;">📲 Transferencia Neta</td>
                   <td style="padding: 6px 0; text-align: right; font-weight: 600;">${fmtRD(transferenciaTotal)}</td>
                 </tr>
                 ${giftCardTotal > 0 ? `
@@ -3360,6 +3429,15 @@ async function sendCashRegisterCloseSummaryEmail(registerId, observacionesCierre
                 </tr>
               </table>
             </div>
+
+            <!-- CARD ANULACIONES SI EXISTEN -->
+            ${listaAnulaciones.length > 0 ? `
+            <div style="border: 1px solid #fecaca; background: #fff5f5; border-radius: 12px; padding: 18px; margin-bottom: 20px;">
+              <div style="font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #991b1b; margin-bottom: 10px; border-bottom: 1px solid #fee2e2; padding-bottom: 6px;">🚫 Facturas Anuladas Descontadas (${listaAnulaciones.length})</div>
+              <ul style="list-style: none; padding: 0; margin: 0; font-size: 13px;">
+                ${listaAnulaciones.map(a => `<li style="padding: 6px 10px; background: #ffffff; border-radius: 6px; margin-bottom: 6px; border-left: 3px solid #dc2626; display: flex; justify-content: space-between;"><span>${escapeHtmlSafe(a.concept)} (${escapeHtmlSafe(a.payment_method)})</span><span style="font-weight: 700; color: #dc2626;">-${fmtRD(a.amount)}</span></li>`).join('')}
+              </ul>
+            </div>` : ''}
 
             <!-- CARD 2: GASTOS, PRÉSTAMOS Y RETIROS -->
             ${(gastosTotal > 0 || prestamosTotal > 0 || retirosTotal > 0 || entradasTotal > 0) ? `
@@ -3412,7 +3490,7 @@ async function sendCashRegisterCloseSummaryEmail(registerId, observacionesCierre
                   <td style="padding: 5px 0; text-align: right; font-weight: 600;">${fmtRD(initialAmt)}</td>
                 </tr>
                 <tr>
-                  <td style="padding: 5px 0;">(+) Ventas en Efectivo:</td>
+                  <td style="padding: 5px 0;">(+) Ventas Netas en Efectivo:</td>
                   <td style="padding: 5px 0; text-align: right; font-weight: 600;">+${fmtRD(efectivoTotal)}</td>
                 </tr>
                 ${entradasTotal > 0 ? `
@@ -3493,83 +3571,24 @@ app.get('/api/cash-registers/:id/movements', async (req, res) => {
     const [regRows] = await pool.query('SELECT monto_inicial FROM cash_registers WHERE id = ?', [id]);
     const montoInicial = regRows[0] ? Number(regRows[0].monto_inicial) : 0;
 
-    let efectivoTotal = 0;
-    let tarjetaTotal = 0;
-    let transferenciaTotal = 0;
-    let giftCardTotal = 0;
-    let consumoTotal = 0;
-    let planBeautyTotal = 0;
-    let otrosTotal = 0;
-
-    let gastosTotal = 0;
-    let prestamosTotal = 0;
-    let retirosTotal = 0;
-    let entradasTotal = 0;
-
-    movements.forEach(m => {
-      const amt = Number(m.amount) || 0;
-      if (m.type === 'Ingreso_Venta') {
-        const method = (m.payment_method || '').toLowerCase();
-        if (method.includes('mixto')) {
-          let ef = 0, tj = 0, tr = 0;
-          const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
-          const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
-          const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
-          if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
-          if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
-          if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
-          if (ef === 0 && tj === 0 && tr === 0) {
-            ef = amt / 2;
-            tj = amt / 2;
-          }
-          efectivoTotal += ef;
-          tarjetaTotal += tj;
-          transferenciaTotal += tr;
-        } else if (method.includes('efectivo')) {
-          efectivoTotal += amt;
-        } else if (method.includes('tarjeta')) {
-          tarjetaTotal += amt;
-        } else if (method.includes('transferencia')) {
-          transferenciaTotal += amt;
-        } else if (method.includes('gift card') || method.includes('gift_card')) {
-          giftCardTotal += amt;
-        } else if (method.includes('consumo') || method.includes('nomina') || method.includes('nómina') || method.includes('empleado')) {
-          consumoTotal += amt;
-        } else if (method.includes('plan beauty') || method.includes('plan_beauty') || method.includes('plan')) {
-          planBeautyTotal += amt;
-        } else {
-          otrosTotal += amt;
-        }
-      } else if (m.type === 'Gasto_Imprevisto') {
-        gastosTotal += amt;
-      } else if (m.type === 'Prestamo_Empleado') {
-        prestamosTotal += amt;
-        gastosTotal += amt;
-      } else if (m.type === 'Retiro_Efectivo') {
-        retirosTotal += amt;
-      } else if (m.type === 'Entrada_Adicional') {
-        entradasTotal += amt;
-      }
-    });
-
-    const montoEstimadoEnCaja = montoInicial + efectivoTotal + entradasTotal - gastosTotal - retirosTotal;
+    const stats = calculateRegisterFinancials(movements, montoInicial);
 
     res.json({
       movements,
       summary: {
         montoInicial,
-        efectivoTotal,
-        tarjetaTotal,
-        transferenciaTotal,
-        giftCardTotal,
-        consumoTotal,
-        planBeautyTotal,
-        otrosTotal,
-        gastosTotal,
-        prestamosTotal,
-        retirosTotal,
-        entradasTotal,
-        montoEstimadoEnCaja
+        efectivoTotal: stats.efectivoTotal,
+        tarjetaTotal: stats.tarjetaTotal,
+        transferenciaTotal: stats.transferenciaTotal,
+        giftCardTotal: stats.giftCardTotal,
+        consumoTotal: stats.consumoTotal,
+        planBeautyTotal: stats.planBeautyTotal,
+        otrosTotal: stats.otrosTotal,
+        gastosTotal: stats.gastosTotal,
+        prestamosTotal: stats.prestamosTotal,
+        retirosTotal: stats.retirosTotal,
+        entradasTotal: stats.entradasTotal,
+        montoEstimadoEnCaja: stats.montoEsperado
       }
     });
   } catch (err) {
@@ -3642,73 +3661,24 @@ app.get('/api/cash-registers', async (req, res) => {
         'SELECT type, payment_method, amount FROM cash_register_movements WHERE cash_register_id = ?',
         [reg.id]
       );
-      let efectivo = 0, tarjeta = 0, transferencia = 0, giftCard = 0, consumo = 0, planBeauty = 0;
-      let gastos = 0, retiros = 0, entradas = 0;
-      let totalVentas = 0;
-      let countInvoices = 0;
-
-      movements.forEach(m => {
-        const amt = Number(m.amount) || 0;
-        if (m.type === 'Ingreso_Venta') {
-          totalVentas += amt;
-          countInvoices++;
-          const method = (m.payment_method || '').toLowerCase();
-          if (method.includes('mixto')) {
-            let ef = 0, tj = 0, tr = 0;
-            const efMatch = m.payment_method.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
-            const tjMatch = m.payment_method.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
-            const trMatch = m.payment_method.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
-            if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
-            if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
-            if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
-            if (ef === 0 && tj === 0 && tr === 0) {
-              ef = amt / 2;
-              tj = amt / 2;
-            }
-            efectivo += ef;
-            tarjeta += tj;
-            transferencia += tr;
-          } else if (method.includes('efectivo')) {
-            efectivo += amt;
-          } else if (method.includes('tarjeta')) {
-            tarjeta += amt;
-          } else if (method.includes('transferencia')) {
-            transferencia += amt;
-          } else if (method.includes('gift')) {
-            giftCard += amt;
-          } else if (method.includes('consumo')) {
-            consumo += amt;
-          } else if (method.includes('plan')) {
-            planBeauty += amt;
-          } else {
-            efectivo += amt;
-          }
-        } else if (m.type === 'Gasto_Imprevisto' || m.type === 'Prestamo_Empleado') {
-          gastos += amt;
-        } else if (m.type === 'Retiro_Efectivo') {
-          retiros += amt;
-        } else if (m.type === 'Entrada_Adicional') {
-          entradas += amt;
-        }
-      });
 
       const montoInicial = Number(reg.monto_inicial) || 0;
-      const montoEsperado = montoInicial + efectivo + entradas - gastos - retiros;
+      const stats = calculateRegisterFinancials(movements, montoInicial);
 
       return {
         ...reg,
-        total_ventas: totalVentas,
-        efectivo_total: efectivo,
-        tarjeta_total: tarjeta,
-        transferencia_total: transferencia,
-        gift_card_total: giftCard,
-        consumo_total: consumo,
-        plan_beauty_total: planBeauty,
-        gastos_total: gastos,
-        retiros_total: retiros,
-        entradas_total: entradas,
-        monto_esperado: Number(reg.monto_esperado) || montoEsperado,
-        count_invoices: countInvoices
+        total_ventas: stats.totalFacturado,
+        efectivo_total: stats.efectivoTotal,
+        tarjeta_total: stats.tarjetaTotal,
+        transferencia_total: stats.transferenciaTotal,
+        gift_card_total: stats.giftCardTotal,
+        consumo_total: stats.consumoTotal,
+        plan_beauty_total: stats.planBeautyTotal,
+        gastos_total: stats.gastosTotal,
+        retiros_total: stats.retirosTotal,
+        entradas_total: stats.entradasTotal,
+        monto_esperado: Number(reg.monto_esperado) || stats.montoEsperado,
+        count_invoices: stats.countVentas
       };
     }));
 
