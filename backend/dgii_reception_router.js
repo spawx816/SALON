@@ -231,24 +231,14 @@ const handleReceiveEcf = async (req, res) => {
       }
     }
 
-    const acceptHeader = req.headers['accept'] || '';
-    if (acceptHeader.includes('xml') && !acceptHeader.includes('json')) {
-      res.set('Content-Type', 'application/xml; charset=utf-8');
-      return res.status(200).send(arecfSigned);
-    }
-
-    res.set('Content-Type', 'application/json; charset=utf-8');
-    return res.status(200).json({
-      codigo: 0,
-      estado: 'Recibido',
-      mensaje: 'Comprobante recibido y acuse de recibo generado exitosamente.',
-      secuencia: String(timestamp),
-      encf: encf,
-      fechaRecepcion: new Date().toISOString()
-    });
+    // DGII e-CF reception expects the signed XML ARECF (Acuse de Recibo)
+    console.log(`[DGII RECEPTION] Entregando Acuse de Recibo (ARECF) XML a la DGII para ${encf}`);
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    return res.status(200).send(arecfSigned);
   } catch (err) {
     console.error('[DGII RECEPTION ERROR e-CF]:', err.message);
-    res.status(500).json({ error: err.message });
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.status(500).send(`<?xml version="1.0" encoding="utf-8"?><Error><Mensaje>${err.message}</Mensaje></Error>`);
   }
 };
 
