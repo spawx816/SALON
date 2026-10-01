@@ -12,8 +12,7 @@ import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import DigitalContract from '../contracts/DigitalContract';
 import ReceptionMotivationalModal from '../common/ReceptionMotivationalModal';
-import { getCurrentMotivationalPhrase } from '../../utils/motivationalPhrases';
-import { QRCodeSVG } from 'qrcode.react';
+import { QRCodeSVG } from '../../utils/qrCodeGenerator';
 
 const DEFAULT_TOP_SERVICES = [
   { id: '1', nombre: 'Lavado y Secado', precio: 800 },
