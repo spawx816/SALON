@@ -28,6 +28,36 @@ const formatTimeShort = (timeStr) => {
   return `${hours}:${String(minutes).padStart(2, '0')}${ampm}`;
 };
 
+const normalizeDayName = (str) => {
+  if (!str) return '';
+  return str.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+};
+
+const getDRDateKey = (timestamp) => {
+  if (!timestamp) return '';
+  if (typeof timestamp === 'string') {
+    const match = timestamp.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+  }
+  try {
+    return new Date(timestamp).toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+  } catch (e) {
+    return String(timestamp).slice(0, 10);
+  }
+};
+
+const getDRHour = (timestamp) => {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hour12: false });
+    return parseInt(formatter.format(new Date(timestamp)), 10);
+  } catch (e) {
+    return new Date(timestamp).getHours();
+  }
+};
+
 const AttendanceLogs = () => {
   const [logs, setLogs] = useState([]);
   const [todayLogs, setTodayLogs] = useState([]);
@@ -439,18 +469,15 @@ const AttendanceLogs = () => {
 
   // Helper function to calculate net daily attendance, compensated tardiness, and overtime
   const computeDetailedPayroll = (emp, empLogs) => {
-    // Group logs by date (YYYY-MM-DD)
+    // Group logs by Dominican Republic date (YYYY-MM-DD)
     const logsByDate = new Map();
     
     empLogs.forEach(log => {
-      let dStr = '';
-      try {
-        dStr = new Date(log.timestamp).toISOString().split('T')[0];
-      } catch (e) {
-        dStr = String(log.timestamp).slice(0, 10);
+      const dStr = getDRDateKey(log.timestamp);
+      if (dStr) {
+        if (!logsByDate.has(dStr)) logsByDate.set(dStr, []);
+        logsByDate.get(dStr).push(log);
       }
-      if (!logsByDate.has(dStr)) logsByDate.set(dStr, []);
-      logsByDate.get(dStr).push(log);
     });
 
     let daysWorked = 0;
@@ -462,8 +489,11 @@ const AttendanceLogs = () => {
     let compensatedDaysCount = 0;
 
     logsByDate.forEach((dayLogs, dateStr) => {
-      const checkIn = dayLogs.find(l => l.type === 'Check-In');
-      const checkOut = dayLogs.find(l => l.type === 'Check-Out');
+      // Sort to reliably pick earliest check-in and latest check-out
+      const dayCheckIns = dayLogs.filter(l => l.type === 'Check-In').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      const dayCheckOuts = dayLogs.filter(l => l.type === 'Check-Out').sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      const checkIn = dayCheckIns[0] || null;
+      const checkOut = dayCheckOuts[0] || null;
       const absent = dayLogs.find(l => l.type === 'Ausencia');
 
       // If marked as Ausencia and no check-in occurred on this day
@@ -502,8 +532,7 @@ const AttendanceLogs = () => {
           const workedMins = Math.max(0, Math.floor((outTime - inTime) / 60000));
           
           // Closing exception check: if scheduled until 9:00 PM and checked out >= 8:00 PM (20:00)
-          const outDate = new Date(checkOut.timestamp);
-          const outHour = outDate.getHours();
+          const outHour = getDRHour(checkOut.timestamp);
           const isClosingExit = isScheduledUntil9PM && outHour >= 20;
 
           if (workedMins >= scheduledMins) {
@@ -968,14 +997,6 @@ const AttendanceLogs = () => {
   };
 
   const getTodayStatus = (emp) => {
-    const normalizeDayName = (str) => {
-      if (!str) return '';
-      return str.toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .trim();
-    };
-
     // Determine the current weekday name in America/Santo_Domingo timezone
     const dayFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', weekday: 'long' });
     const enToEsDay = {
@@ -996,13 +1017,8 @@ const AttendanceLogs = () => {
     const activeOverride = overridesList.find(o => {
       if (String(o.employee_id) !== String(emp.id) || o.status !== 'Activo') return false;
       if (!o.date) return false;
-      try {
-        const d = new Date(o.date);
-        const overrideDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
-        return overrideDateStr === todayDRStr;
-      } catch (e) {
-        return false;
-      }
+      const overrideDateStr = getDRDateKey(o.date);
+      return overrideDateStr === todayDRStr;
     });
 
     let isWorkingDay = false;
@@ -1035,11 +1051,12 @@ const AttendanceLogs = () => {
       }
     }
 
-    // 1. Check today's logs
+    // 1. Check today's logs (pick earliest checkin and latest checkout)
     const todayPunches = todayLogs.filter(log => String(log.employee_id) === String(emp.id));
-
-    const checkIn = todayPunches.find(log => log.type === 'Check-In');
-    const checkOut = todayPunches.find(log => log.type === 'Check-Out');
+    const dayCheckIns = todayPunches.filter(l => l.type === 'Check-In').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const dayCheckOuts = todayPunches.filter(l => l.type === 'Check-Out').sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const checkIn = dayCheckIns[0] || null;
+    const checkOut = dayCheckOuts[0] || null;
 
     if (checkIn) {
       let checkInExtraMinutes = 0;
@@ -1133,7 +1150,9 @@ const AttendanceLogs = () => {
     if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
       try {
         const parsed = JSON.parse(emp.dias_laborables);
-        const daySched = parsed[dayName];
+        const normalizedTarget = normalizeDayName(dayName);
+        const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedTarget);
+        const daySched = matchingKey ? parsed[matchingKey] : null;
         if (daySched && daySched.entrada && daySched.salida) {
           isWorking = true;
           entrada = daySched.entrada;
@@ -1144,7 +1163,8 @@ const AttendanceLogs = () => {
       }
     } else if (emp.dias_laborables) {
       const workingDays = (emp.dias_laborables || '').split(',');
-      isWorking = workingDays.includes(dayName);
+      const normalizedTarget = normalizeDayName(dayName);
+      isWorking = workingDays.some(d => normalizeDayName(d) === normalizedTarget);
     } else {
       isWorking = !!emp.hora_entrada;
     }
@@ -2146,12 +2166,14 @@ const AttendanceLogs = () => {
                               let isCompensatedTardiness = false;
                               if (log.type === 'Check-In' && (log.status === 'Tardanza' || (log.lateness_minutes || 0) > 0)) {
                                 try {
-                                  const logDateStr = new Date(log.timestamp).toISOString().split('T')[0];
-                                  const sameDayCheckout = logs.find(l => 
+                                  const logDateStr = getDRDateKey(log.timestamp);
+                                  const dayCheckOuts = logs.filter(l => 
                                     String(l.employee_id) === String(log.employee_id) && 
                                     l.type === 'Check-Out' && 
-                                    new Date(l.timestamp).toISOString().split('T')[0] === logDateStr
-                                  );
+                                    getDRDateKey(l.timestamp) === logDateStr
+                                  ).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                                  
+                                  const sameDayCheckout = dayCheckOuts[0] || null;
                                   if (sameDayCheckout) {
                                     const inTime = new Date(log.timestamp).getTime();
                                     const outTime = new Date(sameDayCheckout.timestamp).getTime();
@@ -2428,7 +2450,7 @@ const AttendanceLogs = () => {
                               <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>ID: {o.employee_id}</div>
                             </td>
                             <td style={{ padding: '1rem 1.5rem', fontWeight: 700, color: '#475569' }}>
-                              {new Date(o.date).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}
+                              {formatDRDate(o.date)}
                             </td>
                             <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontWeight: 600 }}>
                               {o.original_hora_entrada && o.original_hora_salida ? (
@@ -2466,8 +2488,7 @@ const AttendanceLogs = () => {
                               ) : (
                                 (() => {
                                   const todayDRStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
-                                  const d = new Date(o.date);
-                                  const overrideDateStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+                                  const overrideDateStr = getDRDateKey(o.date);
                                   
                                   if (overrideDateStr < todayDRStr) {
                                     return (

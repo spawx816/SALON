@@ -29,3 +29,14 @@ backend/.env
 *.njsproj
 *.sln
 *.sw?
+
+# Certificates & Test artefacts
+*.p12
+*.xlsx
+backend/certs/*.p12
+backend/dgii_reception_output/
+backend/dgii_test_output/
+Paso4_Facturas_Consumo_Menor_250k/
+Paso5_Representaciones_Impresas/
+Facturas_Consumo_Menor_250k/
+

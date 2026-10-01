@@ -5,6 +5,7 @@ const cors = require('cors');
 const mysql = require('mysql2/promise');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
+const { dgiiReceptionRouter } = require('./dgii_reception_router');
 const app = express();
 app.set('trust proxy', true);
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
@@ -44,7 +45,7 @@ app.use((req, res, next) => {
 // === ANTI-CSRF VALIDATION MIDDLEWARE FOR REST APIs ===
 app.use((req, res, next) => {
   const isStateModifying = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method);
-  if (isStateModifying && !req.path.startsWith('/api/cardnet')) {
+  if (isStateModifying && !req.path.startsWith('/api/cardnet') && !req.path.startsWith('/fe')) {
     const origin = req.headers.origin || req.headers.referer;
     if (process.env.NODE_ENV === 'production' && origin) {
       const matchesOrigin = allowedOrigins.some(o => origin.startsWith(o));
@@ -56,8 +57,12 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(express.text({ type: ['application/xml', 'text/xml', 'text/plain', '*/xml'], limit: '50mb' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// === DGII FACTURACIÓN ELECTRÓNICA (e-CF) RECEPCIÓN & AUTENTICACIÓN (PASO 8) ===
+app.use('/fe', dgiiReceptionRouter);
 
 // === SEO & CANONICAL REDIRECTS ===
 app.use((req, res, next) => {
@@ -10231,7 +10236,9 @@ app.get('/api/attendance/history', async (req, res) => {
           const parsed = JSON.parse(row.dias_laborables);
           const dateObj = new Date(row.timestamp);
           const dayName = dayNames[dateObj.getDay()];
-          const daySched = parsed[dayName];
+          const normalizedTarget = normalizeDayName(dayName);
+          const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedTarget);
+          const daySched = matchingKey ? parsed[matchingKey] : null;
           if (daySched && daySched.entrada && daySched.salida) {
             finalEntrada = daySched.entrada;
             finalSalida = daySched.salida;
@@ -10382,8 +10389,10 @@ app.get('/api/attendance/pending', async (req, res) => {
 
         if (isWorkingDay) {
           const dayPunches = punchMap.get(lookupKey) || [];
-          const checkIn = dayPunches.find(p => p.type === 'Check-In');
-          const checkOut = dayPunches.find(p => p.type === 'Check-Out');
+          const dayCheckIns = dayPunches.filter(p => p.type === 'Check-In').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          const dayCheckOuts = dayPunches.filter(p => p.type === 'Check-Out').sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          const checkIn = dayCheckIns[0] || null;
+          const checkOut = dayCheckOuts[0] || null;
           const absence = dayPunches.find(p => p.type === 'Ausencia');
 
           let hasIncident = false;
@@ -10511,7 +10520,9 @@ app.post('/api/attendance/adjust', async (req, res) => {
           const dateObj = new Date(`${date}T12:00:00`);
           const dayName = dayNames[dateObj.getDay()];
           const parsed = JSON.parse(emp.dias_laborables);
-          const daySched = parsed[dayName];
+          const normalizedTarget = normalizeDayName(dayName);
+          const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedTarget);
+          const daySched = matchingKey ? parsed[matchingKey] : null;
           if (daySched && daySched.entrada) {
             expectedEntrada = daySched.entrada;
           }
@@ -10590,7 +10601,9 @@ app.post('/api/attendance/adjust', async (req, res) => {
           const dateObj = new Date(`${date}T12:00:00`);
           const dayName = dayNames[dateObj.getDay()];
           const parsed = JSON.parse(emp.dias_laborables);
-          const daySched = parsed[dayName];
+          const normalizedTarget = normalizeDayName(dayName);
+          const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedTarget);
+          const daySched = matchingKey ? parsed[matchingKey] : null;
           if (daySched && daySched.salida) {
             expectedSalida = daySched.salida;
           }
@@ -10598,6 +10611,7 @@ app.post('/api/attendance/adjust', async (req, res) => {
       }
       
       let extraMinutes = 0;
+      let outStatus = 'Normal';
       if (expectedSalida) {
         try {
           const [expH, expM] = expectedSalida.split(':').map(Number);
@@ -10609,6 +10623,8 @@ app.post('/api/attendance/adjust', async (req, res) => {
           
           if (diff > 0) {
             extraMinutes = diff;
+          } else if (diff < 0) {
+            outStatus = 'Salida Temprana';
           }
         } catch(e) {}
       }
@@ -10616,16 +10632,16 @@ app.post('/api/attendance/adjust', async (req, res) => {
       if (existingOut.length > 0) {
         await pool.query(
           `UPDATE attendance 
-           SET timestamp = ?, extra_minutes = ?, is_manual = 1, modified_by = ?, modified_at = NOW(), modification_reason = ? 
+           SET timestamp = ?, status = ?, extra_minutes = ?, is_manual = 1, modified_by = ?, modified_at = NOW(), modification_reason = ? 
            WHERE id = ?`,
-          [timestampStr, extraMinutes, modifiedBy, reason, existingOut[0].id]
+          [timestampStr, outStatus, extraMinutes, modifiedBy, reason, existingOut[0].id]
         );
       } else {
         const punchId = `MANUAL-OUT-${Date.now()}-${employeeId}-${date}`;
         await pool.query(
           `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, extra_minutes, is_manual, modified_by, modified_at, modification_reason) 
-           VALUES (?, ?, 'Check-Out', NULL, NULL, 'Ajuste Manual por Administrador', ?, 'Normal', ?, 1, ?, NOW(), ?)`,
-          [punchId, employeeId, timestampStr, extraMinutes, modifiedBy, reason]
+           VALUES (?, ?, 'Check-Out', NULL, NULL, 'Ajuste Manual por Administrador', ?, ?, ?, 1, ?, NOW(), ?)`,
+          [punchId, employeeId, timestampStr, outStatus, extraMinutes, modifiedBy, reason]
         );
       }
     }
