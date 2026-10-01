@@ -57,15 +57,28 @@ app.use((req, res, next) => {
   next();
 });
 
+// Raw body handler for DGII e-CF reception endpoints (captures multipart/form-data, XML, binary)
+app.use(['/fe', '/api/fe'], (req, res, next) => {
+  let chunks = [];
+  req.on('data', chunk => chunks.push(chunk));
+  req.on('end', () => {
+    const rawBuffer = Buffer.concat(chunks);
+    req.rawBody = rawBuffer.toString('utf8');
+    if (!req.body || (typeof req.body === 'object' && Object.keys(req.body).length === 0)) {
+      req.body = req.rawBody;
+    }
+    next();
+  });
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // === DGII FACTURACIÓN ELECTRÓNICA (e-CF) RECEPCIÓN & AUTENTICACIÓN (PASO 8) ===
 if (dgiiReceptionRouter) {
-  const xmlMiddleware = express.text({ type: ['application/xml', 'text/xml', 'text/plain', '*/xml'], limit: '50mb' });
-  app.use('/fe', xmlMiddleware, dgiiReceptionRouter);
-  app.use('/api/fe', xmlMiddleware, dgiiReceptionRouter);
-  app.use('/api', xmlMiddleware, dgiiReceptionRouter);
+  app.use('/fe', dgiiReceptionRouter);
+  app.use('/api/fe', dgiiReceptionRouter);
+  app.use('/api', dgiiReceptionRouter);
 }
 
 // === SEO & CANONICAL REDIRECTS ===

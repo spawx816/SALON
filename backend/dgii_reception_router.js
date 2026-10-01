@@ -284,7 +284,8 @@ const handleReceiveEcf = async (req, res) => {
   try {
     console.log('[DGII RECEPTION] Comprobante electrónico (e-CF) recibido de DGII. Headers:', req.headers['content-type']);
     
-    const details = extractEcfDetails(req.body);
+    const rawPayload = req.rawBody || req.body || '';
+    const details = extractEcfDetails(rawPayload);
     const { encf, rncEmisor, rncComprador, rawText } = details;
     console.log(`[DGII RECEPTION] Datos parseados -> eNCF: ${encf}, RNCEmisor: ${rncEmisor}, RNCComprador: ${rncComprador}`);
 
