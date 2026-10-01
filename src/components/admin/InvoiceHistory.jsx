@@ -1092,6 +1092,11 @@ export default function InvoiceHistory() {
                         <strong style={{ color: isVoided ? '#991b1b' : '#0f172a', fontWeight: 800, textDecoration: isVoided ? 'line-through' : 'none', whiteSpace: 'nowrap' }}>
                           {visit.ticket_number || `SD-${String(visit.id).slice(-4)}`}
                         </strong>
+                        {visit.ncf && (
+                          <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#2563eb', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                            🛡️ {visit.ncf}
+                          </span>
+                        )}
                         <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748b', whiteSpace: 'nowrap' }}>
                           {visit.salon_nombre || 'San Vicente'}
                         </span>
@@ -1286,6 +1291,21 @@ export default function InvoiceHistory() {
                               <p style={{ margin: 0, fontSize: '0.725rem', color: '#64748b' }}>
                                 Servicio: {displayService}
                               </p>
+                            )}
+
+                            {visit.ncf && (
+                              <div style={{ marginTop: '0.65rem', padding: '0.55rem 0.85rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', color: '#1e40af', fontSize: '0.725rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                <div>
+                                  <strong>🛡️ COMPROBANTE FISCAL ELECTRÓNICO (e-CF):</strong> <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#1d4ed8' }}>{visit.ncf}</span> ({visit.ncf_name || 'DGII'})
+                                  {visit.codigo_seguridad_ecf && <span style={{ marginLeft: '10px' }}>• Cód. Seguridad: <strong>{visit.codigo_seguridad_ecf}</strong></span>}
+                                  {visit.rnc_cliente && <span style={{ marginLeft: '10px' }}>• RNC Cliente: <strong>{visit.rnc_cliente}</strong></span>}
+                                </div>
+                                {visit.qr_code_url && (
+                                  <a href={visit.qr_code_url} target="_blank" rel="noreferrer" style={{ background: '#2563eb', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', textDecoration: 'none', fontWeight: 800, fontSize: '0.675rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    <span>Consultar en DGII</span> →
+                                  </a>
+                                )}
+                              </div>
                             )}
 
                             {isVoided && (

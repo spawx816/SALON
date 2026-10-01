@@ -2454,13 +2454,86 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
   }
 }
 
+// Helper to atomically allocate the next DGII e-NCF sequence for an invoice/visit
+async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRnc = null, clientRazonSocial = null, totalAmount = 0) {
+  try {
+    const targetType = (requestedType || (clientRnc ? 'E31' : 'E32')).toUpperCase();
+    
+    // Look for active sequence batch with available items: first for targetType, fallback to any active batch
+    const [batches] = await pool.query(
+      `SELECT * FROM dgii_ncf_sequences 
+       WHERE estado = 'Activo' AND cantidad_usada < cantidad_aprobada 
+       ORDER BY (tipo_comprobante = ?) DESC, (tipo_comprobante = 'E32') DESC, (tipo_comprobante = 'E31') DESC, id ASC 
+       LIMIT 1`,
+      [targetType]
+    );
+
+    if (batches.length === 0) {
+      console.warn('[DGII NCF] No hay secuencias e-NCF activas con saldo disponible en dgii_ncf_sequences.');
+      return null;
+    }
+
+    const seq = batches[0];
+    const startNumStr = seq.numero_desde.replace(/^\D+/, '');
+    const startNum = parseInt(startNumStr, 10) || 1;
+    const currentAssignedNum = startNum + seq.cantidad_usada;
+    const prefix = seq.tipo_comprobante || seq.numero_desde.slice(0, 3);
+    const numDigits = Math.max(10, startNumStr.length);
+    const encfNumber = prefix + String(currentAssignedNum).padStart(numDigits, '0');
+
+    const newCantidadUsada = seq.cantidad_usada + 1;
+    const newSecuenciaActual = currentAssignedNum;
+    const newEstado = newCantidadUsada >= seq.cantidad_aprobada ? 'Agotado' : 'Activo';
+
+    await pool.query(
+      `UPDATE dgii_ncf_sequences 
+       SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
+       WHERE id = ?`,
+      [newCantidadUsada, newSecuenciaActual, newEstado, seq.id]
+    );
+
+    const crypto = require('crypto');
+    const securityCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const emisorRnc = '131917038';
+    const compradorRnc = clientRnc ? String(clientRnc).trim() : '000000000';
+    const totalFormatted = Number(totalAmount || 0).toFixed(2);
+    const qrUrl = `https://ecf.dgii.gov.do/consultatimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&eNCF=${encfNumber}&MontoTotal=${totalFormatted}&CodigoSeguridad=${securityCode}`;
+
+    await pool.query(
+      `UPDATE visits 
+       SET ncf = ?, ncf_type = ?, ncf_name = ?, rnc_cliente = ?, rzn_soc_cliente = ?, codigo_seguridad_ecf = ?, qr_code_url = ? 
+       WHERE id = ?`,
+      [encfNumber, seq.tipo_comprobante, seq.nombre_comprobante, clientRnc || null, clientRazonSocial || null, securityCode, qrUrl, visitId]
+    );
+
+    console.log(`✅ [DGII e-NCF Asignado]: ${encfNumber} (${seq.nombre_comprobante}) para Factura/Visita ${visitId}. Usados: ${newCantidadUsada}/${seq.cantidad_aprobada}`);
+
+    return {
+      ncf: encfNumber,
+      ncf_type: seq.tipo_comprobante,
+      ncf_name: seq.nombre_comprobante,
+      codigo_seguridad: securityCode,
+      qr_code_url: qrUrl,
+      secuencia_id: seq.id,
+      cantidad_disponible: seq.cantidad_aprobada - newCantidadUsada
+    };
+  } catch (err) {
+    console.error('[DGII NCF ASSIGN ERROR]:', err);
+    return null;
+  }
+}
+
 // Finalize checkout and mark as Facturado
 async function handleCheckoutVisit(req, res) {
   try {
     const id = req.params?.id || req.body?.ticketId || req.body?.id || `VIS-${Date.now()}`;
-    const { total, monto_recibido, devuelta, metodo_pago, items_detail, client_id, client_name, salon_id, employee_consumption, gift_card_redemption } = req.body;
+    const { 
+      total, monto_recibido, devuelta, metodo_pago, items_detail, 
+      client_id, client_name, salon_id, employee_consumption, gift_card_redemption,
+      ncf_type, tipo_comprobante, rnc_cliente, rnc, rzn_soc_cliente
+    } = req.body;
 
-    const [existing] = await pool.query('SELECT id, servicios FROM visits WHERE id = ?', [id]);
+    const [existing] = await pool.query('SELECT id, ticket_number, servicios, ncf FROM visits WHERE id = ?', [id]);
 
     let serviceNames = [];
     if (Array.isArray(items_detail) && items_detail.length > 0) {
@@ -2475,9 +2548,12 @@ async function handleCheckoutVisit(req, res) {
       }
     }
 
-    if (existing.length === 0) {
-      const ticketNum = await getNextTicketNumber(salon_id || 1, 'SD');
+    let ticketNum = existing[0]?.ticket_number;
+    if (!ticketNum) {
+      ticketNum = await getNextTicketNumber(salon_id || 1, 'SD');
+    }
 
+    if (existing.length === 0) {
       await pool.query(
         `INSERT INTO visits 
           (id, ticket_number, client_id, client_name, total, monto_recibido, devuelta, metodo_pago, items_detail, servicios, salon_id, status, visited_at)
@@ -2510,6 +2586,22 @@ async function handleCheckoutVisit(req, res) {
          WHERE id = ?`,
         [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), JSON.stringify(serviceNames || []), id]
       );
+    }
+
+    // Auto-allocate DGII e-NCF sequence if not already assigned
+    let dgiiResult = null;
+    if (!existing[0]?.ncf) {
+      try {
+        dgiiResult = await assignDgiiSequenceToVisit(
+          id,
+          ncf_type || tipo_comprobante,
+          rnc_cliente || rnc,
+          rzn_soc_cliente || client_name,
+          total || 0
+        );
+      } catch (dgiiErr) {
+        console.error('[DGII ASSIGN IN CHECKOUT FAILED]:', dgiiErr);
+      }
     }
 
     // Record Gift Card Redemption if applicable
@@ -2705,7 +2797,19 @@ async function handleCheckoutVisit(req, res) {
       }
     }
 
-    res.json({ success: true, ticketNumber: ticketNum || id });
+    // Fetch final updated visit row to ensure complete response
+    const [finalVisitRows] = await pool.query('SELECT ncf, ncf_type, ncf_name, codigo_seguridad_ecf, qr_code_url FROM visits WHERE id = ?', [id]);
+    const fv = finalVisitRows[0] || {};
+
+    res.json({ 
+      success: true, 
+      ticketNumber: ticketNum || id,
+      ncf: dgiiResult?.ncf || fv.ncf || null,
+      ncf_type: dgiiResult?.ncf_type || fv.ncf_type || null,
+      ncf_name: dgiiResult?.ncf_name || fv.ncf_name || null,
+      codigo_seguridad: dgiiResult?.codigo_seguridad || fv.codigo_seguridad_ecf || null,
+      qr_code_url: dgiiResult?.qr_code_url || fv.qr_code_url || null
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3764,26 +3868,40 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
       </tr>
     `).join('');
 
+    const hasEcf = Boolean(visit.ncf);
     const emailHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
         <div style="background: #09090b; padding: 24px; text-align: center; color: #ffffff;">
           <h1 style="margin: 0; font-size: 22px; letter-spacing: 1px; color: #ffffff;">PLAN <span style="color: #be185d;">BEAUTY</span> RD</h1>
-          <p style="margin: 4px 0 0; font-size: 12px; color: #a1a1aa; text-transform: uppercase;">Comprobante de Facturación</p>
+          <p style="margin: 4px 0 0; font-size: 12px; color: #a1a1aa; text-transform: uppercase;">
+            ${hasEcf ? (visit.ncf_name || 'Comprobante Fiscal Electrónico (e-CF)') : 'Comprobante de Facturación'}
+          </p>
         </div>
         <div style="padding: 24px;">
           <div style="display: flex; justify-content: space-between; margin-bottom: 16px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 12px;">
             <div>
               <p style="margin: 0; font-size: 12px; color: #64748b;">Factura / Ticket #</p>
               <h3 style="margin: 2px 0 0; font-size: 16px; color: #0f172a;">${visit.ticket_number || `SD-${visit.id}`}</h3>
+              ${hasEcf ? `
+                <div style="margin-top: 6px; padding: 4px 8px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;">
+                  <p style="margin: 0; font-size: 10px; color: #1e40af; font-weight: 700; text-transform: uppercase;">e-NCF DGII</p>
+                  <p style="margin: 2px 0 0; font-size: 14px; font-weight: 900; color: #1d4ed8; letter-spacing: 0.5px;">${visit.ncf}</p>
+                  <p style="margin: 1px 0 0; font-size: 10px; color: #3b82f6;">${visit.ncf_name || 'Comprobante Fiscal'}</p>
+                </div>
+              ` : ''}
             </div>
             <div style="text-align: right;">
               <p style="margin: 0; font-size: 12px; color: #64748b;">Fecha de emisión</p>
               <p style="margin: 2px 0 0; font-size: 13px; font-weight: 700; color: #0f172a;">${new Date(visit.visited_at || Date.now()).toLocaleString('es-DO')}</p>
+              ${visit.codigo_seguridad_ecf ? `
+                <p style="margin: 6px 0 0; font-size: 11px; color: #64748b;">Cód. Seguridad e-CF: <strong>${visit.codigo_seguridad_ecf}</strong></p>
+              ` : ''}
             </div>
           </div>
 
           <div style="background: #f8fafc; padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;">
             <p style="margin: 0; font-size: 13px; color: #0f172a;"><strong>Cliente:</strong> ${visit.client_name || 'Cliente General'}</p>
+            ${visit.rnc_cliente ? `<p style="margin: 3px 0 0; font-size: 12px; color: #0f172a;"><strong>RNC / Cédula Receptor:</strong> ${visit.rnc_cliente}</p>` : ''}
             <p style="margin: 4px 0 0; font-size: 12px; color: #64748b;"><strong>Método de pago:</strong> ${visit.metodo_pago || 'Efectivo'}</p>
           </div>
 
@@ -3803,6 +3921,14 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
           <div style="text-align: right; border-top: 2px solid #0f172a; padding-top: 12px;">
             <p style="margin: 0; font-size: 18px; font-weight: 900; color: #0f172a;">Total Facturado: RD$ ${Number(visit.total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</p>
           </div>
+
+          ${visit.qr_code_url ? `
+            <div style="margin-top: 18px; padding: 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; text-align: center;">
+              <p style="margin: 0 0 6px; font-size: 12px; font-weight: 800; color: #166534;">🛡️ Comprobante Fiscal Electrónico Certificado DGII</p>
+              <p style="margin: 0 0 10px; font-size: 11px; color: #15803d;">Emisor: ABATTE PELUQUERIA / PLAN BEAUTY RD (RNC: 131917038)</p>
+              <a href="${visit.qr_code_url}" target="_blank" style="display: inline-block; background: #16a34a; color: #ffffff; text-decoration: none; padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; box-shadow: 0 2px 6px rgba(22,163,74,0.3);">Consultar Timbre en DGII Online →</a>
+            </div>
+          ` : ''}
 
           <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 11px; color: #94a3b8;">
             <p style="margin: 0;">¡Gracias por preferir a Plan Beauty RD!</p>

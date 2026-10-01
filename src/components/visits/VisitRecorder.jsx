@@ -2967,7 +2967,7 @@ const VisitRecorder = () => {
       const finalClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente General';
       const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
 
-      await dataService.checkoutTicket(ticketIdToUse, {
+      const checkoutRes = await dataService.checkoutTicket(ticketIdToUse, {
         total: finalTotalAmount,
         monto_recibido: finalMontoRecibido,
         devuelta: finalDevuelta,
@@ -2982,6 +2982,7 @@ const VisitRecorder = () => {
         gift_card_redemption: gcRedemption
       }).catch(err => {
         console.warn('Checkout ticket API fallback:', err);
+        return null;
       });
 
       // Refresh active cash register movements immediately
@@ -3002,7 +3003,9 @@ const VisitRecorder = () => {
 
       await loadClientVisitsHistory(finalClientId || finalClientName);
 
-      alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);
+      const encfMsg = checkoutRes?.ncf ? `\n\n🛡️ e-NCF DGII: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad || 'Certificado'}` : '';
+
+      alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}${encfMsg}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);
       setShowOtpVerificationModal(false);
       setShowOtpModal(false);
       resetPosToBlankState();
@@ -5402,6 +5405,15 @@ const VisitRecorder = () => {
                       {printableTicketData.clientName || 'CLIENTE GENERAL'}
                     </span>
                   </div>
+
+                  {printableTicketData.ncf && (
+                    <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px', background: '#f8fafc', border: '1px solid #000000', padding: '1px 3px', borderRadius: '2px' }}>
+                      <span style={{ fontWeight: 900, minWidth: '50px' }}>e-NCF:</span>
+                      <span style={{ fontWeight: 900, fontSize: '11px', letterSpacing: '0.5px' }}>
+                        {printableTicketData.ncf}
+                      </span>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', alignItems: 'baseline' }}>
                     <span style={{ fontWeight: 800, minWidth: '90px' }}>RECEPCIONISTA:</span>
