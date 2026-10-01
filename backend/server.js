@@ -9734,6 +9734,9 @@ function normalizeDayName(str) {
     .trim();
 }
 
+const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+
 // Helper function for CompreFace face verification
 async function verifyFacesWithCompreFace(webcamBuffer, referenceBuffer) {
   const endpoint = (process.env.COMPREFACE_ENDPOINT || 'http://localhost:8000').replace(/\/$/, '');
