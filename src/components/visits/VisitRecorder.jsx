@@ -13,6 +13,7 @@ import { useAuth } from '../../context/AuthContext';
 import DigitalContract from '../contracts/DigitalContract';
 import ReceptionMotivationalModal from '../common/ReceptionMotivationalModal';
 import { getCurrentMotivationalPhrase } from '../../utils/motivationalPhrases';
+import { QRCodeSVG } from 'qrcode.react';
 
 const DEFAULT_TOP_SERVICES = [
   { id: '1', nombre: 'Lavado y Secado', precio: 800 },
@@ -5526,56 +5527,38 @@ const VisitRecorder = () => {
                   </div>
                 </div>
 
-                {/* 6. PIE DEL TICKET CON QR Y MENÚ DE SERVICIOS */}
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', margin: '6px 0 4px 0' }}>
-                  {/* QR Code */}
-                  <svg width="44" height="44" viewBox="0 0 100 100" style={{ shapeRendering: 'crispEdges' }}>
-                    <rect width="100" height="100" fill="#ffffff" />
-                    <rect x="5" y="5" width="28" height="28" fill="#000000" />
-                    <rect x="9" y="9" width="20" height="20" fill="#ffffff" />
-                    <rect x="13" y="13" width="12" height="12" fill="#000000" />
-
-                    <rect x="67" y="5" width="28" height="28" fill="#000000" />
-                    <rect x="71" y="9" width="20" height="20" fill="#ffffff" />
-                    <rect x="75" y="13" width="12" height="12" fill="#000000" />
-
-                    <rect x="5" y="67" width="28" height="28" fill="#000000" />
-                    <rect x="9" y="71" width="20" height="20" fill="#ffffff" />
-                    <rect x="13" y="75" width="12" height="12" fill="#000000" />
-
-                    <rect x="37" y="9" width="4" height="4" fill="#000000" />
-                    <rect x="45" y="9" width="4" height="4" fill="#000000" />
-                    <rect x="53" y="9" width="4" height="4" fill="#000000" />
-                    <rect x="9" y="37" width="4" height="4" fill="#000000" />
-                    <rect x="9" y="45" width="4" height="4" fill="#000000" />
-                    <rect x="9" y="53" width="4" height="4" fill="#000000" />
-
-                    <rect x="40" y="25" width="8" height="8" fill="#000000" />
-                    <rect x="52" y="20" width="6" height="6" fill="#000000" />
-                    <rect x="40" y="40" width="20" height="20" fill="#000000" />
-                    <rect x="44" y="44" width="12" height="12" fill="#ffffff" />
-                    <rect x="48" y="48" width="4" height="4" fill="#000000" />
-                    <rect x="68" y="40" width="8" height="14" fill="#000000" />
-                    <rect x="80" y="48" width="12" height="8" fill="#000000" />
-                    <rect x="25" y="42" width="8" height="8" fill="#000000" />
-                    <rect x="20" y="54" width="12" height="6" fill="#000000" />
-                    <rect x="68" y="68" width="12" height="10" fill="#000000" />
-                    <rect x="84" y="68" width="8" height="18" fill="#000000" />
-                    <rect x="40" y="68" width="10" height="12" fill="#000000" />
-                    <rect x="54" y="74" width="8" height="14" fill="#000000" />
-                    <rect x="40" y="86" width="18" height="6" fill="#000000" />
-                  </svg>
+                {/* 6. PIE DEL TICKET CON QR REAL Y MENÚ DE SERVICIOS / DGII */}
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', margin: '6px 0 4px 0' }}>
+                  {/* Scannable Vector QR Code */}
+                  <div style={{ background: '#ffffff', padding: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <QRCodeSVG 
+                      value={
+                        printableTicketData.qrUrl || 
+                        (printableTicketData.ncf 
+                          ? `https://ecf.dgii.gov.do/consultatimbre?RncEmisor=131917038&RncComprador=000000000&eNCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`
+                          : 'https://planbeauty.do/servicios'
+                        )
+                      } 
+                      size={46} 
+                      level="M"
+                      includeMargin={false} 
+                    />
+                  </div>
 
                   <div style={{ height: '34px', borderLeft: '1.5px solid #000000' }} />
 
                   <div style={{
-                    fontSize: '9.5px',
+                    fontSize: '8.5px',
                     fontWeight: 900,
-                    letterSpacing: '1.5px',
+                    letterSpacing: '1px',
                     lineHeight: '1.3',
                     textAlign: 'left'
                   }}>
-                    MENÚ DE<br />SERVICIOS
+                    {printableTicketData.ncf ? (
+                      <>TIMBRE FISCAL<br />DGII OFICIAL</>
+                    ) : (
+                      <>MENÚ DE<br />SERVICIOS</>
+                    )}
                   </div>
                 </div>
 
