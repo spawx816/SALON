@@ -69,6 +69,9 @@ app.use((req, res, next) => {
 
 // Raw body handler for DGII e-CF reception endpoints (captures multipart/form-data, XML, binary)
 app.use(['/fe', '/api/fe'], (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return next();
+  }
   let chunks = [];
   req.on('data', chunk => chunks.push(chunk));
   req.on('end', () => {
@@ -84,11 +87,18 @@ app.use(['/fe', '/api/fe'], (req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Health & Status check endpoints
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
+app.get('/api/ping', (req, res) => {
+  res.status(200).send('pong');
+});
+
 // === DGII FACTURACIÓN ELECTRÓNICA (e-CF) RECEPCIÓN & AUTENTICACIÓN (PASO 8) ===
 if (dgiiReceptionRouter) {
   app.use('/fe', dgiiReceptionRouter);
   app.use('/api/fe', dgiiReceptionRouter);
-  app.use('/api', dgiiReceptionRouter);
 }
 
 // === SEO & CANONICAL REDIRECTS ===
