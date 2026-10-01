@@ -62,7 +62,10 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // === DGII FACTURACIÓN ELECTRÓNICA (e-CF) RECEPCIÓN & AUTENTICACIÓN (PASO 8) ===
 if (dgiiReceptionRouter) {
-  app.use('/fe', express.text({ type: ['application/xml', 'text/xml', 'text/plain', '*/xml'], limit: '50mb' }), dgiiReceptionRouter);
+  const xmlMiddleware = express.text({ type: ['application/xml', 'text/xml', 'text/plain', '*/xml'], limit: '50mb' });
+  app.use('/fe', xmlMiddleware, dgiiReceptionRouter);
+  app.use('/api/fe', xmlMiddleware, dgiiReceptionRouter);
+  app.use('/api', xmlMiddleware, dgiiReceptionRouter);
 }
 
 // === SEO & CANONICAL REDIRECTS ===
