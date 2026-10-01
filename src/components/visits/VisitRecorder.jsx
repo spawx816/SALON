@@ -200,8 +200,7 @@ const VisitRecorder = () => {
   const [printableTicketData, setPrintableTicketData] = useState(null);
   const [showInvoicePrintModal, setShowInvoicePrintModal] = useState(false);
   const [printableInvoiceData, setPrintableInvoiceData] = useState(null);
-  const [showNcfSelectionModal, setShowNcfSelectionModal] = useState(false);
-  const [selectedNcfType, setSelectedNcfType] = useState('E32'); // 'E32' | 'E31' | 'NONE'
+  const [isCreditoFiscal, setIsCreditoFiscal] = useState(false);
   const [clientRncInput, setClientRncInput] = useState('');
   const [clientRazonSocialInput, setClientRazonSocialInput] = useState('');
   const [allClients, setAllClients] = useState([]);
@@ -1327,6 +1326,9 @@ const VisitRecorder = () => {
     setPendingDiscountItem(null);
     setAdminPin('');
     setAdminOtpCode('');
+    setIsCreditoFiscal(false);
+    setClientRncInput('');
+    setClientRazonSocialInput('');
   };
 
   const handleStartBlankTicket = () => {
@@ -1339,6 +1341,12 @@ const VisitRecorder = () => {
     setClientSearchTerm('');
     setEmployeeDiscountApplied(false);
     setBirthdayDiscountActive(false);
+    if (client.cedula) {
+      setClientRncInput(client.cedula);
+    }
+    if (client.nombre || client.name) {
+      setClientRazonSocialInput(client.nombre || client.name);
+    }
     await loadClientPlanData(client.id, client.nombre || client.name, null, client);
     await loadClientVisitsHistory(client.id || client.cedula || client.nombre || client.name);
 
@@ -2917,11 +2925,14 @@ const VisitRecorder = () => {
       return;
     }
 
-    // Open NCF Comprobante Fiscal Confirmation Modal
-    if (clientFound?.cedula && !clientRncInput) {
-      setClientRncInput(clientFound.cedula);
+    // If user marked Credito Fiscal checkbox, validate that RNC/Cedula is filled
+    if (isCreditoFiscal && !clientRncInput.trim()) {
+      alert('⚠️ Por favor ingresa el RNC o Cédula del receptor para emitir la Factura con Crédito Fiscal (E31).');
+      return;
     }
-    setShowNcfSelectionModal(true);
+
+    const ncfTypeToUse = isCreditoFiscal ? 'E31' : 'E32';
+    await executeCheckout(null, ncfTypeToUse, isCreditoFiscal ? clientRncInput.trim() : '', isCreditoFiscal ? clientRazonSocialInput.trim() : '');
   };
 
   const executeCheckout = async (customPayments = null, chosenNcfType = null, customRnc = null, customRazonSocial = null) => {
@@ -2978,9 +2989,9 @@ const VisitRecorder = () => {
       const finalClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente General';
       const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
 
-      const ncfTypeToSend = chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : selectedNcfType;
-      const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : clientRncInput;
-      const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : clientRazonSocialInput;
+      const ncfTypeToSend = chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : (isCreditoFiscal ? 'E31' : 'E32');
+      const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
+      const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
 
       const checkoutRes = await dataService.checkoutTicket(ticketIdToUse, {
         total: finalTotalAmount,
@@ -4365,6 +4376,62 @@ const VisitRecorder = () => {
             </div>
           </div>
 
+          {/* FISCAL COMPROBANTE OPTION (DEFAULT: CONSUMO E32, OPTIONAL: CREDITO FISCAL E31) */}
+          <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.55rem 0.75rem', borderRadius: '10px', background: isCreditoFiscal ? '#eff6ff' : '#f8fafc', border: `1.5px solid ${isCreditoFiscal ? '#3b82f6' : '#e2e8f0'}`, transition: 'all 0.15s ease' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', margin: 0 }}>
+              <input
+                type="checkbox"
+                checked={isCreditoFiscal}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIsCreditoFiscal(checked);
+                  if (checked) {
+                    if (clientFound?.cedula && !clientRncInput) setClientRncInput(clientFound.cedula);
+                    if ((clientFound?.nombre || clientFound?.name) && !clientRazonSocialInput) setClientRazonSocialInput(clientFound?.nombre || clientFound?.name);
+                  }
+                }}
+                style={{ width: '17px', height: '17px', accentColor: '#2563eb', cursor: 'pointer' }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: isCreditoFiscal ? '#1d4ed8' : '#334155' }}>
+                  ¿Factura con Crédito Fiscal (RNC)?
+                </span>
+                <span style={{ fontSize: '0.675rem', color: isCreditoFiscal ? '#2563eb' : '#64748b' }}>
+                  {isCreditoFiscal ? '🔵 Emitir e-NCF E31 con valor fiscal' : '🟢 Por defecto: Factura de Consumo (E32)'}
+                </span>
+              </div>
+            </label>
+
+            {isCreditoFiscal && (
+              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed #bfdbfe', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
+                    RNC / Cédula Receptor *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: 131917038 o 001-0000000-0"
+                    value={clientRncInput}
+                    onChange={(e) => setClientRncInput(e.target.value)}
+                    style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
+                    Razón Social / Nombre Comercial (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Empresa SRL o Nombre"
+                    value={clientRazonSocialInput}
+                    onChange={(e) => setClientRazonSocialInput(e.target.value)}
+                    style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* FINAL ACTION BUTTONS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.25rem' }}>
             <button
@@ -5627,184 +5694,6 @@ const VisitRecorder = () => {
         isOpen={showInvoicePrintModal}
         onClose={() => setShowInvoicePrintModal(false)}
       />
-
-      {/* MODAL: SELECCIÓN / CONFIRMACIÓN DE COMPROBANTE FISCAL DGII */}
-      {showNcfSelectionModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1070, padding: '1rem' }}>
-          <div style={{ background: '#ffffff', width: '100%', maxWidth: '440px', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
-            
-            {/* Header */}
-            <div style={{ padding: '1rem 1.25rem', background: '#09090b', color: '#ffffff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Receipt size={20} style={{ color: '#10b981' }} />
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>¿Desea emitir Comprobante Fiscal?</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNcfSelectionModal(false)}
-                style={{ background: 'none', border: 'none', color: '#a1a1aa', cursor: 'pointer' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div style={{ padding: '1.25rem' }}>
-              <p style={{ margin: '0 0 1rem 0', fontSize: '0.825rem', color: '#64748b' }}>
-                Total a Facturar: <strong style={{ color: '#0f172a' }}>RD$ {finalTotalAmount.toFixed(2)}</strong> • Cliente: <strong style={{ color: '#0f172a' }}>{clientFound?.nombre || selectedTicket?.client_name || 'Cliente General'}</strong>
-              </p>
-
-              {/* Option 1: Consumo E32 */}
-              <div 
-                onClick={() => setSelectedNcfType('E32')}
-                style={{ 
-                  padding: '0.75rem 1rem', 
-                  borderRadius: '10px', 
-                  border: `2px solid ${selectedNcfType === 'E32' ? '#10b981' : '#e2e8f0'}`,
-                  background: selectedNcfType === 'E32' ? '#f0fdf4' : '#ffffff',
-                  cursor: 'pointer',
-                  marginBottom: '0.65rem',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.875rem', color: '#0f172a' }}>
-                      🟢 Factura de Consumo Electrónica (E32)
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-                      Para consumidor final / clientas generales del salón.
-                    </div>
-                  </div>
-                  <input 
-                    type="radio" 
-                    name="ncf_option" 
-                    checked={selectedNcfType === 'E32'} 
-                    onChange={() => setSelectedNcfType('E32')} 
-                  />
-                </div>
-              </div>
-
-              {/* Option 2: Credito Fiscal E31 */}
-              <div 
-                onClick={() => setSelectedNcfType('E31')}
-                style={{ 
-                  padding: '0.75rem 1rem', 
-                  borderRadius: '10px', 
-                  border: `2px solid ${selectedNcfType === 'E31' ? '#2563eb' : '#e2e8f0'}`,
-                  background: selectedNcfType === 'E31' ? '#eff6ff' : '#ffffff',
-                  cursor: 'pointer',
-                  marginBottom: '0.65rem',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.875rem', color: '#0f172a' }}>
-                      🔵 Factura con Crédito Fiscal (E31)
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-                      Requiere RNC o Cédula corporativa para deducción fiscal.
-                    </div>
-                  </div>
-                  <input 
-                    type="radio" 
-                    name="ncf_option" 
-                    checked={selectedNcfType === 'E31'} 
-                    onChange={() => setSelectedNcfType('E31')} 
-                  />
-                </div>
-
-                {selectedNcfType === 'E31' && (
-                  <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#1e40af', marginBottom: '2px' }}>
-                        RNC / Cédula Receptor *
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ej: 131917038 o 001-0000000-0"
-                        value={clientRncInput}
-                        onChange={(e) => setClientRncInput(e.target.value)}
-                        style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #93c5fd', fontSize: '0.825rem', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#1e40af', marginBottom: '2px' }}>
-                        Razón Social / Nombre Comercial (Opcional)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ej: Empresa SRL o Nombre"
-                        value={clientRazonSocialInput}
-                        onChange={(e) => setClientRazonSocialInput(e.target.value)}
-                        style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #93c5fd', fontSize: '0.825rem', boxSizing: 'border-box' }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Option 3: Sin Comprobante Fiscal */}
-              <div 
-                onClick={() => setSelectedNcfType('NONE')}
-                style={{ 
-                  padding: '0.75rem 1rem', 
-                  borderRadius: '10px', 
-                  border: `2px solid ${selectedNcfType === 'NONE' ? '#64748b' : '#e2e8f0'}`,
-                  background: selectedNcfType === 'NONE' ? '#f8fafc' : '#ffffff',
-                  cursor: 'pointer',
-                  marginBottom: '1rem',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.875rem', color: '#0f172a' }}>
-                      ⚪ Sin Comprobante Fiscal (No Fiscal)
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-                      Venta regular interna sin descontar secuencia DGII.
-                    </div>
-                  </div>
-                  <input 
-                    type="radio" 
-                    name="ncf_option" 
-                    checked={selectedNcfType === 'NONE'} 
-                    onChange={() => setSelectedNcfType('NONE')} 
-                  />
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowNcfSelectionModal(false)}
-                  style={{ flex: 1, padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#475569', cursor: 'pointer', fontSize: '0.85rem' }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (selectedNcfType === 'E31' && !clientRncInput.trim()) {
-                      alert('Por favor ingresa el RNC o Cédula del receptor para emitir Crédito Fiscal (E31).');
-                      return;
-                    }
-                    setShowNcfSelectionModal(false);
-                    await executeCheckout(null, selectedNcfType, clientRncInput, clientRazonSocialInput);
-                  }}
-                  style={{ flex: 1.5, padding: '0.75rem', borderRadius: '10px', border: 'none', background: '#09090b', color: '#ffffff', fontWeight: 800, cursor: 'pointer', fontSize: '0.85rem' }}
-                >
-                  Confirmar y Cobrar →
-                </button>
-              </div>
-
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* MODAL: VER HISTORIAL COMPLETO DEL CLIENTE */}
       {showHistoryModal && (
