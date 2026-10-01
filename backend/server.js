@@ -2588,9 +2588,10 @@ async function handleCheckoutVisit(req, res) {
       );
     }
 
-    // Auto-allocate DGII e-NCF sequence if not already assigned
+    // Auto-allocate DGII e-NCF sequence if not already assigned and not explicitly set to NONE
+    const isExplicitNoNcf = (ncf_type === 'NONE' || tipo_comprobante === 'NONE' || ncf_type === 'SIN_COMPROBANTE');
     let dgiiResult = null;
-    if (!existing[0]?.ncf) {
+    if (!existing[0]?.ncf && !isExplicitNoNcf) {
       try {
         dgiiResult = await assignDgiiSequenceToVisit(
           id,
