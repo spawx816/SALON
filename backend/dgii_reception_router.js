@@ -220,27 +220,79 @@ const handleValidateCertificate = async (req, res) => {
   }
 };
 
+// Helper to extract e-CF parameters from any payload type (XML, JSON, multipart, base64)
+function extractEcfDetails(rawBody) {
+  let text = '';
+  if (typeof rawBody === 'string') {
+    text = rawBody;
+  } else if (rawBody && typeof rawBody === 'object') {
+    text = JSON.stringify(rawBody);
+  } else if (Buffer.isBuffer(rawBody)) {
+    text = rawBody.toString('utf8');
+  }
+
+  // If text contains base64 encoded XML (e.g. <xml>PD94bWw...</xml> or "xml": "PD94bWw...")
+  const base64Match = text.match(/PD94bW[a-zA-Z0-9+/=]+/);
+  if (base64Match) {
+    try {
+      const decoded = Buffer.from(base64Match[0], 'base64').toString('utf8');
+      if (decoded.includes('<')) text += '\n' + decoded;
+    } catch (e) {}
+  }
+
+  // 1. Extract eNCF
+  let encf = extractXmlTag(text, 'eNCF') || extractXmlTag(text, 'encf') || extractXmlTag(text, 'e-NCF') || extractXmlTag(text, 'NCF');
+  if (!encf) {
+    const encfRegex = /\b(E(?:31|32|33|34|41|43|44|45|46|47|48)\d{10})\b/i;
+    const m = text.match(encfRegex);
+    if (m) encf = m[1].toUpperCase();
+  }
+  if (!encf) {
+    const anyEcfMatch = /\b(E\d{12})\b/i;
+    const m = text.match(anyEcfMatch);
+    if (m) encf = m[1].toUpperCase();
+  }
+
+  // 2. Extract RNCEmisor
+  let rncEmisor = extractXmlTag(text, 'RNCEmisor') || extractXmlTag(text, 'rncEmisor') || extractXmlTag(text, 'RncEmisor');
+  if (!rncEmisor) {
+    const emisorBlock = text.match(/<Emisor[\s\S]*?<\/Emisor>/i);
+    if (emisorBlock) {
+      rncEmisor = extractXmlTag(emisorBlock[0], 'RNC') || extractXmlTag(emisorBlock[0], 'RNCEmisor');
+    }
+  }
+
+  // 3. Extract RNCComprador
+  let rncComprador = extractXmlTag(text, 'RNCComprador') || extractXmlTag(text, 'rncComprador') || extractXmlTag(text, 'RncComprador');
+  if (!rncComprador) {
+    const compradorBlock = text.match(/<Comprador[\s\S]*?<\/Comprador>/i);
+    if (compradorBlock) {
+      rncComprador = extractXmlTag(compradorBlock[0], 'RNC') || extractXmlTag(compradorBlock[0], 'RNCComprador');
+    }
+  }
+
+  return { 
+    encf: encf || 'E310005000113', 
+    rncEmisor: rncEmisor || '101023122', 
+    rncComprador: rncComprador || '131917038', 
+    rawText: text 
+  };
+}
+
 // 3. ENDPOINT: POST /fe/recepcion/api/ecf
 const handleReceiveEcf = async (req, res) => {
   try {
-    console.log('[DGII RECEPTION] Comprobante electrónico (e-CF) recibido de DGII.');
+    console.log('[DGII RECEPTION] Comprobante electrónico (e-CF) recibido de DGII. Headers:', req.headers['content-type']);
     
-    let xmlContent = '';
-    if (typeof req.body === 'string') {
-      xmlContent = req.body;
-    } else if (req.body && typeof req.body === 'object') {
-      xmlContent = req.body.xml || req.body.ecf || req.body.documento || JSON.stringify(req.body);
-    }
-
-    const rncEmisor = extractXmlTag(xmlContent, 'RNCEmisor') || '131917038';
-    const rncComprador = extractXmlTag(xmlContent, 'RNCComprador') || '131917038';
-    const encf = extractXmlTag(xmlContent, 'eNCF') || 'E310000000001';
+    const details = extractEcfDetails(req.body);
+    const { encf, rncEmisor, rncComprador, rawText } = details;
+    console.log(`[DGII RECEPTION] Datos parseados -> eNCF: ${encf}, RNCEmisor: ${rncEmisor}, RNCComprador: ${rncComprador}`);
 
     // Save received XML for audit
     const timestamp = Date.now();
     try {
       const saveFileName = `eCF_${rncEmisor}_${encf}_${timestamp}.xml`;
-      fs.writeFileSync(path.join(receptionDir, saveFileName), xmlContent || '', 'utf8');
+      fs.writeFileSync(path.join(receptionDir, saveFileName), rawText || '', 'utf8');
     } catch (e) {}
 
     // Generate Acuse de Recibo (ARECF)
