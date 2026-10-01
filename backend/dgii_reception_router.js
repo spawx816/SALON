@@ -52,23 +52,70 @@ function extractXmlTag(xml, tag) {
   return match ? match[1].trim() : '';
 }
 
-// Helper to get certificate safely if present
+// Helper to get certificate safely from all possible locations
 function getCertDataSafe() {
   try {
-    const certPath = process.env.DGII_CERT_PATH 
-      ? path.resolve(__dirname, process.env.DGII_CERT_PATH) 
-      : path.resolve(__dirname, 'certs/20209102_identity.p12');
-    const password = process.env.DGII_CERT_PASSWORD || '';
-    
-    if (!fs.existsSync(certPath)) return null;
-    
-    const dgiiEcf = require('dgii-ecf');
-    if (dgiiEcf && dgiiEcf.P12Reader) {
-      const reader = new dgiiEcf.P12Reader(password);
-      return reader.getKeyFromFile(certPath);
+    const candidatePaths = [
+      process.env.DGII_CERT_PATH && path.resolve(__dirname, process.env.DGII_CERT_PATH),
+      process.env.DGII_CERT_PATH && path.resolve(process.cwd(), process.env.DGII_CERT_PATH),
+      process.env.DGII_CERT_PATH,
+      path.resolve(__dirname, 'certs/20209102_identity.p12'),
+      path.resolve(__dirname, '../certs/20209102_identity.p12'),
+      path.resolve(__dirname, '../20209102_identity.p12'),
+      path.resolve(__dirname, '20209102_identity.p12'),
+      path.resolve(process.cwd(), 'backend/certs/20209102_identity.p12'),
+      path.resolve(process.cwd(), 'certs/20209102_identity.p12'),
+      path.resolve(process.cwd(), '20209102_identity.p12')
+    ].filter(p => p && fs.existsSync(p));
+
+    const uniquePaths = [...new Set(candidatePaths)];
+    if (uniquePaths.length === 0) {
+      console.error('[DGII RECEPTION ERROR] Archivo de certificado .p12 no encontrado en ninguna ruta.');
+      return null;
+    }
+
+    const certPath = uniquePaths[0];
+    const password = process.env.DGII_CERT_PASSWORD || 'Amelia29';
+    console.log('[DGII RECEPTION] Certificado cargado desde:', certPath);
+
+    // Method 1: dgii-ecf P12Reader
+    try {
+      const dgiiEcf = require('dgii-ecf');
+      if (dgiiEcf && dgiiEcf.P12Reader) {
+        const reader = new dgiiEcf.P12Reader(password);
+        const keyData = reader.getKeyFromFile(certPath);
+        if (keyData && keyData.key && keyData.cert) {
+          return keyData;
+        }
+      }
+    } catch (p12Err) {
+      console.warn('[DGII RECEPTION] P12Reader warning:', p12Err.message);
+    }
+
+    // Method 2: node-forge fallback
+    try {
+      const forge = require('node-forge');
+      const p12Buffer = fs.readFileSync(certPath);
+      const p12Asn1 = forge.asn1.fromDer(p12Buffer.toString('binary'));
+      const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
+      let privateKeyPem = null;
+      let certificatePem = null;
+
+      for (const safeContent of p12.safeContents) {
+        for (const safeBag of safeContent.safeBags) {
+          if (safeBag.key) privateKeyPem = forge.pki.privateKeyToPem(safeBag.key);
+          if (safeBag.cert) certificatePem = forge.pki.certificateToPem(safeBag.cert);
+        }
+      }
+
+      if (privateKeyPem && certificatePem) {
+        return { key: privateKeyPem, cert: certificatePem };
+      }
+    } catch (forgeErr) {
+      console.error('[DGII RECEPTION ERROR] node-forge error:', forgeErr.message);
     }
   } catch (e) {
-    // Graceful fallback
+    console.error('[DGII RECEPTION ERROR getCertDataSafe]:', e.message);
   }
   return null;
 }
