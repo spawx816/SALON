@@ -6,8 +6,15 @@ const mysql = require('mysql2/promise');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
-const forge = require('node-forge');
-const { Signature, generateEcfQRCodeURL, generateFcQRCodeURL, getCodeSixDigitfromSignature } = require('dgii-ecf');
+let forge = null;
+try { forge = require('node-forge'); } catch(e) { console.warn('node-forge optional require notice:', e.message); }
+let dgiiEcfLib = {};
+try { dgiiEcfLib = require('dgii-ecf'); } catch(e) { console.warn('dgii-ecf optional require notice:', e.message); }
+const { Signature, generateEcfQRCodeURL, generateFcQRCodeURL, getCodeSixDigitfromSignature } = dgiiEcfLib;
+let PDFDocument = null;
+try { PDFDocument = require('pdfkit'); } catch(e) { console.warn('pdfkit optional require notice:', e.message); }
+let QRCode = null;
+try { QRCode = require('qrcode'); } catch(e) { console.warn('qrcode optional require notice:', e.message); }
 const { dgiiReceptionRouter } = require('./dgii_reception_router');
 const app = express();
 app.set('trust proxy', true);
