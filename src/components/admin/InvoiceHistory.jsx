@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useAuth } from '../../context/AuthContext';
+import ElectronicInvoicePrintModal from '../common/ElectronicInvoicePrintModal';
 
 export default function InvoiceHistory() {
   const { user } = useAuth();
@@ -18,6 +19,8 @@ export default function InvoiceHistory() {
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [emailSendingId, setEmailSendingId] = useState(null);
+  const [showInvoicePrintModal, setShowInvoicePrintModal] = useState(false);
+  const [selectedInvoiceForPrint, setSelectedInvoiceForPrint] = useState(null);
 
   const handleSendEmailInvoice = async (visit) => {
     const defaultEmail = visit.client_email || visit.email || '';
@@ -1220,6 +1223,19 @@ export default function InvoiceHistory() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem' }}>
                           <button
                             type="button"
+                            onClick={() => {
+                              setSelectedInvoiceForPrint(visit);
+                              setShowInvoicePrintModal(true);
+                            }}
+                            style={{ background: '#09090b', color: '#ffffff', border: 'none', padding: '3px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                            title="Imprimir Factura Electrónica Oficial (RI - e-CF DGII)"
+                          >
+                            <Printer size={10} />
+                            <span>Factura</span>
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => setExpandedId(isExpanded ? null : (visit.id || index))}
                             style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '3px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.15rem' }}
                             title="Ver desglose detallado de servicios"
@@ -1732,6 +1748,13 @@ export default function InvoiceHistory() {
           </div>
         </div>
       )}
+
+      {/* MODAL: FACTURA ELECTRÓNICA OFICIAL (REPRESENTACIÓN IMPRESA DGII) */}
+      <ElectronicInvoicePrintModal
+        invoice={selectedInvoiceForPrint}
+        isOpen={showInvoicePrintModal}
+        onClose={() => setShowInvoicePrintModal(false)}
+      />
 
     </div>
   );

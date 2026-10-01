@@ -12,6 +12,7 @@ import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import DigitalContract from '../contracts/DigitalContract';
 import ReceptionMotivationalModal from '../common/ReceptionMotivationalModal';
+import ElectronicInvoicePrintModal from '../common/ElectronicInvoicePrintModal';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
 
 const DEFAULT_TOP_SERVICES = [
@@ -197,6 +198,8 @@ const VisitRecorder = () => {
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [printableTicketData, setPrintableTicketData] = useState(null);
+  const [showInvoicePrintModal, setShowInvoicePrintModal] = useState(false);
+  const [printableInvoiceData, setPrintableInvoiceData] = useState(null);
   const [allClients, setAllClients] = useState([]);
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [modalClientSearchTerm, setModalClientSearchTerm] = useState('');
@@ -3005,7 +3008,27 @@ const VisitRecorder = () => {
 
       const encfMsg = checkoutRes?.ncf ? `\n\n🛡️ e-NCF DGII: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad || 'Certificado'}` : '';
 
-      alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}${encfMsg}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);
+      const finalInvoiceObj = {
+        id: ticketIdToUse,
+        ticket_number: checkoutRes?.ticketNumber || selectedTicket?.ticket_number || ticketIdToUse,
+        ncf: checkoutRes?.ncf,
+        ncf_type: checkoutRes?.ncf_type,
+        ncf_name: checkoutRes?.ncf_name,
+        codigo_seguridad_ecf: checkoutRes?.codigo_seguridad,
+        qr_code_url: checkoutRes?.qr_code_url,
+        client_name: finalClientName,
+        client_id: finalClientId,
+        total: finalTotalAmount,
+        metodo_pago: finalMetodoPago,
+        monto_recibido: finalMontoRecibido,
+        devuelta: finalDevuelta,
+        items_detail: lineItems,
+        visited_at: new Date().toISOString()
+      };
+
+      setPrintableInvoiceData(finalInvoiceObj);
+      setShowInvoicePrintModal(true);
+
       setShowOtpVerificationModal(false);
       setShowOtpModal(false);
       resetPosToBlankState();
@@ -5602,6 +5625,13 @@ const VisitRecorder = () => {
         </div>
       )}
 
+      {/* MODAL: FACTURA ELECTRÓNICA OFICIAL (REPRESENTACIÓN IMPRESA DGII) */}
+      <ElectronicInvoicePrintModal
+        invoice={printableInvoiceData}
+        isOpen={showInvoicePrintModal}
+        onClose={() => setShowInvoicePrintModal(false)}
+      />
+
       {/* MODAL: VER HISTORIAL COMPLETO DEL CLIENTE */}
       {showHistoryModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1060 }}>
@@ -7371,14 +7401,14 @@ const VisitRecorder = () => {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setPrintableTicketData(inv);
-                                    setShowPrintModal(true);
+                                    setPrintableInvoiceData(inv);
+                                    setShowInvoicePrintModal(true);
                                   }}
                                   style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '0.35rem 0.6rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '3px' }}
-                                  title="Ver / Imprimir Comprobante"
+                                  title="Ver / Imprimir Factura Electrónica Oficial (e-CF DGII)"
                                 >
                                   <Printer size={13} />
-                                  <span>Imprimir</span>
+                                  <span>Factura</span>
                                 </button>
 
                                 <button
