@@ -341,7 +341,68 @@ const handleReceiveEcf = async (req, res) => {
   }
 };
 
-// Permutations for DGII reception routes
+// 4. ENDPOINT: POST /fe/aprobacioncomercial/api/ecf (Paso 10)
+const handleReceiveCommercialApproval = async (req, res) => {
+  try {
+    console.log('[DGII RECEPTION] Aprobación Comercial (ACECF) recibida de DGII. Headers:', req.headers['content-type']);
+    
+    const rawPayload = req.rawBody || req.body || '';
+    const details = extractEcfDetails(rawPayload);
+    const { encf, rncEmisor, rncComprador, rawText } = details;
+    console.log(`[DGII RECEPTION] Aprobación Comercial parseada -> eNCF: ${encf}, RNCEmisor: ${rncEmisor}, RNCComprador: ${rncComprador}`);
+
+    // Save received XML for audit
+    const timestamp = Date.now();
+    try {
+      const saveFileName = `ACECF_${rncEmisor}_${encf}_${timestamp}.xml`;
+      fs.writeFileSync(path.join(receptionDir, saveFileName), rawText || '', 'utf8');
+    } catch (e) {}
+
+    // Generate Acuse de Recibo (ARECF) for commercial approval
+    const nowDR = new Date().toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' });
+    const d = new Date(nowDR);
+    const pad = n => String(n).padStart(2, '0');
+    const fechaHora = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+    const arecfUnsigned = `<?xml version="1.0" encoding="utf-8"?>
+<ARECF xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <DetalleAcusedeRecibo>
+    <Version>1.0</Version>
+    <RNCEmisor>${rncEmisor}</RNCEmisor>
+    <RNCComprador>${rncComprador}</RNCComprador>
+    <eNCF>${encf}</eNCF>
+    <Estado>0</Estado>
+    <FechaHoraAcuseRecibo>${fechaHora}</FechaHoraAcuseRecibo>
+  </DetalleAcusedeRecibo>
+</ARECF>`;
+
+    let arecfSigned = arecfUnsigned;
+    const cert = getCertDataSafe();
+    if (cert && cert.key && cert.cert) {
+      try {
+        const { Signature } = require('dgii-ecf');
+        if (Signature) {
+          const signature = new Signature(cert.key, cert.cert);
+          arecfSigned = signature.signXml(arecfUnsigned, 'ARECF');
+          fs.writeFileSync(path.join(receptionDir, `ARECF_AC_${rncEmisor}_${encf}_${timestamp}.xml`), arecfSigned, 'utf8');
+          console.log(`[DGII RECEPTION] ARECF firmado para Aprobación Comercial de ${encf}`);
+        }
+      } catch (signErr) {
+        console.warn('[DGII RECEPTION] Advertencia al firmar ARECF de Aprobación Comercial:', signErr.message);
+      }
+    }
+
+    console.log(`[DGII RECEPTION] Entregando Acuse de Recibo (ARECF) XML a la DGII para Aprobación Comercial de ${encf}`);
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    return res.status(200).send(arecfSigned);
+  } catch (err) {
+    console.error('[DGII RECEPTION ERROR Aprobacion Comercial]:', err.message);
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.status(500).send(`<?xml version="1.0" encoding="utf-8"?><Error><Mensaje>${err.message}</Mensaje></Error>`);
+  }
+};
+
+// Permutations for DGII reception routes (Paso 8)
 router.get('/autenticacion/api/semilla', handleGetSemilla);
 router.get('/autenticacion/api/Semilla', handleGetSemilla);
 router.get('/autenticacion/api/autenticacion/semilla', handleGetSemilla);
@@ -359,9 +420,21 @@ router.post('/recepcion/api/eCF', handleReceiveEcf);
 router.post('/recepcion/api/ECF', handleReceiveEcf);
 router.post('/recepcion/api/recepcion/ecf', handleReceiveEcf);
 
+// Permutations for DGII commercial approval routes (Paso 10)
+router.post('/aprobacioncomercial/api/ecf', handleReceiveCommercialApproval);
+router.post('/aprobacioncomercial/api/eCF', handleReceiveCommercialApproval);
+router.post('/aprobacioncomercial/api/ECF', handleReceiveCommercialApproval);
+router.post('/aprobacionComercial/api/ecf', handleReceiveCommercialApproval);
+router.post('/aprobacionComercial/api/eCF', handleReceiveCommercialApproval);
+router.post('/aprobacioncomercial/api/AprobacionComercial', handleReceiveCommercialApproval);
+router.post('/aprobacioncomercial/api/aprobacioncomercial', handleReceiveCommercialApproval);
+router.post('/aprobacioncomercial/api/recepcion/ecf', handleReceiveCommercialApproval);
+
 module.exports = {
   dgiiReceptionRouter: router,
   handleGetSemilla,
   handleValidateCertificate,
-  handleReceiveEcf
+  handleReceiveEcf,
+  handleReceiveCommercialApproval
 };
+
