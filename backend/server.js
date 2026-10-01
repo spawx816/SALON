@@ -10794,6 +10794,162 @@ app.post('/api/attendance/notify-pending', async (req, res) => {
   }
 });
 
+// ==========================================
+// === DGII NCF SEQUENCES MANAGEMENT APIs ===
+// ==========================================
+
+// GET /api/dgii/sequences - List all authorized NCF sequence batches
+app.get('/api/dgii/sequences', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM dgii_ncf_sequences ORDER BY id DESC');
+    const now = new Date();
+
+    const formatted = rows.map(seq => {
+      const disponibles = Math.max(0, seq.cantidad_aprobada - seq.cantidad_usada);
+      const porcentajeDisponibles = seq.cantidad_aprobada > 0 ? Math.round((disponibles / seq.cantidad_aprobada) * 100) : 0;
+      const isExpiring = seq.fecha_vencimiento ? new Date(seq.fecha_vencimiento) < now : false;
+      const isLow = disponibles <= (seq.alerta_minima || 5);
+
+      let estadoActual = seq.estado;
+      if (isExpiring) estadoActual = 'Vencido';
+      else if (disponibles <= 0) estadoActual = 'Agotado';
+
+      return {
+        ...seq,
+        cantidad_disponible: disponibles,
+        porcentaje_disponible: porcentajeDisponibles,
+        is_alerta_minima: isLow && disponibles > 0,
+        is_vencido: isExpiring,
+        estado_calculado: estadoActual
+      };
+    });
+
+    res.json(formatted);
+  } catch (err) {
+    console.error('[DGII SEQUENCES GET ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/dgii/sequences - Add new authorized sequence batch from DGII
+app.post('/api/dgii/sequences', async (req, res) => {
+  try {
+    const {
+      tipo_comprobante,
+      nombre_comprobante,
+      no_solicitud,
+      no_autorizacion,
+      numero_desde,
+      numero_hasta,
+      cantidad_aprobada,
+      fecha_vencimiento,
+      alerta_minima
+    } = req.body;
+
+    if (!tipo_comprobante || !numero_desde || !numero_hasta || !cantidad_aprobada) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios para registrar la secuencia.' });
+    }
+
+    const defaultNames = {
+      'E31': 'Factura de Crédito Fiscal Electrónico',
+      'E32': 'Factura de Consumo Electrónica',
+      'E33': 'Nota de Débito Electrónica',
+      'E34': 'Nota de Crédito Electrónica',
+      'E41': 'Compras Electrónicas',
+      'E43': 'Gastos Menores Electrónicos',
+      'E44': 'Regímenes Especiales Electrónicos',
+      'E45': 'Gubernamental Electrónico'
+    };
+
+    const finalNombre = nombre_comprobante || defaultNames[tipo_comprobante.toUpperCase()] || `Comprobante ${tipo_comprobante}`;
+
+    const [result] = await pool.query(`
+      INSERT INTO dgii_ncf_sequences 
+      (tipo_comprobante, nombre_comprobante, no_solicitud, no_autorizacion, numero_desde, numero_hasta, secuencia_actual, cantidad_aprobada, cantidad_usada, fecha_vencimiento, alerta_minima, estado)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, 'Activo')
+    `, [
+      tipo_comprobante.toUpperCase(),
+      finalNombre,
+      no_solicitud || null,
+      no_autorizacion || null,
+      numero_desde.trim().toUpperCase(),
+      numero_hasta.trim().toUpperCase(),
+      parseInt(cantidad_aprobada) || 1,
+      fecha_vencimiento || null,
+      parseInt(alerta_minima) || 5
+    ]);
+
+    res.json({ success: true, message: 'Secuencia de e-NCF registrada con éxito.', id: result.insertId });
+  } catch (err) {
+    console.error('[DGII SEQUENCES POST ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/dgii/sequences/:id - Update an existing sequence batch
+app.put('/api/dgii/sequences/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      nombre_comprobante,
+      no_solicitud,
+      no_autorizacion,
+      numero_desde,
+      numero_hasta,
+      cantidad_aprobada,
+      cantidad_usada,
+      fecha_vencimiento,
+      alerta_minima,
+      estado
+    } = req.body;
+
+    await pool.query(`
+      UPDATE dgii_ncf_sequences 
+      SET nombre_comprobante = COALESCE(?, nombre_comprobante),
+          no_solicitud = COALESCE(?, no_solicitud),
+          no_autorizacion = COALESCE(?, no_autorizacion),
+          numero_desde = COALESCE(?, numero_desde),
+          numero_hasta = COALESCE(?, numero_hasta),
+          cantidad_aprobada = COALESCE(?, cantidad_aprobada),
+          cantidad_usada = COALESCE(?, cantidad_usada),
+          fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+          alerta_minima = COALESCE(?, alerta_minima),
+          estado = COALESCE(?, estado)
+      WHERE id = ?
+    `, [
+      nombre_comprobante,
+      no_solicitud,
+      no_autorizacion,
+      numero_desde,
+      numero_hasta,
+      cantidad_aprobada,
+      cantidad_usada,
+      fecha_vencimiento,
+      alerta_minima,
+      estado,
+      id
+    ]);
+
+    res.json({ success: true, message: 'Secuencia actualizada correctamente.' });
+  } catch (err) {
+    console.error('[DGII SEQUENCES PUT ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/dgii/sequences/:id - Delete a sequence batch
+app.delete('/api/dgii/sequences/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM dgii_ncf_sequences WHERE id = ?', [id]);
+    res.json({ success: true, message: 'Secuencia eliminada correctamente.' });
+  } catch (err) {
+    console.error('[DGII SEQUENCES DELETE ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 const PORT = 5005;
 
 // === SEO Engine & Pre-rendering Fallback for React Router ===

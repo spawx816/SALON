@@ -42,6 +42,7 @@ import AdminSurveys from './components/surveys/AdminSurveys';
 import GiftCardValidator from './components/admin/GiftCardValidator';
 import AttendanceKiosk from './pages/AttendanceKiosk';
 import AttendanceLogs from './components/admin/AttendanceLogs';
+import DgiiSequencesModule from './components/admin/DgiiSequencesModule';
 import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
 import ReceptionDashboard from './components/reception/ReceptionDashboard';
 
@@ -402,7 +403,10 @@ const AppContent = () => {
               )}
               
               {isAdmin && (
-                <SidebarLink to="/configuracion" icon={Settings} label="Configuración" active={location.pathname === '/configuracion'} onClick={closeMobileMenu} />
+                <>
+                  <SidebarLink to="/secuencias-dgii" icon={Receipt} label="Secuencias DGII e-CF" active={location.pathname === '/secuencias-dgii'} onClick={closeMobileMenu} />
+                  <SidebarLink to="/configuracion" icon={Settings} label="Configuración" active={location.pathname === '/configuracion'} onClick={closeMobileMenu} />
+                </>
               )}
             </>
           )}
@@ -455,6 +459,7 @@ const AppContent = () => {
                 <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />
                 <Route path="/marketing" element={isAdmin ? <MarketingModule /> : <Navigate to="/" />} />
                 <Route path="/analitica" element={isAdmin ? <ServiceAnalytics /> : <Navigate to="/" />} />
+                <Route path="/secuencias-dgii" element={isAdmin ? <DgiiSequencesModule /> : <Navigate to="/" />} />
                 <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />
                 <Route path="/contratos" element={isClient ? <Navigate to="/" /> : <DigitalContract />} />
                 <Route path="/admin/asistencia" element={(isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />} />

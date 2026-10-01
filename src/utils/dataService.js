@@ -1786,6 +1786,58 @@ export const dataService = {
       console.error('Error deleting employee discount:', e);
       return { success: false, error: e.message };
     }
+  },
+
+  // DGII e-NCF Sequences
+  getDgiiSequences: async () => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/sequences`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching DGII sequences:', e);
+      return [];
+    }
+  },
+
+  createDgiiSequence: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/sequences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error creating DGII sequence:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  updateDgiiSequence: async (id, payload) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/sequences/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error updating DGII sequence:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  deleteDgiiSequence: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/sequences/${id}`, {
+        method: 'DELETE'
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error deleting DGII sequence:', e);
+      return { success: false, error: e.message };
+    }
   }
 };
+
 
