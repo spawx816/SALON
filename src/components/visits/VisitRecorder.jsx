@@ -3008,26 +3008,7 @@ const VisitRecorder = () => {
 
       const encfMsg = checkoutRes?.ncf ? `\n\n🛡️ e-NCF DGII: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad || 'Certificado'}` : '';
 
-      const finalInvoiceObj = {
-        id: ticketIdToUse,
-        ticket_number: checkoutRes?.ticketNumber || selectedTicket?.ticket_number || ticketIdToUse,
-        ncf: checkoutRes?.ncf,
-        ncf_type: checkoutRes?.ncf_type,
-        ncf_name: checkoutRes?.ncf_name,
-        codigo_seguridad_ecf: checkoutRes?.codigo_seguridad,
-        qr_code_url: checkoutRes?.qr_code_url,
-        client_name: finalClientName,
-        client_id: finalClientId,
-        total: finalTotalAmount,
-        metodo_pago: finalMetodoPago,
-        monto_recibido: finalMontoRecibido,
-        devuelta: finalDevuelta,
-        items_detail: lineItems,
-        visited_at: new Date().toISOString()
-      };
-
-      setPrintableInvoiceData(finalInvoiceObj);
-      setShowInvoicePrintModal(true);
+      alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}${encfMsg}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);
 
       setShowOtpVerificationModal(false);
       setShowOtpModal(false);

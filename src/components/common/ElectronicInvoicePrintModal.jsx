@@ -7,15 +7,6 @@ import { QRCodeSVG } from '../../utils/qrCodeGenerator';
  * Formato térmico homologado 80mm / 60mm según especificaciones oficiales de la DGII.
  */
 export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }) {
-  useEffect(() => {
-    if (isOpen && invoice) {
-      const timer = setTimeout(() => {
-        window.print();
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen, invoice]);
-
   if (!isOpen || !invoice) return null;
 
   // Items parsing
