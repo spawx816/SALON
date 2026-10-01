@@ -204,15 +204,14 @@ const handleReceiveEcf = async (req, res) => {
 
     const arecfUnsigned = `<?xml version="1.0" encoding="utf-8"?>
 <ARECF xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <DetalleAcuseRecibo>
+  <DetalleAcusedeRecibo>
     <Version>1.0</Version>
     <RNCEmisor>${rncEmisor}</RNCEmisor>
     <RNCComprador>${rncComprador}</RNCComprador>
     <eNCF>${encf}</eNCF>
     <Estado>0</Estado>
-    <CodigoMotivoNoRecibido></CodigoMotivoNoRecibido>
     <FechaHoraAcuseRecibo>${fechaHora}</FechaHoraAcuseRecibo>
-  </DetalleAcuseRecibo>
+  </DetalleAcusedeRecibo>
 </ARECF>`;
 
     let arecfSigned = arecfUnsigned;
