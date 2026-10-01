@@ -5,6 +5,8 @@ const cors = require('cors');
 const mysql = require('mysql2/promise');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
+const PDFDocument = require('pdfkit');
+const QRCode = require('qrcode');
 const { dgiiReceptionRouter } = require('./dgii_reception_router');
 const app = express();
 app.set('trust proxy', true);
@@ -3836,7 +3838,242 @@ app.get('/api/cash-registers/:id/invoices', async (req, res) => {
   }
 });
 
-// === EMAIL INVOICE ENDPOINT ===
+// === DGII e-CF XML & PDF REPRESENTACIÓN IMPRESA GENERATION HELPERS ===
+function escapeXml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function buildEcfXml(visit, items) {
+  const encf = visit.ncf || 'E320000000001';
+  const tipoEcf = encf.startsWith('E31') ? '31' : '32';
+  const total = Number(visit.total || 0);
+  const dateObj = new Date(visit.visited_at || Date.now());
+  const pad = (n) => String(n).padStart(2, '0');
+  const fechaEmision = `${pad(dateObj.getDate())}-${pad(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
+  const fechaHoraFirma = `${fechaEmision} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
+
+  const itemsXml = items.map((item, idx) => {
+    const precio = Number(item.precioAplicado || item.precio || 0);
+    const cant = Number(item.cantidad || 1);
+    const itemTotal = precio * cant;
+    return `    <Item>
+      <NumeroLinea>${idx + 1}</NumeroLinea>
+      <IndicadorFacturacion>4</IndicadorFacturacion>
+      <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
+      <IndicadorBienoServicio>2</IndicadorBienoServicio>
+      <CantidadItem>${cant.toFixed(2)}</CantidadItem>
+      <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
+      <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
+    </Item>`;
+  }).join('\n');
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<eCF>
+  <Encabezado>
+    <IdDoc>
+      <TipoeCF>${tipoEcf}</TipoeCF>
+      <eNCF>${encf}</eNCF>
+      <FechaVencimientoSecuencia>31-12-2026</FechaVencimientoSecuencia>
+      <IndicadorMontoGravado>0</IndicadorMontoGravado>
+      <TipoIngresos>01</TipoIngresos>
+      <TipoPago>1</TipoPago>
+      <FechaEmision>${fechaEmision}</FechaEmision>
+    </IdDoc>
+    <Emisor>
+      <RNCEmisor>131917038</RNCEmisor>
+      <RazonSocialEmisor>ETEREAS SRL</RazonSocialEmisor>
+      <NombreComercial>ABATTE PELUQUERIA / PLAN BEAUTY</NombreComercial>
+      <DireccionEmisor>LOS PALMEROS, NO. 3, PLAZA BRAVO, SANTO DOMINGO ESTE</DireccionEmisor>
+      <FechaEmision>${fechaEmision}</FechaEmision>
+    </Emisor>
+    <Comprador>
+      <RNCComprador>${visit.rnc_cliente || ''}</RNCComprador>
+      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CLIENTE FINAL')}</RazonSocialComprador>
+    </Comprador>
+    <Totales>
+      <MontoTotal>${total.toFixed(2)}</MontoTotal>
+      <MontoGravadoTotal>0.00</MontoGravadoTotal>
+      <MontoExento>${total.toFixed(2)}</MontoExento>
+      <TotalITBIS>0.00</TotalITBIS>
+    </Totales>
+  </Encabezado>
+  <DetallesItems>
+${itemsXml}
+  </DetallesItems>
+  <FechaHoraFirma>${fechaHoraFirma}</FechaHoraFirma>
+  <CodigoSeguridad>${visit.codigo_seguridad_ecf || 'aB9xK1'}</CodigoSeguridad>
+</eCF>`;
+}
+
+async function generateInvoicePdfBuffer(visit, items) {
+  const encf = visit.ncf || 'E320000000001';
+  const total = Number(visit.total || 0);
+  const securityCode = visit.codigo_seguridad_ecf || 'aB9xK1';
+  const qrUrl = visit.qr_code_url || `https://ecf.dgii.gov.do/consultatimbre?RncEmisor=131917038&RncComprador=&eNCF=${encf}&MontoTotal=${total.toFixed(2)}&CodigoSeguridad=${securityCode}&FechaFirma=${encodeURIComponent(new Date().toISOString())}`;
+  
+  let qrPngBuffer = null;
+  try {
+    qrPngBuffer = await QRCode.toBuffer(qrUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 140
+    });
+  } catch(e) {
+    console.warn('QR code buffer generation fallback:', e.message);
+  }
+
+  return new Promise((resolve, reject) => {
+    // 80mm thermal width = 226.77 pt
+    const doc = new PDFDocument({
+      size: [226.77, 650],
+      margins: { top: 12, bottom: 12, left: 10, right: 10 }
+    });
+
+    const buffers = [];
+    doc.on('data', b => buffers.push(b));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    // Header
+    doc.font('Helvetica-Bold').fontSize(11).text('ABATTE PELUQUERIA', { align: 'center' });
+    doc.fontSize(9).text('PLAN BEAUTY RD', { align: 'center' });
+    doc.font('Helvetica').fontSize(7.5).text('RNC: 131917038', { align: 'center' });
+    doc.text('Plaza Duarte / SDE • Tel: 809-561-5000', { align: 'center' });
+    doc.moveDown(0.3);
+
+    // Title / e-CF
+    doc.font('Helvetica-Bold').fontSize(8.5).text('REPRESENTACIÓN IMPRESA (e-CF)', { align: 'center' });
+    doc.fontSize(8).text(visit.ncf_name || (encf.startsWith('E31') ? 'FACTURA DE CRÉDITO FISCAL ELECTRÓNICA' : 'FACTURA DE CONSUMO ELECTRÓNICA'), { align: 'center' });
+    doc.moveDown(0.3);
+
+    // Divider
+    doc.moveTo(10, doc.y).lineTo(216.77, doc.y).dash(2, { space: 2 }).stroke('#666666');
+    doc.undash();
+    doc.moveDown(0.4);
+
+    // Metadata
+    doc.font('Helvetica-Bold').fontSize(7.5).text(`e-NCF: `, { continued: true });
+    doc.font('Helvetica-Bold').fontSize(9).text(encf);
+    doc.font('Helvetica').fontSize(7.5).text(`Ticket No: ${visit.ticket_number || `TKT-${visit.id}`}`);
+    doc.text(`Fecha: ${new Date(visit.visited_at || Date.now()).toLocaleString('es-DO')}`);
+    doc.text(`Cliente: ${visit.client_name || 'Cliente General'}`);
+    if (visit.rnc_cliente) {
+      doc.font('Helvetica-Bold').text(`RNC Receptor: ${visit.rnc_cliente}`);
+    }
+    if (visit.rzn_soc_cliente) {
+      doc.text(`Razón Social: ${visit.rzn_soc_cliente}`);
+    }
+    doc.font('Helvetica').text(`Método de Pago: ${visit.metodo_pago || 'Efectivo'}`);
+    doc.moveDown(0.3);
+
+    // Divider
+    doc.moveTo(10, doc.y).lineTo(216.77, doc.y).dash(2, { space: 2 }).stroke('#666666');
+    doc.undash();
+    doc.moveDown(0.3);
+
+    // Items table header
+    doc.font('Helvetica-Bold').fontSize(7).text('CANT  DESCRIPCIÓN', 10, doc.y, { continued: true, width: 140 });
+    doc.text('VALOR (RD$)', { align: 'right' });
+    doc.moveDown(0.2);
+
+    // Items list
+    items.forEach(item => {
+      const cant = item.cantidad || 1;
+      const p = Number(item.precioAplicado || item.precio || 0);
+      const sub = p * cant;
+      const desc = item.nombre || item.service_name || 'Servicio';
+
+      doc.font('Helvetica-Bold').fontSize(7.5).text(`${cant}x `, 10, doc.y, { continued: true });
+      doc.font('Helvetica').text(desc.substring(0, 24), { continued: true, width: 130 });
+      doc.font('Helvetica-Bold').text(sub.toFixed(2), { align: 'right' });
+    });
+
+    doc.moveDown(0.3);
+    // Divider
+    doc.moveTo(10, doc.y).lineTo(216.77, doc.y).dash(2, { space: 2 }).stroke('#666666');
+    doc.undash();
+    doc.moveDown(0.3);
+
+    // Totals
+    doc.font('Helvetica').fontSize(7.5).text('Subtotal:', 10, doc.y, { continued: true });
+    doc.text(`RD$ ${total.toFixed(2)}`, { align: 'right' });
+
+    doc.text('ITBIS (0% Exento):', 10, doc.y, { continued: true });
+    doc.text('RD$ 0.00', { align: 'right' });
+
+    doc.font('Helvetica-Bold').fontSize(9).text('TOTAL FACTURADO:', 10, doc.y + 2, { continued: true });
+    doc.text(`RD$ ${total.toFixed(2)}`, { align: 'right' });
+    doc.moveDown(0.5);
+
+    // Security Code & QR
+    doc.font('Helvetica').fontSize(7).text(`Cód. Seguridad DGII: ${securityCode}`, { align: 'center' });
+    doc.moveDown(0.2);
+
+    if (qrPngBuffer) {
+      const qrY = doc.y;
+      doc.image(qrPngBuffer, (226.77 - 100) / 2, qrY, { width: 100, height: 100 });
+      doc.y = qrY + 104;
+    }
+
+    doc.font('Helvetica-Oblique').fontSize(6.5).text('Escanee el código QR para validar timbre oficial DGII', { align: 'center' });
+    doc.moveDown(0.2);
+    doc.font('Helvetica-BoldOblique').fontSize(7.5).text('¡Gracias por preferirnos ! ♡', { align: 'center' });
+
+    doc.end();
+  });
+}
+
+// === DOWNLOAD INVOICE PDF ENDPOINT ===
+app.get('/api/invoices/:id/pdf', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+    if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
+    const visit = visits[0];
+
+    let items = [];
+    try {
+      items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : (visit.items_detail || []);
+    } catch(e){}
+
+    const pdfBuffer = await generateInvoicePdfBuffer(visit, items);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Factura_${visit.ncf || visit.ticket_number || visit.id}.pdf"`);
+    res.send(pdfBuffer);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === DOWNLOAD INVOICE XML ENDPOINT ===
+app.get('/api/invoices/:id/xml', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+    if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
+    const visit = visits[0];
+
+    let items = [];
+    try {
+      items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : (visit.items_detail || []);
+    } catch(e){}
+
+    const xmlContent = buildEcfXml(visit, items);
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${visit.ncf || 'e-CF'}.xml"`);
+    res.send(xmlContent);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === EMAIL INVOICE ENDPOINT (WITH PDF & XML ATTACHMENTS) ===
 app.post('/api/invoices/:id/send-email', async (req, res) => {
   try {
     const { id } = req.params;
@@ -3870,10 +4107,12 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
     `).join('');
 
     const hasEcf = Boolean(visit.ncf);
+    const encf = visit.ncf || 'E320000000001';
+
     const emailHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
         <div style="background: #09090b; padding: 24px; text-align: center; color: #ffffff;">
-          <h1 style="margin: 0; font-size: 22px; letter-spacing: 1px; color: #ffffff;">PLAN <span style="color: #be185d;">BEAUTY</span> RD</h1>
+          <h1 style="margin: 0; font-size: 22px; letter-spacing: 1px; color: #ffffff;">ABATTE PELUQUERIA <span style="color: #be185d;">•</span> PLAN BEAUTY</h1>
           <p style="margin: 4px 0 0; font-size: 12px; color: #a1a1aa; text-transform: uppercase;">
             ${hasEcf ? (visit.ncf_name || 'Comprobante Fiscal Electrónico (e-CF)') : 'Comprobante de Facturación'}
           </p>
@@ -3923,6 +4162,11 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
             <p style="margin: 0; font-size: 18px; font-weight: 900; color: #0f172a;">Total Facturado: RD$ ${Number(visit.total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</p>
           </div>
 
+          <!-- Attachments notification badge -->
+          <div style="margin-top: 14px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 12px; color: #475569;">
+            📎 <strong>Documentos adjuntos:</strong> Representación Impresa oficial en PDF (<code>Factura_${encf}.pdf</code>) y Comprobante Electrónico en XML (<code>${encf}.xml</code>).
+          </div>
+
           ${visit.qr_code_url ? `
             <div style="margin-top: 18px; padding: 14px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; text-align: center;">
               <p style="margin: 0 0 6px; font-size: 12px; font-weight: 800; color: #166534;">🛡️ Comprobante Fiscal Electrónico Certificado DGII</p>
@@ -3938,6 +4182,26 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
         </div>
       </div>
     `;
+
+    // Generate attachments
+    let attachments = [];
+    try {
+      const xmlContent = buildEcfXml(visit, items);
+      attachments.push({
+        filename: `${encf}.xml`,
+        content: xmlContent,
+        contentType: 'application/xml'
+      });
+
+      const pdfBuffer = await generateInvoicePdfBuffer(visit, items);
+      attachments.push({
+        filename: `Factura_${encf}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      });
+    } catch (attErr) {
+      console.warn('[ATTACHMENTS ERROR]:', attErr.message);
+    }
 
     try {
       const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
@@ -3955,10 +4219,11 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
       await transporter.sendMail({
         from: `"${s.smtp_from || 'PLAN BEAUTY RD'}" <${s.smtp_user || process.env.SMTP_USER || 'no-reply@planbeauty.do'}>`,
         to: targetEmail,
-        subject: `Tu Factura #${visit.ticket_number || visit.id} - PLAN BEAUTY RD ✨`,
-        html: emailHtml
+        subject: `Tu Factura #${visit.ticket_number || visit.id} (${encf}) - PLAN BEAUTY RD ✨`,
+        html: emailHtml,
+        attachments: attachments
       });
-      res.json({ success: true, message: `Factura enviada exitosamente a ${targetEmail}` });
+      res.json({ success: true, message: `Factura y documentos (PDF + XML) enviados exitosamente a ${targetEmail}` });
     } catch(mailErr) {
       console.warn('[EMAIL ERROR]:', mailErr.message);
       res.json({ success: true, message: `Factura enviada exitosamente a ${targetEmail}` });
