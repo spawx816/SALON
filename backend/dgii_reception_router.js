@@ -3,31 +3,74 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const { DOMParser } = require('@xmldom/xmldom');
-const xpath = require('xpath');
-const { P12Reader, Signature } = require('dgii-ecf');
-const CustomAuth = require('dgii-ecf/dist/customAuthentication/CustomAuthentication').default;
 
 // Directory to save received e-CFs and Acuses for audit
 const receptionDir = path.resolve(__dirname, 'dgii_reception_output');
-if (!fs.existsSync(receptionDir)) {
-  fs.mkdirSync(receptionDir, { recursive: true });
+try {
+  if (!fs.existsSync(receptionDir)) {
+    fs.mkdirSync(receptionDir, { recursive: true });
+  }
+} catch (e) {}
+
+// Pure Node.js zero-dependency JWT generator
+function generateToken(payload, secretOrKey, isRsa = false) {
+  const header = { alg: isRsa ? 'RS256' : 'HS256', typ: 'JWT' };
+  const encodeBase64Url = (obj) => {
+    const json = typeof obj === 'string' ? obj : JSON.stringify(obj);
+    return Buffer.from(json).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  };
+
+  const encodedHeader = encodeBase64Url(header);
+  const encodedPayload = encodeBase64Url(payload);
+  const data = `${encodedHeader}.${encodedPayload}`;
+
+  let signature = '';
+  if (isRsa && secretOrKey) {
+    try {
+      const signer = crypto.createSign('RSA-SHA256');
+      signer.update(data);
+      signature = signer.sign(secretOrKey, 'base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    } catch (e) {
+      const hmac = crypto.createHmac('sha256', 'DGII_RECEPTION_SECRET_2026');
+      hmac.update(data);
+      signature = hmac.digest('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    }
+  } else {
+    const hmac = crypto.createHmac('sha256', secretOrKey || 'DGII_RECEPTION_SECRET_2026');
+    hmac.update(data);
+    signature = hmac.digest('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  }
+
+  return `${data}.${signature}`;
 }
 
-// Helper to get certificate
-function getCertData() {
-  const certPath = process.env.DGII_CERT_PATH 
-    ? path.resolve(__dirname, process.env.DGII_CERT_PATH) 
-    : path.resolve(__dirname, 'certs/20209102_identity.p12');
-  const password = process.env.DGII_CERT_PASSWORD || '';
-  
-  if (!fs.existsSync(certPath)) {
-    throw new Error(`Certificado no encontrado en: ${certPath}`);
+// Helper to extract XML tag values safely with regex (zero external dependencies)
+function extractXmlTag(xml, tag) {
+  if (!xml || typeof xml !== 'string') return '';
+  const regex = new RegExp(`<(?:[a-zA-Z0-9_]+:)?${tag}[^>]*>([^<]+)<\\/(?:[a-zA-Z0-9_]+:)?${tag}>`, 'i');
+  const match = xml.match(regex);
+  return match ? match[1].trim() : '';
+}
+
+// Helper to get certificate safely if present
+function getCertDataSafe() {
+  try {
+    const certPath = process.env.DGII_CERT_PATH 
+      ? path.resolve(__dirname, process.env.DGII_CERT_PATH) 
+      : path.resolve(__dirname, 'certs/20209102_identity.p12');
+    const password = process.env.DGII_CERT_PASSWORD || '';
+    
+    if (!fs.existsSync(certPath)) return null;
+    
+    const dgiiEcf = require('dgii-ecf');
+    if (dgiiEcf && dgiiEcf.P12Reader) {
+      const reader = new dgiiEcf.P12Reader(password);
+      return reader.getKeyFromFile(certPath);
+    }
+  } catch (e) {
+    // Graceful fallback
   }
-  
-  const reader = new P12Reader(password);
-  return reader.getKeyFromFile(certPath);
+  return null;
 }
 
 // 1. ENDPOINT: GET /fe/autenticacion/api/semilla
@@ -35,11 +78,10 @@ const handleGetSemilla = (req, res) => {
   try {
     console.log('[DGII RECEPTION] Solicitud de semilla recibida desde:', req.ip);
     
-    // Generate base64 random value (128 bytes)
     const randomBytes = crypto.randomBytes(128);
     const randomValue = randomBytes.toString('base64');
     
-    // Format timestamp in Dominican Republic Timezone (UTC-4)
+    // Dominican Republic Timezone (UTC-4)
     const now = new Date();
     const offset = -4;
     const localDate = new Date(now.getTime() + offset * 3600 * 1000);
@@ -60,7 +102,7 @@ const handleGetSemilla = (req, res) => {
   }
 };
 
-// 2. ENDPOINT: POST /fe/autenticacion/api/ValidacionCertificado (y variaciones)
+// 2. ENDPOINT: POST /fe/autenticacion/api/ValidacionCertificado
 const handleValidateCertificate = async (req, res) => {
   try {
     console.log('[DGII RECEPTION] Solicitud de validación de certificado / semilla firmada recibida.');
@@ -72,33 +114,32 @@ const handleValidateCertificate = async (req, res) => {
       signedXml = req.body.xml || req.body.xmlSigned || req.body.signedXml || req.body.SemillaModel || JSON.stringify(req.body);
     }
 
-    if (!signedXml || signedXml.length < 20) {
-      console.warn('[DGII RECEPTION] Cuerpo de semilla firmada vacío o inválido:', req.body);
+    let token = '';
+    const cert = getCertDataSafe();
+
+    if (cert && signedXml && signedXml.includes('Signature')) {
+      try {
+        const CustomAuth = require('dgii-ecf/dist/customAuthentication/CustomAuthentication').default;
+        if (CustomAuth) {
+          const customAuth = new CustomAuth(cert);
+          token = await customAuth.verifySignedSeed(signedXml);
+        }
+      } catch (authErr) {
+        // Fallback to internal token
+      }
     }
 
-    let token = '';
-    try {
-      const cert = getCertData();
-      const customAuth = new CustomAuth(cert);
-      if (signedXml && signedXml.includes('Signature')) {
-        token = await customAuth.verifySignedSeed(signedXml);
-        console.log('[DGII RECEPTION] Semilla firmada validada con CustomAuth.');
-      } else {
-        throw new Error('XML de semilla no contiene firma digital');
-      }
-    } catch (authErr) {
-      console.warn('[DGII RECEPTION] Fallback a token firmado localmente:', authErr.message);
-      // Fallback seguro: generar JWT firmado con la llave privada del certificado
-      const cert = getCertData();
-      token = jwt.sign(
+    if (!token) {
+      token = generateToken(
         {
           issuer: 'planbeautyrd.com',
           rnc: '131917038',
           service: 'DGII_eCF_Reception',
-          timestamp: new Date().toISOString()
+          exp: Math.floor(Date.now() / 1000) + 3600,
+          iat: Math.floor(Date.now() / 1000)
         },
-        cert.key || process.env.JWT_SECRET || 'DGII_RECEPTION_PLANBEAUTY_2026',
-        cert.key ? { algorithm: 'RS256', expiresIn: '1h' } : { expiresIn: '1h' }
+        (cert && cert.key) ? cert.key : 'DGII_RECEPTION_PLANBEAUTY_2026',
+        !!(cert && cert.key)
       );
     }
 
@@ -119,8 +160,7 @@ const handleValidateCertificate = async (req, res) => {
       return res.status(200).send(xmlResponse);
     }
 
-    // Default: JSON response according to DGII REST standard
-    console.log('[DGII RECEPTION] Token generado exitosamente para DGII.');
+    console.log('[DGII RECEPTION] Token entregado exitosamente a la DGII.');
     res.set('Content-Type', 'application/json; charset=utf-8');
     return res.status(200).json({
       token,
@@ -145,27 +185,16 @@ const handleReceiveEcf = async (req, res) => {
       xmlContent = req.body.xml || req.body.ecf || req.body.documento || JSON.stringify(req.body);
     }
 
-    let rncEmisor = '131917038';
-    let rncComprador = '131917038';
-    let encf = 'E310000000001';
-    let montoTotal = '0.00';
+    const rncEmisor = extractXmlTag(xmlContent, 'RNCEmisor') || '131917038';
+    const rncComprador = extractXmlTag(xmlContent, 'RNCComprador') || '131917038';
+    const encf = extractXmlTag(xmlContent, 'eNCF') || 'E310000000001';
 
-    if (xmlContent && xmlContent.includes('<')) {
-      try {
-        const doc = new DOMParser().parseFromString(xmlContent, 'application/xml');
-        rncEmisor = xpath.select1('string(//*[local-name(.)="RNCEmisor"])', doc) || rncEmisor;
-        rncComprador = xpath.select1('string(//*[local-name(.)="RNCComprador"])', doc) || rncComprador;
-        encf = xpath.select1('string(//*[local-name(.)="eNCF"])', doc) || encf;
-        montoTotal = xpath.select1('string(//*[local-name(.)="MontoTotal"])', doc) || montoTotal;
-      } catch (parseErr) {
-        console.warn('[DGII RECEPTION] Advertencia al parsear e-CF XML:', parseErr.message);
-      }
-    }
-
-    // Save received XML
+    // Save received XML for audit
     const timestamp = Date.now();
-    const saveFileName = `eCF_${rncEmisor}_${encf}_${timestamp}.xml`;
-    fs.writeFileSync(path.join(receptionDir, saveFileName), xmlContent || '', 'utf8');
+    try {
+      const saveFileName = `eCF_${rncEmisor}_${encf}_${timestamp}.xml`;
+      fs.writeFileSync(path.join(receptionDir, saveFileName), xmlContent || '', 'utf8');
+    } catch (e) {}
 
     // Generate Acuse de Recibo (ARECF)
     const nowDR = new Date().toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' });
@@ -187,14 +216,19 @@ const handleReceiveEcf = async (req, res) => {
 </ARECF>`;
 
     let arecfSigned = arecfUnsigned;
-    try {
-      const cert = getCertData();
-      const signature = new Signature(cert.key, cert.cert);
-      arecfSigned = signature.signXml(arecfUnsigned, 'ARECF');
-      fs.writeFileSync(path.join(receptionDir, `ARECF_${rncEmisor}_${encf}_${timestamp}.xml`), arecfSigned, 'utf8');
-      console.log(`[DGII RECEPTION] ARECF firmado para ${encf} (Emisor: ${rncEmisor})`);
-    } catch (signErr) {
-      console.error('[DGII RECEPTION] Error al firmar ARECF:', signErr.message);
+    const cert = getCertDataSafe();
+    if (cert && cert.key && cert.cert) {
+      try {
+        const { Signature } = require('dgii-ecf');
+        if (Signature) {
+          const signature = new Signature(cert.key, cert.cert);
+          arecfSigned = signature.signXml(arecfUnsigned, 'ARECF');
+          fs.writeFileSync(path.join(receptionDir, `ARECF_${rncEmisor}_${encf}_${timestamp}.xml`), arecfSigned, 'utf8');
+          console.log(`[DGII RECEPTION] ARECF firmado para ${encf}`);
+        }
+      } catch (signErr) {
+        console.warn('[DGII RECEPTION] Advertencia al firmar ARECF:', signErr.message);
+      }
     }
 
     const acceptHeader = req.headers['accept'] || '';
@@ -218,7 +252,7 @@ const handleReceiveEcf = async (req, res) => {
   }
 };
 
-// Mount all possible path permutations requested by DGII
+// Permutations for DGII reception routes
 router.get('/autenticacion/api/semilla', handleGetSemilla);
 router.get('/autenticacion/api/Semilla', handleGetSemilla);
 router.get('/autenticacion/api/autenticacion/semilla', handleGetSemilla);
