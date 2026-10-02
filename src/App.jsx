@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
-  Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent
+  Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
+  Landmark, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -125,8 +126,11 @@ const AppContent = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
   const [isMotivationalModalOpen, setIsMotivationalModalOpen] = useState(false);
+  const [isAccountingOpen, setIsAccountingOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad');
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
@@ -205,6 +209,13 @@ const AppContent = () => {
       activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
     };
   }, [isDashboard]);
+
+  // Expandir automáticamente el submenú de Contabilidad si estamos en una ruta contable
+  useEffect(() => {
+    if (isAccountingActive) {
+      setIsAccountingOpen(true);
+    }
+  }, [isAccountingActive]);
 
   if (!user) {
     if (location.pathname === '/asistencia') {
@@ -403,7 +414,53 @@ const AppContent = () => {
               
               {isAdmin && (
                 <>
-                  <SidebarLink to="/secuencias-dgii" icon={Receipt} label="Secuencias DGII e-CF" active={location.pathname === '/secuencias-dgii'} onClick={closeMobileMenu} />
+                  {/* Menú Desplegable Contabilidad */}
+                  <div style={{ margin: '0.2rem 0' }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsAccountingOpen(!isAccountingOpen)}
+                      className={`nav-link ${isAccountingActive ? 'active' : ''}`}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: 'transparent',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <Landmark size={18} strokeWidth={isAccountingActive ? 2.5 : 2} />
+                        <span>Contabilidad</span>
+                      </div>
+                      {isAccountingOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                    </button>
+
+                    {/* Submenú de Contabilidad */}
+                    {isAccountingOpen && (
+                      <div style={{ 
+                        marginLeft: '1.25rem', 
+                        paddingLeft: '0.65rem', 
+                        borderLeft: '2px solid rgba(255,255,255,0.15)',
+                        marginTop: '0.35rem',
+                        marginBottom: '0.35rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem'
+                      }}>
+                        <SidebarLink 
+                          to="/secuencias-dgii" 
+                          icon={Receipt} 
+                          label="Secuencias DGII e-CF" 
+                          active={location.pathname === '/secuencias-dgii'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      </div>
+                    )}
+                  </div>
+
                   <SidebarLink to="/configuracion" icon={Settings} label="Configuración" active={location.pathname === '/configuracion'} onClick={closeMobileMenu} />
                 </>
               )}
@@ -458,6 +515,7 @@ const AppContent = () => {
                 <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />
                 <Route path="/marketing" element={isAdmin ? <MarketingModule /> : <Navigate to="/" />} />
                 <Route path="/analitica" element={isAdmin ? <ServiceAnalytics /> : <Navigate to="/" />} />
+                <Route path="/contabilidad" element={isAdmin ? <Navigate to="/secuencias-dgii" replace /> : <Navigate to="/" />} />
                 <Route path="/secuencias-dgii" element={isAdmin ? <DgiiSequencesModule /> : <Navigate to="/" />} />
                 <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />
                 <Route path="/contratos" element={isClient ? <Navigate to="/" /> : <DigitalContract />} />
