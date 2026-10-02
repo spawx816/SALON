@@ -3990,11 +3990,10 @@ async function generatePaso5InvoicePdf(visit, items, signedXml, fechaEmision, fe
   }
 
   let qrUrl = '';
-  const dgiiEnv = process.env.DGII_ENV === 'PRODUCTION' ? 'CerteCF' : 'CerteCF';
   if (tipoeCF === '32' && total < 250000) {
-    qrUrl = generateFcQRCodeURL(rncEmisor, encf, total.toFixed(2), codigoSeguridad, dgiiEnv);
+    qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${rncEmisor}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&CodigoSeguridad=${codigoSeguridad}`;
   } else {
-    qrUrl = generateEcfQRCodeURL(rncEmisor, rncComprador, encf, total.toFixed(2), fechaEmision, fechaHoraFirma, codigoSeguridad, dgiiEnv);
+    qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${codigoSeguridad}`;
   }
 
   const qrBuffer = await QRCode.toBuffer(qrUrl, {
