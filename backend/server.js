@@ -2620,9 +2620,14 @@ async function handleCheckoutVisit(req, res) {
           rzn_soc_cliente || client_name,
           total || 0
         );
+        // Transmit immediately to DGII in real time
+        transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
       } catch (dgiiErr) {
         console.error('[DGII ASSIGN IN CHECKOUT FAILED]:', dgiiErr);
       }
+    } else if (existing[0]?.ncf) {
+      // Transmit existing sequence if not yet sent
+      transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
     }
 
     // Record Gift Card Redemption if applicable
@@ -4146,6 +4151,93 @@ async function generatePaso5InvoicePdf(visit, items, signedXml, fechaEmision, fe
     doc.end();
   });
 }
+
+// === DIRECT REAL-TIME DGII TRANSMISSION (ON CHECKOUT) ===
+async function transmitInvoiceDirectlyToDgii(visitId) {
+  try {
+    if (!dgiiPrivateKeyPem || !dgiiCertificatePem) {
+      console.warn('[DGII AUTO-TRANSMIT] Certificado digital no cargado.');
+      return null;
+    }
+
+    const [visitRows] = await pool.query('SELECT * FROM visits WHERE id = ?', [visitId]);
+    if (!visitRows || visitRows.length === 0) return null;
+    const visit = visitRows[0];
+    if (!visit.ncf) return null;
+
+    let items = [];
+    if (visit.items_detail) {
+      try {
+        items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+      } catch (_) {}
+    }
+    if (!items || items.length === 0) {
+      items = [{
+        nombre: 'Servicio Profesional de Belleza',
+        precio: Number(visit.total || 0),
+        cantidad: 1
+      }];
+    }
+
+    const { signedXml, fechaEmision, fechaHoraFirma } = buildAndSignEcfXml(visit, items);
+    const rncEmisor = '131917038';
+    const totalNum = Number(visit.total || 0);
+    const encf = String(visit.ncf).trim();
+    const isE32 = encf.startsWith('E32');
+
+    const { ECF, ENVIRONMENT, convertECF32ToRFCE, Signature } = require('dgii-ecf');
+    const ecfClient = new ECF({ key: dgiiPrivateKeyPem, cert: dgiiCertificatePem }, ENVIRONMENT.PROD);
+    await ecfClient.authenticate();
+
+    let securityCode = visit.codigo_seguridad_ecf;
+    let qrUrl = visit.qr_code_url;
+
+    if (isE32 && totalNum < 250000) {
+      // Direct Real-time RFCE transmission for Consumer Invoices
+      const { xml: rfceRaw, securityCode: code } = convertECF32ToRFCE(signedXml);
+      const signature = new Signature(dgiiPrivateKeyPem, dgiiCertificatePem);
+      const signedRfce = signature.signXml(rfceRaw, 'RFCE');
+      securityCode = code || securityCode;
+
+      const rfceFileName = `${rncEmisor}${encf}.xml`;
+      const resp = await ecfClient.sendSummary(signedRfce, rfceFileName);
+      console.log(`✅ [DGII TRANSMISIÓN EN TIEMPO REAL E32]: ${encf} -> Estado: ${resp?.estado || 'Aceptado'}`);
+      
+      qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${rncEmisor}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&CodigoSeguridad=${securityCode}`;
+    } else {
+      // Direct Real-time transmission for Tax Credit / Invoices >= 250k
+      const fileName = `${rncEmisor}${encf}.xml`;
+      const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
+      console.log(`✅ [DGII TRANSMISIÓN EN TIEMPO REAL e-CF]: ${encf} -> TrackID: ${resp?.trackId}`);
+      
+      qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${visit.rnc_cliente || ''}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${securityCode}`;
+    }
+
+    await pool.query(
+      'UPDATE visits SET codigo_seguridad_ecf = ?, qr_code_url = ? WHERE id = ?',
+      [securityCode, qrUrl, visitId]
+    );
+
+    return { success: true, encf, securityCode, qrUrl };
+  } catch (err) {
+    console.warn(`⚠️ [DGII AUTO-TRANSMIT NOTICE] (${visitId}):`, err.message || err);
+    return null;
+  }
+}
+
+// Retransmit invoice directly to DGII endpoint
+app.post('/api/invoices/:id/transmit-dgii', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await transmitInvoiceDirectlyToDgii(id);
+    if (!result) {
+      return res.status(500).json({ error: 'No se pudo transmitir el comprobante a la DGII.' });
+    }
+    res.json({ success: true, message: 'Factura transmitida exitosamente a la DGII en tiempo real.', result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // === DOWNLOAD INVOICE PDF ENDPOINT ===
 app.get('/api/invoices/:id/pdf', async (req, res) => {
