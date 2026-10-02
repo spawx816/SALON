@@ -3990,7 +3990,7 @@ async function generatePaso5InvoicePdf(visit, items, signedXml, fechaEmision, fe
   }
 
   let qrUrl = '';
-  const dgiiEnv = process.env.DGII_ENV === 'PRODUCTION' || process.env.NODE_ENV === 'production' ? 'Prod' : 'Prod';
+  const dgiiEnv = process.env.DGII_ENV === 'PRODUCTION' ? 'CerteCF' : 'CerteCF';
   if (tipoeCF === '32' && total < 250000) {
     qrUrl = generateFcQRCodeURL(rncEmisor, encf, total.toFixed(2), codigoSeguridad, dgiiEnv);
   } else {
