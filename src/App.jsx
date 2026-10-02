@@ -124,8 +124,26 @@ const AppContent = () => {
   const { lang, changeLanguage, t } = useTranslation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
+  const [isMotivationalModalOpen, setIsMotivationalModalOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
+  const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
+  const isReceptionProfile = Boolean(
+    !isAdmin &&
+    !isClient &&
+    (
+      user?.role?.toLowerCase()?.includes('recep') ||
+      user?.role_name?.toLowerCase()?.includes('recep') ||
+      user?.role?.toLowerCase() === 'cajero' ||
+      user?.role_name?.toLowerCase() === 'cajero' ||
+      user?.role?.toLowerCase() === 'staff' ||
+      (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits) && !user?.permissions?.view_analytics)
+    )
+  );
+
+  const isDashboard = location.pathname === '/' && Boolean(user) && !isClient;
 
   const publicIndexablePaths = [
     '/', '/plan-de-belleza', '/como-funciona', '/beneficios', 
@@ -156,6 +174,37 @@ const AppContent = () => {
       robotsMeta.setAttribute('content', isIndexable ? 'index, follow' : 'noindex, nofollow');
     }
   }, [location.pathname, user]);
+
+  // Inactividad de 30 minutos (1,800,000 ms) en el Dashboard para mostrar frases motivacionales
+  useEffect(() => {
+    if (!isDashboard) {
+      setIsMotivationalModalOpen(false);
+      return;
+    }
+
+    const INACTIVITY_LIMIT_MS = 30 * 60 * 1000; // 30 minutos
+    let inactivityTimer;
+
+    const resetTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        setIsMotivationalModalOpen(true);
+      }, INACTIVITY_LIMIT_MS);
+    };
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    const handleActivity = () => {
+      resetTimer();
+    };
+
+    activityEvents.forEach(evt => window.addEventListener(evt, handleActivity, { passive: true }));
+    resetTimer();
+
+    return () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
+    };
+  }, [isDashboard]);
 
   if (!user) {
     if (location.pathname === '/asistencia') {
@@ -206,56 +255,6 @@ const AppContent = () => {
     // Default to Landing for "/" and any other route when logged out
     return <Landing initialIsLogin={true} initialAuthModal={false} />;
   }
-
-  const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
-  const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
-  const isReceptionProfile = Boolean(
-    !isAdmin &&
-    !isClient &&
-    (
-      user?.role?.toLowerCase()?.includes('recep') ||
-      user?.role_name?.toLowerCase()?.includes('recep') ||
-      user?.role?.toLowerCase() === 'cajero' ||
-      user?.role_name?.toLowerCase() === 'cajero' ||
-      user?.role?.toLowerCase() === 'staff' ||
-      (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits) && !user?.permissions?.view_analytics)
-    )
-  );
-
-  const [isMotivationalModalOpen, setIsMotivationalModalOpen] = useState(false);
-
-  // Inactividad de 30 minutos (1,800,000 ms) en el Dashboard para mostrar frases motivacionales
-  const isDashboard = location.pathname === '/' && user && !isClient;
-
-  useEffect(() => {
-    if (!isDashboard) {
-      setIsMotivationalModalOpen(false);
-      return;
-    }
-
-    const INACTIVITY_LIMIT_MS = 30 * 60 * 1000; // 30 minutos
-    let inactivityTimer;
-
-    const resetTimer = () => {
-      if (inactivityTimer) clearTimeout(inactivityTimer);
-      inactivityTimer = setTimeout(() => {
-        setIsMotivationalModalOpen(true);
-      }, INACTIVITY_LIMIT_MS);
-    };
-
-    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
-    const handleActivity = () => {
-      resetTimer();
-    };
-
-    activityEvents.forEach(evt => window.addEventListener(evt, handleActivity, { passive: true }));
-    resetTimer();
-
-    return () => {
-      if (inactivityTimer) clearTimeout(inactivityTimer);
-      activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
-    };
-  }, [isDashboard]);
 
   if (location.pathname === '/asistencia') {
     return (
