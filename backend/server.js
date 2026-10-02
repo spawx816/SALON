@@ -2520,12 +2520,11 @@ async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRn
     }
 
     const seq = batches[0];
-    const startNumStr = seq.numero_desde.replace(/^\D+/, '');
-    const startNum = parseInt(startNumStr, 10) || 1;
-    const currentAssignedNum = startNum + seq.cantidad_usada;
     const prefix = seq.tipo_comprobante || seq.numero_desde.slice(0, 3);
-    const numDigits = Math.max(10, startNumStr.length);
-    const encfNumber = prefix + String(currentAssignedNum).padStart(numDigits, '0');
+    const rawSeqStr = seq.numero_desde.slice(prefix.length);
+    const startNum = parseInt(rawSeqStr, 10) || 1;
+    const currentAssignedNum = startNum + seq.cantidad_usada;
+    const encfNumber = prefix + String(currentAssignedNum).padStart(10, '0');
 
     const newCantidadUsada = seq.cantidad_usada + 1;
     const newSecuenciaActual = currentAssignedNum;
@@ -4297,12 +4296,11 @@ async function allocateNextDgiiSequence(tipo = 'E34') {
     }
 
     const seq = batches[0];
-    const startNumStr = seq.numero_desde.replace(/^\D+/, '');
-    const startNum = parseInt(startNumStr, 10) || 1;
-    const currentAssignedNum = startNum + seq.cantidad_usada;
     const prefix = seq.tipo_comprobante || seq.numero_desde.slice(0, 3);
-    const numDigits = Math.max(10, startNumStr.length);
-    const encfNumber = prefix + String(currentAssignedNum).padStart(numDigits, '0');
+    const rawSeqStr = seq.numero_desde.slice(prefix.length);
+    const startNum = parseInt(rawSeqStr, 10) || 1;
+    const currentAssignedNum = startNum + seq.cantidad_usada;
+    const encfNumber = prefix + String(currentAssignedNum).padStart(10, '0');
 
     const newCantidadUsada = seq.cantidad_usada + 1;
     const newSecuenciaActual = currentAssignedNum;

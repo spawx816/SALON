@@ -5620,7 +5620,9 @@ const VisitRecorder = () => {
                       value={
                         printableTicketData.qrUrl || 
                         (printableTicketData.ncf 
-                          ? `https://ecf.dgii.gov.do/consultatimbre?RncEmisor=131917038&RncComprador=000000000&eNCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`
+                          ? (printableTicketData.ncf.startsWith('E32') && Number(printableTicketData.totalAmount || 0) < 250000
+                              ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=131917038&ENCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`
+                              : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=131917038&RncComprador=${printableTicketData.clientRnc || ''}&ENCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&FechaEmision=02/10/2026&FechaFirma=02/10/2026&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`)
                           : 'https://planbeauty.do/servicios'
                         )
                       } 

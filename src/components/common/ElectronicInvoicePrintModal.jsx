@@ -44,8 +44,12 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
   const securityCode = invoice.codigo_seguridad_ecf || 'S/DqDu';
 
   const emisorRnc = '131917038';
-  const compradorRnc = invoice.rnc_cliente || '000000000';
-  const qrUrl = invoice.qr_code_url || `https://ecf.dgii.gov.do/consultatimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&eNCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&CodigoSeguridad=${securityCode}`;
+  const compradorRnc = invoice.rnc_cliente || '';
+  const qrUrl = invoice.qr_code_url || (
+    encfNumber.startsWith('E32') && totalVal < 250000
+      ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&CodigoSeguridad=${securityCode}`
+      : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&FechaEmision=${dateFormatted}&FechaFirma=${dateFormatted}&CodigoSeguridad=${securityCode}`
+  );
 
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
