@@ -2475,8 +2475,34 @@ async function processVisitCommissions(visitId, itemsDetail, ticketNumber = null
 }
 
 // Helper to atomically allocate the next DGII e-NCF sequence for an invoice/visit
-async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRnc = null, clientRazonSocial = null, totalAmount = 0) {
+async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRnc = null, clientRazonSocial = null, totalAmount = 0, metodoPago = 'Efectivo') {
   try {
+    const hasFiscalRnc = clientRnc && String(clientRnc).trim().length >= 9;
+    const isTargetFiscal = (requestedType === 'E31' || requestedType === 'CREDITO_FISCAL' || hasFiscalRnc);
+    const isPureCash = (metodoPago === 'Efectivo' || metodoPago === 'CASH' || metodoPago === 'efectivo');
+
+    // REGLA FISCAL: Las facturas de Crédito Fiscal (RNC) SIEMPRE van con comprobante fiscal.
+    // Si la factura es en EFECTIVO y NO tiene RNC fiscal, aplica el contador global de empresa (1 de cada 4 o la 4ta sin comprobante).
+    if (!isTargetFiscal && isPureCash) {
+      try {
+        await pool.query('UPDATE company_ncf_counters SET cash_counter = cash_counter + 1 WHERE id = 1');
+        const [counterRows] = await pool.query('SELECT cash_counter, cash_ratio FROM company_ncf_counters WHERE id = 1');
+        const count = counterRows[0]?.cash_counter || 1;
+        const ratio = counterRows[0]?.cash_ratio || 4;
+
+        if (count % ratio === 0) {
+          console.log(`ℹ️ [DGII CASH COUNTER]: Factura en Efectivo #${count} (Empresa Global) emitida SIN comprobante fiscal según regla 1 de cada ${ratio}.`);
+          await pool.query(
+            "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal' WHERE id = ?",
+            [visitId]
+          );
+          return null;
+        }
+      } catch (counterErr) {
+        console.warn('⚠️ [DGII CASH COUNTER WARNING]:', counterErr.message);
+      }
+    }
+
     const targetType = (requestedType || (clientRnc ? 'E31' : 'E32')).toUpperCase();
     
     // Look for active sequence batch with available items: first for targetType, fallback to any active batch
@@ -2515,9 +2541,10 @@ async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRn
     const crypto = require('crypto');
     const securityCode = crypto.randomBytes(3).toString('hex').toUpperCase();
     const emisorRnc = '131917038';
-    const compradorRnc = clientRnc ? String(clientRnc).trim() : '000000000';
     const totalFormatted = Number(totalAmount || 0).toFixed(2);
-    const qrUrl = `https://ecf.dgii.gov.do/consultatimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&eNCF=${encfNumber}&MontoTotal=${totalFormatted}&CodigoSeguridad=${securityCode}`;
+    const qrUrl = seq.tipo_comprobante === 'E32'
+      ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&CodigoSeguridad=${securityCode}`
+      : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${clientRnc || ''}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&FechaEmision=02-10-2026&FechaFirma=02-10-2026&CodigoSeguridad=${securityCode}`;
 
     await pool.query(
       `UPDATE visits 
@@ -2618,7 +2645,8 @@ async function handleCheckoutVisit(req, res) {
           ncf_type || tipo_comprobante,
           rnc_cliente || rnc,
           rzn_soc_cliente || client_name,
-          total || 0
+          total || 0,
+          metodo_pago || 'Efectivo'
         );
         // Transmit immediately to DGII in real time
         transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
@@ -2962,7 +2990,21 @@ app.post('/api/visits/:id/void', async (req, res) => {
       ]
     );
 
-    res.json({ success: true, message: 'Factura anulada correctamente con registro de auditoría.' });
+    // 7. Auto-generate and transmit DGII Nota de Crédito Electrónica (E34) in real-time
+    let notaCreditoNcf = null;
+    if (visit.ncf) {
+      try {
+        notaCreditoNcf = await generateAndTransmitNotaCredito(visit, voidReasonText, userWhoVoided);
+      } catch (ncErr) {
+        console.error('[DGII VOID NOTA CREDITO FAILED]:', ncErr);
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Factura anulada correctamente con registro de auditoría.',
+      ncf_nota_credito: notaCreditoNcf || null
+    });
   } catch (err) {
     console.error('[API VOID VISIT ERROR]:', err);
     res.status(500).json({ error: err.message });
@@ -4238,6 +4280,182 @@ app.post('/api/invoices/:id/transmit-dgii', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Helper to allocate the next sequence for Nota de Crédito Electrónica (E34)
+async function allocateNextDgiiSequence(tipo = 'E34') {
+  try {
+    const [batches] = await pool.query(
+      `SELECT * FROM dgii_ncf_sequences 
+       WHERE tipo_comprobante = ? AND estado = 'Activo' AND cantidad_usada < cantidad_aprobada 
+       ORDER BY id ASC LIMIT 1`,
+      [tipo]
+    );
+
+    if (batches.length === 0) {
+      console.warn(`⚠️ [DGII NCF] No hay secuencias ${tipo} activas con saldo disponible.`);
+      return null;
+    }
+
+    const seq = batches[0];
+    const startNumStr = seq.numero_desde.replace(/^\D+/, '');
+    const startNum = parseInt(startNumStr, 10) || 1;
+    const currentAssignedNum = startNum + seq.cantidad_usada;
+    const prefix = seq.tipo_comprobante || seq.numero_desde.slice(0, 3);
+    const numDigits = Math.max(10, startNumStr.length);
+    const encfNumber = prefix + String(currentAssignedNum).padStart(numDigits, '0');
+
+    const newCantidadUsada = seq.cantidad_usada + 1;
+    const newSecuenciaActual = currentAssignedNum;
+    const newEstado = newCantidadUsada >= seq.cantidad_aprobada ? 'Agotado' : 'Activo';
+
+    await pool.query(
+      `UPDATE dgii_ncf_sequences 
+       SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
+       WHERE id = ?`,
+      [newCantidadUsada, newSecuenciaActual, newEstado, seq.id]
+    );
+
+    console.log(`✅ [DGII NOTA CRÉDITO SECUENCIA]: Asignado ${encfNumber} (Usados ${newCantidadUsada}/${seq.cantidad_aprobada})`);
+    return encfNumber;
+  } catch (err) {
+    console.error('[DGII ALLOCATE SEQUENCE ERROR]:', err);
+    return null;
+  }
+}
+
+// Build and digitally sign XML for Nota de Crédito Electrónica (E34)
+function buildAndSignNotaCreditoXml(visit, encfE34, voidReasonText, items) {
+  const total = Number(visit.total || 0);
+  const dateObj = new Date();
+  const origDateObj = new Date(visit.visited_at || Date.now());
+  const pad = (n) => String(n).padStart(2, '0');
+  const fechaEmision = `${pad(dateObj.getDate())}-${pad(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
+  const fechaNCFModificado = `${pad(origDateObj.getDate())}-${pad(origDateObj.getMonth() + 1)}-${origDateObj.getFullYear()}`;
+  const fechaHoraFirma = `${fechaEmision} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
+
+  const itemsXml = items.map((item, idx) => {
+    const precio = Number(item.precioAplicado || item.precio || 0);
+    const cant = Number(item.cantidad || 1);
+    const itemTotal = precio * cant;
+    return `    <Item>
+      <NumeroLinea>${idx + 1}</NumeroLinea>
+      <IndicadorFacturacion>4</IndicadorFacturacion>
+      <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
+      <IndicadorBienoServicio>2</IndicadorBienoServicio>
+      <CantidadItem>${cant.toFixed(2)}</CantidadItem>
+      <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
+      <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
+    </Item>`;
+  }).join('\n');
+
+  const rawXml = `<?xml version="1.0" encoding="utf-8"?>
+<ECF>
+  <Encabezado>
+    <Version>1.0</Version>
+    <IdDoc>
+      <TipoeCF>34</TipoeCF>
+      <eNCF>${encfE34}</eNCF>
+      <FechaVencimientoSecuencia>31-12-2028</FechaVencimientoSecuencia>
+      <IndicadorMontoGravado>0</IndicadorMontoGravado>
+      <TipoIngresos>01</TipoIngresos>
+      <TipoPago>1</TipoPago>
+      <FechaEmision>${fechaEmision}</FechaEmision>
+    </IdDoc>
+    <Emisor>
+      <RNCEmisor>131917038</RNCEmisor>
+      <RazonSocialEmisor>ETEREAS SRL</RazonSocialEmisor>
+      <NombreComercial>ETÉREAS</NombreComercial>
+      <DireccionEmisor>LOS PALMEROS, No. 3, APTO. PLAZA BRAVO, BARRIO NUEVO</DireccionEmisor>
+      <FechaEmision>${fechaEmision}</FechaEmision>
+    </Emisor>
+    <Comprador>
+      <RNCComprador>${visit.rnc_cliente || ''}</RNCComprador>
+      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
+    </Comprador>
+    <Totales>
+      <MontoGravadoTotal>0.00</MontoGravadoTotal>
+      <MontoExento>${total.toFixed(2)}</MontoExento>
+      <TotalITBIS>0.00</TotalITBIS>
+      <MontoTotal>${total.toFixed(2)}</MontoTotal>
+    </Totales>
+  </Encabezado>
+  <DetallesItems>
+${itemsXml}
+  </DetallesItems>
+  <InformacionReferencia>
+    <NCFModificado>${visit.ncf}</NCFModificado>
+    <FechaNCFModificado>${fechaNCFModificado}</FechaNCFModificado>
+    <CodigoModificacion>1</CodigoModificacion>
+    <RazonModificacion>${escapeXml(voidReasonText || 'Anulación Total de Factura')}</RazonModificacion>
+  </InformacionReferencia>
+  <FechaHoraFirma>${fechaHoraFirma}</FechaHoraFirma>
+</ECF>`;
+
+  if (dgiiPrivateKeyPem && dgiiCertificatePem) {
+    try {
+      const { Signature } = require('dgii-ecf');
+      const signature = new Signature(dgiiPrivateKeyPem, dgiiCertificatePem);
+      const signed = signature.signXml(rawXml, 'ECF');
+      return { signedXml: signed, fechaHoraFirma, fechaEmision };
+    } catch (e) {
+      console.error('Error signing Nota Credito XML:', e.message);
+    }
+  }
+
+  return { signedXml: rawXml, fechaHoraFirma, fechaEmision };
+}
+
+// Generate and transmit electronic credit note (E34) to DGII
+async function generateAndTransmitNotaCredito(visit, voidReasonText, userWhoVoided) {
+  if (!visit || !visit.ncf) return null;
+  try {
+    const encfE34 = await allocateNextDgiiSequence('E34');
+    if (!encfE34) {
+      console.warn('⚠️ [DGII NOTA CREDITO]: No hay secuencias E34 disponibles.');
+      return null;
+    }
+
+    let items = [];
+    if (visit.items_detail) {
+      try {
+        items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+      } catch (_) {}
+    }
+    if (!items || items.length === 0) {
+      items = [{
+        nombre: 'Servicio Profesional de Belleza (Anulación)',
+        precio: Number(visit.total || 0),
+        cantidad: 1
+      }];
+    }
+
+    const { signedXml } = buildAndSignNotaCreditoXml(visit, encfE34, voidReasonText, items);
+    const rncEmisor = '131917038';
+    const fileName = `${rncEmisor}${encfE34}.xml`;
+
+    if (dgiiPrivateKeyPem && dgiiCertificatePem) {
+      const { ECF, ENVIRONMENT } = require('dgii-ecf');
+      const ecfClient = new ECF({ key: dgiiPrivateKeyPem, cert: dgiiCertificatePem }, ENVIRONMENT.PROD);
+      await ecfClient.authenticate();
+      const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
+      console.log(`✅ [DGII NOTA DE CRÉDITO TRANSMITIDA]: ${encfE34} modificando ${visit.ncf} -> TrackID: ${resp?.trackId}`);
+    }
+
+    await pool.query(
+      `UPDATE visits SET 
+        ncf_nota_credito = ?, 
+        nota_credito_motivo = ?, 
+        nota_credito_fecha = NOW() 
+       WHERE id = ?`,
+      [encfE34, voidReasonText, visit.id]
+    );
+
+    return encfE34;
+  } catch (err) {
+    console.error('❌ [DGII NOTA CREDITO ERROR]:', err);
+    return null;
+  }
+}
 
 // === DOWNLOAD INVOICE PDF ENDPOINT ===
 app.get('/api/invoices/:id/pdf', async (req, res) => {
