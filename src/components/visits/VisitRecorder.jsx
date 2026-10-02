@@ -2931,7 +2931,9 @@ const VisitRecorder = () => {
       return;
     }
 
-    const ncfTypeToUse = isCreditoFiscal ? 'E31' : 'E32';
+    const hasPlanWashCheck = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+    const isPlanCanjeCheck = (finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty') || (hasPlanWashCheck && finalTotalAmount === 0)) && !isCreditoFiscal;
+    const ncfTypeToUse = isPlanCanjeCheck ? 'NONE' : (isCreditoFiscal ? 'E31' : 'E32');
     await executeCheckout(null, ncfTypeToUse, isCreditoFiscal ? clientRncInput.trim() : '', isCreditoFiscal ? clientRazonSocialInput.trim() : '');
   };
 
@@ -2989,7 +2991,14 @@ const VisitRecorder = () => {
       const finalClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente General';
       const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
 
-      const ncfTypeToSend = chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : (isCreditoFiscal ? 'E31' : 'E32');
+      const isPlanRedemptionCheck = (
+        finalTotalAmount === 0 || 
+        (activePayments.length === 1 && (activePayments[0].method === 'Plan Beauty' || activePayments[0].method === 'Plan')) ||
+        (hasPlanWash && finalTotalAmount === 0) ||
+        finalMetodoPago === 'Plan Beauty'
+      ) && !isCreditoFiscal;
+
+      const ncfTypeToSend = isPlanRedemptionCheck ? 'NONE' : (chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : (isCreditoFiscal ? 'E31' : 'E32'));
       const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
       const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
 
@@ -4376,61 +4385,75 @@ const VisitRecorder = () => {
             </div>
           </div>
 
-          {/* FISCAL COMPROBANTE OPTION (DEFAULT: CONSUMO E32, OPTIONAL: CREDITO FISCAL E31) */}
-          <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.55rem 0.75rem', borderRadius: '10px', background: isCreditoFiscal ? '#eff6ff' : '#f8fafc', border: `1.5px solid ${isCreditoFiscal ? '#3b82f6' : '#e2e8f0'}`, transition: 'all 0.15s ease' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', margin: 0 }}>
-              <input
-                type="checkbox"
-                checked={isCreditoFiscal}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setIsCreditoFiscal(checked);
-                  if (checked) {
-                    if (clientFound?.cedula && !clientRncInput) setClientRncInput(clientFound.cedula);
-                    if ((clientFound?.nombre || clientFound?.name) && !clientRazonSocialInput) setClientRazonSocialInput(clientFound?.nombre || clientFound?.name);
-                  }
-                }}
-                style={{ width: '17px', height: '17px', accentColor: '#2563eb', cursor: 'pointer' }}
-              />
+          {/* FISCAL COMPROBANTE OPTION (DEFAULT: CONSUMO E32, OPTIONAL: CREDITO FISCAL E31, OR CANJE PLAN BEAUTY) */}
+          {((finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty')) && !isCreditoFiscal) ? (
+            <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.6rem 0.75rem', borderRadius: '10px', background: '#fdf2f8', border: '1.5px solid #fbcfe8', display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <span style={{ fontSize: '1.25rem' }}>💎</span>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: isCreditoFiscal ? '#1d4ed8' : '#334155' }}>
-                  ¿Factura con Crédito Fiscal (RNC)?
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#9d174d' }}>
+                  Canje de Beneficio Plan Beauty (RD$ 0.00)
                 </span>
-                <span style={{ fontSize: '0.675rem', color: isCreditoFiscal ? '#2563eb' : '#64748b' }}>
-                  {isCreditoFiscal ? '🔵 Emitir e-NCF E31 con valor fiscal' : '🟢 Por defecto: Factura de Consumo (E32)'}
+                <span style={{ fontSize: '0.68rem', color: '#be185d' }}>
+                  Ticket de entrega prepagada • Sin comprobante fiscal e-NCF
                 </span>
               </div>
-            </label>
+            </div>
+          ) : (
+            <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.55rem 0.75rem', borderRadius: '10px', background: isCreditoFiscal ? '#eff6ff' : '#f8fafc', border: `1.5px solid ${isCreditoFiscal ? '#3b82f6' : '#e2e8f0'}`, transition: 'all 0.15s ease' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={isCreditoFiscal}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsCreditoFiscal(checked);
+                    if (checked) {
+                      if (clientFound?.cedula && !clientRncInput) setClientRncInput(clientFound.cedula);
+                      if ((clientFound?.nombre || clientFound?.name) && !clientRazonSocialInput) setClientRazonSocialInput(clientFound?.nombre || clientFound?.name);
+                    }
+                  }}
+                  style={{ width: '17px', height: '17px', accentColor: '#2563eb', cursor: 'pointer' }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: isCreditoFiscal ? '#1d4ed8' : '#334155' }}>
+                    ¿Factura con Crédito Fiscal (RNC)?
+                  </span>
+                  <span style={{ fontSize: '0.675rem', color: isCreditoFiscal ? '#2563eb' : '#64748b' }}>
+                    {isCreditoFiscal ? '🔵 Emitir e-NCF E31 con valor fiscal' : '🟢 Por defecto: Factura de Consumo (E32)'}
+                  </span>
+                </div>
+              </label>
 
-            {isCreditoFiscal && (
-              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed #bfdbfe', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
-                    RNC / Cédula Receptor *
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: 131917038 o 001-0000000-0"
-                    value={clientRncInput}
-                    onChange={(e) => setClientRncInput(e.target.value)}
-                    style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
-                  />
+              {isCreditoFiscal && (
+                <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed #bfdbfe', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
+                      RNC / Cédula Receptor *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej: 131917038 o 001-0000000-0"
+                      value={clientRncInput}
+                      onChange={(e) => setClientRncInput(e.target.value)}
+                      style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
+                      Razón Social / Nombre Comercial (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Empresa SRL o Nombre"
+                      value={clientRazonSocialInput}
+                      onChange={(e) => setClientRazonSocialInput(e.target.value)}
+                      style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
-                    Razón Social / Nombre Comercial (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Empresa SRL o Nombre"
-                    value={clientRazonSocialInput}
-                    onChange={(e) => setClientRazonSocialInput(e.target.value)}
-                    style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* FINAL ACTION BUTTONS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.25rem' }}>

@@ -2481,6 +2481,23 @@ async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRn
     const isTargetFiscal = (requestedType === 'E31' || requestedType === 'CREDITO_FISCAL' || hasFiscalRnc);
     const isPureCash = (metodoPago === 'Efectivo' || metodoPago === 'CASH' || metodoPago === 'efectivo');
 
+    // REGLA FISCAL Y PLAN BEAUTY: 
+    // Los canjes de Plan Beauty (o facturas en RD$ 0.00 de beneficios incluidos) NO cobran dinero y SIEMPRE salen SIN comprobante fiscal
+    const isPlanRedemption = (
+      (metodoPago && (metodoPago.toLowerCase().includes('plan') || metodoPago.toLowerCase().includes('canje') || metodoPago.toLowerCase().includes('membresía') || metodoPago.toLowerCase().includes('membresia'))) ||
+      Number(totalAmount || 0) <= 0 ||
+      requestedType === 'NONE' || requestedType === 'SIN_COMPROBANTE'
+    ) && !isTargetFiscal;
+
+    if (isPlanRedemption) {
+      console.log(`ℹ️ [DGII CANJE PLAN BEAUTY]: Visita ${visitId} por RD$ ${totalAmount} con método '${metodoPago}' registrada SIN comprobante fiscal (beneficio prepagado/canje).`);
+      await pool.query(
+        "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal', codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
+        [visitId]
+      );
+      return null;
+    }
+
     // REGLA FISCAL: Las facturas de Crédito Fiscal (RNC) SIEMPRE van con comprobante fiscal.
     // Si la factura es en EFECTIVO y NO tiene RNC fiscal, aplica el contador global de empresa (1 de cada 4 o la 4ta sin comprobante).
     if (!isTargetFiscal && isPureCash) {
@@ -2493,7 +2510,7 @@ async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRn
         if (count % ratio === 0) {
           console.log(`ℹ️ [DGII CASH COUNTER]: Factura en Efectivo #${count} (Empresa Global) emitida SIN comprobante fiscal según regla 1 de cada ${ratio}.`);
           await pool.query(
-            "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal' WHERE id = ?",
+            "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal', codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
             [visitId]
           );
           return null;
@@ -2634,8 +2651,16 @@ async function handleCheckoutVisit(req, res) {
       );
     }
 
-    // Auto-allocate DGII e-NCF sequence if not already assigned and not explicitly set to NONE
-    const isExplicitNoNcf = (ncf_type === 'NONE' || tipo_comprobante === 'NONE' || ncf_type === 'SIN_COMPROBANTE');
+    // Determine if it is a Plan Beauty redemption or zero-charge visit (NO fiscal receipt)
+    const hasFiscalRnc = (rnc_cliente || rnc) && String(rnc_cliente || rnc).trim().length >= 9;
+    const isPlanBeautyCanje = (
+      (metodo_pago && (metodo_pago.toLowerCase().includes('plan') || metodo_pago.toLowerCase().includes('canje') || metodo_pago.toLowerCase().includes('membresía') || metodo_pago.toLowerCase().includes('membresia'))) ||
+      Number(total || 0) <= 0 ||
+      ncf_type === 'NONE' || tipo_comprobante === 'NONE' || ncf_type === 'SIN_COMPROBANTE'
+    ) && !hasFiscalRnc;
+
+    const isExplicitNoNcf = isPlanBeautyCanje || (ncf_type === 'NONE' || tipo_comprobante === 'NONE' || ncf_type === 'SIN_COMPROBANTE');
+
     let dgiiResult = null;
     if (!existing[0]?.ncf && !isExplicitNoNcf) {
       try {
@@ -2647,11 +2672,19 @@ async function handleCheckoutVisit(req, res) {
           total || 0,
           metodo_pago || 'Efectivo'
         );
-        // Transmit immediately to DGII in real time
-        transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
+        // Transmit immediately to DGII in real time ONLY if an NCF was actually allocated
+        if (dgiiResult?.ncf) {
+          transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
+        }
       } catch (dgiiErr) {
         console.error('[DGII ASSIGN IN CHECKOUT FAILED]:', dgiiErr);
       }
+    } else if (isExplicitNoNcf) {
+      // Ensure visit explicitly remains without NCF
+      await pool.query(
+        "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal', codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
+        [id]
+      );
     } else if (existing[0]?.ncf) {
       // Transmit existing sequence if not yet sent
       transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
