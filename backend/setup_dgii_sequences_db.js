@@ -38,7 +38,7 @@ async function init() {
       INSERT INTO dgii_ncf_sequences 
       (tipo_comprobante, nombre_comprobante, no_solicitud, no_autorizacion, numero_desde, numero_hasta, secuencia_actual, cantidad_aprobada, cantidad_usada, fecha_vencimiento, estado)
       VALUES 
-      ('E31', 'Factura de Crédito Fiscal Electrónico', '6010004045', '6005529050', 'E310000000001', 'E310000000010', 0, 10, 0, '2027-12-31', 'Activo')
+      ('E31', 'Factura de Crédito Fiscal Electrónico', '6010004045', '6005529050', 'E310000000001', 'E310000100000', 0, 100000, 0, '2027-12-31', 'Activo')
     `);
     console.log('✅ Added approved E31 batch (Solicitud 6010004045) to database');
   }
