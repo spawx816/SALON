@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
-import { Mail, Phone, MapPin, MessageSquare, Send, CheckCircle } from 'lucide-react';
+import { Mail, Phone, MapPin, MessageSquare, Send, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { dataService } from '../utils/dataService';
 
 const Contacto = () => {
   useDocumentMetadata({
@@ -12,21 +13,42 @@ const Contacto = () => {
 
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
+  const [telefono, setTelefono] = useState('');
   const [mensaje, setMensaje] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMsg('');
+
+    if (!nombre.trim() || !email.trim() || !mensaje.trim()) {
+      setErrorMsg('Por favor completa todos los campos requeridos (nombre, correo y mensaje).');
+      return;
+    }
+
     setLoading(true);
-    // Simulate API request
-    setTimeout(() => {
+
+    try {
+      await dataService.sendContactMessage({
+        nombre: nombre.trim(),
+        email: email.trim(),
+        telefono: telefono.trim(),
+        mensaje: mensaje.trim()
+      });
+
       setLoading(false);
       setSubmitted(true);
       setNombre('');
       setEmail('');
+      setTelefono('');
       setMensaje('');
-    }, 1000);
+    } catch (err) {
+      console.error('Error al enviar formulario de contacto:', err);
+      setLoading(false);
+      setErrorMsg(err.message || 'No pudimos procesar tu mensaje en este momento. Por favor intenta de nuevo o escríbenos directamente a hola@planbeautyrd.com');
+    }
   };
 
   return (
@@ -84,25 +106,63 @@ const Contacto = () => {
               </div>
             </div>
 
+            {/* Direct WhatsApp Box */}
+            <div style={{ background: 'linear-gradient(135deg, #128C7E 0%, #075E54 100%)', color: '#ffffff', padding: '1.75rem', borderRadius: '24px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <MessageSquare size={24} />
+                <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>¿Prefieres atención por WhatsApp?</h4>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#e2e8f0', lineHeight: 1.5 }}>
+                Chatea directamente con nuestro equipo de atención al cliente para resolver dudas inmediatas sobre tu plan o citas.
+              </p>
+              <a 
+                href="https://wa.me/18095615000?text=Hola,%20tengo%20una%20consulta%20sobre%20Plan%20Beauty%20RD" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ 
+                  background: '#25D366', 
+                  color: '#ffffff', 
+                  fontWeight: 800, 
+                  fontSize: '0.85rem', 
+                  textAlign: 'center', 
+                  padding: '0.75rem 1.25rem', 
+                  borderRadius: '12px', 
+                  textDecoration: 'none', 
+                  display: 'inline-block',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                }}
+              >
+                Abrir Chat de WhatsApp 💬
+              </a>
+            </div>
+
           </div>
 
           {/* Form Card */}
           <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '28px', padding: '2.5rem', boxShadow: '0 15px 35px rgba(0,0,0,0.02)' }}>
             <h3 style={{ margin: '0 0 1.5rem 0', fontWeight: 900, fontSize: '1.3rem', color: '#09090b' }}>Envíanos un Mensaje</h3>
             
+            {errorMsg && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', padding: '0.9rem 1.1rem', color: '#b91c1c', fontSize: '0.85rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             {submitted ? (
               <div style={{ textAlign: 'center', padding: '2rem 0' }}>
                 <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#f0fdf4', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
                   <CheckCircle size={32} />
                 </div>
-                <h4 style={{ fontWeight: 800, fontSize: '1.1rem', marginBottom: '0.5rem' }}>¡Mensaje Enviado!</h4>
+                <h4 style={{ fontWeight: 800, fontSize: '1.1rem', marginBottom: '0.5rem', color: '#09090b' }}>¡Mensaje Enviado con Éxito!</h4>
                 <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
-                  Agradecemos tu mensaje. Nuestro equipo de soporte se pondrá en contacto contigo en un plazo de 24 horas hábiles.
+                  Agradecemos tu mensaje. Hemos recibido tu consulta y nuestro equipo de soporte se pondrá en contacto contigo en un plazo de 24 horas hábiles.
                 </p>
                 <button 
-                  onClick={() => setSubmitted(false)} 
+                  onClick={() => { setSubmitted(false); setErrorMsg(''); }} 
                   className="landing-btn"
-                  style={{ background: '#f1f5f9', color: '#09090b', marginTop: '1.5rem', border: 'none', padding: '0.75rem 1.5rem' }}
+                  style={{ background: '#f1f5f9', color: '#09090b', marginTop: '1.5rem', border: 'none', padding: '0.75rem 1.5rem', borderRadius: '10px', fontWeight: 700, cursor: 'pointer' }}
                 >
                   Enviar otro mensaje
                 </button>
@@ -110,38 +170,62 @@ const Contacto = () => {
             ) : (
               <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label htmlFor="nombre" style={{ fontSize: '0.75rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase' }}>Nombre Completo</label>
+                  <label htmlFor="nombre" style={{ fontSize: '0.75rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase' }}>
+                    Nombre Completo <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
                   <input 
                     type="text" 
                     id="nombre"
                     value={nombre}
                     onChange={(e) => setNombre(e.target.value)}
                     required
+                    disabled={loading}
                     placeholder="Tu nombre completo"
                     style={{ width: '100%', padding: '0.85rem 1rem', borderRadius: '12px', border: '1.5px solid #e2e8f0', outline: 'none', fontSize: '0.9rem' }}
                   />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label htmlFor="email" style={{ fontSize: '0.75rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase' }}>Correo Electrónico</label>
+                  <label htmlFor="email" style={{ fontSize: '0.75rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase' }}>
+                    Correo Electrónico <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
                   <input 
                     type="email" 
                     id="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
+                    disabled={loading}
                     placeholder="ejemplo@correo.com"
                     style={{ width: '100%', padding: '0.85rem 1rem', borderRadius: '12px', border: '1.5px solid #e2e8f0', outline: 'none', fontSize: '0.9rem' }}
                   />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <label htmlFor="mensaje" style={{ fontSize: '0.75rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase' }}>Mensaje o Consulta</label>
+                  <label htmlFor="telefono" style={{ fontSize: '0.75rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase' }}>
+                    Teléfono / WhatsApp <span style={{ color: '#94a3b8', fontWeight: 500 }}>(Opcional)</span>
+                  </label>
+                  <input 
+                    type="tel" 
+                    id="telefono"
+                    value={telefono}
+                    onChange={(e) => setTelefono(e.target.value)}
+                    disabled={loading}
+                    placeholder="(809) 000-0000"
+                    style={{ width: '100%', padding: '0.85rem 1rem', borderRadius: '12px', border: '1.5px solid #e2e8f0', outline: 'none', fontSize: '0.9rem' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <label htmlFor="mensaje" style={{ fontSize: '0.75rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase' }}>
+                    Mensaje o Consulta <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
                   <textarea 
                     id="mensaje"
                     value={mensaje}
                     onChange={(e) => setMensaje(e.target.value)}
                     required
+                    disabled={loading}
                     rows="4"
                     placeholder="Describe en qué podemos ayudarte..."
                     style={{ width: '100%', padding: '0.85rem 1rem', borderRadius: '12px', border: '1.5px solid #e2e8f0', outline: 'none', fontSize: '0.9rem', resize: 'vertical' }}
@@ -152,10 +236,28 @@ const Contacto = () => {
                   type="submit" 
                   disabled={loading}
                   className="landing-btn btn-primary"
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', width: '100%', padding: '0.875rem' }}
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    gap: '0.5rem', 
+                    width: '100%', 
+                    padding: '0.875rem',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.75 : 1
+                  }}
                 >
-                  <Send size={16} />
-                  <span>{loading ? 'ENVIANDO...' : 'ENVIAR MENSAJE'}</span>
+                  {loading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>ENVIANDO MENSAJE...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={16} />
+                      <span>ENVIAR MENSAJE</span>
+                    </>
+                  )}
                 </button>
               </form>
             )}
@@ -170,3 +272,4 @@ const Contacto = () => {
 };
 
 export default Contacto;
+

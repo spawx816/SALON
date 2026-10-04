@@ -1837,6 +1837,35 @@ export const dataService = {
       console.error('Error deleting DGII sequence:', e);
       return { success: false, error: e.message };
     }
+  },
+
+  sendContactMessage: async ({ nombre, email, mensaje, telefono }) => {
+    try {
+      const res = await fetch(`${API_URL}/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, email, mensaje, telefono })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Error al enviar el mensaje');
+      }
+      return data;
+    } catch (e) {
+      console.error('Error sending contact message:', e);
+      throw e;
+    }
+  },
+
+  getContactMessages: async () => {
+    try {
+      const res = await fetch(`${API_URL}/contact-messages`);
+      if (res.ok) return await res.json();
+      return [];
+    } catch (e) {
+      console.error('Error getting contact messages:', e);
+      return [];
+    }
   }
 };
 
