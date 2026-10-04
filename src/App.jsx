@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
   Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
-  Landmark, ChevronDown, ChevronRight
+  Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -44,6 +44,8 @@ import GiftCardValidator from './components/admin/GiftCardValidator';
 import AttendanceKiosk from './pages/AttendanceKiosk';
 import AttendanceLogs from './components/admin/AttendanceLogs';
 import DgiiSequencesModule from './components/admin/DgiiSequencesModule';
+import CreditNotesModule from './components/admin/CreditNotesModule';
+import Reporte607Module from './components/admin/Reporte607Module';
 import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
 import ReceptionDashboard from './components/reception/ReceptionDashboard';
 
@@ -130,7 +132,7 @@ const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad');
+  const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607');
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
@@ -457,6 +459,20 @@ const AppContent = () => {
                           active={location.pathname === '/secuencias-dgii'} 
                           onClick={closeMobileMenu} 
                         />
+                        <SidebarLink 
+                          to="/contabilidad/notas-credito" 
+                          icon={ArrowDownLeft} 
+                          label="Notas de Crédito" 
+                          active={location.pathname === '/contabilidad/notas-credito' || location.pathname === '/notas-credito'} 
+                          onClick={closeMobileMenu} 
+                        />
+                        <SidebarLink 
+                          to="/contabilidad/reporte-607" 
+                          icon={FileSpreadsheet} 
+                          label="Reporte 607 DGII" 
+                          active={location.pathname === '/contabilidad/reporte-607' || location.pathname === '/reporte-607'} 
+                          onClick={closeMobileMenu} 
+                        />
                       </div>
                     )}
                   </div>
@@ -515,8 +531,12 @@ const AppContent = () => {
                 <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />
                 <Route path="/marketing" element={isAdmin ? <MarketingModule /> : <Navigate to="/" />} />
                 <Route path="/analitica" element={isAdmin ? <ServiceAnalytics /> : <Navigate to="/" />} />
-                <Route path="/contabilidad" element={isAdmin ? <Navigate to="/secuencias-dgii" replace /> : <Navigate to="/" />} />
+                <Route path="/contabilidad" element={isAdmin ? <Navigate to="/contabilidad/reporte-607" replace /> : <Navigate to="/" />} />
                 <Route path="/secuencias-dgii" element={isAdmin ? <DgiiSequencesModule /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/notas-credito" element={isAdmin ? <CreditNotesModule /> : <Navigate to="/" />} />
+                <Route path="/notas-credito" element={isAdmin ? <CreditNotesModule /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/reporte-607" element={isAdmin ? <Reporte607Module /> : <Navigate to="/" />} />
+                <Route path="/reporte-607" element={isAdmin ? <Reporte607Module /> : <Navigate to="/" />} />
                 <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />
                 <Route path="/contratos" element={isClient ? <Navigate to="/" /> : <DigitalContract />} />
                 <Route path="/admin/asistencia" element={(isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />} />

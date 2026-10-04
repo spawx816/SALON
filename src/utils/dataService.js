@@ -1866,7 +1866,48 @@ export const dataService = {
       console.error('Error getting contact messages:', e);
       return [];
     }
+  },
+
+  // DGII Notas de Crédito
+  getCreditNotes: async () => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/credit-notes`);
+      if (res.ok) return await res.json();
+      return [];
+    } catch (e) {
+      console.error('Error fetching credit notes:', e);
+      return [];
+    }
+  },
+
+  retransmitCreditNote: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/credit-notes/retransmit/${id}`, {
+        method: 'POST'
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error re-transmitting credit note:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // DGII Reporte 607
+  getReporte607: async (periodo, extraParams = {}) => {
+    try {
+      const params = new URLSearchParams({
+        periodo: periodo || '',
+        ...extraParams
+      });
+      const res = await fetch(`${API_URL}/dgii/report-607?${params.toString()}`);
+      if (res.ok) return await res.json();
+      return { success: false, error: 'Error cargando Reporte 607', records: [], totals: {} };
+    } catch (e) {
+      console.error('Error fetching Reporte 607:', e);
+      return { success: false, error: e.message, records: [], totals: {} };
+    }
   }
 };
+
 
 

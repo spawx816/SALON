@@ -477,6 +477,25 @@ const setupDB = async () => {
     try { await pool.query('ALTER TABLE visits ADD COLUMN void_reason VARCHAR(255)'); } catch(e){}
     try { await pool.query('ALTER TABLE visits ADD COLUMN voided_by VARCHAR(100)'); } catch(e){}
     try { await pool.query('ALTER TABLE visits ADD COLUMN voided_at TIMESTAMP NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN ncf_nota_credito VARCHAR(50) NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN nota_credito_motivo TEXT NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN nota_credito_fecha TIMESTAMP NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN nota_credito_track_id VARCHAR(100) NULL'); } catch(e){}
+    try { await pool.query('ALTER TABLE visits ADD COLUMN nota_credito_xml LONGTEXT NULL'); } catch(e){}
+
+    // Ensure E34 Nota de Crédito sequence is initialized
+    try {
+      const [e34Exist] = await pool.query("SELECT id FROM dgii_ncf_sequences WHERE tipo_comprobante = 'E34'");
+      if (e34Exist.length === 0) {
+        await pool.query(`
+          INSERT INTO dgii_ncf_sequences 
+          (tipo_comprobante, nombre_comprobante, no_solicitud, no_autorizacion, numero_desde, numero_hasta, secuencia_actual, cantidad_aprobada, cantidad_usada, fecha_vencimiento, estado)
+          VALUES 
+          ('E34', 'Nota de Crédito Electrónica', '6010004045', '6005529050', 'E340000000001', 'E340000100000', 0, 100000, 0, '2028-12-31', 'Activo')
+        `);
+        console.log('[DB] Seeded E34 Nota de Crédito sequence.');
+      }
+    } catch(e){}
 
     // Setup Marketing Settings Table
     try {
@@ -4836,6 +4855,611 @@ app.post('/api/invoices/:id/send-email', async (req, res) => {
       res.json({ success: true, message: `Factura enviada exitosamente a ${targetEmail}` });
     }
   } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper to generate official Nota de Crédito PDF (E34 / B04)
+async function generateNotaCreditoPdf(visit, items, signedXml, fechaEmision, fechaHoraFirma, voidReasonText) {
+  const encf = visit.ncf_nota_credito || 'E340000000001';
+  const ncfModificado = visit.ncf || 'E320000000001';
+  const total = Number(visit.total || 0);
+
+  const rncEmisor = '131917038';
+  const razonSocialEmisor = 'ETEREAS SRL';
+  const nombreComercial = 'ETÉREAS';
+  const direccionEmisor = 'LOS PALMEROS, No. 3, APTO. PLAZA BRAVO, BARRIO NUEVO';
+
+  const rncComprador = visit.rnc_cliente || '';
+  const razonSocialComprador = visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL';
+
+  let codigoSeguridad = 'NC1234';
+  if (signedXml) {
+    try {
+      if (typeof getCodeSixDigitfromSignature === 'function') {
+        codigoSeguridad = getCodeSixDigitfromSignature(signedXml);
+      }
+    } catch (_) {}
+  }
+
+  const qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${codigoSeguridad}`;
+
+  let qrBuffer = null;
+  try {
+    qrBuffer = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'M', type: 'png', margin: 1, width: 250 });
+  } catch(e){}
+
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: 'LETTER',
+      margins: { top: 40, bottom: 40, left: 40, right: 40 },
+      info: {
+        Title: `Nota de Crédito ${encf}`,
+        Author: razonSocialEmisor,
+        Subject: 'NOTA DE CRÉDITO ELECTRÓNICA'
+      }
+    });
+
+    const buffers = [];
+    doc.on('data', b => buffers.push(b));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    const PRIMARY = '#991B1B'; // Rojo borgoña institucional
+    const TEXT_DARK = '#1E293B';
+    const BORDER_COLOR = '#CBD5E1';
+    const HEADER_BG = '#FEE2E2';
+
+    // 1. Logo / Emisor
+    doc.fontSize(14).font('Helvetica-Bold').fillColor(PRIMARY).text(nombreComercial || razonSocialEmisor, 40, 45);
+    doc.fontSize(9).font('Helvetica').fillColor(TEXT_DARK)
+      .text(razonSocialEmisor, 40, 62)
+      .text(`RNC: ${rncEmisor}`, 40, 74)
+      .text(`Dirección: ${direccionEmisor}`, 40, 86, { width: 240 })
+      .text(`Fecha Emisión NC: ${fechaEmision}`, 40, 110);
+
+    // 2. Encabezado Nota de Crédito
+    let headerRightY = 45;
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(PRIMARY)
+      .text('NOTA DE CRÉDITO ELECTRÓNICA (e-CF)', 270, headerRightY, { width: 300, align: 'right' });
+    headerRightY += 17;
+
+    doc.fontSize(10).font('Helvetica-Bold').fillColor(TEXT_DARK)
+      .text(`e-NCF: ${encf}`, 270, headerRightY, { width: 300, align: 'right' });
+    headerRightY += 15;
+
+    doc.fontSize(9.5).font('Helvetica-Bold').fillColor(PRIMARY)
+      .text(`NCF Modificado: ${ncfModificado}`, 270, headerRightY, { width: 300, align: 'right' });
+    headerRightY += 14;
+
+    doc.fontSize(8.5).font('Helvetica').fillColor(TEXT_DARK)
+      .text(`Tipo de Ingreso: 01 - No Financieros`, 270, headerRightY, { width: 300, align: 'right' });
+
+    // 3. Cuadro Comprador & Razón Modificación
+    const boxY = 135;
+    doc.rect(40, boxY, 532, 60).fillAndStroke('#FFF5F5', BORDER_COLOR);
+    doc.fontSize(9).font('Helvetica-Bold').fillColor(TEXT_DARK).text('DATOS DEL RECEPTOR & MOTIVO DE ANULACIÓN', 48, boxY + 7);
+    doc.fontSize(8.5).font('Helvetica')
+      .text(`Cliente / Razón Social: ${razonSocialComprador}`, 48, boxY + 22)
+      .text(`RNC / Cédula: ${rncComprador || 'N/A (Consumidor Final)'}`, 48, boxY + 34)
+      .text(`Motivo de Modificación: ${voidReasonText || visit.nota_credito_motivo || 'Anulación Total de Factura'}`, 48, boxY + 46, { width: 510 });
+
+    // 4. Tabla de Ítems
+    const tableTop = 205;
+    doc.rect(40, tableTop, 532, 20).fillAndStroke(HEADER_BG, BORDER_COLOR);
+    doc.fontSize(8.5).font('Helvetica-Bold').fillColor(PRIMARY)
+      .text('Línea', 45, tableTop + 5, { width: 30 })
+      .text('Descripción del Servicio / Producto Anulado', 80, tableTop + 5, { width: 270 })
+      .text('Cant.', 355, tableTop + 5, { width: 40, align: 'center' })
+      .text('Precio Unit.', 400, tableTop + 5, { width: 80, align: 'right' })
+      .text('Monto Acreditado', 485, tableTop + 5, { width: 80, align: 'right' });
+
+    let currentY = tableTop + 20;
+    items.forEach((item, idx) => {
+      const precio = Number(item.precioAplicado || item.precio || 0);
+      const cant = Number(item.cantidad || 1);
+      const itemTotal = precio * cant;
+
+      if (idx % 2 === 1) {
+        doc.rect(40, currentY, 532, 18).fill('#FFF5F5');
+      }
+      doc.rect(40, currentY, 532, 18).stroke(BORDER_COLOR);
+
+      doc.fontSize(8).font('Helvetica').fillColor(TEXT_DARK)
+        .text(String(idx + 1), 45, currentY + 4, { width: 30 })
+        .text(item.nombre || item.service_name || 'Servicio Facturado', 80, currentY + 4, { width: 270 })
+        .text(cant.toFixed(2), 355, currentY + 4, { width: 40, align: 'center' })
+        .text(`RD$ ${precio.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 400, currentY + 4, { width: 80, align: 'right' })
+        .text(`RD$ ${itemTotal.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 485, currentY + 4, { width: 80, align: 'right' });
+
+      currentY += 18;
+    });
+
+    // 5. Totales
+    const totalsY = currentY + 12;
+    doc.rect(340, totalsY, 232, 50).fillAndStroke('#FFF5F5', PRIMARY);
+    doc.fontSize(9).font('Helvetica').fillColor(TEXT_DARK)
+      .text('Monto Exento / Base:', 350, totalsY + 8)
+      .text(`RD$ ${total.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 450, totalsY + 8, { width: 112, align: 'right' })
+      .text('Total ITBIS (0%):', 350, totalsY + 22)
+      .text('RD$ 0.00', 450, totalsY + 22, { width: 112, align: 'right' });
+
+    doc.fontSize(10).font('Helvetica-Bold').fillColor(PRIMARY)
+      .text('TOTAL NOTA CRÉDITO:', 350, totalsY + 36)
+      .text(`RD$ ${total.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 450, totalsY + 36, { width: 112, align: 'right' });
+
+    // 6. QR y Timbre DGII
+    const footerY = totalsY + 65;
+    if (qrBuffer) {
+      doc.image(qrBuffer, 40, footerY, { width: 85, height: 85 });
+    }
+
+    doc.fontSize(7.5).font('Helvetica').fillColor(TEXT_DARK)
+      .text(`Código de Seguridad: ${codigoSeguridad}`, 135, footerY + 10)
+      .text(`Fecha y Hora de Firma Digital: ${fechaHoraFirma}`, 135, footerY + 22)
+      .text(`TrackID DGII: ${visit.nota_credito_track_id || 'Transmitido e-CF'}`, 135, footerY + 34)
+      .text('Documento Electrónico Tributario regulado por la DGII - República Dominicana.', 135, footerY + 46, { width: 350 })
+      .text('Este documento anula y revierte los efectos tributarios del NCF indicado en la referencia.', 135, footerY + 58, { width: 350 });
+
+    doc.end();
+  });
+}
+
+// === DGII NOTAS DE CRÉDITO API ===
+app.get('/api/dgii/credit-notes', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        v.id,
+        v.ticket_number,
+        v.client_id,
+        v.client_name,
+        v.rnc_cliente,
+        v.rzn_soc_cliente,
+        v.cedula,
+        v.ncf,
+        v.ncf_type,
+        v.ncf_nota_credito,
+        v.nota_credito_motivo,
+        v.nota_credito_fecha,
+        v.nota_credito_track_id,
+        v.void_reason,
+        v.voided_by,
+        v.voided_at,
+        v.total,
+        v.metodo_pago,
+        v.items_detail,
+        v.servicios,
+        v.status,
+        v.visited_at,
+        v.created_at
+      FROM visits v
+      WHERE (v.ncf_nota_credito IS NOT NULL AND TRIM(v.ncf_nota_credito) != '')
+         OR (v.status = 'Anulado' AND v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE')
+      ORDER BY COALESCE(v.nota_credito_fecha, v.voided_at, v.visited_at) DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('[API GET CREDIT NOTES ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/dgii/credit-notes/:id/pdf', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+    if (!visits.length) return res.status(404).json({ error: 'Nota de crédito no encontrada' });
+    const visit = visits[0];
+
+    let items = [];
+    try {
+      items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : (visit.items_detail || []);
+    } catch(e){}
+    if (!items.length && visit.servicios) {
+      const srvs = typeof visit.servicios === 'string' && visit.servicios.startsWith('[') ? JSON.parse(visit.servicios) : (Array.isArray(visit.servicios) ? visit.servicios : [visit.servicios]);
+      items = srvs.map(s => ({ nombre: s, precioAplicado: visit.total, cantidad: 1 }));
+    }
+
+    let encfE34 = visit.ncf_nota_credito;
+    if (!encfE34) {
+      encfE34 = await allocateNextDgiiSequence('E34') || 'E340000000001';
+      await pool.query('UPDATE visits SET ncf_nota_credito = ? WHERE id = ?', [encfE34, visit.id]);
+      visit.ncf_nota_credito = encfE34;
+    }
+
+    const voidReason = visit.nota_credito_motivo || visit.void_reason || 'Anulación Total de Factura';
+    const { signedXml, fechaEmision, fechaHoraFirma } = buildAndSignNotaCreditoXml(visit, encfE34, voidReason, items);
+    const pdfBuffer = await generateNotaCreditoPdf(visit, items, signedXml, fechaEmision, fechaHoraFirma, voidReason);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="NotaCredito_${encfE34}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[CREDIT NOTE PDF ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/dgii/credit-notes/:id/xml', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+    if (!visits.length) return res.status(404).json({ error: 'Nota de crédito no encontrada' });
+    const visit = visits[0];
+
+    if (visit.nota_credito_xml) {
+      res.setHeader('Content-Type', 'application/xml');
+      res.setHeader('Content-Disposition', `attachment; filename="${visit.ncf_nota_credito || 'NotaCredito'}.xml"`);
+      return res.send(visit.nota_credito_xml);
+    }
+
+    let items = [];
+    try {
+      items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : (visit.items_detail || []);
+    } catch(e){}
+
+    const encfE34 = visit.ncf_nota_credito || 'E340000000001';
+    const voidReason = visit.nota_credito_motivo || visit.void_reason || 'Anulación Total de Factura';
+    const { signedXml } = buildAndSignNotaCreditoXml(visit, encfE34, voidReason, items);
+
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${encfE34}.xml"`);
+    res.send(signedXml);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/dgii/credit-notes/retransmit/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+    if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
+    const visit = visits[0];
+
+    const voidReason = visit.nota_credito_motivo || visit.void_reason || 'Anulación Total de Factura';
+    const encf = await generateAndTransmitNotaCredito(visit, voidReason, visit.voided_by || 'Administrador');
+    res.json({ success: true, message: `Nota de Crédito ${encf} transmitida exitosamente a la DGII.`, ncf_nota_credito: encf });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === DGII REPORTE 607 (VENTAS DE BIENES Y SERVICIOS) ===
+app.get('/api/dgii/report-607', async (req, res) => {
+  try {
+    const { periodo, startDate, endDate, salonId } = req.query;
+
+    let dateCondition = '';
+    let queryParams = [];
+
+    if (periodo && /^\d{6}$/.test(periodo)) {
+      dateCondition = "AND (DATE_FORMAT(COALESCE(v.visited_at, v.created_at), '%Y%m') = ? OR DATE_FORMAT(v.nota_credito_fecha, '%Y%m') = ?)";
+      queryParams.push(periodo, periodo);
+    } else if (startDate && endDate) {
+      dateCondition = "AND (DATE(COALESCE(v.visited_at, v.created_at)) BETWEEN ? AND ? OR DATE(v.nota_credito_fecha) BETWEEN ? AND ?)";
+      queryParams.push(startDate, endDate, startDate, endDate);
+    } else {
+      const currentPeriod = new Date().toISOString().slice(0, 7).replace('-', '');
+      dateCondition = "AND (DATE_FORMAT(COALESCE(v.visited_at, v.created_at), '%Y%m') = ? OR DATE_FORMAT(v.nota_credito_fecha, '%Y%m') = ?)";
+      queryParams.push(currentPeriod, currentPeriod);
+    }
+
+    let salonCondition = '';
+    if (salonId && salonId !== 'all') {
+      salonCondition = 'AND v.salon_id = ?';
+      queryParams.push(salonId);
+    }
+
+    const [rows] = await pool.query(
+      `SELECT 
+        v.id,
+        v.ticket_number,
+        v.client_id,
+        v.client_name,
+        v.rnc_cliente,
+        v.rzn_soc_cliente,
+        v.cedula,
+        v.ncf,
+        v.ncf_type,
+        v.ncf_nota_credito,
+        v.nota_credito_motivo,
+        v.nota_credito_fecha,
+        v.total,
+        v.metodo_pago,
+        v.applied_payments,
+        v.status,
+        v.visited_at,
+        v.created_at,
+        v.voided_at,
+        v.void_reason
+       FROM visits v
+       WHERE (v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE')
+       ${dateCondition}
+       ${salonCondition}
+       ORDER BY COALESCE(v.visited_at, v.created_at) ASC`,
+      queryParams
+    );
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatDt = (d) => {
+      if (!d) return '';
+      const date = new Date(d);
+      if (isNaN(date.getTime())) return '';
+      return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`;
+    };
+
+    let reportRows = [];
+    let grandTotals = {
+      montoFacturado: 0,
+      itbisFacturado: 0,
+      itbisRetenido: 0,
+      retencionRenta: 0,
+      isrPercibido: 0,
+      impuestoSelectivo: 0,
+      otrosImpuestos: 0,
+      propinaLegal: 0,
+      efectivo: 0,
+      chequeTransferencia: 0,
+      tarjeta: 0,
+      ventaCredito: 0,
+      bonosCertificados: 0,
+      permuta: 0,
+      otrasFormas: 0
+    };
+
+    let rowCounter = 1;
+
+    for (const v of rows) {
+      const clientName = v.rzn_soc_cliente || v.client_name || 'CONSUMIDOR FINAL';
+      const cleanRnc = String(v.rnc_cliente || v.cedula || '').replace(/\D/g, '');
+      
+      let tipoId = '3';
+      if (cleanRnc.length === 9) tipoId = '1';
+      else if (cleanRnc.length === 11) tipoId = '2';
+
+      const totalAmount = Number(v.total || 0);
+      const paymentMethod = String(v.metodo_pago || 'Efectivo').toLowerCase();
+
+      let efectivo = 0;
+      let chequeTransferencia = 0;
+      let tarjeta = 0;
+      let bonos = 0;
+      let otras = 0;
+
+      let applied = [];
+      try {
+        if (typeof v.applied_payments === 'string') applied = JSON.parse(v.applied_payments);
+        else if (Array.isArray(v.applied_payments)) applied = v.applied_payments;
+      } catch (_) {}
+
+      if (applied && applied.length > 0) {
+        for (const p of applied) {
+          const amt = Number(p.amount || 0);
+          const m = String(p.method || '').toLowerCase();
+          if (m.includes('efectivo') || m.includes('cash')) efectivo += amt;
+          else if (m.includes('tarjeta') || m.includes('card') || m.includes('cardnet') || m.includes('pos')) tarjeta += amt;
+          else if (m.includes('transf') || m.includes('cheque') || m.includes('deposito')) chequeTransferencia += amt;
+          else if (m.includes('bono') || m.includes('gift') || m.includes('certificado')) bonos += amt;
+          else otras += amt;
+        }
+      } else {
+        if (paymentMethod.includes('efectivo') || paymentMethod.includes('cash')) {
+          efectivo = totalAmount;
+        } else if (paymentMethod.includes('tarjeta') || paymentMethod.includes('card') || paymentMethod.includes('cardnet') || paymentMethod.includes('pos')) {
+          tarjeta = totalAmount;
+        } else if (paymentMethod.includes('transf') || paymentMethod.includes('cheque') || paymentMethod.includes('deposito')) {
+          chequeTransferencia = totalAmount;
+        } else if (paymentMethod.includes('bono') || paymentMethod.includes('gift') || paymentMethod.includes('certificado')) {
+          bonos = totalAmount;
+        } else {
+          efectivo = totalAmount;
+        }
+      }
+
+      // Fila de la Factura Original
+      const facturaRow = {
+        id: rowCounter++,
+        cliente: clientName,
+        rnc_cedula: cleanRnc || '',
+        tipo_identificacion: tipoId,
+        numero_comprobante: v.ncf,
+        ncf_modificado: '',
+        tipo_ingreso: '01 - Ingresos por Operaciones (No Financieros)',
+        fecha_comprobante: formatDt(v.visited_at || v.created_at),
+        fecha_retencion: '',
+        monto_facturado: totalAmount,
+        itbis_facturado: 0,
+        itbis_retenido: 0,
+        retencion_renta: 0,
+        isr_percibido: 0,
+        impuesto_selectivo: 0,
+        otros_impuestos: 0,
+        propina_legal: 0,
+        efectivo: efectivo,
+        cheque_transferencia: chequeTransferencia,
+        tarjeta: tarjeta,
+        venta_credito: 0,
+        bonos_certificados: bonos,
+        permuta: 0,
+        otras_formas: otras,
+        tipo_registro: 'FACTURA',
+        status: v.status
+      };
+
+      reportRows.push(facturaRow);
+
+      grandTotals.montoFacturado += totalAmount;
+      grandTotals.efectivo += efectivo;
+      grandTotals.chequeTransferencia += chequeTransferencia;
+      grandTotals.tarjeta += tarjeta;
+      grandTotals.bonosCertificados += bonos;
+      grandTotals.otrasFormas += otras;
+
+      // Fila de Nota de Crédito si fue anulada con comprobante E34 / B04
+      if (v.status === 'Anulado' && v.ncf_nota_credito) {
+        const ncRow = {
+          id: rowCounter++,
+          cliente: clientName,
+          rnc_cedula: cleanRnc || '',
+          tipo_identificacion: tipoId,
+          numero_comprobante: v.ncf_nota_credito,
+          ncf_modificado: v.ncf,
+          tipo_ingreso: '01 - Ingresos por Operaciones (No Financieros)',
+          fecha_comprobante: formatDt(v.nota_credito_fecha || v.voided_at || v.visited_at),
+          fecha_retencion: '',
+          monto_facturado: -totalAmount,
+          itbis_facturado: 0,
+          itbis_retenido: 0,
+          retencion_renta: 0,
+          isr_percibido: 0,
+          impuesto_selectivo: 0,
+          otros_impuestos: 0,
+          propina_legal: 0,
+          efectivo: -efectivo,
+          cheque_transferencia: -chequeTransferencia,
+          tarjeta: -tarjeta,
+          venta_credito: 0,
+          bonos_certificados: -bonos,
+          permuta: 0,
+          otras_formas: -otras,
+          tipo_registro: 'NOTA_CREDITO',
+          status: 'Anulado',
+          motivo_anulacion: v.nota_credito_motivo || v.void_reason
+        };
+
+        reportRows.push(ncRow);
+        grandTotals.montoFacturado -= totalAmount;
+        grandTotals.efectivo -= efectivo;
+        grandTotals.chequeTransferencia -= chequeTransferencia;
+        grandTotals.tarjeta -= tarjeta;
+        grandTotals.bonosCertificados -= bonos;
+        grandTotals.otrasFormas -= otras;
+      }
+    }
+
+    const currentPeriodStr = periodo || new Date().toISOString().slice(0, 7).replace('-', '');
+    res.json({
+      success: true,
+      header: {
+        empresa: 'ETEREAS SRL',
+        rnc: '131917038',
+        periodo: currentPeriodStr,
+        cantidad_registros: reportRows.length,
+        fecha_impresion: formatDt(new Date())
+      },
+      records: reportRows,
+      totals: grandTotals
+    });
+  } catch (err) {
+    console.error('[REPORT 607 ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download standard DGII 607 pipe-delimited text file
+app.get('/api/dgii/report-607/txt', async (req, res) => {
+  try {
+    const { periodo } = req.query;
+    const currentPeriodStr = (periodo && /^\d{6}$/.test(periodo)) 
+      ? periodo 
+      : new Date().toISOString().slice(0, 7).replace('-', '');
+
+    const [rows] = await pool.query(
+      `SELECT * FROM visits 
+       WHERE (ncf IS NOT NULL AND TRIM(ncf) != '' AND ncf != 'NONE')
+       AND (DATE_FORMAT(COALESCE(visited_at, created_at), '%Y%m') = ? OR DATE_FORMAT(nota_credito_fecha, '%Y%m') = ?)
+       ORDER BY COALESCE(visited_at, created_at) ASC`,
+      [currentPeriodStr, currentPeriodStr]
+    );
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const toYmd = (d) => {
+      if (!d) return '';
+      const date = new Date(d);
+      if (isNaN(date.getTime())) return '';
+      return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+    };
+
+    let lines = [];
+    const rncEmisor = '131917038';
+    
+    // Rows
+    for (const v of rows) {
+      const cleanRnc = String(v.rnc_cliente || v.cedula || '').replace(/\D/g, '');
+      let tipoId = '3';
+      if (cleanRnc.length === 9) tipoId = '1';
+      else if (cleanRnc.length === 11) tipoId = '2';
+
+      const total = Number(v.total || 0).toFixed(2);
+      const paymentMethod = String(v.metodo_pago || 'Efectivo').toLowerCase();
+      let efectivo = (paymentMethod.includes('efectivo') || paymentMethod.includes('cash')) ? total : '0.00';
+      let tarjeta = (paymentMethod.includes('tarjeta') || paymentMethod.includes('card') || paymentMethod.includes('cardnet') || paymentMethod.includes('pos')) ? total : '0.00';
+      let transf = (paymentMethod.includes('transf') || paymentMethod.includes('cheque') || paymentMethod.includes('deposito')) ? total : '0.00';
+      let bonos = (paymentMethod.includes('bono') || paymentMethod.includes('gift') || paymentMethod.includes('certificado')) ? total : '0.00';
+
+      // Factura
+      lines.push([
+        cleanRnc || '',
+        tipoId,
+        v.ncf,
+        '',
+        '01',
+        toYmd(v.visited_at || v.created_at),
+        '',
+        total,
+        '0.00',
+        '0.00',
+        '0.00',
+        '0.00',
+        '0.00',
+        '0.00',
+        '0.00',
+        efectivo,
+        transf,
+        tarjeta,
+        '0.00',
+        bonos,
+        '0.00',
+        '0.00'
+      ].join('|'));
+
+      // Nota de Crédito
+      if (v.status === 'Anulado' && v.ncf_nota_credito) {
+        lines.push([
+          cleanRnc || '',
+          tipoId,
+          v.ncf_nota_credito,
+          v.ncf,
+          '01',
+          toYmd(v.nota_credito_fecha || v.voided_at || v.visited_at),
+          '',
+          total,
+          '0.00',
+          '0.00',
+          '0.00',
+          '0.00',
+          '0.00',
+          '0.00',
+          '0.00',
+          efectivo,
+          transf,
+          tarjeta,
+          '0.00',
+          bonos,
+          '0.00',
+          '0.00'
+        ].join('|'));
+      }
+    }
+
+    // Encabezado estándar 607: 607|RNC|PERIODO|CANTIDAD
+    const fileContent = `607|${rncEmisor}|${currentPeriodStr}|${lines.length}\n` + lines.join('\n');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="DGII_F_607_${rncEmisor}_${currentPeriodStr}.txt"`);
+    res.send(fileContent);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
