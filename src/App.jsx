@@ -110,7 +110,18 @@ const PublicFooter = () => (
       </div>
     </div>
     <div className="footer-bottom">
-      <p>&copy; 2026 PlanBeautyRD. Todos los derechos reservados.</p>
+      <p style={{ margin: 0 }}>&copy; 2026 PlanBeautyRD. Todos los derechos reservados.</p>
+      <p style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+        Plataforma desarrollada por{' '}
+        <a 
+          href="https://www.instagram.com/_spawx_/" 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          style={{ color: '#d4af37', textDecoration: 'none', fontWeight: 700 }}
+        >
+          Anderson Ramirez
+        </a>
+      </p>
     </div>
   </footer>
 );
