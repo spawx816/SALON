@@ -1900,11 +1900,49 @@ export const dataService = {
         ...extraParams
       });
       const res = await fetch(`${API_URL}/dgii/report-607?${params.toString()}`);
-      if (res.ok) return await res.json();
-      return { success: false, error: 'Error cargando Reporte 607', records: [], totals: {} };
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          success: true,
+          header: data.header || {
+            empresa: 'ETEREAS SRL',
+            rnc: '131917038',
+            periodo: periodo || '',
+            cantidad_registros: data.records ? data.records.length : 0,
+            fecha_impresion: new Date().toLocaleDateString('es-DO')
+          },
+          records: Array.isArray(data.records) ? data.records : [],
+          totals: data.totals || {}
+        };
+      }
+      return { 
+        success: false, 
+        error: 'Error cargando Reporte 607', 
+        header: {
+          empresa: 'ETEREAS SRL',
+          rnc: '131917038',
+          periodo: periodo || '',
+          cantidad_registros: 0,
+          fecha_impresion: new Date().toLocaleDateString('es-DO')
+        },
+        records: [], 
+        totals: {} 
+      };
     } catch (e) {
       console.error('Error fetching Reporte 607:', e);
-      return { success: false, error: e.message, records: [], totals: {} };
+      return { 
+        success: false, 
+        error: e.message, 
+        header: {
+          empresa: 'ETEREAS SRL',
+          rnc: '131917038',
+          periodo: periodo || '',
+          cantidad_registros: 0,
+          fecha_impresion: new Date().toLocaleDateString('es-DO')
+        },
+        records: [], 
+        totals: {} 
+      };
     }
   }
 };

@@ -33,8 +33,20 @@ export default function Reporte607Module() {
     setLoading(true);
     try {
       const res = await dataService.getReporte607(currentPeriod);
-      if (res && res.records) {
+      if (res && res.records && res.header) {
         setReportData(res);
+      } else if (res && res.records) {
+        setReportData({
+          header: {
+            empresa: 'ETEREAS SRL',
+            rnc: '131917038',
+            periodo: currentPeriod,
+            cantidad_registros: res.records.length,
+            fecha_impresion: new Date().toLocaleDateString('es-DO')
+          },
+          records: res.records,
+          totals: res.totals || {}
+        });
       } else {
         setReportData({
           header: {
@@ -82,7 +94,7 @@ export default function Reporte607Module() {
       wsData.push(['ETEREAS SRL']);
       wsData.push(['AVENIDA LOS PALMEROS 96, PISO 1, LOCAL 3, EDIFICIO SUPERMERCADO BRAVO, LOS FRAILES, NUEVO, SANTO DOMINGO ESTE, SANTO DOMINGO']);
       wsData.push(['Reporte 607 - Ventas de Bienes y Servicios']);
-      wsData.push(['RNC / Cédula:', reportData.header.rnc, '', 'Período:', reportData.header.periodo, '', 'Cantidad de Registros:', filteredRecords.length, '', 'Fecha de Impresión:', reportData.header.fecha_impresion]);
+      wsData.push(['RNC / Cédula:', reportData?.header?.rnc || '131917038', '', 'Período:', reportData?.header?.periodo || currentPeriod, '', 'Cantidad de Registros:', filteredRecords.length, '', 'Fecha de Impresión:', reportData?.header?.fecha_impresion || new Date().toLocaleDateString('es-DO')]);
       wsData.push([]); // blank line
 
       // Table Header (24 columns)
@@ -176,7 +188,7 @@ export default function Reporte607Module() {
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, `Reporte_607_${currentPeriod}`);
-      XLSX.writeFile(wb, `Reporte_607_DGII_${reportData.header.rnc}_${currentPeriod}.xlsx`);
+      XLSX.writeFile(wb, `Reporte_607_DGII_${reportData?.header?.rnc || '131917038'}_${currentPeriod}.xlsx`);
 
       showNotification('✅ Reporte 607 exportado exitosamente a Excel.', 'success');
     } catch (err) {
@@ -440,21 +452,21 @@ export default function Reporte607Module() {
                 AVENIDA LOS PALMEROS 96, PISO 1, LOCAL 3, EDIFICIO SUPERMERCADO BRAVO, LOS FRAILES, NUEVO, SANTO DOMINGO ESTE, SANTO DOMINGO
               </p>
               <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.75rem', fontWeight: 700, color: '#09090b' }}>
-                RNC: {reportData.header.rnc}
+                RNC: {reportData?.header?.rnc || '131917038'}
               </p>
             </div>
 
             <div style={{ textAlign: 'right' }}>
               <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#16a34a' }}>Reporte 607</h3>
               <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                Fecha de Impresión: <strong>{reportData.header.fecha_impresion}</strong>
+                Fecha de Impresión: <strong>{reportData?.header?.fecha_impresion || new Date().toLocaleDateString('es-DO')}</strong>
               </p>
               <div style={{ display: 'flex', gap: '1rem', marginTop: '0.35rem', justifyContent: 'flex-end', fontSize: '0.75rem' }}>
                 <span style={{ background: '#f8fafc', padding: '2px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                  Período: <strong>{reportData.header.periodo}</strong>
+                  Período: <strong>{reportData?.header?.periodo || currentPeriod}</strong>
                 </span>
                 <span style={{ background: '#f8fafc', padding: '2px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                  Cantidad de Registros: <strong>{filteredRecords.length.toLocaleString('es-DO')}</strong>
+                  Cantidad de Registros: <strong>{(filteredRecords || []).length.toLocaleString('es-DO')}</strong>
                 </span>
               </div>
             </div>
