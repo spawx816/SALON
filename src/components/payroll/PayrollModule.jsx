@@ -455,16 +455,16 @@ export default function PayrollModule() {
               padding: '0.65rem 1.4rem',
               borderRadius: '10px',
               border: 'none',
-              background: mainTab === 'payroll' ? '#0066ff' : 'transparent',
+              background: mainTab === 'payroll' ? '#0f172a' : 'transparent',
               color: mainTab === 'payroll' ? '#ffffff' : '#64748b',
               fontWeight: 800,
               fontSize: '0.9rem',
               cursor: 'pointer',
-              boxShadow: mainTab === 'payroll' ? '0 4px 12px rgba(0, 102, 255, 0.25)' : 'none',
+              boxShadow: mainTab === 'payroll' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
               transition: 'all 0.2s ease'
             }}
           >
-            <DollarSign size={18} /> Procesar Nómina
+            <DollarSign size={18} style={{ color: mainTab === 'payroll' ? '#d4af37' : '#64748b' }} /> Procesar Nómina
           </button>
 
           <button
@@ -476,16 +476,16 @@ export default function PayrollModule() {
               padding: '0.65rem 1.4rem',
               borderRadius: '10px',
               border: 'none',
-              background: mainTab === 'regalias' ? '#0066ff' : 'transparent',
+              background: mainTab === 'regalias' ? '#0f172a' : 'transparent',
               color: mainTab === 'regalias' ? '#ffffff' : '#64748b',
               fontWeight: 800,
               fontSize: '0.9rem',
               cursor: 'pointer',
-              boxShadow: mainTab === 'regalias' ? '0 4px 12px rgba(0, 102, 255, 0.25)' : 'none',
+              boxShadow: mainTab === 'regalias' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
               transition: 'all 0.2s ease'
             }}
           >
-            <Sparkles size={18} /> Regalías del Año (Doble Sueldo)
+            <Sparkles size={18} style={{ color: mainTab === 'regalias' ? '#d4af37' : '#64748b' }} /> Regalías del Año (Doble Sueldo)
           </button>
         </div>
 

@@ -9910,6 +9910,82 @@ app.put('/api/roles/:id', async (req, res) => {
 });
 
 
+// Helper function to replicate/sync System Users into RRHH Staff Records
+async function syncUserToStaff(userData, roleId) {
+  try {
+    let positionName = 'Personal de Sistema';
+    if (roleId) {
+      const [roleRows] = await pool.query('SELECT nombre FROM roles WHERE id = ?', [roleId]);
+      if (roleRows.length > 0 && roleRows[0].nombre) {
+        positionName = roleRows[0].nombre;
+      }
+    }
+
+    const { nombre, email, salon_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = userData;
+    if (!nombre) return;
+
+    // Check if staff record exists by email or name
+    let staffRecord = null;
+    if (email) {
+      const [byEmail] = await pool.query('SELECT id FROM staff_records WHERE email = ?', [email]);
+      if (byEmail.length > 0) staffRecord = byEmail[0];
+    }
+    if (!staffRecord && nombre) {
+      const [byName] = await pool.query('SELECT id FROM staff_records WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))', [nombre]);
+      if (byName.length > 0) staffRecord = byName[0];
+    }
+
+    if (staffRecord) {
+      await pool.query(
+        `UPDATE staff_records SET 
+          nombre = COALESCE(?, nombre),
+          email = COALESCE(?, email),
+          posicion = COALESCE(?, posicion),
+          salon_id = ?,
+          profile_photo = COALESCE(?, profile_photo),
+          hora_entrada = ?,
+          hora_salida = ?,
+          dias_laborables = ?,
+          tolerancia_minutos = ?
+        WHERE id = ?`,
+        [
+          nombre,
+          email || null,
+          positionName,
+          salon_id || null,
+          profile_photo || null,
+          hora_entrada || null,
+          hora_salida || null,
+          dias_laborables || null,
+          tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
+          staffRecord.id
+        ]
+      );
+    } else {
+      const today = new Date().toISOString().split('T')[0];
+      await pool.query(
+        `INSERT INTO staff_records 
+          (nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, status)
+        VALUES (?, '', '', ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, 'Activo')`,
+        [
+          nombre,
+          positionName,
+          email || null,
+          today,
+          profile_photo || null,
+          hora_entrada || null,
+          hora_salida || null,
+          dias_laborables || null,
+          tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
+          salon_id || null
+        ]
+      );
+    }
+  } catch (syncErr) {
+    console.warn('[SYNC USER TO STAFF NOTICE]:', syncErr.message);
+  }
+}
+
 // === USERS (SYSTEM STAFF) ===
 app.get('/api/users', async (req, res) => {
   try {
@@ -9951,7 +10027,11 @@ app.post('/api/users', async (req, res) => {
         tolerancia_minutos !== undefined ? tolerancia_minutos : 15
       ]
     );
-    res.json({ success: true });
+
+    // Auto-sync into RRHH staff_records
+    await syncUserToStaff(req.body, role_id);
+
+    res.json({ success: true, id });
   } catch (err) {
     console.error('[USERS CREATE ERROR] Full Stack:', err);
     res.status(500).json({ error: err.message });
@@ -9960,14 +10040,15 @@ app.post('/api/users', async (req, res) => {
 
 app.put('/api/users/:id', async (req, res) => {
   try {
-    const { nombre, email, password, role_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
+    const { nombre, email, password, role_id, salon_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
     await pool.query(
-      'UPDATE users SET nombre = ?, email = ?, password = ?, role_id = ?, profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ? WHERE id = ?',
+      'UPDATE users SET nombre = ?, email = ?, password = ?, role_id = ?, salon_id = ?, profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ? WHERE id = ?',
       [
         nombre, 
         email, 
         password, 
         role_id, 
+        salon_id || null,
         profile_photo || null, 
         hora_entrada || null,
         hora_salida || null,
@@ -9976,6 +10057,10 @@ app.put('/api/users/:id', async (req, res) => {
         req.params.id
       ]
     );
+
+    // Auto-sync into RRHH staff_records
+    await syncUserToStaff(req.body, role_id);
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

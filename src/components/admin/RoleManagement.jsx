@@ -666,11 +666,80 @@ const RoleManagement = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-      <div className="page-header" style={{ marginBottom: '2rem' }}>
-        <div>
-          <h2 className="page-title">Personal y Seguridad</h2>
-          <p className="page-subtitle">Gestiona quién tiene acceso al sistema y qué acciones pueden realizar.</p>
+    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      {/* Header Banner Homologado */}
+      <div style={{
+        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+        borderRadius: '20px',
+        padding: '2rem',
+        color: '#ffffff',
+        marginBottom: '2rem',
+        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '1.5rem'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+          <div style={{
+            background: 'linear-gradient(135deg, #d4af37 0%, #f59e0b 100%)',
+            padding: '1rem',
+            borderRadius: '16px',
+            color: '#000000',
+            boxShadow: '0 8px 16px rgba(212, 175, 55, 0.3)'
+          }}>
+            <Users size={34} strokeWidth={2.3} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0, letterSpacing: '-0.5px' }}>
+                Gestión de RRHH & Colaboradores
+              </h1>
+              <span style={{
+                background: 'rgba(59, 130, 246, 0.2)',
+                color: '#60a5fa',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                padding: '0.2rem 0.6rem',
+                borderRadius: '999px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem'
+              }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#60a5fa' }} />
+                Personal Activo
+              </span>
+            </div>
+            <p style={{ color: '#94a3b8', margin: '0.35rem 0 0 0', fontSize: '0.9rem' }}>
+              Expedientes de personal, comisiones, horarios de trabajo, sucursales asignadas y vinculación al sistema.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button
+            onClick={() => navigate('/seguridad')}
+            style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              color: '#ffffff',
+              padding: '0.75rem 1.25rem',
+              borderRadius: '12px',
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Shield size={16} color="#d4af37" />
+            <span>Centro de Seguridad & Permisos</span>
+          </button>
         </div>
       </div>
 
@@ -685,66 +754,66 @@ const RoleManagement = () => {
         boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
       }}>
         <button 
-          onClick={() => setActiveTab('users')}
-          style={{ 
-            padding: '10px 24px',
-            background: activeTab === 'users' ? '#ffffff' : 'transparent',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 800,
-            color: activeTab === 'users' ? '#09090b' : '#64748b',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: activeTab === 'users' ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          <Users size={16} style={{ color: activeTab === 'users' ? '#10b981' : '#64748b' }} />
-          Usuarios del Sistema
-        </button>
-        <button 
           onClick={() => setActiveTab('rrhh')}
           style={{ 
             padding: '10px 24px',
-            background: activeTab === 'rrhh' ? '#ffffff' : 'transparent',
+            background: activeTab === 'rrhh' ? '#0f172a' : 'transparent',
             border: 'none',
             borderRadius: '12px',
             cursor: 'pointer',
             fontSize: '0.875rem',
             fontWeight: 800,
-            color: activeTab === 'rrhh' ? '#09090b' : '#64748b',
+            color: activeTab === 'rrhh' ? '#ffffff' : '#64748b',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: activeTab === 'rrhh' ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+            boxShadow: activeTab === 'rrhh' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
             transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         >
-          <Scissors size={16} style={{ color: activeTab === 'rrhh' ? '#3b82f6' : '#64748b' }} />
-          RRHH (Personal)
+          <Scissors size={16} style={{ color: activeTab === 'rrhh' ? '#d4af37' : '#64748b' }} />
+          Colaboradores (RRHH)
+        </button>
+        <button 
+          onClick={() => setActiveTab('users')}
+          style={{ 
+            padding: '10px 24px',
+            background: activeTab === 'users' ? '#0f172a' : 'transparent',
+            border: 'none',
+            borderRadius: '12px',
+            cursor: 'pointer',
+            fontSize: '0.875rem',
+            fontWeight: 800,
+            color: activeTab === 'users' ? '#ffffff' : '#64748b',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: activeTab === 'users' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
+            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+          }}
+        >
+          <Users size={16} style={{ color: activeTab === 'users' ? '#d4af37' : '#64748b' }} />
+          Usuarios del Sistema
         </button>
         <button 
           onClick={() => setActiveTab('roles')}
           style={{ 
             padding: '10px 24px',
-            background: activeTab === 'roles' ? '#ffffff' : 'transparent',
+            background: activeTab === 'roles' ? '#0f172a' : 'transparent',
             border: 'none',
             borderRadius: '12px',
             cursor: 'pointer',
             fontSize: '0.875rem',
             fontWeight: 800,
-            color: activeTab === 'roles' ? '#09090b' : '#64748b',
+            color: activeTab === 'roles' ? '#ffffff' : '#64748b',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: activeTab === 'roles' ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+            boxShadow: activeTab === 'roles' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
             transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         >
-          <Shield size={16} style={{ color: activeTab === 'roles' ? '#f59e0b' : '#64748b' }} />
+          <Shield size={16} style={{ color: activeTab === 'roles' ? '#d4af37' : '#64748b' }} />
           Roles y Permisos
         </button>
       </div>
