@@ -13673,7 +13673,7 @@ app.get('/api/payroll/concepts', async (req, res) => {
 // 1. Monitoreo de Sesiones Activas en Tiempo Real
 app.get('/api/security/sessions', async (req, res) => {
   try {
-    const [rows] = await pool.query(`
+    const [activeRows] = await pool.query(`
       SELECT s.*, u.email as user_email, sal.name as salon_name
       FROM user_sessions s
       LEFT JOIN users u ON s.user_id = u.id
@@ -13681,7 +13681,44 @@ app.get('/api/security/sessions', async (req, res) => {
       WHERE s.is_active = 1 AND s.last_activity >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
       ORDER BY s.last_activity DESC
     `);
-    res.json(rows);
+
+    // Incluir usuarios que hayan iniciado sesión hoy en cualquier sucursal y que aún no tengan registro en user_sessions
+    const [recentUsers] = await pool.query(`
+      SELECT u.id as user_id, u.nombre as user_name, u.email as user_email, u.last_login as last_activity,
+             r.nombre as role, sal.name as salon_name, u.salon_id
+      FROM users u
+      LEFT JOIN roles r ON u.role_id = r.id
+      LEFT JOIN salons sal ON u.salon_id = sal.id
+      WHERE u.last_login >= DATE_SUB(NOW(), INTERVAL 12 HOUR)
+    `);
+
+    const sessionUserIds = new Set(activeRows.map(r => String(r.user_id)));
+    const mergedSessions = [...activeRows];
+
+    for (const ru of recentUsers) {
+      if (!sessionUserIds.has(String(ru.user_id))) {
+        mergedSessions.push({
+          id: `legacy_${ru.user_id}`,
+          user_id: ru.user_id,
+          user_name: ru.user_name,
+          user_email: ru.user_email,
+          role: ru.role || 'Usuario',
+          salon_id: ru.salon_id,
+          salon_name: ru.salon_name || 'Global',
+          ip_address: 'Conectado en sucursal',
+          device_info: 'Terminal POS Sucursal',
+          is_active: 1,
+          last_activity: ru.last_activity,
+          created_at: ru.last_activity
+        });
+        sessionUserIds.add(String(ru.user_id));
+      }
+    }
+
+    // Ordenar por última actividad descendente
+    mergedSessions.sort((a, b) => new Date(b.last_activity || 0) - new Date(a.last_activity || 0));
+
+    res.json(mergedSessions);
   } catch (err) {
     console.error('[SECURITY SESSIONS ERROR]:', err.message);
     res.status(500).json({ error: err.message });
