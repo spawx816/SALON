@@ -2088,6 +2088,149 @@ export const dataService = {
       console.error('Error fetching payroll concepts:', e);
       return [];
     }
+  },
+
+  // === MÓDULO DE SEGURIDAD Y MONITOREO DE SESIONES ===
+  checkSessionStatus: async (sessionId, userId, role) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/session-status`, {
+        headers: {
+          'x-session-id': sessionId || '',
+          'x-user-id': userId || '',
+          'x-user-role': role || ''
+        }
+      });
+      return res.ok ? await res.json() : { valid: true };
+    } catch {
+      return { valid: true };
+    }
+  },
+
+  logoutSession: async (sessionId, userId, userName) => {
+    try {
+      await fetch(`${API_URL}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, userId, userName })
+      });
+    } catch (e) {
+      console.error('Error logging out session:', e);
+    }
+  },
+
+  getActiveSessions: async () => {
+    try {
+      const res = await fetch(`${API_URL}/security/sessions`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching active sessions:', e);
+      return [];
+    }
+  },
+
+  terminateSession: async (sessionId, userId) => {
+    try {
+      const res = await fetch(`${API_URL}/security/sessions/terminate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, userId })
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error terminating session:', e);
+      throw e;
+    }
+  },
+
+  getSecurityAuditLogs: async (limit = 150) => {
+    try {
+      const res = await fetch(`${API_URL}/security/audit-logs?limit=${limit}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching security audit logs:', e);
+      return [];
+    }
+  },
+
+  getLoginAttempts: async () => {
+    try {
+      const res = await fetch(`${API_URL}/security/login-attempts`);
+      return res.ok ? await res.json() : { attempts: [], blockedIps: [] };
+    } catch (e) {
+      console.error('Error fetching login attempts:', e);
+      return { attempts: [], blockedIps: [] };
+    }
+  },
+
+  unblockIp: async (ip_address) => {
+    try {
+      const res = await fetch(`${API_URL}/security/unblock-ip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip_address })
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error unblocking IP:', e);
+      throw e;
+    }
+  },
+
+  getSecuritySettings: async () => {
+    try {
+      const res = await fetch(`${API_URL}/security/settings`);
+      return res.ok ? await res.json() : { require_pin_for_settings: 1, pin_notification_emails: '', max_failed_attempts: 5, lockout_minutes: 30 };
+    } catch (e) {
+      console.error('Error fetching security settings:', e);
+      return { require_pin_for_settings: 1, pin_notification_emails: '', max_failed_attempts: 5, lockout_minutes: 30 };
+    }
+  },
+
+  saveSecuritySettings: async (settings) => {
+    try {
+      const res = await fetch(`${API_URL}/security/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar configuración de seguridad');
+      return data;
+    } catch (e) {
+      console.error('Error saving security settings:', e);
+      throw e;
+    }
+  },
+
+  requestSecurityPin: async () => {
+    try {
+      const res = await fetch(`${API_URL}/security/request-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al solicitar PIN');
+      return data;
+    } catch (e) {
+      console.error('Error requesting security PIN:', e);
+      throw e;
+    }
+  },
+
+  verifySecurityPin: async (pin) => {
+    try {
+      const res = await fetch(`${API_URL}/security/verify-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'PIN incorrecto o expirado');
+      return data;
+    } catch (e) {
+      console.error('Error verifying security PIN:', e);
+      throw e;
+    }
   }
 };
 

@@ -47,6 +47,7 @@ import DgiiSequencesModule from './components/admin/DgiiSequencesModule';
 import CreditNotesModule from './components/admin/CreditNotesModule';
 import Reporte607Module from './components/admin/Reporte607Module';
 import PayrollModule from './components/payroll/PayrollModule';
+import SecurityModule from './components/admin/SecurityModule';
 import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
 import ReceptionDashboard from './components/reception/ReceptionDashboard';
 
@@ -141,10 +142,12 @@ const AppContent = () => {
   const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
   const [isMotivationalModalOpen, setIsMotivationalModalOpen] = useState(false);
   const [isAccountingOpen, setIsAccountingOpen] = useState(false);
+  const [isBiOpen, setIsBiOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
   const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607');
+  const isBiActive = location.pathname.startsWith('/analitica');
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
@@ -222,14 +225,19 @@ const AppContent = () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
       activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
     };
-  }, [isDashboard]);
-
-  // Expandir automáticamente el submenú de Contabilidad si estamos en una ruta contable
+  }, [isDashboard]);  // Expandir automáticamente el submenú de Contabilidad si estamos en una ruta contable
   useEffect(() => {
     if (isAccountingActive) {
       setIsAccountingOpen(true);
     }
   }, [isAccountingActive]);
+
+  // Expandir automáticamente el submenú de Inteligencia de Negocios si estamos en una ruta de analítica
+  useEffect(() => {
+    if (isBiActive) {
+      setIsBiOpen(true);
+    }
+  }, [isBiActive]);
 
   if (!user) {
     if (location.pathname === '/asistencia') {
@@ -248,7 +256,7 @@ const AppContent = () => {
     }
 
     const isMarketingRoute = [
-      '/plan-de-belleza', '/como-funciona', '/beneficios', 
+      '/', '/plan-de-belleza', '/como-funciona', '/beneficios', 
       '/salones', '/preguntas-frecuentes', '/contacto', 
       '/terminos-y-condiciones', '/politica-de-privacidad', 
       '/cancelacion-y-reembolsos'
@@ -399,7 +407,7 @@ const AppContent = () => {
               <p className="nav-group-title">{t('menu.admin')}</p>
               
               {(isAdmin || user?.permissions?.manage_staff) && (
-                <SidebarLink to="/equipo" icon={Users} label="Equipo" active={location.pathname === '/equipo'} onClick={closeMobileMenu} />
+                <SidebarLink to="/equipo" icon={Users} label="RRHH (Colaboradores)" active={location.pathname === '/equipo'} onClick={closeMobileMenu} />
               )}
 
               {(isAdmin || user?.permissions?.manage_staff) && (
@@ -426,8 +434,93 @@ const AppContent = () => {
                 <SidebarLink to="/marketing" icon={Mail} label={t('menu.marketing')} active={location.pathname === '/marketing'} onClick={closeMobileMenu} />
               )}
               
+              {/* Menú Desplegable Inteligencia de Negocios (BI) */}
               {(isAdmin || user?.permissions?.view_analytics) && (
-                <SidebarLink to="/analitica" icon={TrendingUp} label={t('menu.analytics')} active={location.pathname === '/analitica'} onClick={closeMobileMenu} />
+                <div style={{ margin: '0.2rem 0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsBiOpen(!isBiOpen)}
+                    className={`nav-link ${isBiActive ? 'active' : ''}`}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: 'transparent',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <TrendingUp size={18} strokeWidth={isBiActive ? 2.5 : 2} />
+                      <span>Inteligencia de Negocios</span>
+                    </div>
+                    {isBiOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                  </button>
+
+                  {/* Submenú de Inteligencia de Negocios */}
+                  {isBiOpen && (
+                    <div style={{ 
+                      marginLeft: '1.25rem', 
+                      paddingLeft: '0.65rem', 
+                      borderLeft: '2px solid rgba(255,255,255,0.15)',
+                      marginTop: '0.35rem',
+                      marginBottom: '0.35rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem'
+                    }}>
+                      <SidebarLink 
+                        to="/analitica?tab=sales" 
+                        icon={TrendingUp} 
+                        label="Ventas Diarias" 
+                        active={location.pathname === '/analitica' && (!location.search || location.search.includes('tab=sales'))} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=invoices" 
+                        icon={Receipt} 
+                        label="Facturas & Ventas" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=invoices')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=client_payments" 
+                        icon={CreditCard} 
+                        label="Cobros por Cliente" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=client_payments')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=cash" 
+                        icon={Wallet} 
+                        label="Pagos en Efectivo" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=cash')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=commissions" 
+                        icon={Percent} 
+                        label="Comisiones Colaboradores" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=commissions')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=clients" 
+                        icon={Users} 
+                        label="Estado de Clientes" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=clients')} 
+                        onClick={closeMobileMenu} 
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Módulo de Seguridad */}
+              {(isAdmin || user?.permissions?.manage_security) && (
+                <SidebarLink to="/seguridad" icon={Shield} label="Seguridad" active={location.pathname === '/seguridad'} onClick={closeMobileMenu} />
               )}
               
               {isAdmin && (
@@ -543,6 +636,7 @@ const AppContent = () => {
                 <Route path="/activar" element={<ActivateAccount />} />
                 <Route path="/equipo" element={isAdmin ? <StaffModule /> : <Navigate to="/" />} />
                 <Route path="/nomina" element={isAdmin ? <PayrollModule /> : <Navigate to="/" />} />
+                <Route path="/seguridad" element={isAdmin ? <SecurityModule /> : <Navigate to="/" />} />
                 <Route path="/sucursales" element={isAdmin ? <SalonsModule /> : <Navigate to="/" />} />
                 <Route path="/planes" element={isAdmin ? <PlansModule /> : <Navigate to="/" />} />
                 <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />

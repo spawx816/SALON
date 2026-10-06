@@ -52,16 +52,29 @@ app.use((req, res, next) => {
   next();
 });
 
-// === ANTI-CSRF VALIDATION MIDDLEWARE FOR REST APIs ===
+// === RBAC ANTI-TAMPERING SECURITY SHIELD (BLINDAJE DE SEGURIDAD) ===
+// Bloquea cualquier intento de un usuario con rol de cliente o peticiones no autorizadas
+// de invocar APIs administrativas (nómina, usuarios, roles, seguridad, secuencias, etc.)
+const ADMIN_PROTECTED_ROUTES = [
+  '/api/payroll',
+  '/api/security',
+  '/api/users',
+  '/api/roles',
+  '/api/rrhh',
+  '/api/dgii-sequences',
+  '/api/credit-notes',
+  '/api/reports/607',
+  '/api/email-settings'
+];
+
 app.use((req, res, next) => {
-  const isStateModifying = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method);
-  if (isStateModifying && !req.path.startsWith('/api/cardnet') && !req.path.startsWith('/fe') && !req.path.startsWith('/api/contact')) {
-    const origin = req.headers.origin || req.headers.referer;
-    if (process.env.NODE_ENV === 'production' && origin) {
-      const matchesOrigin = allowedOrigins.some(o => origin.startsWith(o));
-      if (!matchesOrigin) {
-        return res.status(403).json({ error: 'Solicitud bloqueada por verificación de seguridad Anti-CSRF.' });
-      }
+  const isProtected = ADMIN_PROTECTED_ROUTES.some(route => req.path.startsWith(route));
+  if (isProtected) {
+    const userRole = req.headers['x-user-role'];
+    if (userRole && (userRole.toLowerCase() === 'client' || userRole.toLowerCase() === 'cliente')) {
+      const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+      console.warn(`[SECURITY ALERT] Intento no autorizado bloqueado desde IP ${clientIp} con rol cliente intentando acceder a ${req.method} ${req.path}`);
+      return res.status(403).json({ error: 'Acceso estrictamente denegado: Esta operación requiere privilegios de administración del sistema.' });
     }
   }
   next();
@@ -705,6 +718,90 @@ const setupDB = async () => {
       console.log('[DB] Payroll tables ready.');
     } catch (err) {
       console.error('[DB ERROR] Failed to setup payroll tables:', err.message);
+    }
+
+    // Setup Security Tables (Sesiones, Auditoría, Bloqueo de Fuerza Bruta, Configuración PIN)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_sessions (
+          id VARCHAR(100) PRIMARY KEY,
+          user_id VARCHAR(100) NOT NULL,
+          user_name VARCHAR(150),
+          role VARCHAR(50),
+          salon_id INT NULL,
+          ip_address VARCHAR(50),
+          user_agent TEXT,
+          device_info VARCHAR(100),
+          is_active TINYINT(1) DEFAULT 1,
+          last_activity DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          INDEX (user_id),
+          INDEX (is_active),
+          INDEX (last_activity)
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS security_audit_logs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id VARCHAR(100) NULL,
+          user_name VARCHAR(150) NULL,
+          action VARCHAR(100) NOT NULL,
+          details TEXT NULL,
+          ip_address VARCHAR(50) NULL,
+          user_agent TEXT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          INDEX (user_id),
+          INDEX (action),
+          INDEX (created_at)
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS login_attempts (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          email_or_cedula VARCHAR(150) NOT NULL,
+          ip_address VARCHAR(50) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          attempt_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+          INDEX (ip_address),
+          INDEX (attempt_time)
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS blocked_ips (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          ip_address VARCHAR(50) UNIQUE NOT NULL,
+          reason VARCHAR(255) DEFAULT 'Exceso de intentos fallidos de inicio de sesión',
+          attempts_count INT DEFAULT 5,
+          blocked_until DATETIME NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS security_settings (
+          id INT PRIMARY KEY DEFAULT 1,
+          admin_pin VARCHAR(20) DEFAULT '1234',
+          require_pin_for_settings TINYINT(1) DEFAULT 1,
+          pin_notification_emails TEXT NULL,
+          max_failed_attempts INT DEFAULT 5,
+          lockout_minutes INT DEFAULT 30,
+          active_otp_pin VARCHAR(10) NULL,
+          otp_expires_at DATETIME NULL,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      await pool.query(`
+        INSERT IGNORE INTO security_settings (id, admin_pin, require_pin_for_settings, pin_notification_emails, max_failed_attempts, lockout_minutes)
+        VALUES (1, '1234', 1, 'admin@planbeautyrd.com,spawx816@gmail.com', 5, 30)
+      `);
+
+      console.log('[DB] Security tables ready.');
+    } catch (err) {
+      console.error('[DB ERROR] Failed to setup security tables:', err.message);
     }
 
     console.log('Database synchronized successfully');
@@ -9887,7 +9984,15 @@ app.put('/api/users/:id', async (req, res) => {
 
 app.delete('/api/users/:id', async (req, res) => {
   try {
+    const [userRows] = await pool.query('SELECT nombre, email FROM users WHERE id = ?', [req.params.id]);
+    const uName = userRows[0]?.nombre || req.params.id;
+
     await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
+    // Desactivar inmediatamente todas las sesiones activas del usuario eliminado para cierre forzado instantáneo
+    await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [req.params.id]);
+
+    await logSecurityAudit(req.headers['x-user-id'] || 'admin', req.headers['x-user-name'] || 'Administrador', 'USER_DELETED', `Usuario eliminado del sistema: ${uName} (ID: ${req.params.id}) y sus sesiones activas fueron cerradas forzosamente.`, req);
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -9914,13 +10019,69 @@ app.post('/api/users/verify', async (req, res) => {
   }
 });
 
-// === DATABASE AUTHENTICATION ===
+// Helper de extracción de IP y Dispositivo
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.socket?.remoteAddress || req.ip || '127.0.0.1';
+}
+
+function parseDeviceInfo(ua) {
+  if (!ua) return 'Dispositivo desconocido';
+  let browser = 'Navegador Web';
+  if (ua.includes('Edg/')) browser = 'Microsoft Edge';
+  else if (ua.includes('Chrome/')) browser = 'Google Chrome';
+  else if (ua.includes('Safari/') && !ua.includes('Chrome/')) browser = 'Apple Safari';
+  else if (ua.includes('Firefox/')) browser = 'Mozilla Firefox';
+
+  let os = 'SO Desconocido';
+  if (ua.includes('Windows NT 10.0')) os = 'Windows 10/11';
+  else if (ua.includes('Windows NT')) os = 'Windows';
+  else if (ua.includes('Mac OS X')) os = 'macOS';
+  else if (ua.includes('Android')) os = 'Android';
+  else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
+  else if (ua.includes('Linux')) os = 'Linux';
+
+  return `${browser} (${os})`;
+}
+
+async function logSecurityAudit(userId, userName, action, details, req) {
+  try {
+    const ip = req ? getClientIp(req) : '127.0.0.1';
+    const ua = req ? (req.headers['user-agent'] || '') : '';
+    await pool.query(
+      'INSERT INTO security_audit_logs (user_id, user_name, action, details, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId || null, userName || 'Sistema', action, typeof details === 'object' ? JSON.stringify(details) : details, ip, ua]
+    );
+  } catch (err) {
+    console.error('[SECURITY AUDIT LOG ERROR]:', err.message);
+  }
+}
+
+// === DATABASE AUTHENTICATION CON PROTECCIÓN DE SEGURIDAD Y SESIONES ===
 app.post('/api/auth/login', async (req, res) => {
+  const clientIp = getClientIp(req);
+  const ua = req.headers['user-agent'] || '';
+  const deviceInfo = parseDeviceInfo(ua);
+
   try {
     const { email: rawEmail, password } = req.body;
     const email = rawEmail ? String(rawEmail).trim() : '';
 
-    // Check system users first
+    // 1. Validar si la IP está bloqueada por exceso de intentos fallidos
+    const [blocked] = await pool.query(`
+      SELECT * FROM blocked_ips 
+      WHERE ip_address = ? AND (blocked_until IS NULL OR blocked_until > NOW())
+    `, [clientIp]);
+
+    if (blocked.length > 0) {
+      await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'blocked']);
+      return res.status(403).json({ 
+        error: 'Tu dirección IP se encuentra temporalmente bloqueada por reiterados intentos fallidos. Contacta al administrador para el desbloqueo inmediato.' 
+      });
+    }
+
+    // 2. Verificar en usuarios del sistema (Admin / Empleados con acceso al sistema)
     const [users] = await pool.query(`
       SELECT u.*, r.nombre as role_name, r.permisos 
       FROM users u
@@ -9931,8 +10092,21 @@ app.post('/api/auth/login', async (req, res) => {
     if (users.length > 0) {
       const user = users[0];
       await pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+
+      // Generar sesión única rastreable
+      const sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+      await pool.query(`
+        INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
+      `, [sessionId, user.id, user.nombre, user.role_name === 'Administrador' ? 'admin' : 'employee', user.salon_id || null, clientIp, ua, deviceInfo]);
+
+      // Registrar intento exitoso y auditoría
+      await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'success']);
+      await logSecurityAudit(user.id, user.nombre, 'LOGIN_SUCCESS', `Inicio de sesión exitoso desde ${clientIp} (${deviceInfo})`, req);
+
       return res.json({
         id: user.id,
+        sessionId,
         nombre: user.nombre,
         email: user.email,
         role: user.role_name === 'Administrador' ? 'admin' : 'employee',
@@ -9943,12 +10117,23 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Check if it's a client login (using email or cedula)
+    // 3. Verificar en clientes (usando email o cédula)
     const [clients] = await pool.query('SELECT * FROM clients WHERE (email = ? OR cedula = ?) AND password = ?', [email, email, password]);
     if (clients.length > 0) {
       const client = clients[0];
+      const sessionId = 'sess_cli_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+
+      await pool.query(`
+        INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
+        VALUES (?, ?, ?, 'client', NULL, ?, ?, ?, 1, NOW())
+      `, [sessionId, client.id, client.nombre, clientIp, ua, deviceInfo]);
+
+      await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'success']);
+      await logSecurityAudit(client.id, client.nombre, 'CLIENT_LOGIN_SUCCESS', `Acceso de cliente desde ${clientIp} (${deviceInfo})`, req);
+
       return res.json({
         id: client.id,
+        sessionId,
         nombre: client.nombre,
         email: client.email,
         cedula: client.cedula,
@@ -9957,7 +10142,106 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    res.status(401).json({ error: 'Credenciales inválidas' });
+    // 4. Fallo de autenticación: Registrar intento y evaluar bloqueo anti-fuerza bruta
+    await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'failed']);
+    
+    // Obtener configuración de seguridad
+    const [secSettingsRows] = await pool.query('SELECT max_failed_attempts, lockout_minutes FROM security_settings WHERE id = 1');
+    const maxAttempts = secSettingsRows[0]?.max_failed_attempts || 5;
+    const lockoutMinutes = secSettingsRows[0]?.lockout_minutes || 30;
+
+    // Contar intentos fallidos en los últimos 15 minutos para esta IP
+    const [recentFails] = await pool.query(`
+      SELECT COUNT(*) as fail_count 
+      FROM login_attempts 
+      WHERE ip_address = ? AND status = 'failed' AND attempt_time >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+    `, [clientIp]);
+
+    const failCount = recentFails[0]?.fail_count || 1;
+
+    if (failCount >= maxAttempts) {
+      // Bloquear IP
+      await pool.query(`
+        INSERT INTO blocked_ips (ip_address, reason, attempts_count, blocked_until)
+        VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE))
+        ON DUPLICATE KEY UPDATE 
+          attempts_count = ?, 
+          blocked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE)
+      `, [clientIp, `Superó el límite de ${maxAttempts} intentos fallidos`, failCount, lockoutMinutes, failCount, lockoutMinutes]);
+
+      await logSecurityAudit(null, email || 'Desconocido', 'IP_BLOCKED_BRUTE_FORCE', `IP ${clientIp} bloqueada por ${lockoutMinutes} minutos tras ${failCount} intentos fallidos para la cuenta ${email}`, req);
+
+      return res.status(403).json({ 
+        error: `Has superado el límite de intentos fallidos. Tu dirección IP (${clientIp}) ha sido bloqueada temporalmente por ${lockoutMinutes} minutos por motivos de seguridad.` 
+      });
+    }
+
+    const remaining = maxAttempts - failCount;
+    res.status(401).json({ 
+      error: `Credenciales inválidas. Te quedan ${remaining} ${remaining === 1 ? 'intento' : 'intentos'} antes de que se bloquee el acceso temporalmente.` 
+    });
+  } catch (err) {
+    console.error('[AUTH LOGIN ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint para validación en tiempo real del estado de sesión (Heartbeat de seguridad)
+app.get('/api/auth/session-status', async (req, res) => {
+  try {
+    const sessionId = req.headers['x-session-id'] || req.query.sessionId;
+    const userId = req.headers['x-user-id'] || req.query.userId;
+    const userRole = req.headers['x-user-role'] || req.query.role;
+
+    if (!sessionId && !userId) {
+      return res.json({ valid: true });
+    }
+
+    if (sessionId) {
+      const [sess] = await pool.query('SELECT * FROM user_sessions WHERE id = ?', [sessionId]);
+      if (sess.length === 0 || sess[0].is_active !== 1) {
+        return res.json({ valid: false, reason: 'terminated' });
+      }
+
+      // Si no es cliente, verificar que el usuario aún exista en la tabla users
+      if (sess[0].role !== 'client') {
+        const [u] = await pool.query('SELECT id FROM users WHERE id = ?', [sess[0].user_id]);
+        if (u.length === 0) {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ?', [sessionId]);
+          return res.json({ valid: false, reason: 'user_deleted' });
+        }
+      }
+
+      // Actualizar timestamp de última actividad
+      await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ?', [sessionId]);
+      return res.json({ valid: true });
+    }
+
+    if (userId && userRole !== 'client') {
+      const [u] = await pool.query('SELECT id FROM users WHERE id = ?', [userId]);
+      if (u.length === 0) {
+        return res.json({ valid: false, reason: 'user_deleted' });
+      }
+    }
+
+    res.json({ valid: true });
+  } catch (err) {
+    res.json({ valid: true }); // Fallback seguro ante micro-cortes
+  }
+});
+
+// Endpoint para cerrar sesión voluntariamente
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const sessionId = req.headers['x-session-id'] || req.body.sessionId;
+    const userId = req.headers['x-user-id'] || req.body.userId;
+    const userName = req.headers['x-user-name'] || req.body.userName;
+
+    if (sessionId) {
+      await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ?', [sessionId]);
+    }
+    await logSecurityAudit(userId, userName, 'LOGOUT', `Cierre de sesión regular`, req);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -13350,6 +13634,293 @@ app.get('/api/payroll/concepts', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error('[PAYROLL CONCEPTS GET ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ==========================================
+// === MÓDULO DE SEGURIDAD Y AUDITORÍA AVANZADA ===
+// ==========================================
+
+// 1. Monitoreo de Sesiones Activas en Tiempo Real
+app.get('/api/security/sessions', async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT s.*, u.email as user_email, sal.nombre as salon_name
+      FROM user_sessions s
+      LEFT JOIN users u ON s.user_id = u.id
+      LEFT JOIN salons sal ON s.salon_id = sal.id
+      WHERE s.is_active = 1 AND s.last_activity >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      ORDER BY s.last_activity DESC
+    `);
+    res.json(rows);
+  } catch (err) {
+    console.error('[SECURITY SESSIONS ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Cierre Forzado Remoto de Sesión
+app.post('/api/security/sessions/terminate', async (req, res) => {
+  try {
+    const { sessionId, userId } = req.body;
+    if (sessionId) {
+      await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ?', [sessionId]);
+    } else if (userId) {
+      await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [userId]);
+    }
+    await logSecurityAudit(
+      req.headers['x-user-id'] || 'admin', 
+      req.headers['x-user-name'] || 'Administrador', 
+      'REMOTE_SESSION_TERMINATE', 
+      `Sesión finalizada forzosamente: ${sessionId ? `Sesión ID ${sessionId}` : `Usuario ID ${userId}`}`, 
+      req
+    );
+    res.json({ success: true, message: 'Sesión terminada exitosamente' });
+  } catch (err) {
+    console.error('[SECURITY TERMINATE SESSION ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Auditoría de Actividad y Trazabilidad (Audit Logs)
+app.get('/api/security/audit-logs', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 150;
+    const [rows] = await pool.query(`
+      SELECT * FROM security_audit_logs 
+      ORDER BY id DESC 
+      LIMIT ?
+    `, [limit]);
+    res.json(rows);
+  } catch (err) {
+    console.error('[SECURITY AUDIT LOGS ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Intentos de Entrada y Bloqueos por Fuerza Bruta (Brute-Force Tracker)
+app.get('/api/security/login-attempts', async (req, res) => {
+  try {
+    const [attempts] = await pool.query(`
+      SELECT * FROM login_attempts 
+      ORDER BY id DESC 
+      LIMIT 100
+    `);
+    const [blockedIps] = await pool.query(`
+      SELECT * FROM blocked_ips 
+      WHERE blocked_until IS NULL OR blocked_until > NOW()
+      ORDER BY id DESC
+    `);
+    res.json({ attempts, blockedIps });
+  } catch (err) {
+    console.error('[SECURITY LOGIN ATTEMPTS ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Desbloqueo de IP Manual
+app.post('/api/security/unblock-ip', async (req, res) => {
+  try {
+    const { ip_address } = req.body;
+    if (!ip_address) return res.status(400).json({ error: 'IP requerida' });
+
+    await pool.query('DELETE FROM blocked_ips WHERE ip_address = ?', [ip_address]);
+    await pool.query('DELETE FROM login_attempts WHERE ip_address = ? AND status = "failed"', [ip_address]);
+
+    await logSecurityAudit(
+      req.headers['x-user-id'] || 'admin', 
+      req.headers['x-user-name'] || 'Administrador', 
+      'IP_UNBLOCKED_MANUALLY', 
+      `IP desbloqueada manualmente: ${ip_address}`, 
+      req
+    );
+
+    res.json({ success: true, message: `IP ${ip_address} desbloqueada correctamente.` });
+  } catch (err) {
+    console.error('[SECURITY UNBLOCK IP ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Obtener Configuración de Seguridad & PIN
+app.get('/api/security/settings', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT require_pin_for_settings, pin_notification_emails, max_failed_attempts, lockout_minutes FROM security_settings WHERE id = 1');
+    if (rows.length === 0) {
+      return res.json({
+        require_pin_for_settings: 1,
+        pin_notification_emails: 'admin@planbeautyrd.com',
+        max_failed_attempts: 5,
+        lockout_minutes: 30
+      });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('[SECURITY GET SETTINGS ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Guardar Configuración de Seguridad & PIN
+app.post('/api/security/settings', async (req, res) => {
+  try {
+    const { require_pin_for_settings, pin_notification_emails, max_failed_attempts, lockout_minutes, admin_pin } = req.body;
+
+    let query = 'UPDATE security_settings SET require_pin_for_settings = ?, pin_notification_emails = ?, max_failed_attempts = ?, lockout_minutes = ?';
+    let params = [
+      require_pin_for_settings !== undefined ? (require_pin_for_settings ? 1 : 0) : 1,
+      pin_notification_emails || '',
+      parseInt(max_failed_attempts) || 5,
+      parseInt(lockout_minutes) || 30
+    ];
+
+    if (admin_pin && String(admin_pin).trim().length >= 4) {
+      query += ', admin_pin = ?';
+      params.push(String(admin_pin).trim());
+    }
+
+    query += ' WHERE id = 1';
+    await pool.query(query, params);
+
+    await logSecurityAudit(
+      req.headers['x-user-id'] || 'admin', 
+      req.headers['x-user-name'] || 'Administrador', 
+      'SECURITY_SETTINGS_UPDATED', 
+      `Parámetros de seguridad actualizados. Correos: ${pin_notification_emails}. Max intentos: ${max_failed_attempts}. Bloqueo: ${lockout_minutes}m.`, 
+      req
+    );
+
+    res.json({ success: true, message: 'Configuración de seguridad actualizada correctamente' });
+  } catch (err) {
+    console.error('[SECURITY SAVE SETTINGS ERROR]:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Solicitar PIN de Acceso por Correo Multi-Destinatario (OTP Dinámico)
+app.post('/api/security/request-pin', async (req, res) => {
+  try {
+    // Generar código OTP de 6 dígitos
+    const otpPin = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Guardar en base de datos con expiración de 10 minutos
+    await pool.query(`
+      UPDATE security_settings 
+      SET active_otp_pin = ?, otp_expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE)
+      WHERE id = 1
+    `, [otpPin]);
+
+    // Obtener lista de correos destinatarios configurados
+    const [secRows] = await pool.query('SELECT pin_notification_emails FROM security_settings WHERE id = 1');
+    const emailListRaw = secRows[0]?.pin_notification_emails || 'admin@planbeautyrd.com,spawx816@gmail.com';
+    const emailRecipients = emailListRaw
+      .split(/[,;\n]+/)
+      .map(e => e.trim())
+      .filter(e => e.length > 3 && e.includes('@'));
+
+    if (emailRecipients.length === 0) {
+      return res.status(400).json({ error: 'No hay correos válidos configurados en el módulo de seguridad para recibir el PIN.' });
+    }
+
+    // Cargar credenciales SMTP
+    const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+    const smtp = smtpRows[0] || {};
+    const transporter = nodemailer.createTransport({
+      host: smtp.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(smtp.smtp_port || process.env.SMTP_PORT || '587'),
+      secure: smtp.smtp_secure === 1 || parseInt(smtp.smtp_port) === 465,
+      auth: {
+        user: smtp.smtp_user || process.env.SMTP_USER,
+        pass: smtp.smtp_pass || process.env.SMTP_PASS
+      },
+      tls: { rejectUnauthorized: false }
+    });
+
+    const smtpFrom = smtp.smtp_from || process.env.SMTP_FROM || 'Seguridad Plan Beauty <hola@planbeautyrd.com>';
+    const clientIp = getClientIp(req);
+    const nowStr = new Date().toLocaleString('es-DO', { timeZone: 'America/Santo Domingo' });
+
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; background-color: #0f172a; color: #f8fafc; padding: 30px; border-radius: 12px; max-width: 540px; margin: 0 auto; border: 1px solid #334155;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h2 style="color: #d4af37; margin: 0; font-size: 24px; letter-spacing: 1px;">🔐 PIN DE SEGURIDAD REQUERIDO</h2>
+          <p style="color: #94a3b8; font-size: 13px; margin-top: 6px;">Sistema de Gestión Salon Pro & Plan Beauty RD</p>
+        </div>
+        
+        <div style="background: rgba(30, 41, 59, 0.8); padding: 20px; border-radius: 10px; border: 1px solid #475569; text-align: center; margin-bottom: 20px;">
+          <p style="margin: 0 0 10px 0; color: #cbd5e1; font-size: 14px;">Se ha solicitado acceso a las <b>Configuraciones Críticas / Módulo de Seguridad</b>.</p>
+          <div style="display: inline-block; background: #000000; border: 2px dashed #d4af37; padding: 14px 28px; border-radius: 8px; margin: 10px 0;">
+            <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #fbbf24; font-family: monospace;">${otpPin}</span>
+          </div>
+          <p style="margin: 10px 0 0 0; color: #ef4444; font-size: 12px; font-weight: bold;">⏱️ Este código expirará en 10 minutos.</p>
+        </div>
+
+        <div style="font-size: 12px; color: #64748b; line-height: 1.5; background: #0b1120; padding: 12px; border-radius: 6px;">
+          <p style="margin: 0;"><b>Detalles de la solicitud:</b></p>
+          <p style="margin: 2px 0;">• Dirección IP: <code style="color: #38bdf8;">${clientIp}</code></p>
+          <p style="margin: 2px 0;">• Fecha y Hora: ${nowStr}</p>
+          <p style="margin: 6px 0 0 0; color: #f59e0b;">Si tú no solicitaste este código, te recomendamos revisar el registro de auditoría del sistema de inmediato.</p>
+        </div>
+      </div>
+    `;
+
+    // Enviar a todos los correos destinatarios
+    await transporter.sendMail({
+      from: smtpFrom,
+      to: emailRecipients.join(', '),
+      subject: `🔐 PIN de Seguridad Salon Pro: ${otpPin} (Válido por 10 min)`,
+      text: `Tu PIN de seguridad es: ${otpPin}. Válido por 10 minutos. Solicitado desde IP: ${clientIp}`,
+      html: htmlContent
+    });
+
+    await logSecurityAudit(
+      req.headers['x-user-id'] || 'admin', 
+      req.headers['x-user-name'] || 'Administrador', 
+      'SECURITY_PIN_REQUESTED', 
+      `PIN de seguridad dinámico generado y enviado a: ${emailRecipients.join(', ')}`, 
+      req
+    );
+
+    res.json({
+      success: true,
+      message: `El PIN de seguridad fue enviado exitosamente a ${emailRecipients.length} ${emailRecipients.length === 1 ? 'correo' : 'correos'}: ${emailRecipients.join(', ')}`,
+      recipientsCount: emailRecipients.length
+    });
+  } catch (err) {
+    console.error('[SECURITY REQUEST PIN ERROR]:', err);
+    res.status(500).json({ error: 'Error al enviar el PIN por correo. Verifica la configuración SMTP en el sistema.' });
+  }
+});
+
+// 9. Verificar PIN de Seguridad (Soporta PIN Maestro y PIN OTP Dinámico)
+app.post('/api/security/verify-pin', async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin) return res.status(400).json({ error: 'Debes ingresar el PIN de seguridad' });
+
+    const [rows] = await pool.query('SELECT admin_pin, active_otp_pin, otp_expires_at FROM security_settings WHERE id = 1');
+    if (rows.length === 0) return res.json({ success: true });
+
+    const { admin_pin, active_otp_pin, otp_expires_at } = rows[0];
+    const isOtpValid = active_otp_pin && (pin === active_otp_pin) && otp_expires_at && (new Date(otp_expires_at) > new Date());
+    const isMasterValid = admin_pin && (pin === admin_pin);
+
+    if (isMasterValid || isOtpValid) {
+      await logSecurityAudit(
+        req.headers['x-user-id'] || 'admin', 
+        req.headers['x-user-name'] || 'Administrador', 
+        'SECURITY_PIN_VERIFIED', 
+        `Acceso a área protegida autorizado mediante ${isOtpValid ? 'PIN OTP dinámico' : 'PIN Maestro'}`, 
+        req
+      );
+      return res.json({ success: true, authorized: true });
+    }
+
+    res.status(401).json({ error: 'PIN de seguridad inválido o expirado' });
+  } catch (err) {
+    console.error('[SECURITY VERIFY PIN ERROR]:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

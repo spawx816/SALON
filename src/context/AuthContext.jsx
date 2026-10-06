@@ -1,18 +1,60 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { dataService } from '../utils/dataService';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sessionTerminatedReason, setSessionTerminatedReason] = useState(null);
+  const userRef = useRef(user);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('salon_pro_user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      try {
+        const parsed = JSON.parse(savedUser);
+        setUser(parsed);
+      } catch (e) {
+        localStorage.removeItem('salon_pro_user');
+      }
     }
     setLoading(false);
   }, []);
+
+  // Heartbeat de seguridad: valida periódicamente (cada 15s) si la sesión fue terminada o el usuario eliminado
+  useEffect(() => {
+    if (!user) return;
+
+    const checkInterval = setInterval(async () => {
+      const currentUser = userRef.current;
+      if (!currentUser) return;
+
+      try {
+        const check = await dataService.checkSessionStatus(currentUser.sessionId, currentUser.id, currentUser.role);
+        if (check && check.valid === false) {
+          console.warn('[SECURITY] Sesión invalidada por el servidor:', check.reason);
+          const reasonMsg = check.reason === 'user_deleted' 
+            ? 'Tu cuenta de usuario ha sido eliminada o desactivada por un administrador.' 
+            : 'Tu sesión ha sido cerrada remotamente por seguridad.';
+          
+          setSessionTerminatedReason(reasonMsg);
+          setUser(null);
+          localStorage.removeItem('salon_pro_user');
+          alert(`⚠️ Sesión finalizada: ${reasonMsg}`);
+          window.location.href = '/login';
+        }
+      } catch (err) {
+        // En caso de corte de conexión temporal se mantiene sesión
+      }
+    }, 15000);
+
+    return () => clearInterval(checkInterval);
+  }, [user?.sessionId, user?.id]);
 
   const login = async (email, password) => {
     try {
@@ -24,7 +66,7 @@ export const AuthProvider = ({ children }) => {
       
       const data = await response.json();
       if (!response.ok) {
-        const error = new Error(data.error || 'Login failed');
+        const error = new Error(data.error || 'Error al iniciar sesión');
         error.status = data.status;
         error.id = data.id;
         throw error;
@@ -32,6 +74,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(data);
       localStorage.setItem('salon_pro_user', JSON.stringify(data));
+      setSessionTerminatedReason(null);
       return true;
     } catch (err) {
       console.error('Login error:', err.message);
@@ -40,15 +83,19 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    if (user) {
+      dataService.logoutSession(user.sessionId, user.id, user.nombre || user.name);
+    }
     setUser(null);
     localStorage.removeItem('salon_pro_user');
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, sessionTerminatedReason }}>
       {!loading && children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => useContext(AuthContext);
+

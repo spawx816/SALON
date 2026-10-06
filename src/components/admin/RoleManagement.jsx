@@ -23,7 +23,7 @@ const format12h = (timeStr) => {
 
 const RoleManagement = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('rrhh');
   const [roles, setRoles] = useState([]);
   const [users, setUsers] = useState([]);
   const [staff, setStaff] = useState([]);

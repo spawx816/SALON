@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   DollarSign, Users, UserX, Calendar, CreditCard, Filter, ChevronRight, 
   MapPin, Clock, ArrowDown, ArrowUp, BarChart2, List, Banknote, Receipt, Search
@@ -10,13 +11,22 @@ import InvoiceHistory from './InvoiceHistory';
 
 const ServiceAnalytics = () => {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [salons, setSalons] = useState([]);
   const [selectedSalon, setSelectedSalon] = useState('all');
   const [reports, setReports] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeReport, setActiveReport] = useState('sales');
+  const [activeReport, setActiveReport] = useState(searchParams.get('tab') || 'sales');
   const [clientPaymentSearch, setClientPaymentSearch] = useState('');
   
+  // Sync tab with query param
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && tab !== activeReport) {
+      setActiveReport(tab);
+    }
+  }, [searchParams]);
+
   // Date range state
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -608,8 +618,8 @@ const ServiceAnalytics = () => {
     <div className="analytics-container">
       <div className="page-header" style={{ marginBottom: '2rem' }}>
         <div>
-          <h2 className="page-title">Centro de Reportes y Analítica</h2>
-          <p className="page-subtitle">Información estratégica para la toma de decisiones basada en datos reales.</p>
+          <h2 className="page-title">Inteligencia de Negocios (BI) & Analítica</h2>
+          <p className="page-subtitle">Información estratégica y análisis de rendimiento para la toma de decisiones basada en datos reales.</p>
         </div>
         
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
