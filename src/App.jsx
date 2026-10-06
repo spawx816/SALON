@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
   Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
-  Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft
+  Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft, Shield
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
