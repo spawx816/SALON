@@ -46,6 +46,7 @@ import AttendanceLogs from './components/admin/AttendanceLogs';
 import DgiiSequencesModule from './components/admin/DgiiSequencesModule';
 import CreditNotesModule from './components/admin/CreditNotesModule';
 import Reporte607Module from './components/admin/Reporte607Module';
+import PayrollModule from './components/payroll/PayrollModule';
 import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
 import ReceptionDashboard from './components/reception/ReceptionDashboard';
 
@@ -400,6 +401,10 @@ const AppContent = () => {
               {(isAdmin || user?.permissions?.manage_staff) && (
                 <SidebarLink to="/equipo" icon={Users} label="Equipo" active={location.pathname === '/equipo'} onClick={closeMobileMenu} />
               )}
+
+              {(isAdmin || user?.permissions?.manage_staff) && (
+                <SidebarLink to="/nomina" icon={Wallet} label="Nómina" active={location.pathname === '/nomina'} onClick={closeMobileMenu} />
+              )}
               
               {(isAdmin || user?.permissions?.manage_attendance || user?.role_name?.toLowerCase()?.includes('recep')) && (
                 <SidebarLink to="/admin/asistencia" icon={Clock} label="Control Asistencia" active={location.pathname === '/admin/asistencia'} onClick={closeMobileMenu} />
@@ -537,6 +542,7 @@ const AppContent = () => {
                 <Route path="/mis-servicios" element={<ClientServices />} />
                 <Route path="/activar" element={<ActivateAccount />} />
                 <Route path="/equipo" element={isAdmin ? <StaffModule /> : <Navigate to="/" />} />
+                <Route path="/nomina" element={isAdmin ? <PayrollModule /> : <Navigate to="/" />} />
                 <Route path="/sucursales" element={isAdmin ? <SalonsModule /> : <Navigate to="/" />} />
                 <Route path="/planes" element={isAdmin ? <PlansModule /> : <Navigate to="/" />} />
                 <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />

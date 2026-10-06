@@ -1985,6 +1985,109 @@ export const dataService = {
         totals: {} 
       };
     }
+  },
+
+  // === NÓMINA Y REGALÍAS (PAYROLL) ===
+  getPayrollPeriods: async () => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/periods`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching payroll periods:', e);
+      return [];
+    }
+  },
+
+  getPayrollPeriod: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/periods/${id}`);
+      return res.ok ? await res.json() : null;
+    } catch (e) {
+      console.error('Error fetching payroll period detail:', e);
+      return null;
+    }
+  },
+
+  generatePayroll: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al generar nómina');
+      return data;
+    } catch (e) {
+      console.error('Error generating payroll:', e);
+      throw e;
+    }
+  },
+
+  savePayrollDraft: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/save-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar borrador');
+      return data;
+    } catch (e) {
+      console.error('Error saving payroll draft:', e);
+      throw e;
+    }
+  },
+
+  approvePayroll: async (payrollId) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payroll_id: payrollId })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al aprobar nómina');
+      return data;
+    } catch (e) {
+      console.error('Error approving payroll:', e);
+      throw e;
+    }
+  },
+
+  deletePayrollPeriod: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/periods/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al eliminar período');
+      return data;
+    } catch (e) {
+      console.error('Error deleting payroll period:', e);
+      throw e;
+    }
+  },
+
+  getPayrollRegalias: async (year) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/regalias/${year}`);
+      return res.ok ? await res.json() : { year, total_empleados: 0, gran_total_acumulado: 0, gran_total_regalias: 0, regalias: [] };
+    } catch (e) {
+      console.error('Error fetching payroll regalias:', e);
+      return { year, total_empleados: 0, gran_total_acumulado: 0, gran_total_regalias: 0, regalias: [] };
+    }
+  },
+
+  getPayrollConcepts: async () => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/concepts`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching payroll concepts:', e);
+      return [];
+    }
   }
 };
 
