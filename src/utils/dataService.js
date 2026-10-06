@@ -870,6 +870,47 @@ export const dataService = {
     }
   },
 
+  getContractSettings: async () => {
+    try {
+      const res = await fetch(`${API_URL}/settings/contract`);
+      return res.ok ? await res.json() : null;
+    } catch (e) {
+      console.error('Error fetching contract settings:', e);
+      return null;
+    }
+  },
+
+  saveContractSettings: async (settings) => {
+    try {
+      const res = await fetch(`${API_URL}/settings/contract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar configuración del contrato');
+      return data;
+    } catch (e) {
+      console.error('Error saving contract settings:', e);
+      throw e;
+    }
+  },
+
+  resetContractSettings: async () => {
+    try {
+      const res = await fetch(`${API_URL}/settings/contract/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al restablecer contrato');
+      return data;
+    } catch (e) {
+      console.error('Error resetting contract settings:', e);
+      throw e;
+    }
+  },
+
   // Marketing Settings & Actions
   getMarketingSettings: () => {
     const data = localStorage.getItem('salon_pro_marketing');

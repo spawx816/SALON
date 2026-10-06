@@ -10,6 +10,7 @@ import {
 import { useTranslation } from '../../context/LanguageContext';
 import { dataService } from '../../utils/dataService';
 import { loadCardNetScript } from '../../utils/cardnetScriptLoader';
+import { DEFAULT_CONTRACT_SETTINGS, interpolateContract, markdownToHtml } from '../../utils/contractHelper';
 import { useAuth } from '../../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -23,6 +24,7 @@ const ClientDashboard = () => {
   const [salon, setSalon] = useState(null);
   const [visits, setVisits] = useState([]);
   const [usageStats, setUsageStats] = useState([]);
+  const [contractSettings, setContractSettings] = useState(DEFAULT_CONTRACT_SETTINGS);
   const [availablePlans, setAvailablePlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fullClient, setFullClient] = useState(null);
@@ -84,15 +86,20 @@ const ClientDashboard = () => {
     setLoading(true);
     try {
       const id = user.id;
-      const [cContracts, pastVisits, allPlans, clients, clientPayments, clientGifts, cardInfoRes] = await Promise.all([
+      const [cContracts, pastVisits, allPlans, clients, clientPayments, clientGifts, cardInfoRes, contractSett] = await Promise.all([
         dataService.getContractByClient(id),
         dataService.getVisitsByClient(id),
         dataService.getPlans(),
         dataService.getClients(),
         dataService.getPaymentsByClient(id),
         dataService.getGiftsByClient(id),
-        dataService.getPaymentProfileByClient(id)
+        dataService.getPaymentProfileByClient(id),
+        dataService.getContractSettings()
       ]);
+
+      if (contractSett && contractSett.title) {
+        setContractSettings(prev => ({ ...prev, ...contractSett }));
+      }
 
       // Fetch real public IP for traceability
       try {
@@ -1392,89 +1399,41 @@ const ClientDashboard = () => {
                       
                       <div style={{ 
                         maxHeight: isMobile ? '300px' : '400px', overflowY: 'auto', background: '#f8fafc', padding: isMobile ? '1.5rem' : '2.5rem', borderRadius: '24px', fontSize: '0.85rem', 
-                        lineHeight: 1.8, color: '#334155', border: '1px solid #f1f5f9', marginBottom: '2rem', textAlign: 'justify', whiteSpace: 'pre-wrap'
+                        lineHeight: 1.8, color: '#334155', border: '1px solid #f1f5f9', marginBottom: '2rem', textAlign: 'justify'
                       }}>
                         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-                          <h4 style={{ margin: 0, color: '#000', fontWeight: 900 }}>CONTRATO DE SUSCRIPCIÓN DE SERVICIOS DE BELLEZA</h4>
+                          <h4 style={{ margin: 0, color: '#000', fontWeight: 900, textTransform: 'uppercase' }}>
+                            {contractSettings?.title || 'CONTRATO DE SUSCRIPCIÓN DE SERVICIOS DE BELLEZA'}
+                          </h4>
                         </div>
                         
-                        <p>Entre los subscritos, La empresa: <strong>ETEREAS S. R. L.</strong>, debidamente constituida de conformidad con las leyes de la Republica Dominicana, con Registro Nacional del Contribuyente No. 1-31-91703-8, con su domicilio social en la Av. San Vicente De Paul esquina Calle Puerto Rico, Alma Rosa I, Plaza El Poder, Local 1F, Santo Domingo Este, Municipio De La De Provincia Santo Domingo, quien en lo que sigue del presente contrato se denominara, <strong>LA COMPAÑIA</strong>, y de la otra parte la Sra. <strong>{fullClient?.nombre || '________________'}</strong>, Dominicana, mayor de edad, portadora de la cedula de identidad y electoral No. <strong>{fullClient?.cedula || '_______________'}</strong>, domiciliada y residente en la Calle <strong>{fullClient?.calle || '________________'} No. {fullClient?.numero || '___'}, Sector {fullClient?.sector || '________________'}</strong>, de <strong>{fullClient?.ciudad || fullClient?.localidad || '________________'}</strong> quien en lo que sigue del presente contrato se denominara <strong>EL CLIENTE</strong>.</p>
-
-                        <p><strong>1.0	-	Objeto del Contrato.</strong> Este Contrato contiene los términos y condiciones del Servicio de Belleza, consistente en Lavado y Secado de Pelo que será prestado por LA COMPAÑÍA AL CLIENTE.</p>
-
-                        <p><strong>1.1-	LA COMPANIA:</strong> ETEREAS S. R. L., la cual forma parte de la cadena: ABATTE PELUQUERIA, proveerá los servicios de lavado y secado de pelo a través de las localidades abierta al público como son:<br/>a)	Inicialmente en la Sucursal Av. San Vicente de Paul.</p>
-
-                        <p><strong>1.2-	Requisito para Contratar este Servicio:</strong> Es condición indispensable para poder adquirir y mantener el Servicio de Belleza bajo Suscripción, que El CLIENTE haya adquirido y suscrito contrato de lavado y secado de pelo, con LA COMPAÑIA.</p>
-
-                        <p><strong>1.3-	EL CLIENTE acepta y elije el plan: {selectedPlan?.title || contract?.plan_name || 'Plan Beauty'}</strong> como su Servicio de Belleza.</p>
-
-                        <p><strong>1.4-	El presente Contrato formará parte integral del plan de servicios que previamente haya elegido EL CLIENTE con LA COMPAÑÍA, según se describe a continuación:</strong></p>
-
-                        <p><strong>2-	Descripción del Servicio.</strong> LA COMPAÑIA conviene en proveer a EL CLIENTE el " Servicio de Belleza", que consiste en brindar el servicio de lavado y secado de pelo para todo el mes, mediante el cual el cliente podrá utilizar el servicio en una de nuestras localidades identificadas, abiertas al público y acorde con plan de su preferencia.</p>
-
-                        <p><strong>3-	Características del Servicio.</strong> El "Servicio de Belleza" consiste proveer personas capacitadas y productos de clase mundial para el lavado y secado de pelo del CLIENTE, pero, no provee uso de producto de línea especializadas. El uso de marcas especializadas por elección es responsabilidad exclusiva del CLIENTE.</p>
-
-                        <p><strong>3.1-	Disponibilidad del servicio.</strong> La disponibilidad del servicio de Lavado y Secado de pelo es de hasta un 99.9% al año, conforme a su disponibilidad operativa, pone a disposición de EL CLIENTE cuatro (04) servicios de lavados sencillos y secado cada Treinta (30) días calendario, con excepción de aquellas indisponibilidades producidas por fenómenos atmosféricos, accidentes, cualquier caso fortuito, o fuerza mayor.</p>
-
-                        <p><strong>3.2- El servicio.</strong> Es intransferible, ni acumulable, es decir; no se permite uso del servicio por parte de tercero, de igual forma, no se permite combinar múltiples servicios para compensarlo con cantidades de servicio no utilizado correspondiente a la presente suscripción.</p>
-
-                        <p><strong>3.3-	Los costos derivados del uso de materiales o servicios no incluido en el plan elegido o contratado quedarán a cargo y a costo de EL CLIENTE.</strong></p>
-
-                        <p><strong>3.4-	La falta de pago produce por defecto la suspensión del servicio y su reactivación se producirá solo si EL CLIENTE ha realizado el pago total de todas las cuotas vencidas incluyendo la que corresponde al mes por adelantado. Ante el incumplimiento de pago LA COMPAÑÍA se reserva el derecho de cancelar el presente contrato bajo la más amplia reserva de acciones para garantizar el cumplimiento del presente contrato.</strong></p>
-
-                        <p><strong>3.5-	El servicio deberá ser utilizado por EL CLIENTE bajo condiciones normales de uso conforme a la naturaleza del plan contratado; en consecuencia, LA COMPAÑÍA podrá establecer límites razonables en la frecuencia de utilización del servicio, incluyendo un máximo de un (1) servicio por día, así como suspender o restringir su acceso cuando el uso exceda dichas condiciones.</strong></p>
-
-                        <p><strong>Obligaciones del CLIENTE: EL CLIENTE deberá:</strong><br/>
-                        EL CLIENTE estará obligado al pago del servicio elegido en el presente contrato, condición indispensable para tener la disponibilidad del servicio en nuestros centros de atención al cliente.<br/>
-                        EL CLIENTE tendrá derecho, a hacer sin costo alguno en el plazo de un (1) mes, una cantidad máxima de {usageStats[0]?.quota || '4'} solicitudes de servicios en nuestros centros de atención al cliente según el plan contratado inicialmente. A partir de ahí, EL CLIENTE deberá pagar el valor adicional que LA COMPAÑIA haya informado al momento de la solicitud efectuada por EL CLIENTE.<br/>
-                        EL CLIENTE podrá solicitar en cualquier momento el cambio a un plan superior. Dicho cambio será efectivo de inmediato, debiendo EL CLIENTE pagar la diferencia correspondiente al nuevo plan seleccionado al momento de la solicitud</p>
-
-                        <p><strong>4-	Precio del Servicio:</strong> EL CLIENTE acuerda pagar a LA COMPAÑÍA por el servicio prestado, una renta mensual de <strong>{selectedPlan?.price || contract?.contract_price || '1950.00'} PESOS DOMINICANOS CON 00/100 (RD$ {selectedPlan?.price || contract?.contract_price || '1950.00'})</strong>. Todos los cargos de renta por los servicios contratados mediante el presente contrato serán facturados mensualmente por adelantado. Asimismo, EL CLIENTE acepta y autoriza un cargo de activación por renovación de contrato de <strong>RD$ 800.00 anual</strong>, el cual se cobrará automáticamente en cada aniversario de la firma.</p>
-
-                        <p><strong>4.1-	Forma de Pago:</strong> EL CLIENTE es responsable de la inscripción de una tarjeta de crédito al momento de la contratación del servicio para realizar el debito del servicio de forma recurrente y automática.</p>
-
-                        <p><strong>4.2-	EL CLIENTE autoriza de manera expresa a LA COMPAÑÍA a realizar el cobro automático y recurrente de los montos correspondientes al plan contratado, incluyendo cargos de activación y renovaciones, mediante la tarjeta registrada al momento de la suscripción. EL CLIENTE será responsable de mantener un método de pago válido y con fondos disponibles; en caso de que un cobro no pueda ser procesado, LA COMPAÑÍA podrá realizar reintentos automáticos y/o suspender el servicio hasta tanto se regularice el pago, sin perjuicio de las acciones necesarias para el cobro de los montos adeudados.</strong></p>
-
-                        <p><strong>4.3-	Queda expresamente convenido entre las Partes que los precios y rentas estipulados en el presente Contrato podrán ser ajustados conforme el impacto que presente el índice de precio al consumidor.</strong></p>
-
-                        <p><strong>4.4-	Cancelación del servicio:</strong> Las partes acuerdan que EL CLIENTE reconoce que el plan contratado incluye tarifas preferenciales y beneficios promocionales otorgados por LA COMPAÑÍA; en caso de cancelación anticipada, LA COMPAÑÍA podrá recalcular los servicios efectivamente utilizados a su precio regular vigente al momento de la prestación, conforme a las tarifas publicadas por LA COMPAÑÍA, debiendo EL CLIENTE pagar la diferencia entre dicho valor y el monto pagado hasta la fecha, sin que esto constituya una penalidad sino la pérdida de los beneficios otorgados bajo el plan.<br/>
-                        Las partes acuerdan que, para la aplicación de las penalidades precedentemente enunciadas, el punto de partida del plazo de duración del contrato correrá a partir de la fecha de firma del contrato</p>
-
-                        <p><strong>4.5-	Los pagos realizados por EL CLIENTE bajo el presente plan son anticipados y corresponden a la activación, reserva y disponibilidad del servicio, por lo que, una vez procesados, no son reembolsables bajo ninguna circunstancia; en consecuencia, la cancelación del servicio por parte de EL CLIENTE no dará lugar a devoluciones totales ni parciales de los montos ya pagados.</strong></p>
-
-                        <p><strong>4.6-	EL CLIENTE autoriza la captura de datos biométricos para garantizar su identidad y prevenir fraude electrónico; al mismo tiempo, aprueba y reconoce como bueno y valido la firma digital o electrónica en el uso del presente contrato.</strong></p>
-
-                        <p><strong>4.7-	EL CLIENTE es responsable de la degradación que puedan sufrir los tintes o aplicaciones que tenga durante el proceso de lavado o secado, y además, por medio del presente contrato descarga de responsabilidad a LA COMPAÑÍA por cualquiera de los casos anteriormente señalados.</strong></p>
-
-                        <p><strong>Obligaciones de LA COMPAÑÍA:</strong><br/>
-                        a) LA COMPAÑIA entregará al CLIENTE el nombre del usuario y la contraseña de acceso a la web: www.Planbeautyrd.com para que el CLIENTE pueda realizar consultas sobre el estado del servicio EL CLIENTE de acuerdo al plan contratado de Servicio De Belleza bajo Suscripción señalado en el contrato.<br/>
-                        b) LA COMPAÑIA entregará al CLIENTE acceso a visualizar en un portal un resumen de todos los servicios incluido dentro de su plan y la cantidad de servicios consumido dentro de su plan a la fecha.<br/>
-                        c) Mantener en estricta confidencialidad la información de usuario y contraseña de acceso al portal web, por lo cual es responsabilidad exclusiva del CLIENTE el uso y manejo de tal información. Para tales efectos EL CLIENTE luego de que LA COMPAÑÍA le haya suministrado el nombre de usuario y su respectiva clave de seguridad, deberá realizar el cambio de la clave para su personalización y garantía.</p>
-
-                        <p><strong>5-	 Duración y Terminación.</strong> El presente contrato tendrá una duración inicial de doce (12) meses contados a partir de su firma. Vencido dicho período, el contrato se renovará automáticamente por períodos iguales, salvo que EL CLIENTE notifique por escrito su intención de no renovar con al menos treinta (30) días de antelación a la fecha de vencimiento. En caso de no recibir dicha notificación, se entenderá que EL CLIENTE acepta la renovación, autorizando la continuidad del servicio y el cobro automático correspondiente bajo las condiciones vigentes al momento de la renovación.</p>
-
-                        <p><strong>5.1-	LA COMPAÑÍA aplicará un cargo de activación de RD$ 800.00 al momento de cada renovación anual del contrato, el cual será debitado automáticamente por el medio de pago autorizado por EL CLIENTE, conforme a las condiciones comerciales vigentes.</strong></p>
-
-                        <p><strong>5.2-	LA COMPAÑÍA se reserva el derecho de renovar o no el presente contrato con previa notificación de 30 días a EL CLIENTE.</strong></p>
-
-                        <p><strong>5.3-	Al momento de EL CLIENTE solicitar la cancelación del servicio LA COMPAÑÍA le estará notificando al cliente por escrito o por cualquier medio escrito o electrónico, en un plazo de Cinco (5) días, el valor que le será debitado de su tarjeta como ultimo pago.</strong></p>
-
-                        <p><strong>6-	Las partes acuerdan que para todo lo no previsto en el presente contrato se remiten al derecho del consumidor y posteriormente al Derecho común. Hecho y firmados en dos originales uno para cada una de las partes. En Santo Domingo Este, Municipio de la Provincia de Santo Domingo a los {new Date().getDate()} días del mes de {new Date().toLocaleDateString('es-ES', { month: 'long' })} del año {new Date().getFullYear()}</strong></p>
+                        <div 
+                          dangerouslySetInnerHTML={{ 
+                            __html: markdownToHtml(
+                              interpolateContract(
+                                contractSettings?.content || '', 
+                                fullClient || client || {}, 
+                                selectedPlan || contract || {}, 
+                                contractSettings
+                              )
+                            ) 
+                          }} 
+                        />
 
                         <div style={{ marginTop: '3rem', display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: isMobile ? '2rem' : '3rem' }}>
                           <div>
                             <p><strong>Por LA COMPAÑÍA</strong></p>
-                            <p>Nombre: ETEREAS S. R. L.</p>
+                            <p>Nombre: {contractSettings?.companyName || 'ETEREAS S. R. L.'}</p>
                             <p>Posición: Representante Legal</p>
-                            <p>Cedula: 1-31-91703-8</p>
-                            <p style={{ marginTop: '2rem', borderTop: '1px solid #000', paddingTop: '0.5rem' }}>Firma</p>
+                            <p>RNC / Cédula: {contractSettings?.companyRnc || '1-31-91703-8'}</p>
+                            <p style={{ marginTop: '2rem', borderTop: '1px solid #000', paddingTop: '0.5rem' }}>Firma Autorizada</p>
                           </div>
                           <div>
                             <p><strong>Por EL CLIENTE</strong></p>
-                            <p>Nombre: {fullClient?.nombre || '________________'}</p>
+                            <p>Nombre: {fullClient?.nombre || client?.nombre || '________________'}</p>
                             <p>Posición: Cliente Suscrito</p>
-                            <p>Cedula: {fullClient?.cedula || '_______________'}</p>
-                            <p style={{ marginTop: '2rem', borderTop: '1px solid #000', paddingTop: '0.5rem' }}>Firma Digital (Checkbox)</p>
+                            <p>Cédula: {fullClient?.cedula || client?.cedula || '_______________'}</p>
+                            <p style={{ marginTop: '2rem', borderTop: '1px solid #000', paddingTop: '0.5rem' }}>Firma Digital (Aceptación Electrónica)</p>
                           </div>
                         </div>
                       </div>
