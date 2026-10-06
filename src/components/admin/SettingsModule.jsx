@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
-import { Mail, Shield, Server, Check, Save, AlertTriangle, Receipt, Sliders, FileSignature } from 'lucide-react';
+import { Mail, Shield, Server, Check, Save, AlertTriangle, Sliders, FileSignature } from 'lucide-react';
 import { motion } from 'framer-motion';
-import DgiiSequencesModule from './DgiiSequencesModule';
 import ContractSettingsModule from './ContractSettingsModule';
 
 const SettingsModule = () => {
   const { showNotification } = useNotification();
-  const [activeTab, setActiveTab] = useState('dgii'); // 'dgii' | 'contract' | 'email'
+  const [activeTab, setActiveTab] = useState('contract'); // 'contract' | 'email'
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testEmail, setTestEmail] = useState('');
@@ -73,27 +72,6 @@ const SettingsModule = () => {
       {/* Navigation Tabs */}
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '2rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
         <button
-          onClick={() => setActiveTab('dgii')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.65rem 1.25rem',
-            borderRadius: '10px',
-            border: 'none',
-            background: activeTab === 'dgii' ? '#0ea5e9' : '#f1f5f9',
-            color: activeTab === 'dgii' ? '#fff' : '#475569',
-            fontWeight: 700,
-            fontSize: '0.875rem',
-            cursor: 'pointer',
-            boxShadow: activeTab === 'dgii' ? '0 4px 12px rgba(14, 165, 233, 0.25)' : 'none',
-            transition: 'all 0.2s'
-          }}
-        >
-          <Receipt size={17} /> Secuencias DGII e-CF
-        </button>
-
-        <button
           onClick={() => setActiveTab('contract')}
           style={{
             display: 'flex',
@@ -135,10 +113,6 @@ const SettingsModule = () => {
           <Mail size={17} /> Servidor de Correo (SMTP)
         </button>
       </div>
-
-      {activeTab === 'dgii' && (
-        <DgiiSequencesModule />
-      )}
 
       {activeTab === 'contract' && (
         <ContractSettingsModule />
