@@ -26,11 +26,11 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  // Heartbeat de seguridad: valida periódicamente (cada 15s) si la sesión fue terminada o el usuario eliminado
+  // Heartbeat de seguridad: valida periódicamente (y al cargar) si la sesión está activa y la auto-registra
   useEffect(() => {
     if (!user) return;
 
-    const checkInterval = setInterval(async () => {
+    const performCheck = async () => {
       const currentUser = userRef.current;
       if (!currentUser) return;
 
@@ -47,14 +47,22 @@ export const AuthProvider = ({ children }) => {
           localStorage.removeItem('salon_pro_user');
           alert(`⚠️ Sesión finalizada: ${reasonMsg}`);
           window.location.href = '/login';
+        } else if (check && check.sessionId && check.sessionId !== currentUser.sessionId) {
+          const updated = { ...currentUser, sessionId: check.sessionId };
+          setUser(updated);
+          localStorage.setItem('salon_pro_user', JSON.stringify(updated));
         }
       } catch (err) {
         // En caso de corte de conexión temporal se mantiene sesión
       }
-    }, 15000);
+    };
 
+    // Ejecutar chequeo/registro inmediato al inicio
+    performCheck();
+
+    const checkInterval = setInterval(performCheck, 10000);
     return () => clearInterval(checkInterval);
-  }, [user?.sessionId, user?.id]);
+  }, [user?.id]);
 
   const login = async (email, password) => {
     try {

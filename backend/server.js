@@ -10186,47 +10186,74 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Endpoint para validación en tiempo real del estado de sesión (Heartbeat de seguridad)
+// Endpoint para validación y auto-registro en tiempo real del estado de sesión (Heartbeat de seguridad)
 app.get('/api/auth/session-status', async (req, res) => {
   try {
     const sessionId = req.headers['x-session-id'] || req.query.sessionId;
     const userId = req.headers['x-user-id'] || req.query.userId;
     const userRole = req.headers['x-user-role'] || req.query.role;
+    const clientIp = getClientIp(req);
+    const ua = req.headers['user-agent'] || '';
+    const deviceInfo = parseDeviceInfo(ua);
 
     if (!sessionId && !userId) {
       return res.json({ valid: true });
     }
 
-    if (sessionId) {
-      const [sess] = await pool.query('SELECT * FROM user_sessions WHERE id = ?', [sessionId]);
-      if (sess.length === 0 || sess[0].is_active !== 1) {
-        return res.json({ valid: false, reason: 'terminated' });
+    // 1. Si tenemos userId (usuario logueado en cliente o panel)
+    if (userId && userRole !== 'client') {
+      const [u] = await pool.query('SELECT u.id, u.nombre, u.email, r.nombre as role_name, u.salon_id FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.id = ?', [userId]);
+      if (u.length === 0) {
+        if (sessionId) {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ?', [sessionId]);
+        }
+        return res.json({ valid: false, reason: 'user_deleted' });
       }
 
-      // Si no es cliente, verificar que el usuario aún exista en la tabla users
-      if (sess[0].role !== 'client') {
-        const [u] = await pool.query('SELECT id FROM users WHERE id = ?', [sess[0].user_id]);
-        if (u.length === 0) {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ?', [sessionId]);
-          return res.json({ valid: false, reason: 'user_deleted' });
+      const userData = u[0];
+
+      // Verificar si ya existe una sesión para este sessionId o usuario activo
+      if (sessionId) {
+        const [sess] = await pool.query('SELECT * FROM user_sessions WHERE id = ?', [sessionId]);
+        if (sess.length > 0) {
+          if (sess[0].is_active !== 1) {
+            return res.json({ valid: false, reason: 'terminated' });
+          }
+          await pool.query('UPDATE user_sessions SET last_activity = NOW(), ip_address = ?, device_info = ?, is_active = 1 WHERE id = ?', [clientIp, deviceInfo, sessionId]);
+          return res.json({ valid: true, sessionId });
         }
       }
 
-      // Actualizar timestamp de última actividad
-      await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ?', [sessionId]);
-      return res.json({ valid: true });
+      // Si no existe fila de sesión (ej. sesión previa a la actualización), la creamos automáticamente
+      const newSessionId = sessionId || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+      await pool.query(`
+        INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
+        ON DUPLICATE KEY UPDATE is_active = 1, last_activity = NOW(), ip_address = VALUES(ip_address), device_info = VALUES(device_info)
+      `, [newSessionId, userData.id, userData.nombre, userData.role_name || 'admin', userData.salon_id || null, clientIp, ua, deviceInfo]);
+
+      return res.json({ valid: true, sessionId: newSessionId });
     }
 
-    if (userId && userRole !== 'client') {
-      const [u] = await pool.query('SELECT id FROM users WHERE id = ?', [userId]);
-      if (u.length === 0) {
+    if (userId && userRole === 'client') {
+      const [c] = await pool.query('SELECT id, nombre FROM clients WHERE id = ?', [userId]);
+      if (c.length === 0) {
         return res.json({ valid: false, reason: 'user_deleted' });
       }
+      const clientData = c[0];
+      const newSessionId = sessionId || ('sess_cli_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
+      await pool.query(`
+        INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
+        VALUES (?, ?, ?, 'client', NULL, ?, ?, ?, 1, NOW())
+        ON DUPLICATE KEY UPDATE is_active = 1, last_activity = NOW(), ip_address = VALUES(ip_address), device_info = VALUES(device_info)
+      `, [newSessionId, clientData.id, clientData.nombre, clientIp, ua, deviceInfo]);
+      return res.json({ valid: true, sessionId: newSessionId });
     }
 
     res.json({ valid: true });
   } catch (err) {
-    res.json({ valid: true }); // Fallback seguro ante micro-cortes
+    console.error('[SESSION STATUS ERROR]:', err.message);
+    res.json({ valid: true });
   }
 });
 
@@ -13189,7 +13216,7 @@ app.post('/api/payroll/generate', async (req, res) => {
     }
 
     // 1. Obtener empleados activos
-    let staffQuery = "SELECT * FROM staff WHERE (status = 'Activo' OR activo = 1 OR status IS NULL)";
+    let staffQuery = "SELECT * FROM staff_records WHERE (status = 'Activo' OR activo = 1 OR status IS NULL)";
     const staffParams = [];
     if (sucursal && sucursal !== 'Todas') {
       staffQuery += " AND (salon_id = ? OR localidad LIKE ?)";
@@ -13532,7 +13559,7 @@ app.get('/api/payroll/regalias/:year', async (req, res) => {
     const year = parseInt(req.params.year) || new Date().getFullYear();
 
     // 1. Obtener empleados activos
-    let [staffList] = await pool.query("SELECT * FROM staff WHERE (status = 'Activo' OR activo = 1 OR status IS NULL)");
+    let [staffList] = await pool.query("SELECT * FROM staff_records WHERE (status = 'Activo' OR activo = 1 OR status IS NULL)");
     if (staffList.length === 0) {
       staffList = [
         { id: '1', nombre: 'Ana Pérez', posicion: 'Estilista', localidad: 'San Vicente', salario_base: 20000.00 },
@@ -13647,7 +13674,7 @@ app.get('/api/payroll/concepts', async (req, res) => {
 app.get('/api/security/sessions', async (req, res) => {
   try {
     const [rows] = await pool.query(`
-      SELECT s.*, u.email as user_email, sal.nombre as salon_name
+      SELECT s.*, u.email as user_email, sal.name as salon_name
       FROM user_sessions s
       LEFT JOIN users u ON s.user_id = u.id
       LEFT JOIN salons sal ON s.salon_id = sal.id
