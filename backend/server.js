@@ -600,6 +600,27 @@ const setupDB = async () => {
       console.error('[DB ERROR] Failed to setup contact_messages table:', err.message);
     }
 
+    // Setup Contract Settings Table
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS contract_settings (
+          id INT PRIMARY KEY DEFAULT 1,
+          title VARCHAR(255) DEFAULT 'CONTRATO DE SUSCRIPCIÓN DE SERVICIOS DE BELLEZA',
+          company_name VARCHAR(255) DEFAULT 'ETEREAS S. R. L.',
+          company_rnc VARCHAR(100) DEFAULT '1-31-91703-8',
+          company_address TEXT,
+          renewal_fee VARCHAR(50) DEFAULT '800.00',
+          min_duration_months VARCHAR(50) DEFAULT '12',
+          notice_cancellation_days VARCHAR(50) DEFAULT '30',
+          content LONGTEXT,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('[DB] Contract settings table ready.');
+    } catch (err) {
+      console.error('[DB ERROR] Failed to setup contract_settings table:', err.message);
+    }
+
     console.log('Database synchronized successfully');
 
     // Extend attendance.type ENUM to include 'Ausencia' if needed
