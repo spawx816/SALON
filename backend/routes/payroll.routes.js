@@ -406,7 +406,45 @@ function createPayrollRouter(pool) {
       }
     } catch (hErr) {}
 
-    const otrosIngresos = 0.00;
+    let otrosIngresos = 0.00;
+    const ingresosItemsList = [];
+
+    // 4.1. EVALUAR REGLAS ESPECIALES POR VOLUMEN / META (operacion = 'Contar')
+    if (emp.commission_scheme_id) {
+      try {
+        const [countRules] = await pool.query(
+          "SELECT * FROM commission_scheme_rules WHERE scheme_id = ? AND rule_type = 'especial' AND operacion = 'Contar'",
+          [emp.commission_scheme_id]
+        );
+        for (const cr of countRules) {
+          const targetCount = parseInt(cr.cantidad_meta) || 0;
+          const bonusAmt = parseFloat(cr.bono_monto) || 0;
+          if (targetCount > 0 && bonusAmt > 0 && cr.service_name) {
+            const [performed] = await pool.query(`
+              SELECT COUNT(*) as count 
+              FROM employee_commissions_log 
+              WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
+                AND service_name LIKE ?
+                AND created_at >= ? AND created_at <= ?
+                AND (status != 'Anulada' OR status IS NULL)
+            `, [empId, `EMP-${empId}`, empName, `%${cr.service_name}%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
+
+            const totalPerformed = performed[0]?.count || 0;
+            if (totalPerformed >= targetCount) {
+              otrosIngresos += bonusAmt;
+              ingresosItemsList.push({
+                id: `bono_meta_${cr.id}`,
+                label: `Bono Meta: ${cr.service_name} (${totalPerformed}/${targetCount})`,
+                monto: bonusAmt
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[BONUS CONTAR CALC WARN for ${empName}]:`, err.message);
+      }
+    }
+    otrosIngresos = Number(otrosIngresos.toFixed(2));
 
     // 5. TSS: Seguro Familiar de Salud (SFS 3.04%) + Pensión (AFP 2.87%) = 5.91% de ley
     const tss = salarioFijo > 0 ? Number((salarioFijo * 0.0591).toFixed(2)) : 0.00;
@@ -449,7 +487,8 @@ function createPayrollRouter(pool) {
           { id: 'c2', label: 'Comisiones', monto: comisiones },
           { id: 'c3', label: 'Feriados', monto: feriados },
           { id: 'c4', label: 'Horas extras', monto: horasExtras },
-          { id: 'c5', label: 'Otros ingresos', monto: otrosIngresos }
+          { id: 'c5', label: 'Otros ingresos / Bonos', monto: otrosIngresos },
+          ...ingresosItemsList
         ],
         conceptos_descuentos: [
           { id: 'd1', label: 'TSS (Ley 5.91%)', monto: tss },
@@ -503,16 +542,16 @@ function createPayrollRouter(pool) {
 
       if (staffList.length === 0) {
         const seedStaff = [
-          { id: '1', nombre: 'Ana Pérez', posicion: 'Estilista', localidad: 'San Vicente', salario_base: 20000.00 },
-          { id: '2', nombre: 'Carlos Gómez', posicion: 'Barbero', localidad: 'San Vicente', salario_base: 24000.00 },
-          { id: '3', nombre: 'María López', posicion: 'Manicurista', localidad: 'Villa Mella', salario_base: 19000.00 },
-          { id: '4', nombre: 'Luis Martínez', posicion: 'Recepción', localidad: 'San Vicente', salario_base: 22000.00 },
-          { id: '5', nombre: 'Karla Ruiz', posicion: 'Estilista', localidad: 'Villa Mella', salario_base: 20000.00 },
-          { id: '6', nombre: 'José Fernández', posicion: 'Soporte', localidad: 'San Vicente', salario_base: 28000.00 },
-          { id: '7', nombre: 'Patricia Santos', posicion: 'Administración', localidad: 'Villa Mella', salario_base: 32000.00 },
-          { id: '8', nombre: 'David Peña', posicion: 'Barbero', localidad: 'Villa Mella', salario_base: 23000.00 },
-          { id: '9', nombre: 'Sofía Castro', posicion: 'Estilista', localidad: 'San Vicente', salario_base: 19600.00 },
-          { id: '10', nombre: 'Miguel Rojas', posicion: 'Mantenimiento', localidad: 'Villa Mella', salario_base: 26000.00 }
+          { id: '1', nombre: 'Ana Pérez', posicion: 'Estilista', localidad: 'Abatte Peluquería San Vicente', salario_base: 20000.00 },
+          { id: '2', nombre: 'Carlos Gómez', posicion: 'Barbero', localidad: 'Abatte Peluquería San Vicente', salario_base: 24000.00 },
+          { id: '3', nombre: 'María López', posicion: 'Manicurista', localidad: 'Abatte Peluquería Sirena Villa Mella', salario_base: 19000.00 },
+          { id: '4', nombre: 'Luis Martínez', posicion: 'Recepción', localidad: 'Abatte Peluquería San Vicente', salario_base: 22000.00 },
+          { id: '5', nombre: 'Karla Ruiz', posicion: 'Estilista', localidad: 'Abatte Peluquería Sirena Villa Mella', salario_base: 20000.00 },
+          { id: '6', nombre: 'José Fernández', posicion: 'Soporte', localidad: 'Abatte Peluquería San Vicente', salario_base: 28000.00 },
+          { id: '7', nombre: 'Patricia Santos', posicion: 'Administración', localidad: 'Abatte Peluquería Sirena Villa Mella', salario_base: 32000.00 },
+          { id: '8', nombre: 'David Peña', posicion: 'Barbero', localidad: 'Abatte Peluquería Sirena Villa Mella', salario_base: 23000.00 },
+          { id: '9', nombre: 'Sofía Castro', posicion: 'Estilista', localidad: 'Abatte Peluquería San Vicente', salario_base: 19600.00 },
+          { id: '10', nombre: 'Miguel Rojas', posicion: 'Mantenimiento', localidad: 'Abatte Peluquería Sirena Villa Mella', salario_base: 26000.00 }
         ];
         staffList = seedStaff;
       }
