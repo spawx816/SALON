@@ -1489,6 +1489,21 @@ const RoleManagement = () => {
                     </div>
                   </div>
 
+                  {editingPosition && (
+                    <div style={{ marginBottom: '1rem', background: '#f0fdf4', padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <input
+                        type="checkbox"
+                        id="sync_salaries_chk"
+                        checked={positionForm.sync_salaries !== false}
+                        onChange={e => setPositionForm({ ...positionForm, sync_salaries: e.target.checked })}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#16a34a' }}
+                      />
+                      <label htmlFor="sync_salaries_chk" style={{ fontSize: '0.85rem', color: '#166534', fontWeight: 600, cursor: 'pointer' }}>
+                        ⚡ <strong>Actualizar a todos:</strong> Modificar automáticamente el salario base en la ficha de los colaboradores con este cargo.
+                      </label>
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
                     <button
                       type="submit"

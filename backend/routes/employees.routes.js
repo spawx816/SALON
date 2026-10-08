@@ -322,7 +322,7 @@ function createEmployeesRouter(pool) {
     try {
       await ensurePositionsTable();
       const { id } = req.params;
-      const { name, description, base_salary, old_name } = req.body;
+      const { name, description, base_salary, old_name, sync_salaries } = req.body;
       if (!name || !name.trim()) {
         return res.status(400).json({ error: 'El nombre del cargo es requerido' });
       }
@@ -349,7 +349,15 @@ function createEmployeesRouter(pool) {
         );
       }
 
-      res.json({ success: true, message: 'Cargo actualizado correctamente' });
+      // If sync_salaries is true (or undefined), update staff_records with the new base salary
+      if (sync_salaries === true || sync_salaries === 'true' || sync_salaries === undefined) {
+        await pool.query(
+          'UPDATE staff_records SET salario_base = ? WHERE posicion = ? OR posicion = ?',
+          [cleanSalary, cleanName, previousName]
+        );
+      }
+
+      res.json({ success: true, message: 'Cargo y fichas de colaboradores actualizados correctamente' });
     } catch (err) {
       console.error('[PUT POSITION ERROR]', err);
       res.status(500).json({ error: err.message });
