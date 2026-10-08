@@ -1391,9 +1391,10 @@ export default function SecurityModule() {
                     </option>
                     {(salons && salons.length > 0 ? salons : [
                       { id: 1, name: 'Abatte Peluquería San Vicente' },
-                      { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' }
+                      { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' },
+                      { id: 6, name: 'Disponibles (*)' }
                     ])
-                    .filter(s => s && s.name && !String(s.name).toLowerCase().includes('disponible') && String(s.name).trim() !== '')
+                    .filter(s => s && (s.name || s.nombre) && String(s.name || s.nombre).trim() !== '')
                     .map(s => (
                       <option key={s.id} value={s.id} style={{ color: '#0f172a', background: '#ffffff', fontWeight: 600 }}>
                         📍 {s.name || s.nombre}

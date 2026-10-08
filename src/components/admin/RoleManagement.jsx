@@ -775,9 +775,10 @@ const RoleManagement = () => {
                       <option value="">Selecciona una localidad...</option>
                       {(salons && salons.length > 0 ? salons : [
                         { id: 1, name: 'Abatte Peluquería San Vicente' },
-                        { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' }
+                        { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' },
+                        { id: 6, name: 'Disponibles (*)' }
                       ])
-                      .filter(s => s && s.name && !String(s.name).toLowerCase().includes('disponible'))
+                      .filter(s => s && s.name && String(s.name).trim() !== '')
                       .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
@@ -963,9 +964,10 @@ const RoleManagement = () => {
                   <option value="">Todas las localidades</option>
                   {(salons && salons.length > 0 ? salons : [
                     { id: 1, name: 'Abatte Peluquería San Vicente' },
-                    { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' }
+                    { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' },
+                    { id: 6, name: 'Disponibles (*)' }
                   ])
-                  .filter(s => s && s.name && !String(s.name).toLowerCase().includes('disponible'))
+                  .filter(s => s && s.name && String(s.name).trim() !== '')
                   .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
