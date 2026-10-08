@@ -64,6 +64,7 @@ const RoleManagement = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [viewMode, setViewMode] = useState('lista'); // 'lista', 'agrupado', 'tabla'
+  const [sortBy, setSortBy] = useState('name_asc'); // 'name_asc', 'name_desc', 'recent', 'salary_desc'
   const itemsPerPage = 10;
 
   const defaultFallbackPositions = [
@@ -316,6 +317,12 @@ const RoleManagement = () => {
     if (filterRole && member.posicion !== filterRole) return false;
     if (filterStatus && member.status !== filterStatus) return false;
     return true;
+  }).sort((a, b) => {
+    if (sortBy === 'name_asc') return (a.nombre || '').localeCompare(b.nombre || '', 'es');
+    if (sortBy === 'name_desc') return (b.nombre || '').localeCompare(a.nombre || '', 'es');
+    if (sortBy === 'recent') return new Date(b.fecha_entrada || 0) - new Date(a.fecha_entrada || 0);
+    if (sortBy === 'salary_desc') return Number(b.salario_base || 0) - Number(a.salario_base || 0);
+    return 0;
   });
 
   const handleExportStaff = () => {
@@ -1059,87 +1066,247 @@ const RoleManagement = () => {
                 </button>
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b' }}>Ordenar por:</span>
-              <select style={{ padding: '0.5rem', border: 'none', background: 'transparent', fontWeight: 700, color: '#09090b', cursor: 'pointer', outline: 'none' }}>
-                <option>Más recientes</option>
-                <option>Nombre A-Z</option>
+              <select 
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+                style={{ padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', background: 'white', borderRadius: '8px', fontWeight: 700, color: '#09090b', cursor: 'pointer', outline: 'none' }}
+              >
+                <option value="name_asc">Nombre (A - Z)</option>
+                <option value="name_desc">Nombre (Z - A)</option>
+                <option value="recent">Más recientes</option>
+                <option value="salary_desc">Mayor salario</option>
               </select>
               <button onClick={handleExportStaff} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
-                <Download size={16} /> Exportar
+                <Download size={16} /> Exportar CSV
               </button>
             </div>
           </div>
 
-          {/* List Content */}
-          <div className="surface-card" style={{ padding: '0', borderRadius: '16px', overflow: 'hidden' }}>
-            {filteredStaff.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map(member => (
-              <div key={member.id} style={{ display: 'flex', alignItems: 'center', padding: '1.5rem', borderBottom: '1px solid #f1f5f9', background: 'white', flexWrap: 'wrap', gap: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: '2 1 300px' }}>
-                  <div style={{ position: 'relative' }}>
-                    <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#09090b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 800, overflow: 'hidden' }}>
-                      {member.profile_photo ? (
-                        <img src={member.profile_photo} alt={member.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        member.nombre.charAt(0).toUpperCase()
+          {/* Render based on viewMode */}
+          {viewMode === 'lista' && (
+            <div className="surface-card" style={{ padding: '0', borderRadius: '16px', overflow: 'hidden' }}>
+              {filteredStaff.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map(member => (
+                <div key={member.id} style={{ display: 'flex', alignItems: 'center', padding: '1.5rem', borderBottom: '1px solid #f1f5f9', background: 'white', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: '2 1 300px' }}>
+                    <div style={{ position: 'relative' }}>
+                      <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#09090b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', fontWeight: 800, overflow: 'hidden' }}>
+                        {member.profile_photo ? (
+                          <img src={member.profile_photo} alt={member.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          member.nombre.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      {member.status === 'Activo' && (
+                        <div style={{ position: 'absolute', bottom: 2, right: 2, width: '12px', height: '12px', background: '#22c55e', borderRadius: '50%', border: '2px solid white' }}></div>
                       )}
                     </div>
-                    {member.status === 'Activo' && (
-                      <div style={{ position: 'absolute', bottom: 2, right: 2, width: '12px', height: '12px', background: '#22c55e', borderRadius: '50%', border: '2px solid white' }}></div>
-                    )}
+                    <div>
+                      <p style={{ fontWeight: 800, fontSize: '1.1rem', color: '#09090b' }}>{member.nombre}</p>
+                      <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.2rem', fontWeight: 600 }}>{member.posicion}</p>
+                      <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <MapPin size={12} /> {salons.find(s => String(s.id) === String(member.salon_id))?.name || member.localidad || 'Todas las localidades'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p style={{ fontWeight: 800, fontSize: '1.1rem', color: '#09090b' }}>{member.nombre}</p>
-                    <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.2rem', fontWeight: 600 }}>{member.posicion}</p>
-                    <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <MapPin size={12} /> {salons.find(s => String(s.id) === String(member.salon_id))?.name || member.localidad || 'Todas las localidades'}
+                  
+                  <div style={{ flex: '1.5 1 200px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <span style={{ padding: '0.25rem 0.75rem', background: member.status === 'Activo' ? '#dcfce7' : (member.status === 'Licencia' ? '#fef3c7' : '#fee2e2'), color: member.status === 'Activo' ? '#16a34a' : (member.status === 'Licencia' ? '#d97706' : '#ef4444'), borderRadius: '100px', fontSize: '0.75rem', fontWeight: 800 }}>
+                        {member.status === 'Inactivo' ? 'Baja / Renuncia' : member.status}
+                      </span>
+                      {member.commission_scheme_id && (
+                        <span style={{ fontSize: '0.7rem', color: '#7c3aed', fontWeight: 800, background: '#f5f3ff', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #ddd6fe' }}>
+                          💼 {schemes.find(sch => String(sch.id) === String(member.commission_scheme_id))?.nombre || 'Esquema'}
+                        </span>
+                      )}
+                      <span style={{ fontSize: '0.7rem', color: '#047857', fontWeight: 800, background: '#ecfdf5', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #a7f3d0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        💰 {member.tipo_salario === 'comision_pura' ? 'Solo Comisiones' : (member.tipo_salario === 'fijo_puro' ? `Fijo RD$ ${Number(member.salario_base || 0).toLocaleString()}` : `Fijo RD$ ${Number(member.salario_base || 0).toLocaleString()} + Comisiones`)}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem' }}>Entrada: {member.fecha_entrada ? new Date(member.fecha_entrada).toLocaleDateString() : 'N/A'}</p>
+                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.2rem' }}>ID: {member.cedula}</p>
+                  </div>
+
+                  <div style={{ flex: '1.5 1 200px' }}>
+                    <p style={{ fontSize: '0.875rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                       <Phone size={14} /> {member.contacto || 'N/A'}
+                    </p>
+                    <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                       <Mail size={14} /> {member.email || `${member.nombre.split(' ')[0].toLowerCase()}@abatte.com`}
                     </p>
                   </div>
-                </div>
-                
-                <div style={{ flex: '1.5 1 200px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <span style={{ padding: '0.25rem 0.75rem', background: member.status === 'Activo' ? '#dcfce7' : (member.status === 'Licencia' ? '#fef3c7' : '#fee2e2'), color: member.status === 'Activo' ? '#16a34a' : (member.status === 'Licencia' ? '#d97706' : '#ef4444'), borderRadius: '100px', fontSize: '0.75rem', fontWeight: 800 }}>
-                      {member.status === 'Inactivo' ? 'Baja / Renuncia' : member.status}
-                    </span>
-                    {member.commission_scheme_id && (
-                      <span style={{ fontSize: '0.7rem', color: '#7c3aed', fontWeight: 800, background: '#f5f3ff', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #ddd6fe' }}>
-                        💼 {schemes.find(sch => String(sch.id) === String(member.commission_scheme_id))?.nombre || 'Esquema'}
-                      </span>
-                    )}
-                    <span style={{ fontSize: '0.7rem', color: '#047857', fontWeight: 800, background: '#ecfdf5', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #a7f3d0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      💰 {member.tipo_salario === 'comision_pura' ? 'Solo Comisiones' : (member.tipo_salario === 'fijo_puro' ? `Fijo RD$ ${Number(member.salario_base || 0).toLocaleString()}` : `Fijo RD$ ${Number(member.salario_base || 0).toLocaleString()} + Comisiones`)}
-                    </span>
+
+                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flex: '0.5 1 100px' }}>
+                    <button onClick={() => { setShowStaffForm(true); startEditStaff(member); }} className="btn-secondary" style={{ padding: '0.6rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0' }}>
+                      <Edit2 size={16} color="#64748b" />
+                    </button>
+                    <button 
+                      onClick={() => setSelectedStaffDetail(member)}
+                      className="btn-secondary" 
+                      style={{ padding: '0.6rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0' }}
+                      title="Ver Información"
+                    >
+                      <Eye size={16} color="#64748b" />
+                    </button>
                   </div>
-                  <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem' }}>Entrada: {member.fecha_entrada ? new Date(member.fecha_entrada).toLocaleDateString() : 'N/A'}</p>
-                  <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.2rem' }}>ID: {member.cedula}</p>
                 </div>
+              ))}
+            </div>
+          )}
 
-                <div style={{ flex: '1.5 1 200px' }}>
-                  <p style={{ fontSize: '0.875rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                     <Phone size={14} /> {member.contacto || 'N/A'}
-                  </p>
-                  <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                     <Mail size={14} /> {member.email || `${member.nombre.split(' ')[0].toLowerCase()}@abatte.com`}
-                  </p>
-                </div>
+          {/* Agrupado View */}
+          {viewMode === 'agrupado' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {(salons.length > 0 ? salons : [{ id: null, name: 'General' }]).map(salon => {
+                const branchStaff = filteredStaff.filter(s => salon.id ? String(s.salon_id) === String(salon.id) : !s.salon_id);
+                if (branchStaff.length === 0 && filterLocation) return null;
+                return (
+                  <div key={salon.id || 'unassigned'} className="surface-card" style={{ padding: '0', borderRadius: '16px', overflow: 'hidden' }}>
+                    <div style={{ padding: '1rem 1.5rem', background: '#09090b', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <Building size={18} color="#d4af37" />
+                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{salon.name || 'Sin Sucursal Asignada'}</h4>
+                      </div>
+                      <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.15)', padding: '0.2rem 0.75rem', borderRadius: '50px', fontWeight: 700 }}>
+                        {branchStaff.length} colaborador(es)
+                      </span>
+                    </div>
 
-                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flex: '0.5 1 100px' }}>
-                  <button onClick={() => { setShowStaffForm(true); startEditStaff(member); }} className="btn-secondary" style={{ padding: '0.6rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0' }}>
-                    <Edit2 size={16} color="#64748b" />
-                  </button>
-                  <button 
-                    onClick={() => setSelectedStaffDetail(member)}
-                    className="btn-secondary" 
-                    style={{ padding: '0.6rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0' }}
-                    title="Ver Información"
-                  >
-                    <Eye size={16} color="#64748b" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+                    {branchStaff.length === 0 ? (
+                      <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.875rem' }}>
+                        No hay colaboradores en esta sucursal con los filtros actuales.
+                      </div>
+                    ) : (
+                      <div>
+                        {branchStaff.map(member => (
+                          <div key={member.id} style={{ display: 'flex', alignItems: 'center', padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', background: 'white', flexWrap: 'wrap', gap: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: '2 1 250px' }}>
+                              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#09090b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: 800, overflow: 'hidden' }}>
+                                {member.profile_photo ? (
+                                  <img src={member.profile_photo} alt={member.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                  member.nombre.charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <div>
+                                <p style={{ fontWeight: 800, fontSize: '1rem', color: '#09090b', margin: 0 }}>{member.nombre}</p>
+                                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.2rem 0 0', fontWeight: 600 }}>{member.posicion}</p>
+                              </div>
+                            </div>
+
+                            <div style={{ flex: '1.5 1 200px', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <span style={{ padding: '0.2rem 0.6rem', background: member.status === 'Activo' ? '#dcfce7' : '#fee2e2', color: member.status === 'Activo' ? '#16a34a' : '#ef4444', borderRadius: '100px', fontSize: '0.72rem', fontWeight: 800 }}>
+                                {member.status}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: '#047857', fontWeight: 800, background: '#ecfdf5', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #a7f3d0' }}>
+                                RD$ {Number(member.salario_base || 0).toLocaleString()}
+                              </span>
+                            </div>
+
+                            <div style={{ flex: '1 1 150px', fontSize: '0.8rem', color: '#64748b' }}>
+                              <Phone size={12} style={{ display: 'inline', marginRight: '0.25rem' }} /> {member.contacto || 'N/A'}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                              <button onClick={() => { setShowStaffForm(true); startEditStaff(member); }} className="btn-secondary" style={{ padding: '0.5rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                                <Edit2 size={14} color="#64748b" />
+                              </button>
+                              <button onClick={() => setSelectedStaffDetail(member)} className="btn-secondary" style={{ padding: '0.5rem', borderRadius: '50%', background: 'transparent', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                                <Eye size={14} color="#64748b" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Tabla View */}
+          {viewMode === 'tabla' && (
+            <div className="surface-card" style={{ padding: '0', borderRadius: '16px', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 800 }}>
+                    <th style={{ padding: '1rem 1.25rem' }}>Colaborador</th>
+                    <th style={{ padding: '1rem 1.25rem' }}>Cédula</th>
+                    <th style={{ padding: '1rem 1.25rem' }}>Cargo</th>
+                    <th style={{ padding: '1rem 1.25rem' }}>Sucursal</th>
+                    <th style={{ padding: '1rem 1.25rem' }}>Salario Base</th>
+                    <th style={{ padding: '1rem 1.25rem' }}>Contacto</th>
+                    <th style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>Estado</th>
+                    <th style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStaff.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map(member => (
+                    <tr key={member.id} style={{ borderBottom: '1px solid #f1f5f9', background: 'white', transition: 'background 0.15s' }}>
+                      <td style={{ padding: '1rem 1.25rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#09090b', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', fontWeight: 800, flexShrink: 0, overflow: 'hidden' }}>
+                            {member.profile_photo ? (
+                              <img src={member.profile_photo} alt={member.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              member.nombre.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                          <div>
+                            <p style={{ margin: 0, fontWeight: 800, color: '#09090b' }}>{member.nombre}</p>
+                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>{member.email || 'Sin email'}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: '1rem 1.25rem', color: '#475569', fontWeight: 600 }}>{member.cedula || 'N/A'}</td>
+                      <td style={{ padding: '1rem 1.25rem', fontWeight: 700, color: '#09090b' }}>{member.posicion}</td>
+                      <td style={{ padding: '1rem 1.25rem', color: '#64748b' }}>
+                        {salons.find(s => String(s.id) === String(member.salon_id))?.name || member.localidad || 'Global'}
+                      </td>
+                      <td style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#059669' }}>
+                        RD$ {Number(member.salario_base || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '1rem 1.25rem', color: '#64748b' }}>{member.contacto || 'N/A'}</td>
+                      <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
+                        <span style={{
+                          padding: '0.25rem 0.75rem',
+                          borderRadius: '50px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          background: member.status === 'Activo' ? '#dcfce7' : '#fee2e2',
+                          color: member.status === 'Activo' ? '#16a34a' : '#ef4444'
+                        }}>
+                          {member.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.4rem' }}>
+                          <button
+                            onClick={() => { setShowStaffForm(true); startEditStaff(member); }}
+                            style={{ padding: '0.45rem', border: '1px solid #e2e8f0', background: 'white', borderRadius: '8px', cursor: 'pointer', color: '#09090b' }}
+                            title="Editar"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => setSelectedStaffDetail(member)}
+                            style={{ padding: '0.45rem', border: '1px solid #e2e8f0', background: 'white', borderRadius: '8px', cursor: 'pointer', color: '#09090b' }}
+                            title="Ver Ficha"
+                          >
+                            <Eye size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Pagination */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
