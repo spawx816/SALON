@@ -207,6 +207,168 @@ function createEmployeesRouter(pool) {
     }
   };
 
+  // Staff Positions (Cargos & Funciones)
+  const ensurePositionsTable = async () => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS staff_positions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100) NOT NULL UNIQUE,
+          description VARCHAR(255) NULL,
+          base_salary DECIMAL(10,2) DEFAULT 0.00,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Seed standard positions if table is empty
+      const [existing] = await pool.query('SELECT COUNT(*) as cnt FROM staff_positions');
+      if (existing[0].cnt === 0) {
+        const defaultPositions = [
+          ['Peluquera', 'Estilista / Especialista en cabello y secado', 18000.00],
+          ['Lava pelo', 'Lavado, tratamientos capilares y asistencia', 12000.00],
+          ['Manicurista', 'Cuidado y diseño de uñas', 15000.00],
+          ['Encargada', 'Supervisión de operaciones y caja', 25000.00],
+          ['Recepcionista', 'Atención al cliente, cobro y agendamiento', 18000.00],
+          ['Cajera', 'Facturación y arqueo de caja', 18000.00]
+        ];
+        for (const [name, desc, sal] of defaultPositions) {
+          await pool.query(
+            'INSERT IGNORE INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)',
+            [name, desc, sal]
+          );
+        }
+      }
+
+      // Also import any distinct positions already existing in staff_records
+      const [distinctInStaff] = await pool.query(`
+        SELECT DISTINCT posicion FROM staff_records 
+        WHERE posicion IS NOT NULL AND TRIM(posicion) != ''
+      `);
+      for (const row of distinctInStaff) {
+        if (row.posicion && row.posicion.trim()) {
+          await pool.query(
+            'INSERT IGNORE INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)',
+            [row.posicion.trim(), 'Cargo registrado en colaboradores', 0.00]
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('[RRHH POSITIONS INIT]', err.message);
+    }
+  };
+
+  const handleGetPositions = async (req, res) => {
+    try {
+      await ensurePositionsTable();
+      const [rows] = await pool.query(`
+        SELECT 
+          sp.id,
+          sp.name,
+          sp.description,
+          sp.base_salary,
+          sp.created_at,
+          COALESCE(st.staff_count, 0) as staff_count
+        FROM staff_positions sp
+        LEFT JOIN (
+          SELECT posicion, COUNT(*) as staff_count
+          FROM staff_records
+          WHERE status = 'Activo' OR status = 'Active'
+          GROUP BY posicion
+        ) st ON sp.name = st.posicion
+        ORDER BY sp.name ASC
+      `);
+      res.json(rows);
+    } catch (err) {
+      console.error('[GET POSITIONS ERROR]', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  const handlePostPosition = async (req, res) => {
+    try {
+      await ensurePositionsTable();
+      const { name, description, base_salary } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: 'El nombre del cargo o posición es requerido' });
+      }
+      const cleanName = name.trim();
+      const cleanDesc = (description || '').trim();
+      const cleanSalary = !isNaN(parseFloat(base_salary)) ? parseFloat(base_salary) : 0.00;
+
+      const [result] = await pool.query(
+        'INSERT INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)',
+        [cleanName, cleanDesc, cleanSalary]
+      );
+      res.json({ id: result.insertId, name: cleanName, description: cleanDesc, base_salary: cleanSalary, success: true });
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(400).json({ error: 'Ya existe un cargo o posición con ese nombre' });
+      }
+      console.error('[POST POSITION ERROR]', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  const handlePutPosition = async (req, res) => {
+    try {
+      await ensurePositionsTable();
+      const { id } = req.params;
+      const { name, description, base_salary, old_name } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: 'El nombre del cargo es requerido' });
+      }
+      const cleanName = name.trim();
+      const cleanDesc = (description || '').trim();
+      const cleanSalary = !isNaN(parseFloat(base_salary)) ? parseFloat(base_salary) : 0.00;
+
+      let previousName = old_name;
+      if (!previousName) {
+        const [curr] = await pool.query('SELECT name FROM staff_positions WHERE id = ?', [id]);
+        if (curr.length > 0) previousName = curr[0].name;
+      }
+
+      await pool.query(
+        'UPDATE staff_positions SET name = ?, description = ?, base_salary = ? WHERE id = ?',
+        [cleanName, cleanDesc, cleanSalary, id]
+      );
+
+      // If name changed, propagate to staff_records
+      if (previousName && previousName !== cleanName) {
+        await pool.query(
+          'UPDATE staff_records SET posicion = ? WHERE posicion = ?',
+          [cleanName, previousName]
+        );
+      }
+
+      res.json({ success: true, message: 'Cargo actualizado correctamente' });
+    } catch (err) {
+      console.error('[PUT POSITION ERROR]', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  const handleDeletePosition = async (req, res) => {
+    try {
+      const { id } = req.params;
+      const [pos] = await pool.query('SELECT name FROM staff_positions WHERE id = ?', [id]);
+      if (pos.length > 0) {
+        const posName = pos[0].name;
+        const [staffCount] = await pool.query('SELECT COUNT(*) as cnt FROM staff_records WHERE posicion = ?', [posName]);
+        if (staffCount[0].cnt > 0 && req.query.force !== 'true') {
+          return res.status(400).json({ 
+            error: `No se puede eliminar porque hay ${staffCount[0].cnt} colaborador(es) asignados a este cargo.`,
+            staff_count: staffCount[0].cnt
+          });
+        }
+      }
+      await pool.query('DELETE FROM staff_positions WHERE id = ?', [id]);
+      res.json({ success: true, message: 'Cargo eliminado correctamente' });
+    } catch (err) {
+      console.error('[DELETE POSITION ERROR]', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
   // Route handlers for direct /api mounting
   router.get('/employees', handleGetEmployees);
   router.post('/employees', handlePostEmployees);
@@ -217,7 +379,20 @@ function createEmployeesRouter(pool) {
   router.put('/rrhh/staff/:id', handlePutStaff);
   router.delete('/rrhh/staff/:id', handleDeleteStaff);
 
+  // Staff Positions endpoints
+  router.get('/staff-positions', handleGetPositions);
+  router.post('/staff-positions', handlePostPosition);
+  router.put('/staff-positions/:id', handlePutPosition);
+  router.delete('/staff-positions/:id', handleDeletePosition);
+
+  // Aliases for /rrhh/positions
+  router.get('/rrhh/positions', handleGetPositions);
+  router.post('/rrhh/positions', handlePostPosition);
+  router.put('/rrhh/positions/:id', handlePutPosition);
+  router.delete('/rrhh/positions/:id', handleDeletePosition);
+
   return router;
 }
 
 module.exports = { createEmployeesRouter };
+

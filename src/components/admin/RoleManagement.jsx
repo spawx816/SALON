@@ -26,6 +26,14 @@ const RoleManagement = () => {
   const [staff, setStaff] = useState([]);
   const [salons, setSalons] = useState([]);
   const [schemes, setSchemes] = useState([]);
+  const [positions, setPositions] = useState([]);
+  
+  // Position Config Modal State
+  const [showPositionsModal, setShowPositionsModal] = useState(false);
+  const [editingPosition, setEditingPosition] = useState(null);
+  const [positionForm, setPositionForm] = useState({ name: '', description: '', base_salary: 0 });
+  const [positionSaving, setPositionSaving] = useState(false);
+  const [positionError, setPositionError] = useState('');
   
   const [newStaff, setNewStaff] = useState({ 
     nombre: '', cedula: '', contacto: '', posicion: '', email: '',
@@ -58,14 +66,29 @@ const RoleManagement = () => {
   const [viewMode, setViewMode] = useState('lista'); // 'lista', 'agrupado', 'tabla'
   const itemsPerPage = 10;
 
+  const defaultFallbackPositions = [
+    { id: 1, name: 'Peluquera', description: 'Estilista / Especialista en cabello y secado', base_salary: 18000 },
+    { id: 2, name: 'Lava pelo', description: 'Lavado, tratamientos capilares y asistencia', base_salary: 12000 },
+    { id: 3, name: 'Manicurista', description: 'Cuidado y diseño de uñas', base_salary: 15000 },
+    { id: 4, name: 'Encargada', description: 'Supervisión de operaciones y caja', base_salary: 25000 },
+    { id: 5, name: 'Recepcionista', description: 'Atención al cliente, cobro y agendamiento', base_salary: 18000 },
+    { id: 6, name: 'Cajera', description: 'Facturación y arqueo de caja', base_salary: 18000 }
+  ];
+
+  const availablePositions = positions && positions.length > 0 ? positions : defaultFallbackPositions;
+
   const loadData = async () => {
     try {
-      const s = await dataService.getStaffRecords();
-      const sal = await dataService.getSalons();
-      const sch = await dataService.getCommissionSchemes();
+      const [s, sal, sch, pos] = await Promise.all([
+        dataService.getStaffRecords(),
+        dataService.getSalons(),
+        dataService.getCommissionSchemes(),
+        dataService.getStaffPositions()
+      ]);
       setStaff(s || []);
       setSalons(sal || []);
       setSchemes(sch || []);
+      setPositions(pos || []);
     } catch (err) {
       console.error("Error loading management data:", err);
     }
@@ -76,6 +99,80 @@ const RoleManagement = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterLocation, filterRole, filterStatus]);
+
+  const handleSavePosition = async (e) => {
+    e.preventDefault();
+    setPositionError('');
+    if (!positionForm.name || !positionForm.name.trim()) {
+      setPositionError('El nombre de la posición o cargo es obligatorio.');
+      return;
+    }
+    setPositionSaving(true);
+    try {
+      if (editingPosition) {
+        const res = await dataService.updateStaffPosition(editingPosition.id, {
+          ...positionForm,
+          old_name: editingPosition.name
+        });
+        if (res && res.error) throw new Error(res.error);
+      } else {
+        const res = await dataService.createStaffPosition(positionForm);
+        if (res && res.error) throw new Error(res.error);
+      }
+      setPositionForm({ name: '', description: '', base_salary: 0 });
+      setEditingPosition(null);
+      await loadData();
+    } catch (err) {
+      console.error('Error guardando posición:', err);
+      setPositionError(err.message || 'Error al guardar el cargo');
+    } finally {
+      setPositionSaving(false);
+    }
+  };
+
+  const handleDeletePosition = async (pos) => {
+    setPositionError('');
+    if (pos.staff_count > 0) {
+      const confirm = window.confirm(`El cargo "${pos.name}" está asignado a ${pos.staff_count} colaborador(es) activo(s). ¿Desea eliminar la posición de la lista de todos modos?`);
+      if (!confirm) return;
+      try {
+        const res = await dataService.deleteStaffPosition(pos.id, true);
+        if (res && res.error) throw new Error(res.error);
+      } catch (err) {
+        alert(err.message || 'Error al eliminar el cargo');
+      }
+    } else {
+      const confirm = window.confirm(`¿Está seguro de eliminar el cargo "${pos.name}"?`);
+      if (!confirm) return;
+      try {
+        const res = await dataService.deleteStaffPosition(pos.id, false);
+        if (res && res.error) throw new Error(res.error);
+      } catch (err) {
+        alert(err.message || 'Error al eliminar el cargo');
+      }
+    }
+    if (editingPosition?.id === pos.id) {
+      setEditingPosition(null);
+      setPositionForm({ name: '', description: '', base_salary: 0 });
+    }
+    await loadData();
+  };
+
+  const startEditPosition = (pos) => {
+    setEditingPosition(pos);
+    setPositionForm({
+      name: pos.name,
+      description: pos.description || '',
+      base_salary: pos.base_salary || 0
+    });
+    setPositionError('');
+  };
+
+  const resetPositionForm = () => {
+    setEditingPosition(null);
+    setPositionForm({ name: '', description: '', base_salary: 0 });
+    setPositionError('');
+  };
 
   const handleSaveStaff = async (e) => {
     e.preventDefault();
@@ -554,7 +651,10 @@ const RoleManagement = () => {
           </button>
 
           <button
-            onClick={() => navigate('/seguridad')}
+            onClick={() => {
+              resetPositionForm();
+              setShowPositionsModal(true);
+            }}
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
               border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -569,10 +669,10 @@ const RoleManagement = () => {
               cursor: 'pointer',
               transition: 'all 0.2s'
             }}
-            title="Ir a Seguridad para administrar contraseñas, roles y permisos de acceso"
+            title="Configurar cargos, funciones y salarios base de RRHH"
           >
-            <Shield size={16} color="#d4af37" />
-            <span>Usuarios & Seguridad</span>
+            <Settings size={16} color="#d4af37" />
+            <span>Configuración</span>
           </button>
         </div>
       </div>
@@ -627,13 +727,19 @@ const RoleManagement = () => {
                       className="input-field" 
                       required 
                       value={newStaff.posicion} 
-                      onChange={e => setNewStaff({...newStaff, posicion: e.target.value})}
+                      onChange={e => {
+                        const selectedPos = availablePositions.find(p => p.name === e.target.value);
+                        setNewStaff(prev => ({
+                          ...prev,
+                          posicion: e.target.value,
+                          salario_base: (selectedPos && selectedPos.base_salary > 0 && (!prev.salario_base || prev.salario_base === 20000)) ? selectedPos.base_salary : prev.salario_base
+                        }));
+                      }}
                     >
                       <option value="">Selecciona un cargo...</option>
-                      <option value="Peluquera">Peluquera</option>
-                      <option value="Lava pelo">Lava pelo</option>
-                      <option value="Manicurista">Manicurista</option>
-                      <option value="Encargada">Encargada</option>
+                      {availablePositions.map(p => (
+                        <option key={p.id || p.name} value={p.name}>{p.name}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="input-group">
@@ -842,10 +948,9 @@ const RoleManagement = () => {
                 <Briefcase size={16} color="#64748b" style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)' }} />
                 <select className="input-field" style={{ paddingLeft: '2.5rem', background: 'white', borderRadius: '8px' }} value={filterRole} onChange={e => setFilterRole(e.target.value)}>
                   <option value="">Todos los cargos</option>
-                  <option value="Peluquera">Peluquera</option>
-                  <option value="Lava pelo">Lava pelo</option>
-                  <option value="Manicurista">Manicurista</option>
-                  <option value="Encargada">Encargada</option>
+                  {availablePositions.map(p => (
+                    <option key={p.id || p.name} value={p.name}>{p.name}</option>
+                  ))}
                 </select>
               </div>
               <div style={{ position: 'relative', width: '200px' }}>
@@ -1038,13 +1143,49 @@ const RoleManagement = () => {
 
           {/* Pagination */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="btn-secondary" style={{ padding: '0.5rem 0.75rem', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', opacity: currentPage === 1 ? 0.5 : 1 }}><ChevronLeft size={16} /></button>
-                <button className="btn-primary" style={{ padding: '0.5rem 1rem', background: '#09090b', color: 'white', border: 'none', borderRadius: '8px' }}>{currentPage}</button>
-                <button onClick={() => setCurrentPage(Math.min(Math.ceil(filteredStaff.length / itemsPerPage) || 1, currentPage + 1))} disabled={currentPage >= Math.ceil(filteredStaff.length / itemsPerPage)} className="btn-secondary" style={{ padding: '0.5rem 0.75rem', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', opacity: currentPage >= Math.ceil(filteredStaff.length / itemsPerPage) ? 0.5 : 1 }}><ChevronRight size={16} /></button>
+             <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button 
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} 
+                  disabled={currentPage === 1} 
+                  className="btn-secondary" 
+                  style={{ padding: '0.45rem 0.75rem', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', opacity: currentPage === 1 ? 0.4 : 1, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                  title="Página anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                
+                {Array.from({ length: Math.ceil(filteredStaff.length / itemsPerPage) || 1 }, (_, i) => i + 1).map(pageNumber => (
+                  <button 
+                    key={pageNumber}
+                    onClick={() => setCurrentPage(pageNumber)}
+                    style={{
+                      padding: '0.45rem 0.85rem',
+                      background: currentPage === pageNumber ? '#09090b' : 'white',
+                      color: currentPage === pageNumber ? '#ffffff' : '#475569',
+                      border: currentPage === pageNumber ? '1px solid #09090b' : '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontWeight: currentPage === pageNumber ? 800 : 600,
+                      fontSize: '0.875rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+
+                <button 
+                  onClick={() => setCurrentPage(Math.min(Math.ceil(filteredStaff.length / itemsPerPage) || 1, currentPage + 1))} 
+                  disabled={currentPage >= Math.ceil(filteredStaff.length / itemsPerPage)} 
+                  className="btn-secondary" 
+                  style={{ padding: '0.45rem 0.75rem', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', opacity: currentPage >= Math.ceil(filteredStaff.length / itemsPerPage) ? 0.4 : 1, cursor: currentPage >= Math.ceil(filteredStaff.length / itemsPerPage) ? 'not-allowed' : 'pointer' }}
+                  title="Página siguiente"
+                >
+                  <ChevronRight size={16} />
+                </button>
              </div>
              <div style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: 600 }}>
-               Mostrando {filteredStaff.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredStaff.length)} de {filteredStaff.length}
+               Mostrando {filteredStaff.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredStaff.length)} de {filteredStaff.length} colaboradores
              </div>
           </div>
           
@@ -1245,6 +1386,229 @@ const RoleManagement = () => {
               </div>
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal - Configuración de Cargos & Posiciones */}
+      {showPositionsModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(9, 9, 11, 0.65)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem' }}>
+          <div style={{ background: 'white', borderRadius: '24px', width: '100%', maxWidth: '850px', maxHeight: '90vh', border: '1px solid #e2e8f0', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.75rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#09090b', color: 'white' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(212, 175, 55, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Settings size={20} color="#d4af37" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'white', letterSpacing: '-0.3px' }}>Configuración de Cargos & Posiciones</h3>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8' }}>Administre y personalice los roles y salarios de referencia del personal</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowPositionsModal(false);
+                  resetPositionForm();
+                }}
+                style={{ border: 'none', background: 'rgba(255,255,255,0.1)', color: 'white', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              
+              {positionError && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '0.75rem 1rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 600 }}>
+                  ⚠️ {positionError}
+                </div>
+              )}
+
+              {/* Form to add or edit position */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Briefcase size={16} color="#d4af37" />
+                    {editingPosition ? `Editar Cargo: ${editingPosition.name}` : 'Crear Nueva Posición o Cargo'}
+                  </h4>
+                  {editingPosition && (
+                    <button
+                      type="button"
+                      onClick={resetPositionForm}
+                      style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      Cancelar Edición
+                    </button>
+                  )}
+                </div>
+
+                <form onSubmit={handleSavePosition}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                        Nombre del Cargo *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Ej. Peluquera, Manicurista, Estilista..."
+                        value={positionForm.name}
+                        onChange={e => setPositionForm({ ...positionForm, name: e.target.value })}
+                        style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.875rem', outline: 'none' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                        Salario Base Referencial (RD$)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="500"
+                        placeholder="0.00"
+                        value={positionForm.base_salary}
+                        onChange={e => setPositionForm({ ...positionForm, base_salary: parseFloat(e.target.value) || 0 })}
+                        style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.875rem', outline: 'none' }}
+                      />
+                    </div>
+
+                    <div style={{ gridColumn: 'span 1' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                        Descripción / Responsabilidades
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej. Atención y peinados en salón"
+                        value={positionForm.description}
+                        onChange={e => setPositionForm({ ...positionForm, description: e.target.value })}
+                        style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.875rem', outline: 'none' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                    <button
+                      type="submit"
+                      disabled={positionSaving}
+                      style={{
+                        background: '#09090b',
+                        color: 'white',
+                        padding: '0.65rem 1.4rem',
+                        borderRadius: '10px',
+                        border: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        cursor: positionSaving ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        opacity: positionSaving ? 0.7 : 1
+                      }}
+                    >
+                      <CheckCircle2 size={16} color="#d4af37" />
+                      <span>{positionSaving ? 'Guardando...' : (editingPosition ? 'Actualizar Cargo' : 'Guardar Nuevo Cargo')}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Position list */}
+              <div>
+                <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Cargos Disponibles ({availablePositions.length})
+                </h4>
+
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', background: 'white' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 700 }}>
+                        <th style={{ padding: '0.75rem 1rem' }}>Cargo / Posición</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Descripción</th>
+                        <th style={{ padding: '0.75rem 1rem' }}>Salario Base</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Colaboradores</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {availablePositions.map((pos) => {
+                        const count = pos.staff_count !== undefined 
+                          ? pos.staff_count 
+                          : staff.filter(s => (s.posicion || '').trim().toLowerCase() === (pos.name || '').trim().toLowerCase() && s.status === 'Activo').length;
+                        return (
+                          <tr key={pos.id || pos.name} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}>
+                            <td style={{ padding: '0.85rem 1rem', fontWeight: 800, color: '#0f172a' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Scissors size={14} color="#09090b" />
+                                </div>
+                                <span>{pos.name}</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', color: '#64748b', fontSize: '0.8rem' }}>
+                              {pos.description || 'Sin descripción'}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', fontWeight: 700, color: '#059669' }}>
+                              {pos.base_salary > 0 ? `RD$ ${Number(pos.base_salary).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : 'Variable'}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                              <span style={{
+                                padding: '0.2rem 0.6rem',
+                                borderRadius: '50px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                background: count > 0 ? '#dcfce7' : '#f1f5f9',
+                                color: count > 0 ? '#16a34a' : '#94a3b8'
+                              }}>
+                                {count} activo(s)
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'right' }}>
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.35rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditPosition(pos)}
+                                  style={{ padding: '0.4rem', border: '1px solid #e2e8f0', background: 'white', borderRadius: '8px', cursor: 'pointer', color: '#09090b' }}
+                                  title="Editar cargo"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePosition(pos)}
+                                  style={{ padding: '0.4rem', border: '1px solid #fee2e2', background: '#fff5f5', borderRadius: '8px', cursor: 'pointer', color: '#ef4444' }}
+                                  title="Eliminar cargo"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1rem 1.75rem', borderTop: '1px solid #f1f5f9', background: '#fafafa', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPositionsModal(false);
+                  resetPositionForm();
+                }}
+                style={{ padding: '0.65rem 1.5rem', background: '#09090b', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}
+              >
+                Cerrar Configuración
+              </button>
+            </div>
+
           </div>
         </div>
       )}

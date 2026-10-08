@@ -1551,6 +1551,45 @@ export const dataService = {
     } catch (e) { console.error(e); }
   },
 
+  // RRHH Staff Positions (Cargos)
+  getStaffPositions: async () => {
+    try {
+      const res = await fetch(`${API_URL}/staff-positions`);
+      return res.ok ? await res.json() : [];
+    } catch { return []; }
+  },
+
+  createStaffPosition: async (position) => {
+    try {
+      const res = await fetch(`${API_URL}/staff-positions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(position)
+      });
+      return await res.json();
+    } catch (e) { console.error(e); }
+  },
+
+  updateStaffPosition: async (id, position) => {
+    try {
+      const res = await fetch(`${API_URL}/staff-positions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(position)
+      });
+      return await res.json();
+    } catch (e) { console.error(e); }
+  },
+
+  deleteStaffPosition: async (id, force = false) => {
+    try {
+      const res = await fetch(`${API_URL}/staff-positions/${id}${force ? '?force=true' : ''}`, {
+        method: 'DELETE'
+      });
+      return await res.json();
+    } catch (e) { console.error(e); }
+  },
+
   getCardnetStatus: async () => {
     try {
       const res = await fetch(`${API_URL}/cardnet/status`);

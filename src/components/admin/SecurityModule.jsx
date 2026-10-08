@@ -615,7 +615,7 @@ export default function SecurityModule() {
                         </span>
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
-                        {salon ? salon.nombre : '🌐 Todas (Global)'}
+                        {salon ? (salon.name || salon.nombre) : '🌐 Todas (Global)'}
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
                         {u.last_login ? new Date(u.last_login).toLocaleString('es-DO') : 'Nunca'}
@@ -1362,7 +1362,7 @@ export default function SecurityModule() {
                   >
                     <option value="">🌐 Global (Todas)</option>
                     {salons.map(s => (
-                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                      <option key={s.id} value={s.id}>{s.name || s.nombre}</option>
                     ))}
                   </select>
                 </div>
