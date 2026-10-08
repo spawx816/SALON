@@ -1581,13 +1581,20 @@ export const dataService = {
     } catch (e) { console.error(e); }
   },
 
-  deleteStaffPosition: async (id, force = false) => {
+  deleteStaffPosition: async (id, force = false, name = '') => {
     try {
-      const res = await fetch(`${API_URL}/staff-positions/${id}${force ? '?force=true' : ''}`, {
+      const params = new URLSearchParams();
+      if (force) params.append('force', 'true');
+      if (name) params.append('name', name);
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`${API_URL}/staff-positions/${id}${query}`, {
         method: 'DELETE'
       });
       return await res.json();
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error('Error deleting staff position:', e); 
+      return { error: e.message };
+    }
   },
 
   getCardnetStatus: async () => {

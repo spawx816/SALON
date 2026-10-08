@@ -67,16 +67,7 @@ const RoleManagement = () => {
   const [sortBy, setSortBy] = useState('name_asc'); // 'name_asc', 'name_desc', 'recent', 'salary_desc'
   const itemsPerPage = 10;
 
-  const defaultFallbackPositions = [
-    { id: 1, name: 'Peluquera', description: 'Estilista / Especialista en cabello y secado', base_salary: 18000 },
-    { id: 2, name: 'Lava pelo', description: 'Lavado, tratamientos capilares y asistencia', base_salary: 18421 },
-    { id: 3, name: 'Manicurista', description: 'Cuidado y diseño de uñas', base_salary: 15351 },
-    { id: 4, name: 'Encargada', description: 'Supervisión de operaciones y caja', base_salary: 20000 },
-    { id: 5, name: 'Recepcionista', description: 'Atención al cliente, cobro y agendamiento', base_salary: 18000 },
-    { id: 6, name: 'Cajera', description: 'Facturación y arqueo de caja', base_salary: 18000 }
-  ];
-
-  const availablePositions = positions && positions.length > 0 ? positions : defaultFallbackPositions;
+  const availablePositions = positions || [];
 
   const loadData = async () => {
     try {
@@ -133,30 +124,47 @@ const RoleManagement = () => {
 
   const handleDeletePosition = async (pos) => {
     setPositionError('');
-    if (pos.staff_count > 0) {
-      const confirm = window.confirm(`El cargo "${pos.name}" está asignado a ${pos.staff_count} colaborador(es) activo(s). ¿Desea eliminar la posición de la lista de todos modos?`);
+    const posIdentifier = pos.id || encodeURIComponent(pos.name);
+    const count = (pos.staff_count !== undefined && Number(pos.staff_count) > 0)
+      ? Number(pos.staff_count)
+      : staff.filter(s => {
+          const sPos = (s.posicion || '').trim().toLowerCase();
+          const pPos = (pos.name || '').trim().toLowerCase();
+          return sPos === pPos || sPos.includes(pPos) || pPos.includes(sPos);
+        }).length;
+
+    let force = false;
+    if (count > 0) {
+      const confirm = window.confirm(`El cargo "${pos.name}" tiene ${count} colaborador(es) asignado(s).\n\n¿Desea eliminar la posición de todos modos? Se desvinculará de los colaboradores.`);
       if (!confirm) return;
-      try {
-        const res = await dataService.deleteStaffPosition(pos.id, true);
-        if (res && res.error) throw new Error(res.error);
-      } catch (err) {
-        alert(err.message || 'Error al eliminar el cargo');
-      }
+      force = true;
     } else {
       const confirm = window.confirm(`¿Está seguro de eliminar el cargo "${pos.name}"?`);
       if (!confirm) return;
-      try {
-        const res = await dataService.deleteStaffPosition(pos.id, false);
-        if (res && res.error) throw new Error(res.error);
-      } catch (err) {
-        alert(err.message || 'Error al eliminar el cargo');
+    }
+
+    try {
+      // Optimistic update
+      setPositions(prev => prev.filter(p => (p.id ? p.id !== pos.id : true) && p.name !== pos.name));
+      
+      const res = await dataService.deleteStaffPosition(posIdentifier, force, pos.name);
+      if (res && res.error) {
+        setPositionError(res.error);
+        alert(res.error);
+        await loadData();
+        return;
       }
+      if (editingPosition?.id === pos.id || editingPosition?.name === pos.name) {
+        setEditingPosition(null);
+        setPositionForm({ name: '', description: '', base_salary: 0, sync_salaries: true });
+      }
+      await loadData();
+    } catch (err) {
+      console.error('Error al eliminar cargo:', err);
+      setPositionError(err.message || 'Error al eliminar el cargo');
+      alert(err.message || 'Error al eliminar el cargo');
+      await loadData();
     }
-    if (editingPosition?.id === pos.id) {
-      setEditingPosition(null);
-      setPositionForm({ name: '', description: '', base_salary: 0 });
-    }
-    await loadData();
   };
 
   const startEditPosition = (pos) => {

@@ -208,7 +208,9 @@ function createEmployeesRouter(pool) {
   };
 
   // Staff Positions (Cargos & Funciones)
+  let isPositionsInitialized = false;
   const ensurePositionsTable = async () => {
+    if (isPositionsInitialized) return;
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS staff_positions (
@@ -220,37 +222,26 @@ function createEmployeesRouter(pool) {
         )
       `);
 
-      // Seed / Update standard positions with the requested salaries
-      const standardPositions = [
-        ['Peluquera', 'Estilista / Especialista en cabello y secado', 18000.00],
-        ['Lava pelo', 'Lavado, tratamientos capilares y asistencia', 18421.00],
-        ['Manicurista', 'Cuidado y diseño de uñas', 15351.00],
-        ['Encargada', 'Supervisión de operaciones y caja', 20000.00],
-        ['Recepcionista', 'Atención al cliente, cobro y agendamiento', 18000.00],
-        ['Cajera', 'Facturación y arqueo de caja', 18000.00]
-      ];
-      for (const [name, desc, sal] of standardPositions) {
-        await pool.query(
-          `INSERT INTO staff_positions (name, description, base_salary) 
-           VALUES (?, ?, ?) 
-           ON DUPLICATE KEY UPDATE description = VALUES(description), base_salary = VALUES(base_salary)`,
-          [name, desc, sal]
-        );
-      }
-
-      // Also import any distinct positions already existing in staff_records
-      const [distinctInStaff] = await pool.query(`
-        SELECT DISTINCT posicion FROM staff_records 
-        WHERE posicion IS NOT NULL AND TRIM(posicion) != ''
-      `);
-      for (const row of distinctInStaff) {
-        if (row.posicion && row.posicion.trim()) {
+      // Seed standard positions ONLY if the table is completely empty (first time run)
+      const [existing] = await pool.query('SELECT COUNT(*) as count FROM staff_positions');
+      if (existing && existing[0] && existing[0].count === 0) {
+        const standardPositions = [
+          ['Peluquera', 'Estilista / Especialista en cabello y secado', 18000.00],
+          ['Lava pelo', 'Lavado, tratamientos capilares y asistencia', 18421.00],
+          ['Manicurista', 'Cuidado y diseño de uñas', 15351.00],
+          ['Encargada', 'Supervisión de operaciones y caja', 20000.00],
+          ['Recepcionista', 'Atención al cliente, cobro y agendamiento', 18000.00],
+          ['Cajera', 'Facturación y arqueo de caja', 18000.00]
+        ];
+        for (const [name, desc, sal] of standardPositions) {
           await pool.query(
-            'INSERT IGNORE INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)',
-            [row.posicion.trim(), 'Cargo registrado en colaboradores', 0.00]
+            `INSERT IGNORE INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)`,
+            [name, desc, sal]
           );
         }
       }
+
+      isPositionsInitialized = true;
     } catch (err) {
       console.warn('[RRHH POSITIONS INIT]', err.message);
     }
@@ -367,18 +358,53 @@ function createEmployeesRouter(pool) {
   const handleDeletePosition = async (req, res) => {
     try {
       const { id } = req.params;
-      const [pos] = await pool.query('SELECT name FROM staff_positions WHERE id = ?', [id]);
-      if (pos.length > 0) {
-        const posName = pos[0].name;
-        const [staffCount] = await pool.query('SELECT COUNT(*) as cnt FROM staff_records WHERE posicion = ?', [posName]);
-        if (staffCount[0].cnt > 0 && req.query.force !== 'true') {
+      const nameQuery = req.query.name ? String(req.query.name).trim() : null;
+      const isNumeric = !isNaN(parseInt(id, 10)) && /^\d+$/.test(String(id).trim());
+      
+      let posName = nameQuery || null;
+      let posId = null;
+
+      if (isNumeric) {
+        posId = parseInt(id, 10);
+        const [rows] = await pool.query('SELECT id, name FROM staff_positions WHERE id = ?', [posId]);
+        if (rows.length > 0) {
+          posName = rows[0].name;
+        }
+      } else {
+        const decoded = decodeURIComponent(id).trim();
+        if (!posName) posName = decoded;
+        const [rows] = await pool.query('SELECT id, name FROM staff_positions WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))', [posName]);
+        if (rows.length > 0) {
+          posId = rows[0].id;
+        }
+      }
+
+      if (!posName && nameQuery) {
+        posName = nameQuery;
+      }
+
+      if (posName && req.query.force !== 'true') {
+        const [staffCount] = await pool.query('SELECT COUNT(*) as cnt FROM staff_records WHERE LOWER(TRIM(posicion)) = LOWER(TRIM(?))', [posName]);
+        if (staffCount[0] && staffCount[0].cnt > 0) {
           return res.status(400).json({ 
             error: `No se puede eliminar porque hay ${staffCount[0].cnt} colaborador(es) asignados a este cargo.`,
             staff_count: staffCount[0].cnt
           });
         }
       }
-      await pool.query('DELETE FROM staff_positions WHERE id = ?', [id]);
+
+      if (posId) {
+        await pool.query('DELETE FROM staff_positions WHERE id = ?', [posId]);
+      }
+      if (posName) {
+        await pool.query('DELETE FROM staff_positions WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))', [posName]);
+      }
+
+      // If force delete, clear position in staff_records so no orphan positions or reactivation loops exist
+      if (posName && req.query.force === 'true') {
+        await pool.query('UPDATE staff_records SET posicion = "" WHERE LOWER(TRIM(posicion)) = LOWER(TRIM(?))', [posName]);
+      }
+
       res.json({ success: true, message: 'Cargo eliminado correctamente' });
     } catch (err) {
       console.error('[DELETE POSITION ERROR]', err);

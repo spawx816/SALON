@@ -80,10 +80,24 @@ function createDashboardRouter(pool) {
         pool.query('SELECT id, name FROM salons ORDER BY id ASC'),
         // 9. Breakdown: Visitas de Hoy
         pool.query(`
-          SELECT v.id, COALESCE(v.salon_id, cl.salon_id, 1) as salon_id, v.total, v.metodo_pago, v.servicios
+          SELECT 
+            v.id, 
+            COALESCE(v.salon_id, cl.salon_id, 1) as salon_id, 
+            v.total, 
+            v.metodo_pago, 
+            v.servicios,
+            v.client_id,
+            v.ticket_type,
+            c.id as contract_id,
+            c.status as contract_status,
+            cl.membership_id
           FROM visits v
           LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
-          WHERE DATE(v.visited_at) = CURRENT_DATE()
+          LEFT JOIN contracts c ON (v.client_id = c.client_id AND c.status IN ('Active', 'Activo'))
+          WHERE (
+            DATE(v.visited_at) = CURRENT_DATE() 
+            OR DATE(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '-04:00'))
+          )
         `),
         // 10. Breakdown: Membresías Activas
         pool.query(`
@@ -100,7 +114,10 @@ function createDashboardRouter(pool) {
                  p.amount, p.plan_id, p.method
           FROM payments p
           LEFT JOIN clients cl ON p.client_id = cl.id
-          WHERE DATE(p.created_at) = CURRENT_DATE() AND p.status = 'Aprobado'
+          WHERE (
+            DATE(p.created_at) = CURRENT_DATE()
+            OR DATE(CONVERT_TZ(p.created_at, '+00:00', '-04:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '-04:00'))
+          ) AND p.status = 'Aprobado'
         `),
         // 12. Breakdown: Ventas POS de Hoy
         pool.query(`
@@ -110,7 +127,10 @@ function createDashboardRouter(pool) {
                  v.metodo_pago as method
           FROM visits v
           LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
-          WHERE DATE(v.visited_at) = CURRENT_DATE() AND v.status = 'Facturado' AND v.total > 0
+          WHERE (
+            DATE(v.visited_at) = CURRENT_DATE()
+            OR DATE(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '-04:00'))
+          ) AND v.status = 'Facturado' AND v.total > 0
         `)
       ]);
 
@@ -123,9 +143,23 @@ function createDashboardRouter(pool) {
       });
       todayVisitsRows.forEach(v => {
         const sId = visitsBreakdownBySalon[v.salon_id] ? v.salon_id : salonsData[0].id;
-        const isPlan = (v.metodo_pago && v.metodo_pago.toLowerCase().includes('plan')) || 
-                       (typeof v.servicios === 'string' && v.servicios.toLowerCase().includes('plan')) || 
-                       Number(v.total) === 0;
+        const metodo = String(v.metodo_pago || '').toLowerCase();
+        const serviciosStr = typeof v.servicios === 'string' ? v.servicios.toLowerCase() : JSON.stringify(v.servicios || '').toLowerCase();
+        const ticketType = String(v.ticket_type || '').toLowerCase();
+        const isNamedClient = v.client_id && v.client_id !== 'INVITADO' && v.client_id !== 'generico' && v.client_id !== '0' && !String(v.client_id).startsWith('gen_');
+
+        const isPlan = 
+          metodo.includes('plan') || 
+          metodo.includes('membres') || 
+          metodo.includes('suscrip') ||
+          metodo.includes('gratis') ||
+          serviciosStr.includes('plan beauty') || 
+          serviciosStr.includes('membres') ||
+          serviciosStr.includes('lavado plan') ||
+          ticketType.includes('plan') ||
+          v.contract_id !== null ||
+          (isNamedClient && (Number(v.total) === 0 || metodo.includes('plan')));
+
         if (isPlan) {
           visitsBreakdownBySalon[sId].plan_beauty++;
         } else {
