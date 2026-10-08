@@ -68,9 +68,9 @@ const RoleManagement = () => {
 
   const defaultFallbackPositions = [
     { id: 1, name: 'Peluquera', description: 'Estilista / Especialista en cabello y secado', base_salary: 18000 },
-    { id: 2, name: 'Lava pelo', description: 'Lavado, tratamientos capilares y asistencia', base_salary: 12000 },
-    { id: 3, name: 'Manicurista', description: 'Cuidado y diseño de uñas', base_salary: 15000 },
-    { id: 4, name: 'Encargada', description: 'Supervisión de operaciones y caja', base_salary: 25000 },
+    { id: 2, name: 'Lava pelo', description: 'Lavado, tratamientos capilares y asistencia', base_salary: 18421 },
+    { id: 3, name: 'Manicurista', description: 'Cuidado y diseño de uñas', base_salary: 15351 },
+    { id: 4, name: 'Encargada', description: 'Supervisión de operaciones y caja', base_salary: 20000 },
     { id: 5, name: 'Recepcionista', description: 'Atención al cliente, cobro y agendamiento', base_salary: 18000 },
     { id: 6, name: 'Cajera', description: 'Facturación y arqueo de caja', base_salary: 18000 }
   ];
@@ -1534,9 +1534,13 @@ const RoleManagement = () => {
                     </thead>
                     <tbody>
                       {availablePositions.map((pos) => {
-                        const count = pos.staff_count !== undefined 
-                          ? pos.staff_count 
-                          : staff.filter(s => (s.posicion || '').trim().toLowerCase() === (pos.name || '').trim().toLowerCase() && s.status === 'Activo').length;
+                        const count = (pos.staff_count !== undefined && Number(pos.staff_count) > 0)
+                          ? Number(pos.staff_count)
+                          : staff.filter(s => {
+                              const sPos = (s.posicion || '').trim().toLowerCase();
+                              const pPos = (pos.name || '').trim().toLowerCase();
+                              return sPos === pPos || sPos.includes(pPos) || pPos.includes(sPos);
+                            }).length;
                         return (
                           <tr key={pos.id || pos.name} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}>
                             <td style={{ padding: '0.85rem 1rem', fontWeight: 800, color: '#0f172a' }}>

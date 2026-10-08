@@ -220,23 +220,22 @@ function createEmployeesRouter(pool) {
         )
       `);
 
-      // Seed standard positions if table is empty
-      const [existing] = await pool.query('SELECT COUNT(*) as cnt FROM staff_positions');
-      if (existing[0].cnt === 0) {
-        const defaultPositions = [
-          ['Peluquera', 'Estilista / Especialista en cabello y secado', 18000.00],
-          ['Lava pelo', 'Lavado, tratamientos capilares y asistencia', 12000.00],
-          ['Manicurista', 'Cuidado y diseño de uñas', 15000.00],
-          ['Encargada', 'Supervisión de operaciones y caja', 25000.00],
-          ['Recepcionista', 'Atención al cliente, cobro y agendamiento', 18000.00],
-          ['Cajera', 'Facturación y arqueo de caja', 18000.00]
-        ];
-        for (const [name, desc, sal] of defaultPositions) {
-          await pool.query(
-            'INSERT IGNORE INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)',
-            [name, desc, sal]
-          );
-        }
+      // Seed / Update standard positions with the requested salaries
+      const standardPositions = [
+        ['Peluquera', 'Estilista / Especialista en cabello y secado', 18000.00],
+        ['Lava pelo', 'Lavado, tratamientos capilares y asistencia', 18421.00],
+        ['Manicurista', 'Cuidado y diseño de uñas', 15351.00],
+        ['Encargada', 'Supervisión de operaciones y caja', 20000.00],
+        ['Recepcionista', 'Atención al cliente, cobro y agendamiento', 18000.00],
+        ['Cajera', 'Facturación y arqueo de caja', 18000.00]
+      ];
+      for (const [name, desc, sal] of standardPositions) {
+        await pool.query(
+          `INSERT INTO staff_positions (name, description, base_salary) 
+           VALUES (?, ?, ?) 
+           ON DUPLICATE KEY UPDATE description = VALUES(description), base_salary = VALUES(base_salary)`,
+          [name, desc, sal]
+        );
       }
 
       // Also import any distinct positions already existing in staff_records
@@ -270,12 +269,22 @@ function createEmployeesRouter(pool) {
           COALESCE(st.staff_count, 0) as staff_count
         FROM staff_positions sp
         LEFT JOIN (
-          SELECT posicion, COUNT(*) as staff_count
+          SELECT TRIM(LOWER(posicion)) as pos_clean, COUNT(*) as staff_count
           FROM staff_records
-          WHERE status = 'Activo' OR status = 'Active'
-          GROUP BY posicion
-        ) st ON sp.name = st.posicion
-        ORDER BY sp.name ASC
+          WHERE status IS NULL OR status = '' OR status = 'Activo' OR status = 'Active' OR status = 'En Licencia'
+          GROUP BY TRIM(LOWER(posicion))
+        ) st ON TRIM(LOWER(sp.name)) = st.pos_clean
+        ORDER BY 
+          CASE 
+            WHEN sp.name LIKE '%Peluquer%' THEN 1
+            WHEN sp.name LIKE '%Lava%' THEN 2
+            WHEN sp.name LIKE '%Manicur%' THEN 3
+            WHEN sp.name LIKE '%Encargad%' THEN 4
+            WHEN sp.name LIKE '%Recep%' THEN 5
+            WHEN sp.name LIKE '%Cajer%' THEN 6
+            ELSE 7
+          END,
+          sp.name ASC
       `);
       res.json(rows);
     } catch (err) {
