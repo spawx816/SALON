@@ -101,6 +101,90 @@ export default function PayrollModule({ initialTab }) {
   const [bulkTssMode, setBulkTssMode] = useState('fixed'); // 'fixed' | 'law_percentage'
   const [bulkTssScope, setBulkTssScope] = useState('all'); // 'all' | 'selected'
 
+  // Control de visibilidad de columnas (casillas para ocultar / mostrar)
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    try {
+      const saved = localStorage.getItem('payroll_visible_columns_v1');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      salario_fijo: true,
+      comisiones: true,
+      feriados: true,
+      horas_extras: true,
+      otros_ingresos: true,
+      total_ingresos: true,
+      tss: true,
+      servicios: true,
+      prestamos: true,
+      ausencias: true,
+      tardanzas: true,
+      otros_descuentos: true,
+      total_descuentos: true,
+      neto_pagar: true
+    };
+  });
+  const [showColumnsPopover, setShowColumnsPopover] = useState(false);
+
+  const handleToggleColumn = (colKey) => {
+    setVisibleColumns(prev => {
+      const updated = { ...prev, [colKey]: !prev[colKey] };
+      try {
+        localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const handleSetAllColumns = (val) => {
+    const updated = {
+      salario_fijo: val,
+      comisiones: val,
+      feriados: val,
+      horas_extras: val,
+      otros_ingresos: val,
+      total_ingresos: true,
+      tss: val,
+      servicios: val,
+      prestamos: val,
+      ausencias: val,
+      tardanzas: val,
+      otros_descuentos: val,
+      total_descuentos: true,
+      neto_pagar: true
+    };
+    setVisibleColumns(updated);
+    try {
+      localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
+    } catch (e) {}
+  };
+
+  const handleSetEssentialColumns = () => {
+    const updated = {
+      salario_fijo: true,
+      comisiones: true,
+      feriados: false,
+      horas_extras: false,
+      otros_ingresos: false,
+      total_ingresos: true,
+      tss: true,
+      servicios: true,
+      prestamos: true,
+      ausencias: false,
+      tardanzas: false,
+      otros_descuentos: false,
+      total_descuentos: true,
+      neto_pagar: true
+    };
+    setVisibleColumns(updated);
+    try {
+      localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
+    } catch (e) {}
+  };
+
+  // Lista de sucursales registradas
+  const [salonsList, setSalonsList] = useState([]);
+
   // Modal de Auditoría
   const [showAuditModal, setShowAuditModal] = useState(false);
 
@@ -118,13 +202,15 @@ export default function PayrollModule({ initialTab }) {
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [periodsRes, conceptsRes] = await Promise.all([
+      const [periodsRes, conceptsRes, salonsRes] = await Promise.all([
         dataService.getPayrollPeriods(),
-        dataService.getPayrollConcepts()
+        dataService.getPayrollConcepts(),
+        dataService.getSalons ? dataService.getSalons() : Promise.resolve([])
       ]);
 
       setPeriods(periodsRes || []);
       setConcepts(conceptsRes || []);
+      if (salonsRes && Array.isArray(salonsRes)) setSalonsList(salonsRes);
 
       if (periodsRes && periodsRes.length > 0) {
         // Cargar el último período activo o el primero de la lista
@@ -207,8 +293,21 @@ export default function PayrollModule({ initialTab }) {
         item.employee_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.posicion?.toLowerCase().includes(searchTerm.toLowerCase());
       
-      const matchSucursal = filterSucursal === 'Todas' || 
-        item.sucursal?.toLowerCase().includes(filterSucursal.toLowerCase());
+      const itemSuc = (item.sucursal || '').toLowerCase();
+      const filterSuc = (filterSucursal || 'Todas').toLowerCase();
+
+      let matchSucursal = filterSuc === 'todas';
+      if (!matchSucursal) {
+        if (filterSuc.includes('disponible')) {
+          matchSucursal = itemSuc.includes('disponible');
+        } else if (filterSuc.includes('villa mella') || filterSuc.includes('mella')) {
+          matchSucursal = itemSuc.includes('mella');
+        } else if (filterSuc.includes('san vicente') || filterSuc.includes('vicente')) {
+          matchSucursal = itemSuc.includes('vicente');
+        } else {
+          matchSucursal = itemSuc.includes(filterSuc);
+        }
+      }
 
       const matchDept = filterDepartamento === 'Todos' || 
         item.departamento?.toLowerCase().includes(filterDepartamento.toLowerCase()) ||
@@ -1106,7 +1205,7 @@ export default function PayrollModule({ initialTab }) {
             </div>
           </div>
 
-          {/* BARRA DE FILTROS */}
+          {/* BARRA DE FILTROS Y SELECTOR DE COLUMNAS */}
           <div style={{
             background: '#ffffff',
             borderRadius: '16px',
@@ -1132,6 +1231,7 @@ export default function PayrollModule({ initialTab }) {
                 <option value="Todas">Todas las sucursales</option>
                 <option value="San Vicente">Abatte San Vicente</option>
                 <option value="Villa Mella">Abatte Villa Mella</option>
+                <option value="Disponibles (*)">Disponibles (*)</option>
               </select>
             </div>
 
@@ -1179,16 +1279,157 @@ export default function PayrollModule({ initialTab }) {
               </div>
             </div>
 
-            <div>
+            {/* SELECTOR DE COLUMNAS VISIBLES (CASILLAS) */}
+            <div style={{ position: 'relative' }}>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
-                Período de nómina
+                Columnas de Tabla
               </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.6rem 1rem', borderRadius: '10px' }}>
-                <Calendar size={16} color="#64748b" />
-                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>
-                  {currentPeriod?.start_date} al {currentPeriod?.end_date}
+              <button
+                type="button"
+                onClick={() => setShowColumnsPopover(prev => !prev)}
+                style={{
+                  width: '100%',
+                  padding: '0.65rem 1rem',
+                  borderRadius: '10px',
+                  background: showColumnsPopover ? '#eff6ff' : '#f8fafc',
+                  border: showColumnsPopover ? '1.5px solid #0066ff' : '1px solid #e2e8f0',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  color: '#1e293b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  gap: '0.5rem',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                }}
+              >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Sliders size={15} color="#0066ff" />
+                  <span>Columnas ({Object.values(visibleColumns).filter(Boolean).length}/14)</span>
                 </span>
-              </div>
+                <ChevronDown size={14} color="#64748b" style={{ transform: showColumnsPopover ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </button>
+
+              {/* POPOVER FLOTANTE DE CASILLAS */}
+              {showColumnsPopover && (
+                <div 
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    right: 0,
+                    zIndex: 50,
+                    background: '#ffffff',
+                    borderRadius: '16px',
+                    border: '1px solid #cbd5e1',
+                    boxShadow: '0 12px 36px rgba(15, 23, 42, 0.18)',
+                    padding: '1.25rem',
+                    minWidth: '320px',
+                    maxWidth: '380px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>
+                    <strong style={{ fontSize: '0.88rem', color: '#0f172a' }}>Ocultar / Mostrar Columnas</strong>
+                    <button 
+                      type="button" 
+                      onClick={() => setShowColumnsPopover(false)} 
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {/* GRUPO INGRESOS */}
+                    <div style={{ marginBottom: '0.85rem' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0066ff', textTransform: 'uppercase', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <ArrowUpRight size={12} /> Ingresos
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' }}>
+                        {[
+                          { key: 'salario_fijo', label: 'S. Fijo' },
+                          { key: 'comisiones', label: 'Comisiones' },
+                          { key: 'feriados', label: 'Feriados' },
+                          { key: 'horas_extras', label: 'H. Extras' },
+                          { key: 'otros_ingresos', label: 'Otros Ing.' },
+                          { key: 'total_ingresos', label: 'Total Ingresos' }
+                        ].map(col => (
+                          <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#334155', cursor: 'pointer', background: visibleColumns[col.key] ? '#eff6ff' : '#f8fafc', padding: '4px 7px', borderRadius: '6px', border: '1px solid', borderColor: visibleColumns[col.key] ? '#bfdbfe' : '#e2e8f0' }}>
+                            <input 
+                              type="checkbox"
+                              checked={!!visibleColumns[col.key]}
+                              onChange={() => handleToggleColumn(col.key)}
+                              style={{ accentColor: '#0066ff', cursor: 'pointer' }}
+                            />
+                            <span style={{ fontWeight: visibleColumns[col.key] ? 700 : 500 }}>{col.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* GRUPO DESCUENTOS */}
+                    <div style={{ marginBottom: '0.85rem' }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <ArrowDownRight size={12} /> Descuentos
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' }}>
+                        {[
+                          { key: 'tss', label: 'TSS (Ley)' },
+                          { key: 'servicios', label: 'Servicios' },
+                          { key: 'prestamos', label: 'Préstamos' },
+                          { key: 'ausencias', label: 'Ausencias' },
+                          { key: 'tardanzas', label: 'Tardanzas' },
+                          { key: 'otros_descuentos', label: 'Otros Desc.' },
+                          { key: 'total_descuentos', label: 'Total Descuentos' }
+                        ].map(col => (
+                          <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#334155', cursor: 'pointer', background: visibleColumns[col.key] ? '#fef2f2' : '#f8fafc', padding: '4px 7px', borderRadius: '6px', border: '1px solid', borderColor: visibleColumns[col.key] ? '#fecaca' : '#e2e8f0' }}>
+                            <input 
+                              type="checkbox"
+                              checked={!!visibleColumns[col.key]}
+                              onChange={() => handleToggleColumn(col.key)}
+                              style={{ accentColor: '#dc2626', cursor: 'pointer' }}
+                            />
+                            <span style={{ fontWeight: visibleColumns[col.key] ? 700 : 500 }}>{col.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* GRUPO NETO */}
+                    <div>
+                      <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                        A Desembolsar
+                      </div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#334155', cursor: 'pointer', background: visibleColumns.neto_pagar ? '#f0fdf4' : '#f8fafc', padding: '4px 7px', borderRadius: '6px', border: '1px solid', borderColor: visibleColumns.neto_pagar ? '#bbf7d0' : '#e2e8f0' }}>
+                        <input 
+                          type="checkbox"
+                          checked={!!visibleColumns.neto_pagar}
+                          onChange={() => handleToggleColumn('neto_pagar')}
+                          style={{ accentColor: '#16a34a', cursor: 'pointer' }}
+                        />
+                        <span style={{ fontWeight: visibleColumns.neto_pagar ? 800 : 500 }}>Neto a Pagar</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.85rem', paddingTop: '0.65rem', borderTop: '1px solid #f1f5f9', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSetAllColumns(true)}
+                      style={{ background: '#f1f5f9', border: 'none', padding: '4px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+                    >
+                      Mostrar todas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSetEssentialColumns}
+                      style={{ background: '#eff6ff', border: 'none', padding: '4px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, color: '#0066ff', cursor: 'pointer' }}
+                    >
+                      Solo esenciales
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1280,264 +1521,323 @@ export default function PayrollModule({ initialTab }) {
           )}
 
           {/* TABLA PRINCIPAL DE NÓMINA */}
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '20px',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
-            overflow: 'hidden',
-            marginBottom: '1.5rem'
-          }}>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-                <thead>
-                  {/* Fila Superior de Grupos */}
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    <th style={{ padding: '0.85rem 1rem', width: '40px' }}>
-                      <input 
-                        type="checkbox" 
-                        onChange={handleSelectAll}
-                        checked={paginatedItems.length > 0 && selectedItemIds.length === paginatedItems.length}
-                        style={{ width: '16px', height: '16px', accentColor: '#0066ff', cursor: 'pointer' }}
-                      />
-                    </th>
-                    <th style={{ padding: '0.85rem 0.5rem', width: '40px', color: '#64748b', fontWeight: 700 }}>#</th>
-                    <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 800 }}>Colaborador</th>
-                    <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>Posición</th>
-                    <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>Sucursal</th>
-                    
-                    {/* Grupo Ingresos */}
-                    <th colSpan="6" style={{ background: '#eff6ff', color: '#1e40af', fontWeight: 900, textAlign: 'center', borderLeft: '1px solid #dbeafe', borderRight: '1px solid #dbeafe', padding: '0.6rem' }}>
-                      Ingresos (RD$)
-                    </th>
+          {(() => {
+            const ingresosCount = [
+              visibleColumns.salario_fijo,
+              visibleColumns.comisiones,
+              visibleColumns.feriados,
+              visibleColumns.horas_extras,
+              visibleColumns.otros_ingresos,
+              visibleColumns.total_ingresos
+            ].filter(Boolean).length;
 
-                    {/* Grupo Descuentos */}
-                    <th colSpan="7" style={{ background: '#fef2f2', color: '#991b1b', fontWeight: 900, textAlign: 'center', borderRight: '1px solid #fee2e2', padding: '0.6rem' }}>
-                      Descuentos (RD$)
-                    </th>
+            const descuentosCount = [
+              visibleColumns.tss,
+              visibleColumns.servicios,
+              visibleColumns.prestamos,
+              visibleColumns.ausencias,
+              visibleColumns.tardanzas,
+              visibleColumns.otros_descuentos,
+              visibleColumns.total_descuentos
+            ].filter(Boolean).length;
 
-                    {/* A Pagar */}
-                    <th style={{ background: '#f0fdf4', color: '#166534', fontWeight: 900, textAlign: 'right', padding: '0.85rem 1.25rem' }}>
-                      Neto a pagar (RD$)
-                    </th>
-                    <th style={{ background: '#f8fafc', textAlign: 'center', padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>
-                      Acciones
-                    </th>
-                  </tr>
-
-                  {/* Fila Inferior con Columnas Individuales */}
-                  <tr style={{ background: '#ffffff', borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>
-                    <th colSpan="5"></th>
-                    
-                    {/* Columnas Ingresos */}
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderLeft: '1px solid #dbeafe' }}>S. Fijo</th>
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Comisiones</th>
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Feriados</th>
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>H. Extras</th>
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros Ing.</th>
-                    <th style={{ background: '#eff6ff', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#1d4ed8', borderRight: '1px solid #dbeafe' }}>Total Ingresos</th>
-
-                    {/* Columnas Descuentos */}
-                    <th style={{ background: '#fffafb', padding: '0.45rem 0.6rem', textAlign: 'right', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.35rem' }}>
-                        <span>TSS (Ley)</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBulkTssValue('591.00');
-                            setBulkTssMode('fixed');
-                            setBulkTssScope('all');
-                            setShowBulkTssModal(true);
-                          }}
-                          title="Asignar el mismo valor de TSS masivo a todos los empleados"
-                          style={{
-                            background: '#fee2e2',
-                            color: '#b91c1c',
-                            border: '1px solid #fca5a5',
-                            borderRadius: '6px',
-                            padding: '2px 5px',
-                            fontSize: '0.65rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '2px',
-                            lineHeight: 1,
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                            transition: 'all 0.15s ease'
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = '#fecaca'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
-                        >
-                          <Sliders size={10} />
-                          <span>Fijar</span>
-                        </button>
-                      </div>
-                    </th>
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Servicios</th>
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Préstamos</th>
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Ausencias</th>
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Tardanzas</th>
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros Desc.</th>
-                    <th style={{ background: '#fef2f2', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#b91c1c', borderRight: '1px solid #fee2e2' }}>Total Descuentos</th>
-
-                    <th style={{ background: '#f0fdf4' }}></th>
-                    <th></th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {paginatedItems.map((item, idx) => {
-                    const rowNumber = (currentPage - 1) * itemsPerPage + idx + 1;
-                    const isSelected = selectedItemIds.includes(item.id);
-
-                    return (
-                      <tr 
-                        key={item.id || idx}
-                        style={{
-                          borderBottom: '1px solid #f1f5f9',
-                          background: isSelected ? '#f0f9ff' : (idx % 2 === 0 ? '#ffffff' : '#fafafa'),
-                          transition: 'background 0.15s ease'
-                        }}
-                      >
-                        <td style={{ padding: '1rem', width: '40px' }}>
+            return (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '20px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
+                overflow: 'hidden',
+                marginBottom: '1.5rem'
+              }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                    <thead>
+                      {/* Fila Superior de Grupos */}
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '0.85rem 1rem', width: '40px' }}>
                           <input 
                             type="checkbox" 
-                            checked={isSelected}
-                            onChange={() => handleToggleSelect(item.id)}
+                            onChange={handleSelectAll}
+                            checked={paginatedItems.length > 0 && selectedItemIds.length === paginatedItems.length}
                             style={{ width: '16px', height: '16px', accentColor: '#0066ff', cursor: 'pointer' }}
                           />
-                        </td>
-                        <td style={{ padding: '1rem 0.5rem', color: '#94a3b8', fontWeight: 700 }}>{rowNumber}</td>
-                        <td 
-                          onClick={() => handleOpenEmployeeModal(item, (currentPage - 1) * itemsPerPage + idx)}
-                          style={{ padding: '1rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}
-                          className="hover-underline"
-                        >
-                          {item.employee_name}
-                        </td>
-                        <td style={{ padding: '1rem', color: '#475569', fontWeight: 600 }}>{item.posicion}</td>
-                        <td style={{ padding: '1rem', color: '#64748b' }}>{item.sucursal}</td>
+                        </th>
+                        <th style={{ padding: '0.85rem 0.5rem', width: '40px', color: '#64748b', fontWeight: 700 }}>#</th>
+                        <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 800 }}>Colaborador</th>
+                        <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>Posición</th>
+                        <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>Sucursal</th>
+                        
+                        {/* Grupo Ingresos */}
+                        {ingresosCount > 0 && (
+                          <th colSpan={ingresosCount} style={{ background: '#eff6ff', color: '#1e40af', fontWeight: 900, textAlign: 'center', borderLeft: '1px solid #dbeafe', borderRight: '1px solid #dbeafe', padding: '0.6rem' }}>
+                            Ingresos (RD$)
+                          </th>
+                        )}
 
-                        {/* Ingresos */}
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155', borderLeft: '1px solid #f1f5f9' }}>
-                          {parseFloat(item.salario_fijo || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
-                          {parseFloat(item.comisiones || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
-                          {parseFloat(item.feriados || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
-                          {parseFloat(item.horas_extras || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
-                          {parseFloat(item.otros_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#0284c7', background: '#f0f9ff', borderRight: '1px solid #e0f2fe' }}>
-                          {parseFloat(item.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-
-                        {/* Descuentos */}
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
-                          {parseFloat(item.tss || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
-                          {parseFloat(item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
-                          {parseFloat(item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
-                          {parseFloat(item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
-                          {parseFloat(item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
-                          {parseFloat(item.otros_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#dc2626', background: '#fff5f5', borderRight: '1px solid #fee2e2' }}>
-                          {parseFloat(item.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
+                        {/* Grupo Descuentos */}
+                        {descuentosCount > 0 && (
+                          <th colSpan={descuentosCount} style={{ background: '#fef2f2', color: '#991b1b', fontWeight: 900, textAlign: 'center', borderRight: '1px solid #fee2e2', padding: '0.6rem' }}>
+                            Descuentos (RD$)
+                          </th>
+                        )}
 
                         {/* A Pagar */}
-                        <td style={{ padding: '1rem 1.25rem', textAlign: 'right', fontWeight: 900, color: '#16a34a', background: '#f0fdf4' }}>
-                          RD$ {parseFloat(item.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-
-                        {/* Acciones individuales */}
-                        <td style={{ padding: '1rem', textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
-                            <button
-                              onClick={() => handleOpenEmployeeModal(item, (currentPage - 1) * itemsPerPage + idx)}
-                              title="Ver / Editar Detalle"
-                              style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', color: '#334155' }}
-                            >
-                              <Edit2 size={13} />
-                            </button>
-                            <button
-                              onClick={() => handlePrintSlip(item)}
-                              title="Imprimir Volante Individual"
-                              style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', color: '#0066ff' }}
-                            >
-                              <Printer size={13} />
-                            </button>
-                          </div>
-                        </td>
+                        {visibleColumns.neto_pagar && (
+                          <th style={{ background: '#f0fdf4', color: '#166534', fontWeight: 900, textAlign: 'right', padding: '0.85rem 1.25rem' }}>
+                            Neto a pagar (RD$)
+                          </th>
+                        )}
+                        <th style={{ background: '#f8fafc', textAlign: 'center', padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>
+                          Acciones
+                        </th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
 
-            {/* BARRA DE PAGINACIÓN */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: '#ffffff', borderTop: '1px solid #f1f5f9', flexWrap: 'wrap', gap: '1rem' }}>
-              <div style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: 600 }}>
-                Mostrando {paginatedItems.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredItems.length)} de {filteredItems.length} colaboradores
+                      {/* Fila Inferior con Columnas Individuales */}
+                      <tr style={{ background: '#ffffff', borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>
+                        <th colSpan="5"></th>
+                        
+                        {/* Columnas Ingresos */}
+                        {visibleColumns.salario_fijo && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderLeft: '1px solid #dbeafe' }}>S. Fijo</th>}
+                        {visibleColumns.comisiones && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Comisiones</th>}
+                        {visibleColumns.feriados && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Feriados</th>}
+                        {visibleColumns.horas_extras && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>H. Extras</th>}
+                        {visibleColumns.otros_ingresos && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros Ing.</th>}
+                        {visibleColumns.total_ingresos && <th style={{ background: '#eff6ff', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#1d4ed8', borderRight: '1px solid #dbeafe' }}>Total Ingresos</th>}
+
+                        {/* Columnas Descuentos */}
+                        {visibleColumns.tss && (
+                          <th style={{ background: '#fffafb', padding: '0.45rem 0.6rem', textAlign: 'right', verticalAlign: 'middle' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.35rem' }}>
+                              <span>TSS (Ley)</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBulkTssValue('591.00');
+                                  setBulkTssMode('fixed');
+                                  setBulkTssScope('all');
+                                  setShowBulkTssModal(true);
+                                }}
+                                title="Asignar el mismo valor de TSS masivo a todos los empleados"
+                                style={{
+                                  background: '#fee2e2',
+                                  color: '#b91c1c',
+                                  border: '1px solid #fca5a5',
+                                  borderRadius: '6px',
+                                  padding: '2px 5px',
+                                  fontSize: '0.65rem',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '2px',
+                                  lineHeight: 1,
+                                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = '#fecaca'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                              >
+                                <Sliders size={10} />
+                                <span>Fijar</span>
+                              </button>
+                            </div>
+                          </th>
+                        )}
+                        {visibleColumns.servicios && <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Servicios</th>}
+                        {visibleColumns.prestamos && <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Préstamos</th>}
+                        {visibleColumns.ausencias && <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Ausencias</th>}
+                        {visibleColumns.tardanzas && <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Tardanzas</th>}
+                        {visibleColumns.otros_descuentos && <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros Desc.</th>}
+                        {visibleColumns.total_descuentos && <th style={{ background: '#fef2f2', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#b91c1c', borderRight: '1px solid #fee2e2' }}>Total Descuentos</th>}
+
+                        {visibleColumns.neto_pagar && <th style={{ background: '#f0fdf4' }}></th>}
+                        <th></th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {paginatedItems.map((item, idx) => {
+                        const rowNumber = (currentPage - 1) * itemsPerPage + idx + 1;
+                        const isSelected = selectedItemIds.includes(item.id);
+
+                        return (
+                          <tr 
+                            key={item.id || idx}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              background: isSelected ? '#f0f9ff' : (idx % 2 === 0 ? '#ffffff' : '#fafafa'),
+                              transition: 'background 0.15s ease'
+                            }}
+                          >
+                            <td style={{ padding: '1rem', width: '40px' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={isSelected}
+                                onChange={() => handleToggleSelect(item.id)}
+                                style={{ width: '16px', height: '16px', accentColor: '#0066ff', cursor: 'pointer' }}
+                              />
+                            </td>
+                            <td style={{ padding: '1rem 0.5rem', color: '#94a3b8', fontWeight: 700 }}>{rowNumber}</td>
+                            <td 
+                              onClick={() => handleOpenEmployeeModal(item, (currentPage - 1) * itemsPerPage + idx)}
+                              style={{ padding: '1rem', fontWeight: 800, color: '#0f172a', cursor: 'pointer' }}
+                              className="hover-underline"
+                            >
+                              {item.employee_name}
+                            </td>
+                            <td style={{ padding: '1rem', color: '#475569', fontWeight: 600 }}>{item.posicion}</td>
+                            <td style={{ padding: '1rem', color: '#64748b' }}>{item.sucursal}</td>
+
+                            {/* Ingresos */}
+                            {visibleColumns.salario_fijo && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155', borderLeft: '1px solid #f1f5f9' }}>
+                                {parseFloat(item.salario_fijo || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.comisiones && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
+                                {parseFloat(item.comisiones || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.feriados && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
+                                {parseFloat(item.feriados || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.horas_extras && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
+                                {parseFloat(item.horas_extras || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.otros_ingresos && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#334155' }}>
+                                {parseFloat(item.otros_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.total_ingresos && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#0284c7', background: '#f0f9ff', borderRight: '1px solid #e0f2fe' }}>
+                                {parseFloat(item.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+
+                            {/* Descuentos */}
+                            {visibleColumns.tss && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
+                                {parseFloat(item.tss || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.servicios && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
+                                {parseFloat(item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.prestamos && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
+                                {parseFloat(item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.ausencias && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
+                                {parseFloat(item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.tardanzas && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
+                                {parseFloat(item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.otros_descuentos && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', color: '#475569' }}>
+                                {parseFloat(item.otros_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.total_descuentos && (
+                              <td style={{ padding: '1rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#dc2626', background: '#fff5f5', borderRight: '1px solid #fee2e2' }}>
+                                {parseFloat(item.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+
+                            {/* A Pagar */}
+                            {visibleColumns.neto_pagar && (
+                              <td style={{ padding: '1rem 1.25rem', textAlign: 'right', fontWeight: 900, color: '#16a34a', background: '#f0fdf4' }}>
+                                RD$ {parseFloat(item.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+
+                            {/* Acciones individuales */}
+                            <td style={{ padding: '1rem', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                <button
+                                  onClick={() => handleOpenEmployeeModal(item, (currentPage - 1) * itemsPerPage + idx)}
+                                  title="Ver / Editar Detalle"
+                                  style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', color: '#334155' }}
+                                >
+                                  <Edit2 size={13} />
+                                </button>
+                                <button
+                                  onClick={() => handlePrintSlip(item)}
+                                  title="Imprimir Volante Individual"
+                                  style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', color: '#0066ff' }}
+                                >
+                                  <Printer size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* BARRA DE PAGINACIÓN */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: '#ffffff', borderTop: '1px solid #f1f5f9', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: 600 }}>
+                    Mostrando {paginatedItems.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredItems.length)} de {filteredItems.length} colaboradores
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+
+                    {Array.from({ length: totalPages }).map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i + 1)}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          background: currentPage === i + 1 ? '#0066ff' : '#f1f5f9',
+                          color: currentPage === i + 1 ? '#ffffff' : '#475569',
+                          fontWeight: 800,
+                          fontSize: '0.85rem',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {i + 1}
+                      </button>
+                    ))}
+
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', opacity: currentPage === totalPages ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
               </div>
-
-              <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                <button 
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <ChevronLeft size={16} />
-                </button>
-
-                {Array.from({ length: totalPages }).map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setCurrentPage(i + 1)}
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      background: currentPage === i + 1 ? '#0066ff' : '#f1f5f9',
-                      color: currentPage === i + 1 ? '#ffffff' : '#475569',
-                      fontWeight: 800,
-                      fontSize: '0.85rem',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-
-                <button 
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', opacity: currentPage === totalPages ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* BARRA INFERIOR DE ACCIONES DE NÓMINA */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', padding: '0.5rem 0 3rem' }}>
@@ -3089,6 +3389,7 @@ export default function PayrollModule({ initialTab }) {
                       <option value="Todas">Todas las sucursales</option>
                       <option value="San Vicente">Abatte San Vicente</option>
                       <option value="Villa Mella">Abatte Villa Mella</option>
+                      <option value="Disponibles (*)">Disponibles (*)</option>
                     </select>
                   </div>
 

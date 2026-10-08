@@ -182,7 +182,7 @@ function createPayrollRouter(pool) {
     const empId = String(emp.id);
     const empName = emp.nombre || 'Colaborador';
     const posicion = emp.posicion || 'Estilista';
-    const sucursalEmp = emp.localidad || emp.salon_name || (emp.salon_id == 2 ? 'Villa Mella' : 'San Vicente');
+    const sucursalEmp = emp.localidad || emp.salon_name || (emp.salon_id == 6 ? 'Disponibles (*)' : (emp.salon_id == 4 || emp.salon_id == 2 ? 'Abatte Peluquería Sirena Villa Mella' : 'Abatte Peluquería San Vicente'));
 
     // Salario fijo según configuración salarial del colaborador
     const tipoSalario = emp.tipo_salario || 'fijo_mas_comision';
@@ -414,8 +414,17 @@ function createPayrollRouter(pool) {
       let staffQuery = "SELECT * FROM staff_records WHERE (status = 'Activo' OR status = 'Active' OR status IS NULL)";
       const staffParams = [];
       if (sucursal && sucursal !== 'Todas') {
-        staffQuery += " AND (salon_id = ? OR localidad LIKE ?)";
-        staffParams.push(sucursal, `%${sucursal}%`);
+        const sucLower = String(sucursal).toLowerCase();
+        if (sucLower.includes('disponible')) {
+          staffQuery += " AND (salon_id = 6 OR localidad LIKE '%disponible%')";
+        } else if (sucLower.includes('villa mella') || sucLower.includes('mella')) {
+          staffQuery += " AND (salon_id IN (2, 4) OR localidad LIKE '%mella%')";
+        } else if (sucLower.includes('san vicente') || sucLower.includes('vicente')) {
+          staffQuery += " AND (salon_id = 1 OR localidad LIKE '%vicente%')";
+        } else {
+          staffQuery += " AND (salon_id = ? OR localidad LIKE ?)";
+          staffParams.push(sucursal, `%${sucursal}%`);
+        }
       }
       if (departamento && departamento !== 'Todos') {
         staffQuery += " AND (posicion LIKE ?)";
@@ -844,8 +853,17 @@ function createPayrollRouter(pool) {
       let staffQuery = "SELECT * FROM staff_records WHERE (status = 'Activo' OR status = 'Active' OR status IS NULL)";
       const staffParams = [];
       if (period.sucursal && period.sucursal !== 'Todas') {
-        staffQuery += " AND (salon_id = ? OR localidad LIKE ?)";
-        staffParams.push(period.sucursal, `%${period.sucursal}%`);
+        const sucLower = String(period.sucursal).toLowerCase();
+        if (sucLower.includes('disponible')) {
+          staffQuery += " AND (salon_id = 6 OR localidad LIKE '%disponible%')";
+        } else if (sucLower.includes('villa mella') || sucLower.includes('mella')) {
+          staffQuery += " AND (salon_id IN (2, 4) OR localidad LIKE '%mella%')";
+        } else if (sucLower.includes('san vicente') || sucLower.includes('vicente')) {
+          staffQuery += " AND (salon_id = 1 OR localidad LIKE '%vicente%')";
+        } else {
+          staffQuery += " AND (salon_id = ? OR localidad LIKE ?)";
+          staffParams.push(period.sucursal, `%${period.sucursal}%`);
+        }
       }
       if (period.departamento && period.departamento !== 'Todos') {
         staffQuery += " AND (posicion LIKE ?)";
