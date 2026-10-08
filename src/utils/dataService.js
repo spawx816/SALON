@@ -2404,6 +2404,151 @@ export const dataService = {
       console.error('Error verifying security PIN:', e);
       throw e;
     }
+  },
+
+  // === NÓMINA (PAYROLL) API SERVICE ===
+  getPayrollPeriods: async () => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/periods`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching payroll periods:', e);
+      return [];
+    }
+  },
+
+  getPayrollPeriod: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/periods/${id}`);
+      return res.ok ? await res.json() : null;
+    } catch (e) {
+      console.error('Error fetching payroll period details:', e);
+      return null;
+    }
+  },
+
+  generatePayroll: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error generando nómina');
+      return data;
+    } catch (e) {
+      console.error('Error generating payroll:', e);
+      throw e;
+    }
+  },
+
+  savePayrollDraft: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/save-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error guardando borrador');
+      return data;
+    } catch (e) {
+      console.error('Error saving payroll draft:', e);
+      throw e;
+    }
+  },
+
+  bulkApplyPayrollConcept: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/bulk-apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error aplicando concepto masivo');
+      return data;
+    } catch (e) {
+      console.error('Error bulk applying payroll concept:', e);
+      throw e;
+    }
+  },
+
+  approvePayroll: async (payloadOrId) => {
+    try {
+      const body = typeof payloadOrId === 'object' ? payloadOrId : { payroll_id: payloadOrId };
+      const res = await fetch(`${API_URL}/payroll/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error aprobando nómina');
+      return data;
+    } catch (e) {
+      console.error('Error approving payroll:', e);
+      throw e;
+    }
+  },
+
+  syncPayrollRealData: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/periods/${id}/sync-real-data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error sincronizando datos reales');
+      return data;
+    } catch (e) {
+      console.error('Error syncing payroll real data:', e);
+      throw e;
+    }
+  },
+
+  getPayrollAuditLogs: async (payrollId) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/audit-logs/${payrollId}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching payroll audit logs:', e);
+      return [];
+    }
+  },
+
+  getPayrollConcepts: async () => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/concepts`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching payroll concepts:', e);
+      return [];
+    }
+  },
+
+  getPayrollRegalias: async (year) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/regalias/${year || new Date().getFullYear()}`);
+      return res.ok ? await res.json() : null;
+    } catch (e) {
+      console.error('Error fetching payroll regalias:', e);
+      return null;
+    }
+  },
+
+  deletePayrollPeriod: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/periods/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error eliminando período');
+      return data;
+    } catch (e) {
+      console.error('Error deleting payroll period:', e);
+      throw e;
+    }
   }
 };
 

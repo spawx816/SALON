@@ -575,13 +575,40 @@ export default function PayrollModule({ initialTab }) {
     }
   };
 
+  // Sincronizar datos reales de comisiones y descuentos en tiempo real
+  const handleSyncRealData = async () => {
+    if (!currentPeriod) return;
+    if (currentPeriod.status === 'Aprobada') {
+      showNotification('Esta nómina está aprobada y es inmutable', 'warning');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await dataService.syncPayrollRealData(currentPeriod.id);
+      if (res && res.period) {
+        setCurrentPeriod(res.period);
+        setItems(res.items || []);
+        showNotification('¡Comisiones y descuentos sincronizados desde la base de datos en tiempo real!', 'success');
+        const logs = await dataService.getPayrollAuditLogs(currentPeriod.id);
+        setAuditLogs(logs || []);
+      }
+    } catch (err) {
+      showNotification('Error al sincronizar datos reales: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Aprobar Nómina Definitivamente (Inmutable)
   const handleApprovePayrollConfirm = async () => {
     if (!currentPeriod) return;
     setLoading(true);
     try {
-      await dataService.approvePayroll(currentPeriod.id);
-      showNotification('¡Nómina aprobada exitosamente y registrada de forma inmutable!', 'success');
+      await dataService.approvePayroll({
+        payroll_id: currentPeriod.id,
+        approved_by: approverName || 'Administrador'
+      });
+      showNotification('¡Nómina aprobada exitosamente! Descuentos saldados y comisiones liquidadas.', 'success');
       setShowApproveModal(false);
       await loadPeriodDetail(currentPeriod.id);
       const allPers = await dataService.getPayrollPeriods();
@@ -989,6 +1016,18 @@ export default function PayrollModule({ initialTab }) {
 
             {/* BOTONES DE ACCIÓN SUPERIORES */}
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              {currentPeriod?.status !== 'Aprobada' && (
+                <button 
+                  onClick={handleSyncRealData}
+                  disabled={loading}
+                  className="btn-secondary"
+                  style={{ background: '#ffffff', border: '1.5px solid #0066ff', color: '#0066ff', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.2rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0, 102, 255, 0.08)' }}
+                  title="Recalcular con comisiones y descuentos reales actuales de la base de datos para este período"
+                >
+                  <RefreshCw size={16} /> Sincronizar Datos Reales
+                </button>
+              )}
+
               <button 
                 onClick={() => setShowAuditModal(true)}
                 className="btn-secondary"
@@ -2541,12 +2580,17 @@ export default function PayrollModule({ initialTab }) {
                 </div>
               </div>
 
-              {/* ALERTA DE INMUTABILIDAD */}
-              <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '12px', padding: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start', marginBottom: '1.75rem' }}>
-                <Lock size={20} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
-                <div style={{ fontSize: '0.825rem', color: '#92400e', lineHeight: '1.4' }}>
-                  <strong>Aviso de Inmutabilidad:</strong> Una vez aprobada, esta nómina pasará al histórico y <strong>no podrá ser editada</strong>. Las modificaciones futuras en salarios o configuraciones de empleados nunca alterarán este registro.
+              {/* ALERTA DE INMUTABILIDAD Y LIQUIDACIÓN AUTOMÁTICA */}
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '14px', padding: '1.15rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.75rem' }}>
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                  <Lock size={18} color="#0066ff" />
+                  <strong style={{ color: '#1e40af', fontSize: '0.875rem' }}>Acciones automáticas al aprobar:</strong>
                 </div>
+                <ul style={{ margin: 0, paddingLeft: '1.4rem', color: '#1e3a8a', fontSize: '0.825rem', lineHeight: '1.5' }}>
+                  <li><strong>Descuentos y Préstamos:</strong> Se marcarán automáticamente como <em>Saldados</em> en el módulo de descuentos para que no se vuelvan a descontar.</li>
+                  <li><strong>Comisiones por Servicios:</strong> Se registrarán como <em>Pagadas</em> en el historial de comisiones de la quincena.</li>
+                  <li><strong>Inmutabilidad:</strong> El período quedará congelado e inmutable para histórico contable.</li>
+                </ul>
               </div>
 
               <div style={{ marginBottom: '1.5rem' }}>
