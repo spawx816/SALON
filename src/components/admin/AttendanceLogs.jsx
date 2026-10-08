@@ -772,8 +772,24 @@ const AttendanceLogs = () => {
       const absentLog = dayLogs.find(l => l.type === 'Ausencia');
 
       let assignedScheduleStr = isDayOff ? 'Descanso' : (baseHoraEntrada && baseHoraSalida ? `${format12h(baseHoraEntrada)} - ${format12h(baseHoraSalida)}` : '08:00 - 17:00');
-      let checkInStr = checkIn ? format12h(formatDRTime(checkIn.timestamp).slice(0, 5)) : '—';
-      let checkOutStr = checkOut ? format12h(formatDRTime(checkOut.timestamp).slice(0, 5)) : '—';
+      const formatPunchTime = (ts) => {
+        if (!ts) return '—';
+        try {
+          const d = new Date(ts);
+          if (isNaN(d.getTime())) return ts;
+          return d.toLocaleTimeString('en-US', {
+            timeZone: 'America/Santo_Domingo',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+          });
+        } catch (e) {
+          return ts;
+        }
+      };
+
+      let checkInStr = checkIn ? formatPunchTime(checkIn.timestamp) : '—';
+      let checkOutStr = checkOut ? formatPunchTime(checkOut.timestamp) : '—';
       let dayLatenessMins = 0;
       let dayOvertimeMins = 0;
       let dayWorkedMins = 0;
