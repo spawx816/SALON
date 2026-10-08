@@ -121,6 +121,8 @@ const AttendanceLogs = () => {
   const [payrollPage, setPayrollPage] = useState(1);
   const [payrollSearch, setPayrollSearch] = useState('');
   const [payrollFilter, setPayrollFilter] = useState('all'); // 'all', 'tardy', 'overtime', 'absent'
+  const [selectedEmployeeDetailId, setSelectedEmployeeDetailId] = useState(null);
+  const [detailFilterTab, setDetailFilterTab] = useState('all'); // 'all', 'tardy', 'overtime', 'absent', 'incidents'
 
   // Holidays states
   const [holidays, setHolidays] = useState([]);
@@ -656,11 +658,32 @@ const AttendanceLogs = () => {
   };
 
 
+  // Helper to generate full list of dates in range (e.g. quincena)
+  const getDatesInRange = (startDateStr, endDateStr) => {
+    const dates = [];
+    if (!startDateStr || !endDateStr) return dates;
+    try {
+      const [sy, sm, sd] = startDateStr.split('-').map(Number);
+      const [ey, em, ed] = endDateStr.split('-').map(Number);
+      const curr = new Date(Date.UTC(sy, sm - 1, sd, 12, 0, 0));
+      const end = new Date(Date.UTC(ey, em - 1, ed, 12, 0, 0));
+      while (curr <= end) {
+        dates.push(curr.toISOString().slice(0, 10));
+        curr.setUTCDate(curr.getUTCDate() + 1);
+      }
+    } catch (e) {
+      console.error("Error generating dates in range:", e);
+    }
+    return dates;
+  };
+
   // Helper function to calculate net daily attendance, compensated tardiness, overtime, and holiday calculations
   const computeDetailedPayroll = (emp, empLogs) => {
+    const dateRange = getDatesInRange(filters.startDate, filters.endDate);
+    const todayDRStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+
     // Group logs by Dominican Republic date (YYYY-MM-DD)
     const logsByDate = new Map();
-    
     empLogs.forEach(log => {
       const dStr = getDRDateKey(log.timestamp);
       if (dStr) {
@@ -669,8 +692,11 @@ const AttendanceLogs = () => {
       }
     });
 
+    // If date range is empty, fall back to logs dates
+    const allDates = dateRange.length > 0 ? dateRange : Array.from(logsByDate.keys()).sort();
+
     let daysWorked = 0;
-    let totalLateness = 0; // Net uncompensated lateness / missing time to deduct
+    let totalLateness = 0; // Net uncompensated lateness / missing minutes to deduct
     let totalOvertime = 0; // Net extra minutes
     let absencesCount = 0;
     let totalCheckins = 0;
@@ -679,21 +705,80 @@ const AttendanceLogs = () => {
     let holidayHoursWorked = 0;
     let holidayPayAmount = 0;
     const holidayRecords = [];
+    const dailyBreakdown = [];
 
     const baseSal = Number(emp.salario_base || 0);
     const effectiveBaseSal = baseSal > 0 ? baseSal : 20000;
     const hourlyRate = (effectiveBaseSal / 23.83 / 8);
 
-    logsByDate.forEach((dayLogs, dateStr) => {
-      // Find matching active holiday in state
+    // Parse employee rotating/daily schedule
+    let rotSchedule = null;
+    if (emp.horarios_rotativos) {
+      try {
+        rotSchedule = typeof emp.horarios_rotativos === 'string' ? JSON.parse(emp.horarios_rotativos) : emp.horarios_rotativos;
+      } catch (e) {}
+    }
+
+    allDates.forEach((dateStr) => {
+      const dayLogs = logsByDate.get(dateStr) || [];
       const matchingHoliday = holidays.find(h => (h.is_active || h.is_active === 1) && (h.date === dateStr || h.date.startsWith(dateStr)));
+
+      // Day of week name (lunes, martes, etc.)
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dayObj = new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
+      const rawDayName = dayObj.toLocaleDateString('es-DO', { weekday: 'long', timeZone: 'America/Santo_Domingo' });
+      const normDay = normalizeDayName(rawDayName);
+      const shortDayFormat = dayObj.toLocaleDateString('es-DO', { day: '2-digit', month: 'short', timeZone: 'America/Santo_Domingo' });
+
+      // Determine assigned schedule for this date
+      let isDayOff = false;
+      let baseHoraEntrada = emp.hora_entrada || '08:00';
+      let baseHoraSalida = emp.hora_salida || '17:00';
+
+      // Check temporary override
+      const override = overridesList.find(o => String(o.employee_id) === String(emp.id) && getDRDateKey(o.date) === dateStr && o.status !== 'Anulado');
+      if (override) {
+        baseHoraEntrada = override.new_hora_entrada;
+        baseHoraSalida = override.new_hora_salida;
+        isDayOff = false;
+      } else if (rotSchedule) {
+        const matchingKey = Object.keys(rotSchedule).find(k => normalizeDayName(k) === normDay);
+        const daySched = matchingKey ? rotSchedule[matchingKey] : null;
+        if (daySched && daySched.entrada && daySched.salida) {
+          baseHoraEntrada = daySched.entrada;
+          baseHoraSalida = daySched.salida;
+          isDayOff = false;
+        } else {
+          isDayOff = true;
+          baseHoraEntrada = null;
+          baseHoraSalida = null;
+        }
+      } else if (emp.dias_laborables) {
+        const workingDays = emp.dias_laborables.split(',').map(normalizeDayName);
+        if (workingDays.includes(normDay)) {
+          isDayOff = false;
+        } else {
+          isDayOff = true;
+          baseHoraEntrada = null;
+          baseHoraSalida = null;
+        }
+      }
 
       // Sort to reliably pick earliest check-in and latest check-out
       const dayCheckIns = dayLogs.filter(l => l.type === 'Check-In').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
       const dayCheckOuts = dayLogs.filter(l => l.type === 'Check-Out').sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       const checkIn = dayCheckIns[0] || null;
       const checkOut = dayCheckOuts[0] || null;
-      const absent = dayLogs.find(l => l.type === 'Ausencia');
+      const absentLog = dayLogs.find(l => l.type === 'Ausencia');
+
+      let assignedScheduleStr = isDayOff ? 'Descanso' : (baseHoraEntrada && baseHoraSalida ? `${format12h(baseHoraEntrada)} - ${format12h(baseHoraSalida)}` : '08:00 - 17:00');
+      let checkInStr = checkIn ? format12h(formatDRTime(checkIn.timestamp).slice(0, 5)) : '—';
+      let checkOutStr = checkOut ? format12h(formatDRTime(checkOut.timestamp).slice(0, 5)) : '—';
+      let dayLatenessMins = 0;
+      let dayOvertimeMins = 0;
+      let dayWorkedMins = 0;
+      let dayStatus = 'Completo';
+      let dayStatusType = 'complete'; // 'complete', 'tardy', 'overtime', 'tardy_overtime', 'absent', 'dayoff', 'holiday'
 
       // Holiday calculation for hours worked on this day
       if (matchingHoliday && checkIn) {
@@ -718,72 +803,131 @@ const AttendanceLogs = () => {
         });
       }
 
-      // If marked as Ausencia and no check-in occurred on this day
-      if (absent && !checkIn) {
-        absencesCount += 1;
-        return; // No lateness, no overtime for absent days
-      }
-
-      if (checkIn) {
+      if (isDayOff && !checkIn) {
+        dayStatus = 'Día libre';
+        dayStatusType = 'dayoff';
+      } else if (!checkIn) {
+        if (absentLog || dateStr < todayDRStr) {
+          dayStatus = 'Ausencia';
+          dayStatusType = 'absent';
+          absencesCount += 1;
+        } else {
+          dayStatus = 'Programado';
+          dayStatusType = 'scheduled';
+        }
+      } else {
         daysWorked += 1;
         totalCheckins += 1;
         const isTardyCheckIn = checkIn.status === 'Tardanza' || (checkIn.lateness_minutes || 0) > 0;
         if (isTardyCheckIn) tardyCheckins += 1;
 
-        // Extract scheduled hours for this day
-        const horaEntrada = checkIn.hora_entrada || emp.hora_entrada;
-        const horaSalida = checkIn.hora_salida || emp.hora_salida;
-        const latenessMins = Number(checkIn.lateness_minutes) || 0;
-
-        let scheduledMins = 540; // Default 9 hours
+        // Calculate scheduled duration in seconds
+        let scheduledSecs = 9 * 3600;
+        let scheduledEntSecs = 8 * 3600;
+        let scheduledSalSecs = 17 * 3600;
         let isScheduledUntil9PM = false;
-        if (horaEntrada && horaSalida) {
-          try {
-            const [entH, entM] = horaEntrada.split(':').map(Number);
-            const [salH, salM] = horaSalida.split(':').map(Number);
-            scheduledMins = (salH * 60 + salM) - (entH * 60 + entM);
-            if (scheduledMins <= 0) scheduledMins += 1440;
-            if (salH === 21 && salM === 0) isScheduledUntil9PM = true;
-          } catch (e) {}
-        }
 
+        const effectiveEnt = baseHoraEntrada || '08:00';
+        const effectiveSal = baseHoraSalida || '17:00';
+        try {
+          const [eh, em] = effectiveEnt.split(':').map(Number);
+          const [sh, sm] = effectiveSal.split(':').map(Number);
+          scheduledEntSecs = eh * 3600 + em * 60;
+          scheduledSalSecs = sh * 3600 + sm * 60;
+          scheduledSecs = scheduledSalSecs - scheduledEntSecs;
+          if (scheduledSecs <= 0) scheduledSecs += 86400;
+          if (sh === 21 && sm === 0) isScheduledUntil9PM = true;
+        } catch (e) {}
+
+        const morningLatenessMins = Number(checkIn.lateness_minutes) || 0;
         const inTime = new Date(checkIn.timestamp).getTime();
-        let outTime = checkOut ? new Date(checkOut.timestamp).getTime() : null;
+        const outTime = checkOut ? new Date(checkOut.timestamp).getTime() : null;
 
-        if (outTime && !isNaN(outTime)) {
-          const workedMins = Math.max(0, Math.floor((outTime - inTime) / 60000));
-          
-          // Closing exception check: if scheduled until 9:00 PM and checked out >= 8:00 PM (20:00)
+        if (outTime && !isNaN(outTime) && outTime > inTime) {
+          // Exact seconds worked (precise rounding to nearest minute without floor truncation)
+          const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
+          dayWorkedMins = Math.round(workedSecs / 60);
+
           const outHour = getDRHour(checkOut.timestamp);
           const isClosingExit = isScheduledUntil9PM && outHour >= 20;
 
-          if (workedMins >= scheduledMins) {
-            // Worked full shift or more -> Tardiness is COMPENSATED (0 min deduction)
-            const extra = workedMins - scheduledMins;
-            totalOvertime += extra;
+          if (workedSecs >= scheduledSecs) {
+            // Full shift completed! Tardiness is 100% COMPENSATED (0 min net tardiness)
+            const surplusSecs = workedSecs - scheduledSecs;
+            dayOvertimeMins = Math.round(surplusSecs / 60);
+            dayLatenessMins = 0;
+            totalOvertime += dayOvertimeMins;
             if (isTardyCheckIn) compensatedDaysCount += 1;
-          } else {
-            // Worked less than scheduled hours
-            if (isClosingExit) {
-              // Salon closed early exception -> only uncompensated morning tardiness counts if any
-              if (isTardyCheckIn) {
-                const uncompensated = Math.min(latenessMins, scheduledMins - workedMins);
-                totalLateness += Math.max(0, uncompensated);
-              }
+
+            if (dayOvertimeMins > 0 && morningLatenessMins > 0) {
+              dayStatus = 'Tardanza + extra';
+              dayStatusType = 'tardy_overtime';
+            } else if (dayOvertimeMins > 0) {
+              dayStatus = 'Horas extras';
+              dayStatusType = 'overtime';
+            } else if (morningLatenessMins > 0) {
+              dayStatus = 'Tardanza compensada';
+              dayStatusType = 'complete';
             } else {
-              // Missing time from schedule to deduct
-              const missing = scheduledMins - workedMins;
-              const toDeduct = Math.max(latenessMins, missing);
-              totalLateness += toDeduct;
+              dayStatus = 'Completo';
+              dayStatusType = 'complete';
+            }
+          } else {
+            // Worked less than scheduled hours -> Partial compensation or net tardiness
+            const missingSecs = scheduledSecs - workedSecs;
+            let netMissingMins = Math.round(missingSecs / 60);
+
+            if (isClosingExit) {
+              // Salon early closing exception
+              netMissingMins = Math.min(morningLatenessMins, netMissingMins);
+            }
+
+            dayLatenessMins = Math.max(0, netMissingMins);
+            dayOvertimeMins = 0;
+            totalLateness += dayLatenessMins;
+
+            if (morningLatenessMins > 0) {
+              if (dayLatenessMins < morningLatenessMins) {
+                // Partial compensation: Stayed late after exit time to reduce morning tardiness!
+                dayStatus = `Tardanza (comp. parcial)`;
+              } else {
+                dayStatus = 'Tardanza';
+              }
+              dayStatusType = 'tardy';
+            } else {
+              dayStatus = 'Salida Temprana';
+              dayStatusType = 'tardy';
             }
           }
         } else {
-          // If only Check-In exists (e.g. today's ongoing shift or missed check-out)
+          // Check-in only (ongoing or missed checkout)
           if (checkIn.status === 'Tardanza') {
-            totalLateness += latenessMins;
+            dayLatenessMins = morningLatenessMins;
+            totalLateness += dayLatenessMins;
+            dayStatus = 'Tardanza';
+            dayStatusType = 'tardy';
+          } else {
+            dayStatus = 'En turno';
+            dayStatusType = 'complete';
           }
         }
       }
+
+      dailyBreakdown.push({
+        dateStr,
+        formattedDate: shortDayFormat,
+        dayName: rawDayName,
+        assignedSchedule: assignedScheduleStr,
+        checkInTime: checkInStr,
+        checkOutTime: checkOutStr,
+        latenessMinutes: dayLatenessMins,
+        overtimeMinutes: dayOvertimeMins,
+        workedMinutes: dayWorkedMins,
+        status: dayStatus,
+        statusType: dayStatusType,
+        isHoliday: Boolean(matchingHoliday),
+        holidayName: matchingHoliday?.name || null
+      });
     });
 
     const punctualCheckins = Math.max(0, totalCheckins - tardyCheckins);
@@ -800,7 +944,8 @@ const AttendanceLogs = () => {
       compensatedDaysCount,
       holidayHoursWorked: Math.round(holidayHoursWorked * 10) / 10,
       holidayPayAmount: Math.round(holidayPayAmount * 100) / 100,
-      holidayRecords
+      holidayRecords,
+      dailyBreakdown
     };
   };
 
@@ -2875,6 +3020,363 @@ const AttendanceLogs = () => {
           return computeDetailedPayroll(emp, empLogs);
         });
 
+        const activeEmpPayroll = selectedEmployeeDetailId 
+          ? computedPayroll.find(p => String(p.id) === String(selectedEmployeeDetailId))
+          : null;
+
+        // Helper to format minutes
+        const formatMins = (mins) => {
+          if (!mins) return '0 min';
+          const hrs = Math.floor(mins / 60);
+          const remaining = mins % 60;
+          if (hrs > 0) {
+            return `${hrs}h ${remaining > 0 ? `${remaining}m` : ''}`.trim();
+          }
+          return `${mins} min`;
+        };
+
+        const getInitials = (name) => {
+          if (!name) return 'EM';
+          const parts = name.trim().split(' ');
+          if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+          return name.slice(0, 2).toUpperCase();
+        };
+
+        // IF AN EMPLOYEE DETAIL IS SELECTED -> SHOW COMPLETE QUINCENA BREAKDOWN (Matching screenshot)
+        if (activeEmpPayroll) {
+          const filteredDaily = (activeEmpPayroll.dailyBreakdown || []).filter(d => {
+            if (detailFilterTab === 'tardy') return d.latenessMinutes > 0 || (d.status && d.status.includes('Tardanza'));
+            if (detailFilterTab === 'overtime') return d.overtimeMinutes > 0 || (d.status && d.status.includes('extra'));
+            if (detailFilterTab === 'absent') return d.status === 'Ausencia';
+            if (detailFilterTab === 'incidents') return d.latenessMinutes > 0 || d.status === 'Ausencia' || d.status === 'Salida Temprana' || (d.status && d.status.includes('Tardanza'));
+            return true;
+          });
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              
+              {/* Back button & Employee header */}
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '20px', padding: '1.5rem 1.75rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                <button
+                  onClick={() => setSelectedEmployeeDetailId(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563eb',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: 0,
+                    marginBottom: '1.25rem'
+                  }}
+                >
+                  ← Todos los empleados
+                </button>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{
+                      width: '56px',
+                      height: '56px',
+                      borderRadius: '50%',
+                      background: '#dbeafe',
+                      color: '#1e40af',
+                      fontWeight: 900,
+                      fontSize: '1.3rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: '2px solid #bfdbfe'
+                    }}>
+                      {getInitials(activeEmpPayroll.nombre)}
+                    </div>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#0f172a' }}>
+                        {activeEmpPayroll.nombre}
+                      </h2>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                        <select
+                          value={activeEmpPayroll.id}
+                          onChange={(e) => setSelectedEmployeeDetailId(e.target.value)}
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            background: '#f8fafc',
+                            borderRadius: '8px',
+                            color: '#475569',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            padding: '0.2rem 0.5rem',
+                            cursor: 'pointer',
+                            outline: 'none'
+                          }}
+                        >
+                          {computedPayroll.map(emp => (
+                            <option key={emp.id} value={emp.id}>Detalle de asistencia ▾ ({emp.nombre})</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      padding: '0.4rem 0.85rem',
+                      borderRadius: '99px',
+                      fontSize: '0.78rem',
+                      fontWeight: 800,
+                      background: activeEmpPayroll.totalLateness > 0 ? '#fffbeb' : '#ecfdf5',
+                      color: activeEmpPayroll.totalLateness > 0 ? '#d97706' : '#15803d',
+                      border: activeEmpPayroll.totalLateness > 0 ? '1px solid #fef3c7' : '1px solid #a7f3d0'
+                    }}>
+                      {activeEmpPayroll.totalLateness > 0 ? '🕒 Con tardanzas / observaciones' : '✓ Asistencia al día'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4 KPI Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginTop: '1.5rem' }}>
+                  
+                  {/* Card 1: Días trabajados */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#ecfdf5', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                      📅
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650 }}>Días trabajados</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a' }}>{activeEmpPayroll.daysWorked}</div>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Tardanzas */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#fffbeb', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                      🕒
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650 }}>Tardanzas netas</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: activeEmpPayroll.totalLateness > 0 ? '#d97706' : '#0f172a' }}>
+                        {formatMins(activeEmpPayroll.totalLateness)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 3: Horas extras */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                      ⏱️
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650 }}>Horas extras</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: activeEmpPayroll.totalOvertime > 0 ? '#2563eb' : '#0f172a' }}>
+                        {formatMins(activeEmpPayroll.totalOvertime)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 4: Ausencias */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#fef2f2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                      👤
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650 }}>Ausencias</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: activeEmpPayroll.absencesCount > 0 ? '#dc2626' : '#0f172a' }}>
+                        {activeEmpPayroll.absencesCount} {activeEmpPayroll.absencesCount === 1 ? 'día' : 'días'}
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Detalle diario Section */}
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '20px', padding: '1.5rem 1.75rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>Detalle diario</h3>
+                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                      {activeEmpPayroll.dailyBreakdown.length} días en el período
+                    </p>
+                  </div>
+
+                  {/* Filter tabs matching screenshot */}
+                  <div style={{ display: 'flex', gap: '0.35rem', background: '#f1f5f9', padding: '0.3rem', borderRadius: '12px' }}>
+                    {[
+                      { id: 'all', label: 'Todos' },
+                      { id: 'tardy', label: 'Tardanzas' },
+                      { id: 'overtime', label: 'Horas extras' },
+                      { id: 'absent', label: 'Ausencias' },
+                      { id: 'incidents', label: 'Incidencias' }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setDetailFilterTab(tab.id)}
+                        style={{
+                          padding: '0.4rem 0.85rem',
+                          borderRadius: '8px',
+                          border: 'none',
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          background: detailFilterTab === tab.id ? '#0f172a' : 'transparent',
+                          color: detailFilterTab === tab.id ? '#ffffff' : '#64748b',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Day-by-Day Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b', fontSize: '0.78rem', background: '#f8fafc' }}>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>Fecha</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>Horario asignado</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>Entrada</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>Salida</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800, textAlign: 'center' }}>Tardanza</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800, textAlign: 'center' }}>Horas extras</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredDaily.map((day, idx) => {
+                        let statusBg = '#f1f5f9';
+                        let statusColor = '#64748b';
+                        let dotColor = '#94a3b8';
+
+                        if (day.status === 'Completo' || day.status === 'Tardanza compensada') {
+                          statusBg = '#ecfdf5';
+                          statusColor = '#15803d';
+                          dotColor = '#16a34a';
+                        } else if (day.status.includes('Tardanza + extra')) {
+                          statusBg = '#fffbeb';
+                          statusColor = '#b45309';
+                          dotColor = '#d97706';
+                        } else if (day.status === 'Ausencia') {
+                          statusBg = '#fef2f2';
+                          statusColor = '#b91c1c';
+                          dotColor = '#dc2626';
+                        } else if (day.status.includes('Tardanza')) {
+                          statusBg = '#fffbeb';
+                          statusColor = '#b45309';
+                          dotColor = '#d97706';
+                        } else if (day.status === 'Horas extras') {
+                          statusBg = '#eff6ff';
+                          statusColor = '#1d4ed8';
+                          dotColor = '#2563eb';
+                        } else if (day.status === 'Día libre') {
+                          statusBg = '#f8fafc';
+                          statusColor = '#64748b';
+                          dotColor = '#94a3b8';
+                        }
+
+                        return (
+                          <tr key={idx} className="hover-row" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '0.85rem 1rem', fontWeight: 800, color: '#0f172a' }}>
+                              {day.formattedDate}
+                              <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginLeft: '0.4rem', textTransform: 'capitalize', fontWeight: 600 }}>
+                                ({day.dayName.slice(0, 3)})
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', color: day.assignedSchedule === 'Descanso' ? '#94a3b8' : '#334155', fontWeight: 600 }}>
+                              {day.assignedSchedule}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', color: '#0f172a', fontWeight: 700 }}>
+                              {day.checkInTime}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', color: '#0f172a', fontWeight: 700 }}>
+                              {day.checkOutTime}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                              {day.latenessMinutes > 0 ? (
+                                <span style={{ background: '#fffbeb', color: '#d97706', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                                  {day.latenessMinutes} min
+                                </span>
+                              ) : (
+                                <span style={{ color: '#cbd5e1' }}>—</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                              {day.overtimeMinutes > 0 ? (
+                                <span style={{ background: '#eff6ff', color: '#2563eb', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                                  {day.overtimeMinutes >= 60 ? `${Math.floor(day.overtimeMinutes / 60)} h ${day.overtimeMinutes % 60 > 0 ? `${day.overtimeMinutes % 60}m` : ''}`.trim() : `${day.overtimeMinutes} min`}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#cbd5e1' }}>—</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem' }}>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                padding: '0.25rem 0.65rem',
+                                borderRadius: '99px',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                background: statusBg,
+                                color: statusColor
+                              }}>
+                                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: dotColor }}></span>
+                                {day.status}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredDaily.length === 0 && (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', padding: '2.5rem 0', color: '#94a3b8', fontWeight: 600 }}>
+                            No hay registros para este filtro en la quincena.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0', fontWeight: 800 }}>
+                        <td colSpan="4" style={{ padding: '1rem', color: '#0f172a', fontSize: '0.9rem' }}>
+                          Total del período
+                        </td>
+                        <td style={{ padding: '1rem', textAlign: 'center' }}>
+                          <span style={{ background: '#fffbeb', color: '#d97706', padding: '0.3rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 900 }}>
+                            {formatMins(activeEmpPayroll.totalLateness)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '1rem', textAlign: 'center' }}>
+                          <span style={{ background: '#eff6ff', color: '#2563eb', padding: '0.3rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 900 }}>
+                            {formatMins(activeEmpPayroll.totalOvertime)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '1rem' }}>
+                          {activeEmpPayroll.absencesCount > 0 ? (
+                            <span style={{ background: '#fef2f2', color: '#dc2626', padding: '0.3rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 900 }}>
+                              {activeEmpPayroll.absencesCount} {activeEmpPayroll.absencesCount === 1 ? 'ausencia' : 'ausencias'}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#16a34a', fontSize: '0.8rem', fontWeight: 700 }}>0 ausencias</span>
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          );
+        }
+
         // 2. Filter list based on search term, filters, and parent search filters
         const filteredPayroll = computedPayroll.filter(p => {
           // Parent employee filter integration
@@ -2900,17 +3402,6 @@ const AttendanceLogs = () => {
           (currentPagePayroll - 1) * itemsPerPage,
           currentPagePayroll * itemsPerPage
         );
-
-        // Helper to format minutes
-        const formatMins = (mins) => {
-          if (!mins) return '0m';
-          const hrs = Math.floor(mins / 60);
-          const remaining = mins % 60;
-          if (hrs > 0) {
-            return `${hrs}h ${remaining}m`;
-          }
-          return `${mins}m`;
-        };
 
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -3001,18 +3492,31 @@ const AttendanceLogs = () => {
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Días Laborados</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#047857', fontWeight: 800, textAlign: 'center' }}>🌴 Horas Feriados</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#047857', fontWeight: 800, textAlign: 'right' }}>💰 Pago Feriados</th>
-                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tardanza Total</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tardanza Neta</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Horas Extra Totales</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Ausencias / Faltas</th>
-                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tasa Puntualidad</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Puntualidad</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedPayroll.map(p => (
-                      <tr key={p.id} className="hover-row" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <tr 
+                        key={p.id} 
+                        className="hover-row" 
+                        style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}
+                        onClick={() => setSelectedEmployeeDetailId(p.id)}
+                      >
                         <td style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#09090b' }}>
-                          {p.nombre}
-                          <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>ID: {p.id}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#dbeafe', color: '#1e40af', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800 }}>
+                              {getInitials(p.nombre)}
+                            </div>
+                            <div>
+                              <div>{p.nombre}</div>
+                              <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>ID: {p.id} • {p.posicion || 'Colaborador'}</div>
+                            </div>
+                          </div>
                         </td>
                         <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 700, color: '#475569' }}>
                           {p.daysWorked} días
@@ -3028,10 +3532,18 @@ const AttendanceLogs = () => {
                           {p.holidayPayAmount > 0 ? `RD$ ${p.holidayPayAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : 'RD$ 0.00'}
                         </td>
                         <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 700, color: p.totalLateness > 0 ? '#b91c1c' : '#64748b' }}>
-                          {p.totalLateness > 0 ? `⚠️ ${formatMins(p.totalLateness)}` : '0 min'}
+                          {p.totalLateness > 0 ? (
+                            <span style={{ background: '#fffbeb', color: '#d97706', padding: '0.25rem 0.55rem', borderRadius: '6px', fontWeight: 800 }}>
+                              ⚠️ {formatMins(p.totalLateness)}
+                            </span>
+                          ) : '0 min'}
                         </td>
                         <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 800, color: p.totalOvertime > 0 ? '#16a34a' : '#64748b' }}>
-                          {p.totalOvertime > 0 ? `🚀 ${formatMins(p.totalOvertime)}` : '0 min'}
+                          {p.totalOvertime > 0 ? (
+                            <span style={{ background: '#eff6ff', color: '#2563eb', padding: '0.25rem 0.55rem', borderRadius: '6px', fontWeight: 800 }}>
+                              🚀 {formatMins(p.totalOvertime)}
+                            </span>
+                          ) : '0 min'}
                         </td>
                         <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 700, color: p.absencesCount > 0 ? '#b91c1c' : '#64748b' }}>
                           <span style={p.absencesCount > 0 ? { background: '#fef2f2', color: '#ef4444', padding: '0.25rem 0.5rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 } : {}}>
@@ -3050,11 +3562,34 @@ const AttendanceLogs = () => {
                             {p.punctualityRate}%
                           </span>
                         </td>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedEmployeeDetailId(p.id);
+                            }}
+                            style={{
+                              background: '#f1f5f9',
+                              border: '1px solid #cbd5e1',
+                              color: '#0f172a',
+                              padding: '0.4rem 0.75rem',
+                              borderRadius: '8px',
+                              fontSize: '0.75rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.3rem'
+                            }}
+                          >
+                            👁️ Ver Quincena ▾
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {filteredPayroll.length === 0 && (
                       <tr>
-                        <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 0', color: '#94a3b8', fontWeight: 600 }}>
+                        <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 0', color: '#94a3b8', fontWeight: 600 }}>
                           No se encontraron empleados que coincidan con los filtros.
                         </td>
                       </tr>

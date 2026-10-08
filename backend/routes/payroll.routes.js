@@ -284,22 +284,73 @@ function createPayrollRouter(pool) {
     // 3. ASISTENCIA: Ausencias y Tardanzas automáticas (si no estaban ya en employee_discounts)
     if (ausenciasMonto === 0 && tardanzasMonto === 0) {
       try {
-        const [attRows] = await pool.query(`
-          SELECT 
-            SUM(CASE WHEN type = 'Ausencia' THEN 1 ELSE 0 END) as ausencias_count,
-            SUM(CASE WHEN minutes_late > 15 THEN 1 ELSE 0 END) as tardanzas_count
+        const [attPunches] = await pool.query(`
+          SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
           FROM attendance
-          WHERE (employee_id = ? OR employee_id = ?) AND date BETWEEN ? AND ?
+          WHERE (employee_id = ? OR employee_id = ?) 
+            AND DATE(timestamp) BETWEEN ? AND ?
+          ORDER BY timestamp ASC
         `, [empId, empName, start_date, end_date]);
-        const ausenciasCount = attRows[0]?.ausencias_count || 0;
-        const tardanzasCount = attRows[0]?.tardanzas_count || 0;
+
+        const punchesByDay = {};
+        attPunches.forEach(p => {
+          if (!punchesByDay[p.p_date]) punchesByDay[p.p_date] = [];
+          punchesByDay[p.p_date].push(p);
+        });
+
+        let totalNetLatenessMins = 0;
+        let totalOvertimeMins = 0;
+        let ausenciasCount = 0;
+
+        Object.keys(punchesByDay).forEach(dateStr => {
+          const dayPunches = punchesByDay[dateStr];
+          const ins = dayPunches.filter(p => p.type === 'Check-In');
+          const outs = dayPunches.filter(p => p.type === 'Check-Out');
+          const abs = dayPunches.find(p => p.type === 'Ausencia');
+
+          if (abs && ins.length === 0) {
+            ausenciasCount++;
+          } else if (ins.length > 0) {
+            const checkIn = ins[0];
+            const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
+            const morningLate = Number(checkIn.lateness_minutes) || 0;
+
+            if (checkOut) {
+              const inTime = new Date(checkIn.timestamp).getTime();
+              const outTime = new Date(checkOut.timestamp).getTime();
+              if (outTime > inTime) {
+                const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
+                const scheduledSecs = 9 * 3600; // 9 hrs standard
+                if (workedSecs >= scheduledSecs) {
+                  const surplusSecs = workedSecs - scheduledSecs;
+                  totalOvertimeMins += Math.round(surplusSecs / 60);
+                } else {
+                  const missingSecs = scheduledSecs - workedSecs;
+                  totalNetLatenessMins += Math.round(missingSecs / 60);
+                }
+              }
+            } else if (morningLate > 0) {
+              totalNetLatenessMins += morningLate;
+            }
+          }
+        });
+
         if (ausenciasCount > 0) {
           ausenciasMonto = Number((ausenciasCount * (salarioFijo / 15)).toFixed(2));
         }
-        if (tardanzasCount > 0) {
-          tardanzasMonto = Number((tardanzasCount * 100).toFixed(2));
+        if (totalNetLatenessMins > 0) {
+          const effectiveMonthlySalary = baseMensual > 0 ? baseMensual : 20000;
+          const minRate = (effectiveMonthlySalary / 23.83 / 8 / 60);
+          tardanzasMonto = Number((totalNetLatenessMins * minRate).toFixed(2));
         }
-      } catch(e){}
+        if (totalOvertimeMins > 0 && horasExtras === 0) {
+          const effectiveMonthlySalary = baseMensual > 0 ? baseMensual : 20000;
+          const minRate = (effectiveMonthlySalary / 23.83 / 8 / 60);
+          horasExtras = Number((totalOvertimeMins * minRate * 1.35).toFixed(2)); // 35% recargo legal horas extras
+        }
+      } catch(e) {
+        console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
+      }
     }
 
     // 4. FERIADOS & HORAS EXTRAS desde asistencia y calendario oficial
