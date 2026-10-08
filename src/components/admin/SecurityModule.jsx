@@ -1343,10 +1343,26 @@ export default function SecurityModule() {
                   <select
                     value={userForm.role_id}
                     onChange={(e) => setUserForm({ ...userForm, role_id: e.target.value })}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      borderRadius: '10px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                      cursor: 'pointer'
+                    }}
                   >
-                    {roles.map(r => (
-                      <option key={r.id} value={r.id}>{r.nombre}</option>
+                    {(roles && roles.length > 0 ? roles : [
+                      { id: 1, nombre: 'Administrador' },
+                      { id: 2, nombre: 'Encargada' },
+                      { id: 3, nombre: 'Recepcionista' }
+                    ]).map(r => (
+                      <option key={r.id} value={r.id} style={{ color: '#0f172a', background: '#ffffff' }}>
+                        {r.nombre}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -1356,13 +1372,32 @@ export default function SecurityModule() {
                     Sucursal Asignada
                   </label>
                   <select
-                    value={userForm.salon_id}
+                    value={userForm.salon_id || ''}
                     onChange={(e) => setUserForm({ ...userForm, salon_id: e.target.value })}
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}
+                    style={{
+                      width: '100%',
+                      padding: '0.75rem',
+                      borderRadius: '10px',
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#0f172a',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                      cursor: 'pointer'
+                    }}
                   >
-                    <option value="">🌐 Global (Todas)</option>
-                    {salons.map(s => (
-                      <option key={s.id} value={s.id}>{s.name || s.nombre}</option>
+                    <option value="" style={{ color: '#0f172a', background: '#ffffff', fontWeight: 700 }}>
+                      🌐 Global (Todas las sucursales)
+                    </option>
+                    {(salons && salons.length > 0 ? salons : [
+                      { id: 1, name: 'Abatte Peluquería San Vicente' },
+                      { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' }
+                    ])
+                    .filter(s => s && s.name && !String(s.name).toLowerCase().includes('disponible') && String(s.name).trim() !== '')
+                    .map(s => (
+                      <option key={s.id} value={s.id} style={{ color: '#0f172a', background: '#ffffff', fontWeight: 600 }}>
+                        📍 {s.name || s.nombre}
+                      </option>
                     ))}
                   </select>
                 </div>

@@ -773,7 +773,12 @@ const RoleManagement = () => {
                       required
                     >
                       <option value="">Selecciona una localidad...</option>
-                      {salons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {(salons && salons.length > 0 ? salons : [
+                        { id: 1, name: 'Abatte Peluquería San Vicente' },
+                        { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' }
+                      ])
+                      .filter(s => s && s.name && !String(s.name).toLowerCase().includes('disponible'))
+                      .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
 
@@ -956,7 +961,12 @@ const RoleManagement = () => {
                 <MapPin size={16} color="#64748b" style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)' }} />
                 <select className="input-field" style={{ paddingLeft: '2.5rem', background: 'white', borderRadius: '8px' }} value={filterLocation} onChange={e => setFilterLocation(e.target.value)}>
                   <option value="">Todas las localidades</option>
-                  {salons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {(salons && salons.length > 0 ? salons : [
+                    { id: 1, name: 'Abatte Peluquería San Vicente' },
+                    { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' }
+                  ])
+                  .filter(s => s && s.name && !String(s.name).toLowerCase().includes('disponible'))
+                  .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div style={{ position: 'relative', width: '200px' }}>
