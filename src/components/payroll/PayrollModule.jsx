@@ -51,7 +51,6 @@ export default function PayrollModule({ initialTab }) {
     }
   }, [location.pathname, location.search, initialTab]);
 
-  // Filtros de la tabla
   const [filterSucursal, setFilterSucursal] = useState('Todas');
   const [filterDepartamento, setFilterDepartamento] = useState('Todos');
   const [filterTipoEmpleado, setFilterTipoEmpleado] = useState('Todos');
@@ -287,12 +286,41 @@ export default function PayrollModule({ initialTab }) {
     }
   }, [mainTab, regaliasYear]);
 
+  // Lista dinámica de cargos/departamentos reales basados en los colaboradores existentes
+  const availableCargos = useMemo(() => {
+    const set = new Set();
+    items.forEach(it => {
+      const pos = it.posicion || it.departamento;
+      if (pos && typeof pos === 'string' && pos.trim()) {
+        set.add(pos.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [items]);
+
+  // Lista dinámica de sucursales reales
+  const availableSucursales = useMemo(() => {
+    const set = new Set(['San Vicente', 'Villa Mella', 'Disponibles (*)']);
+    if (salonsList && Array.isArray(salonsList)) {
+      salonsList.forEach(s => {
+        if (s.name) set.add(s.name);
+      });
+    }
+    items.forEach(it => {
+      if (it.sucursal && typeof it.sucursal === 'string' && it.sucursal.trim()) {
+        set.add(it.sucursal.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [salonsList, items]);
+
   // Filtrado de items
   const filteredItems = useMemo(() => {
     return items.filter(item => {
       const matchSearch = searchTerm === '' || 
         item.employee_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.posicion?.toLowerCase().includes(searchTerm.toLowerCase());
+        item.posicion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.departamento?.toLowerCase().includes(searchTerm.toLowerCase());
       
       const itemSuc = (item.sucursal || '').toLowerCase();
       const filterSuc = (filterSucursal || 'Todas').toLowerCase();
@@ -306,13 +334,14 @@ export default function PayrollModule({ initialTab }) {
         } else if (filterSuc.includes('san vicente') || filterSuc.includes('vicente')) {
           matchSucursal = itemSuc.includes('vicente');
         } else {
-          matchSucursal = itemSuc.includes(filterSuc);
+          matchSucursal = itemSuc.includes(filterSuc) || filterSuc.includes(itemSuc);
         }
       }
 
       const matchDept = filterDepartamento === 'Todos' || 
-        item.departamento?.toLowerCase().includes(filterDepartamento.toLowerCase()) ||
-        item.posicion?.toLowerCase().includes(filterDepartamento.toLowerCase());
+        (item.departamento && item.departamento.toLowerCase() === filterDepartamento.toLowerCase()) ||
+        (item.posicion && item.posicion.toLowerCase() === filterDepartamento.toLowerCase()) ||
+        (item.posicion && item.posicion.toLowerCase().includes(filterDepartamento.toLowerCase()));
 
       return matchSearch && matchSucursal && matchDept;
     });
@@ -1249,9 +1278,9 @@ export default function PayrollModule({ initialTab }) {
                 style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', fontWeight: 600, fontSize: '0.875rem' }}
               >
                 <option value="Todas">Todas las sucursales</option>
-                <option value="San Vicente">Abatte San Vicente</option>
-                <option value="Villa Mella">Abatte Villa Mella</option>
-                <option value="Disponibles (*)">Disponibles (*)</option>
+                {availableSucursales.map(suc => (
+                  <option key={suc} value={suc}>{suc}</option>
+                ))}
               </select>
             </div>
 
@@ -1265,13 +1294,10 @@ export default function PayrollModule({ initialTab }) {
                 className="input-field"
                 style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', fontWeight: 600, fontSize: '0.875rem' }}
               >
-                <option value="Todos">Todos los cargos</option>
-                <option value="Estilista">Estilistas / Peluqueras</option>
-                <option value="Barbero">Barberos</option>
-                <option value="Manicurista">Manicuristas</option>
-                <option value="Recepción">Recepción / Caja</option>
-                <option value="Administración">Administración</option>
-                <option value="Soporte">Soporte / Mantenimiento</option>
+                <option value="Todos">Todos los cargos ({items.length})</option>
+                {availableCargos.map(cargo => (
+                  <option key={cargo} value={cargo}>{cargo}</option>
+                ))}
               </select>
             </div>
 
@@ -3407,9 +3433,9 @@ export default function PayrollModule({ initialTab }) {
                       style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: 600 }}
                     >
                       <option value="Todas">Todas las sucursales</option>
-                      <option value="San Vicente">Abatte San Vicente</option>
-                      <option value="Villa Mella">Abatte Villa Mella</option>
-                      <option value="Disponibles (*)">Disponibles (*)</option>
+                      {availableSucursales.map(suc => (
+                        <option key={suc} value={suc}>{suc}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -3424,9 +3450,9 @@ export default function PayrollModule({ initialTab }) {
                       style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: 600 }}
                     >
                       <option value="Todos">Todos los departamentos</option>
-                      <option value="Estilista">Estilistas</option>
-                      <option value="Barbero">Barberos</option>
-                      <option value="Manicurista">Manicuristas</option>
+                      {availableCargos.map(cargo => (
+                        <option key={cargo} value={cargo}>{cargo}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
