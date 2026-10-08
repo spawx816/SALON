@@ -12,7 +12,15 @@ function createPayrollRouter(pool) {
   router.get('/periods', async (req, res) => {
     try {
       const [rows] = await pool.query(`
-        SELECT * FROM payroll_periods 
+        SELECT id, period_name, 
+               DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
+               DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
+               total_empleados, total_neto, total_ingresos, total_descuentos,
+               status, sucursal, departamento, is_immutable,
+               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at,
+               DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
+               approved_by
+        FROM payroll_periods 
         ORDER BY id DESC
       `);
       res.json(rows);
@@ -111,7 +119,17 @@ function createPayrollRouter(pool) {
       const { id } = req.params;
       let periods = [];
       try {
-        [periods] = await pool.query('SELECT * FROM payroll_periods WHERE id = ?', [id]);
+        [periods] = await pool.query(`
+          SELECT id, period_name, 
+                 DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
+                 DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
+                 total_empleados, total_neto, total_ingresos, total_descuentos,
+                 status, sucursal, departamento, is_immutable,
+                 DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at,
+                 DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
+                 approved_by
+          FROM payroll_periods WHERE id = ?
+        `, [id]);
       } catch (dbErr) {
         // Ignorar si el ID no es numérico para la consulta SQL
       }
@@ -838,7 +856,17 @@ function createPayrollRouter(pool) {
   router.post('/periods/:id/sync-real-data', async (req, res) => {
     try {
       const { id } = req.params;
-      const [periodRows] = await pool.query('SELECT * FROM payroll_periods WHERE id = ?', [id]);
+      const [periodRows] = await pool.query(`
+        SELECT id, period_name, 
+               DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
+               DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
+               total_empleados, total_neto, total_ingresos, total_descuentos,
+               status, sucursal, departamento, is_immutable,
+               DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at,
+               DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
+               approved_by
+        FROM payroll_periods WHERE id = ?
+      `, [id]);
       if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado' });
       
       const period = periodRows[0];

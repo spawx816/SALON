@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { dataService } from '../../utils/dataService';
+import { formatDateDisplay } from '../../utils/formatters';
 import { useNotification } from '../../context/NotificationContext';
 import PayrollHistoryView from './PayrollHistoryView';
 
@@ -834,7 +835,7 @@ export default function PayrollModule({ initialTab }) {
           <div><strong>ID / Cédula:</strong> ${item.employee_id}</div>
           <div><strong>Posición:</strong> ${item.posicion}</div>
           <div><strong>Sucursal:</strong> ${item.sucursal}</div>
-          <div><strong>Período:</strong> ${currentPeriod?.start_date || ''} al ${currentPeriod?.end_date || ''}</div>
+          <div><strong>Período:</strong> ${formatDateDisplay(currentPeriod?.start_date)} al ${formatDateDisplay(currentPeriod?.end_date)}</div>
           <div><strong>Fecha Emisión:</strong> ${new Date().toLocaleDateString('es-DO')}</div>
         </div>
 
@@ -930,7 +931,7 @@ export default function PayrollModule({ initialTab }) {
       <body>
         <h2>ABATTE PELUQUERÍA / PLAN BEAUTY RD</h2>
         <h3>PLANILLA GENERAL DE NÓMINA · ${currentPeriod?.period_name}</h3>
-        <p>Período: ${currentPeriod?.start_date} al ${currentPeriod?.end_date} | Estado: ${currentPeriod?.status}</p>
+        <p>Período: ${formatDateDisplay(currentPeriod?.start_date)} al ${formatDateDisplay(currentPeriod?.end_date)} | Estado: ${currentPeriod?.status}</p>
 
         <div class="summary-kpi">
           <div class="kpi-card"><strong>Empleados:</strong> ${summaryData.totalEmpleados}</div>
@@ -1073,6 +1074,25 @@ export default function PayrollModule({ initialTab }) {
                     </option>
                   ))}
                 </select>
+
+                {/* BADGE CON LAS FECHAS DEL PERÍODO FORMATEADAS */}
+                {currentPeriod && (
+                  <div style={{
+                    background: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    color: '#1d4ed8',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <Calendar size={13} color="#0066ff" />
+                    <span>{formatDateDisplay(currentPeriod.start_date)} al {formatDateDisplay(currentPeriod.end_date)}</span>
+                  </div>
+                )}
 
                 <span style={{
                   background: currentPeriod?.status === 'Aprobada' ? '#dcfce7' : '#fef3c7',
@@ -2126,7 +2146,7 @@ export default function PayrollModule({ initialTab }) {
               </div>
 
               <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#64748b', marginBottom: '1.25rem' }}>
-                Período: {currentPeriod?.period_name} ({currentPeriod?.start_date} al {currentPeriod?.end_date})
+                Período: {currentPeriod?.period_name} ({formatDateDisplay(currentPeriod?.start_date)} al {formatDateDisplay(currentPeriod?.end_date)})
               </div>
 
               {/* DOS COLUMNAS: INGRESOS Y DESCUENTOS */}
@@ -2867,7 +2887,7 @@ export default function PayrollModule({ initialTab }) {
                   </div>
                   <div>
                     <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Fechas</span>
-                    <strong style={{ color: '#0f172a' }}>{currentPeriod.start_date} al {currentPeriod.end_date}</strong>
+                    <strong style={{ color: '#0f172a' }}>{formatDateDisplay(currentPeriod.start_date)} al {formatDateDisplay(currentPeriod.end_date)}</strong>
                   </div>
                   <div>
                     <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Cantidad de Colaboradores</span>
@@ -2976,7 +2996,7 @@ export default function PayrollModule({ initialTab }) {
                     Resumen general de nómina
                   </h2>
                   <p style={{ color: '#64748b', margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>
-                    {currentPeriod?.period_name} ({currentPeriod?.start_date} al {currentPeriod?.end_date})
+                    {currentPeriod?.period_name} ({formatDateDisplay(currentPeriod?.start_date)} al {formatDateDisplay(currentPeriod?.end_date)})
                   </p>
                 </div>
 

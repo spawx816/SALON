@@ -4,6 +4,7 @@ import {
   ChevronRight, Lock, Calendar, Wallet, BarChart3, X, CheckSquare, Square
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatDateDisplay } from '../../utils/formatters';
 import PayrollComparisonModal from './PayrollComparisonModal';
 import './PayrollHistory.css';
 
@@ -374,7 +375,7 @@ export default function PayrollHistoryView({
       return {
         ...p,
         display_quincena: is2da ? '2da quincena' : '1ra quincena',
-        date_range_display: `${p.start_date} al ${p.end_date}`,
+        date_range_display: `${formatDateDisplay(p.start_date)} al ${formatDateDisplay(p.end_date)}`,
         month_group: mGroup,
         month_name: mName,
         year: '2026',

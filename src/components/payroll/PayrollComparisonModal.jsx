@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { dataService } from '../../utils/dataService';
+import { formatDateDisplay } from '../../utils/formatters';
 import './PayrollHistory.css';
 
 export default function PayrollComparisonModal({
@@ -425,7 +426,7 @@ export default function PayrollComparisonModal({
                       {periodA?.period_name || '2da quincena · Septiembre 2026'}
                     </div>
                     <div className="pcm-period-card-meta">
-                      <span>{periodA?.start_date || '16'} - {periodA?.end_date || '30 Sep 2026'}</span>
+                      <span>{formatDateDisplay(periodA?.start_date)} - {formatDateDisplay(periodA?.end_date)}</span>
                       <span>• {periodA?.total_empleados || 42} empleados</span>
                     </div>
                   </div>
@@ -500,7 +501,7 @@ export default function PayrollComparisonModal({
                       {periodB?.period_name || '1ra quincena · Septiembre 2026'}
                     </div>
                     <div className="pcm-period-card-meta">
-                      <span>{periodB?.start_date || '01'} - {periodB?.end_date || '15 Sep 2026'}</span>
+                      <span>{formatDateDisplay(periodB?.start_date)} - {formatDateDisplay(periodB?.end_date)}</span>
                       <span>• {periodB?.total_empleados || 42} empleados</span>
                     </div>
                   </div>

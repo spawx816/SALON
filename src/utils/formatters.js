@@ -27,3 +27,22 @@ export const getInitials = (str) => {
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 };
+
+/**
+ * Formatea una fecha de forma limpia y legible (ej. "2026-10-01T04:00:00.000Z" -> "01 Oct 2026")
+ */
+export const formatDateDisplay = (dateVal) => {
+  if (!dateVal) return '';
+  const str = String(dateVal).trim();
+  const datePart = str.split('T')[0].split(' ')[0];
+  const parts = datePart.split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    const [year, month, day] = parts;
+    const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthIdx = parseInt(month, 10) - 1;
+    const monthName = months[monthIdx] || month;
+    return `${day} ${monthName} ${year}`;
+  }
+  return datePart;
+};
+
