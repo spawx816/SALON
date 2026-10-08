@@ -711,11 +711,21 @@ const AttendanceLogs = () => {
     const effectiveBaseSal = baseSal > 0 ? baseSal : 20000;
     const hourlyRate = (effectiveBaseSal / 23.83 / 8);
 
-    // Parse employee rotating/daily schedule
-    let rotSchedule = null;
-    if (emp.horarios_rotativos) {
+    // Parse employee schedule from dias_laborables (which can be JSON or comma-separated)
+    let parsedCustomSchedule = null;
+    let isJsonSchedule = false;
+
+    if (emp.dias_laborables && typeof emp.dias_laborables === 'string' && emp.dias_laborables.trim().startsWith('{')) {
       try {
-        rotSchedule = typeof emp.horarios_rotativos === 'string' ? JSON.parse(emp.horarios_rotativos) : emp.horarios_rotativos;
+        parsedCustomSchedule = JSON.parse(emp.dias_laborables);
+        isJsonSchedule = true;
+      } catch (e) {
+        console.error("Error parsing dias_laborables JSON in computeDetailedPayroll:", e);
+      }
+    } else if (emp.horarios_rotativos) {
+      try {
+        parsedCustomSchedule = typeof emp.horarios_rotativos === 'string' ? JSON.parse(emp.horarios_rotativos) : emp.horarios_rotativos;
+        isJsonSchedule = true;
       } catch (e) {}
     }
 
@@ -741,9 +751,9 @@ const AttendanceLogs = () => {
         baseHoraEntrada = override.new_hora_entrada;
         baseHoraSalida = override.new_hora_salida;
         isDayOff = false;
-      } else if (rotSchedule) {
-        const matchingKey = Object.keys(rotSchedule).find(k => normalizeDayName(k) === normDay);
-        const daySched = matchingKey ? rotSchedule[matchingKey] : null;
+      } else if (isJsonSchedule && parsedCustomSchedule) {
+        const matchingKey = Object.keys(parsedCustomSchedule).find(k => normalizeDayName(k) === normDay);
+        const daySched = matchingKey ? parsedCustomSchedule[matchingKey] : null;
         if (daySched && daySched.entrada && daySched.salida) {
           baseHoraEntrada = daySched.entrada;
           baseHoraSalida = daySched.salida;
@@ -753,7 +763,7 @@ const AttendanceLogs = () => {
           baseHoraEntrada = null;
           baseHoraSalida = null;
         }
-      } else if (emp.dias_laborables) {
+      } else if (emp.dias_laborables && typeof emp.dias_laborables === 'string' && !emp.dias_laborables.trim().startsWith('{')) {
         const workingDays = emp.dias_laborables.split(',').map(normalizeDayName);
         if (workingDays.includes(normDay)) {
           isDayOff = false;
@@ -762,6 +772,9 @@ const AttendanceLogs = () => {
           baseHoraEntrada = null;
           baseHoraSalida = null;
         }
+      } else if (!emp.dias_laborables) {
+        // Si no tiene días configurados explícitamente, usa el horario general del empleado (lunes a sábado)
+        isDayOff = (normDay === 'domingo');
       }
 
       // Sort to reliably pick earliest check-in and latest check-out
