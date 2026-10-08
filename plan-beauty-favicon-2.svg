@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" role="img" aria-labelledby="title">
+  <title id="title">Plan Beauty — favicon azul eléctrico</title>
+  <defs>
+    <linearGradient id="blue" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#32BFFA"/>
+      <stop offset="0.56" stop-color="#1175FF"/>
+      <stop offset="1" stop-color="#1050FF"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#blue)" d="M0 0H1254V1254H0Z"/>
+  <path fill="#fff" fill-rule="evenodd" d="M382 193H713C766 193 817 204 860 227V315H950C977 359 991 412 991 473C991 629 871 752 711 752H541V1025C541 1073 512 1103 466 1103H383C337 1103 309 1073 309 1025V269C309 223 337 193 382 193Z M658 274C663 274 663 288 665 299C683 414 733 456 857 473C863 474 863 480 857 481C733 499 683 542 665 654C663 666 663 672 658 672C653 672 653 662 651 654C633 542 582 499 462 481C455 480 455 474 462 473C582 456 633 414 651 299C653 288 653 274 658 274Z"/>
+  <path fill="#fff" d="M913 166H1015V267H913Z"/>
+</svg>
