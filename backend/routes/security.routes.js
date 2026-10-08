@@ -77,16 +77,54 @@ function createSecurityRouter(pool) {
         return res.status(400).json({ success: false, valid: false, error: 'Ingresa un PIN o código válido.' });
       }
 
-      // 1. Check if it matches master admin PINs
-      const masterPins = ['2026', '1234', '8888', '0000'];
-      if (masterPins.includes(cleanPin)) {
+      // 1. Consultar PIN dinámico y OTP en tiempo real desde la tabla security_settings
+      const [secSettings] = await pool.query(
+        'SELECT admin_pin, active_otp_pin, otp_expires_at FROM security_settings WHERE id = 1'
+      );
+
+      let isPinAuthorized = false;
+      let authorizedRole = 'PIN Administrador';
+
+      if (secSettings.length > 0) {
+        const { admin_pin, active_otp_pin, otp_expires_at } = secSettings[0];
+        
+        // PIN OTP dinámico (si está activo y no ha expirado)
+        if (active_otp_pin && cleanPin === String(active_otp_pin).trim()) {
+          const isExpired = otp_expires_at && new Date(otp_expires_at) < new Date();
+          if (!isExpired) {
+            isPinAuthorized = true;
+            authorizedRole = 'PIN OTP Dinámico (Correo)';
+          }
+        }
+        
+        // PIN Maestro configurado en la base de datos
+        if (!isPinAuthorized && admin_pin && cleanPin === String(admin_pin).trim()) {
+          isPinAuthorized = true;
+          authorizedRole = 'PIN Maestro Administrador';
+        }
+      } else {
+        // Fallback si la fila no existe
+        if (cleanPin === '1234' || cleanPin === '2026') {
+          isPinAuthorized = true;
+          authorizedRole = 'PIN Maestro Administrador';
+        }
+      }
+
+      if (isPinAuthorized) {
         if (requestId) {
           try { await pool.query("UPDATE security_requests SET status = 'authorized' WHERE id = ?", [requestId]); } catch(e){}
         }
-        return res.json({ success: true, valid: true, authorizedBy: 'Master PIN Administrador' });
+        await logSecurityAudit(
+          req.headers['x-user-id'] || 'admin', 
+          req.headers['x-user-name'] || 'Administrador', 
+          'AUTH_PIN_VERIFIED', 
+          `Autorización de seguridad aprobada mediante ${authorizedRole}`, 
+          req
+        );
+        return res.json({ success: true, valid: true, authorizedBy: authorizedRole });
       }
 
-      // 2. Check dynamic authorization code in security_requests
+      // 2. Verificar código de solicitud dinámica en security_requests
       const [secRows] = await pool.query(
         `SELECT id, client_name, service_name FROM security_requests 
          WHERE auth_code = ? AND status = 'pending' AND (expires_at IS NULL OR expires_at >= NOW()) 
@@ -96,6 +134,13 @@ function createSecurityRouter(pool) {
 
       if (secRows.length > 0) {
         await pool.query("UPDATE security_requests SET status = 'authorized' WHERE id = ?", [secRows[0].id]);
+        await logSecurityAudit(
+          req.headers['x-user-id'] || 'pos', 
+          req.headers['x-user-name'] || 'Recepción POS', 
+          'AUTH_CODE_VERIFIED', 
+          `Código de solicitud #${secRows[0].id} autorizado para "${secRows[0].service_name}"`, 
+          req
+        );
         return res.json({ 
           success: true, 
           valid: true, 
@@ -103,7 +148,7 @@ function createSecurityRouter(pool) {
         });
       }
 
-      // 3. Check verification_codes table
+      // 3. Verificar en tabla verification_codes (Códigos OTP de Clientes / Membresías)
       const [verRows] = await pool.query(
         `SELECT id FROM verification_codes 
          WHERE code = ? AND is_used = 0 AND (expires_at IS NULL OR expires_at >= NOW()) 
@@ -116,7 +161,16 @@ function createSecurityRouter(pool) {
         return res.json({ success: true, valid: true, authorizedBy: 'Código de Membresía' });
       }
 
-      return res.status(401).json({ success: false, valid: false, error: 'Clave o código de autorización incorrecto o expirado.' });
+      // Auditoría de intento fallido
+      await logSecurityAudit(
+        req.headers['x-user-id'] || 'guest', 
+        req.headers['x-user-name'] || 'Intento no autorizado', 
+        'AUTH_PIN_FAILED', 
+        'Intento fallido de autorización con PIN o código incorrecto', 
+        req
+      );
+
+      return res.status(401).json({ success: false, valid: false, error: 'Clave PIN o código de autorización incorrecto o expirado.' });
     } catch (err) {
       console.error('[SECURITY VERIFY AUTH ERROR]:', err);
       res.status(500).json({ error: err.message });
