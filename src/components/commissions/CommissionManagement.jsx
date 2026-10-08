@@ -232,17 +232,27 @@ const CommissionManagement = () => {
   };
 
   // --- HANDLERS: REGLAS DE ESQUEMA ---
-  const handleOpenRuleModal = () => {
+  const handleOpenRuleModal = (initialTab = 'especial') => {
     if (!selectedSchemeId) return alert('Selecciona primero un esquema');
     const firstService = allServices[0];
     setRuleForm({
-      rule_type: 'servicio',
+      rule_type: initialTab, // 'categoria' | 'servicio' | 'especial'
       category_name: categories[0]?.nombre || '',
       service_name: firstService ? firstService.nombre : '',
       service_id: firstService ? firstService.id : '',
       tipo_calculo: 'Porcentaje',
-      valor: '',
-      prioridad: 1
+      valor: '20',
+      prioridad: 1,
+      // Special Rule fields (matching user mockup)
+      operacion: 'Restar', // 'Restar' | 'Sumar' | 'Contar'
+      monto_ajuste: 100,
+      porcentaje_comision: 20,
+      cantidad_meta: 100,
+      bono_monto: 2000,
+      bono_tipo: 'Fijo',
+      periodo: 'Mensual',
+      repeticion: 'Una vez por período',
+      repeticion_limite: 1
     });
     setShowRuleModal(true);
   };
@@ -253,10 +263,29 @@ const CommissionManagement = () => {
       return alert('Selecciona una categoría para la regla.');
     }
     if (ruleForm.rule_type === 'servicio' && !ruleForm.service_name) {
-      return alert('Ingresa el nombre del servicio para la excepción.');
+      return alert('Ingresa o selecciona el servicio para la excepción.');
     }
-    const val = parseFloat(ruleForm.valor);
-    if (isNaN(val) || val < 0) return alert('Ingresa un valor válido');
+    if (ruleForm.rule_type === 'especial') {
+      if (!ruleForm.service_name) {
+        return alert('Selecciona el servicio / ítem del catálogo para la regla especial.');
+      }
+      if (ruleForm.operacion === 'Restar' || ruleForm.operacion === 'Sumar') {
+        const ajuste = parseFloat(ruleForm.monto_ajuste);
+        const pct = parseFloat(ruleForm.porcentaje_comision);
+        if (isNaN(ajuste) || ajuste < 0) return alert('Ingresa un monto válido para restar/sumar.');
+        if (isNaN(pct) || pct < 0) return alert('Ingresa un porcentaje de comisión válido.');
+        ruleForm.valor = pct;
+      } else if (ruleForm.operacion === 'Contar') {
+        const meta = parseInt(ruleForm.cantidad_meta);
+        const bono = parseFloat(ruleForm.bono_monto);
+        if (isNaN(meta) || meta <= 0) return alert('Ingresa una cantidad de servicios meta válida (mayor a 0).');
+        if (isNaN(bono) || bono < 0) return alert('Ingresa el monto del bono a pagar.');
+        ruleForm.valor = bono;
+      }
+    } else {
+      const val = parseFloat(ruleForm.valor);
+      if (isNaN(val) || val < 0) return alert('Ingresa un valor válido');
+    }
 
     try {
       await dataService.saveSchemeRule(selectedSchemeId, ruleForm);
@@ -342,9 +371,10 @@ const CommissionManagement = () => {
     return Array.from(groupsMap.values()).sort((a, b) => b.totalComision - a.totalComision);
   }, [commissions]);
 
-  // Filter rules into Category Rules vs Service Exceptions
+  // Filter rules into Category Rules vs Service Exceptions vs Special Rules
   const catRules = schemeRules.filter(r => r.rule_type === 'categoria');
   const serviceExceptions = schemeRules.filter(r => r.rule_type === 'servicio');
+  const specialRules = schemeRules.filter(r => r.rule_type === 'especial');
   const selectedSchemeObj = schemes.find(s => s.id === selectedSchemeId);
 
   // Unique employee count for metrics
@@ -638,6 +668,103 @@ const CommissionManagement = () => {
                 </select>
               </div>
 
+              {/* REGLAS ESPECIALES (MÁXIMA PRIORIDAD) */}
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#be185d', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>⭐ Reglas Especiales (Restar / Sumar / Contar)</span>
+                  <span style={{ fontSize: '0.68rem', background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '1px 6px', borderRadius: '6px', fontWeight: 800 }}>Máxima Prioridad</span>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                  <thead>
+                    <tr style={{ background: '#fdf2f8', color: '#be185d', textAlign: 'left', fontWeight: 800, borderBottom: '1px solid #fbcfe8' }}>
+                      <th style={{ padding: '0.4rem 0.5rem' }}>Servicio</th>
+                      <th style={{ padding: '0.4rem 0.5rem' }}>Operación</th>
+                      <th style={{ padding: '0.4rem 0.5rem' }}>Detalle de Regla</th>
+                      <th style={{ padding: '0.4rem 0.4rem', textAlign: 'center' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {specialRules.length === 0 ? (
+                      <tr><td colSpan={4} style={{ padding: '0.75rem', textAlign: 'center', color: '#94a3b8' }}>Sin reglas especiales configuradas.</td></tr>
+                    ) : (
+                      specialRules.map(r => (
+                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.45rem 0.5rem', fontWeight: 800, color: '#0f172a' }}>{r.service_name}</td>
+                          <td style={{ padding: '0.45rem 0.5rem' }}>
+                            <span style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '0.68rem',
+                              fontWeight: 800,
+                              background: r.operacion === 'Contar' ? '#eff6ff' : (r.operacion === 'Sumar' ? '#ecfdf5' : '#fef2f2'),
+                              color: r.operacion === 'Contar' ? '#1d4ed8' : (r.operacion === 'Sumar' ? '#15803d' : '#b91c1c'),
+                              border: `1px solid ${r.operacion === 'Contar' ? '#bfdbfe' : (r.operacion === 'Sumar' ? '#bbf7d0' : '#fecaca')}`
+                            }}>
+                              {r.operacion || 'Restar'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', fontWeight: 700, color: '#334155' }}>
+                            {r.operacion === 'Contar' ? (
+                              <span style={{ color: '#1d4ed8' }}>
+                                Meta: <strong>{r.cantidad_meta}</strong> serv. → Bono <strong>RD${Number(r.bono_monto || 0).toLocaleString('es-DO')}</strong> ({r.periodo} · {r.repeticion})
+                              </span>
+                            ) : r.operacion === 'Sumar' ? (
+                              <span>
+                                Sumar <strong>RD${Number(r.monto_ajuste || 0).toLocaleString('es-DO')}</strong> → Paga <strong>{r.porcentaje_comision || r.valor}%</strong>
+                              </span>
+                            ) : (
+                              <span>
+                                Restar <strong>RD${Number(r.monto_ajuste || 0).toLocaleString('es-DO')}</strong> → Paga <strong>{r.porcentaje_comision || r.valor}%</strong>
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.4rem', textAlign: 'center' }}>
+                            <button onClick={() => handleDeleteRule(r.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={13} /></button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* EXCEPCIONES POR SERVICIO */}
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#991b1b', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Excepciones por Servicio</span>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left', fontWeight: 800, borderBottom: '1px solid #e2e8f0' }}>
+                      <th style={{ padding: '0.4rem 0.5rem' }}>Servicio</th>
+                      <th style={{ padding: '0.4rem 0.5rem' }}>Tipo</th>
+                      <th style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>Valor</th>
+                      <th style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>Prioridad</th>
+                      <th style={{ padding: '0.4rem 0.4rem', textAlign: 'center' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serviceExceptions.length === 0 ? (
+                      <tr><td colSpan={5} style={{ padding: '0.75rem', textAlign: 'center', color: '#94a3b8' }}>Sin excepciones por servicio configuradas.</td></tr>
+                    ) : (
+                      serviceExceptions.map(r => (
+                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.45rem 0.5rem', fontWeight: 800, color: '#be185d' }}>{r.service_name}</td>
+                          <td style={{ padding: '0.45rem 0.5rem', color: '#64748b' }}>{r.tipo_calculo}</td>
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontWeight: 800, color: '#166534' }}>
+                            {r.tipo_calculo === 'Porcentaje' ? `${r.valor}%` : `RD$ ${r.valor}`}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontWeight: 800 }}>{r.prioridad || 1}</td>
+                          <td style={{ padding: '0.45rem 0.4rem', textAlign: 'center' }}>
+                            <button onClick={() => handleDeleteRule(r.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={13} /></button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
               {/* REGLAS POR CATEGORÍA */}
               <div style={{ marginBottom: '1rem' }}>
                 <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.4rem' }}>
@@ -675,46 +802,9 @@ const CommissionManagement = () => {
                 </table>
               </div>
 
-              {/* EXCEPCIONES POR SERVICIO */}
-              <div style={{ marginBottom: '1rem' }}>
-                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#991b1b', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>Excepciones por Servicio (Mayor prioridad)</span>
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left', fontWeight: 800, borderBottom: '1px solid #e2e8f0' }}>
-                      <th style={{ padding: '0.4rem 0.5rem' }}>Servicio</th>
-                      <th style={{ padding: '0.4rem 0.5rem' }}>Tipo</th>
-                      <th style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>Valor</th>
-                      <th style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>Prioridad</th>
-                      <th style={{ padding: '0.4rem 0.4rem', textAlign: 'center' }}>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {serviceExceptions.length === 0 ? (
-                      <tr><td colSpan={5} style={{ padding: '0.75rem', textAlign: 'center', color: '#94a3b8' }}>Sin excepciones por servicio configuradas.</td></tr>
-                    ) : (
-                      serviceExceptions.map(r => (
-                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.45rem 0.5rem', fontWeight: 800, color: '#be185d' }}>{r.service_name}</td>
-                          <td style={{ padding: '0.45rem 0.5rem', color: '#64748b' }}>{r.tipo_calculo}</td>
-                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontWeight: 800, color: '#166534' }}>
-                            {r.tipo_calculo === 'Porcentaje' ? `${r.valor}%` : `RD$ ${r.valor}`}
-                          </td>
-                          <td style={{ padding: '0.45rem 0.5rem', textAlign: 'center', fontWeight: 800 }}>{r.prioridad || 1}</td>
-                          <td style={{ padding: '0.45rem 0.4rem', textAlign: 'center' }}>
-                            <button onClick={() => handleDeleteRule(r.id)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={13} /></button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
               {/* Add Rule Button */}
               <button
-                onClick={handleOpenRuleModal}
+                onClick={() => handleOpenRuleModal('especial')}
                 style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#be185d', padding: '0.55rem', borderRadius: '10px', fontSize: '0.78rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem', marginBottom: '1rem' }}
               >
                 <Plus size={15} /> Agregar Regla o Excepción
@@ -727,9 +817,10 @@ const CommissionManagement = () => {
                 </div>
                 <div style={{ fontSize: '0.71rem', color: '#8c6b00', lineHeight: '1.45' }}>
                   El sistema aplica las reglas en este orden:<br/>
-                  <strong>1. Excepción por Servicio</strong> (si existe - Mayor prioridad)<br/>
-                  <strong>2. Regla por Categoría</strong><br/>
-                  <strong>3. Regla General del Esquema / Catálogo</strong>
+                  <strong>1. Regla Especial</strong> (Restar / Sumar / Contar - Máxima Prioridad)<br/>
+                  <strong>2. Excepción por Servicio</strong> (si existe)<br/>
+                  <strong>3. Regla por Categoría</strong><br/>
+                  <strong>4. Regla General del Esquema / Catálogo</strong>
                 </div>
               </div>
 
@@ -1170,126 +1261,392 @@ const CommissionManagement = () => {
       )}
 
       {/* --- MODAL 3: AGREGAR REGLA O EXCEPCIÓN A ESQUEMA --- */}
-      {showRuleModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#ffffff', borderRadius: '20px', width: '100%', maxWidth: '460px', padding: '1.75rem', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
-                Agregar Regla / Excepción al Esquema
-              </h3>
-              <button onClick={() => setShowRuleModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
-            </div>
+      {showRuleModal && (() => {
+        const selectedService = allServices.find(s => s.nombre === ruleForm.service_name) || allServices[0];
+        const servicePrice = Number(selectedService?.precio || 500);
+        const ajusteVal = parseFloat(ruleForm.monto_ajuste) || 0;
+        const pctVal = parseFloat(ruleForm.porcentaje_comision) || 0;
+        const baseCalculo = ruleForm.operacion === 'Sumar' ? (servicePrice + ajusteVal) : Math.max(0, servicePrice - ajusteVal);
+        const previewResult = Number(((baseCalculo * pctVal) / 100).toFixed(2));
 
-            <form onSubmit={handleSaveRule}>
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>Aplica a:</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                  <button
-                    type="button"
-                    onClick={() => setRuleForm({ ...ruleForm, rule_type: 'categoria' })}
-                    style={{ padding: '0.6rem', borderRadius: '8px', border: ruleForm.rule_type === 'categoria' ? '2px solid #be185d' : '1px solid #cbd5e1', background: ruleForm.rule_type === 'categoria' ? '#fdf2f8' : '#ffffff', color: ruleForm.rule_type === 'categoria' ? '#be185d' : '#475569', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
-                  >
-                    Por Categoría
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRuleForm({ ...ruleForm, rule_type: 'servicio' })}
-                    style={{ padding: '0.6rem', borderRadius: '8px', border: ruleForm.rule_type === 'servicio' ? '2px solid #be185d' : '1px solid #cbd5e1', background: ruleForm.rule_type === 'servicio' ? '#fdf2f8' : '#ffffff', color: ruleForm.rule_type === 'servicio' ? '#be185d' : '#475569', fontWeight: 800, fontSize: '0.8rem', cursor: 'pointer' }}
-                  >
-                    Excepción por Servicio
-                  </button>
-                </div>
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+            <div style={{ background: '#ffffff', borderRadius: '20px', width: '100%', maxWidth: '480px', padding: '1.75rem', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', maxHeight: '92vh', overflowY: 'auto' }}>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>
+                  Agregar Regla / Excepción al Esquema
+                </h3>
+                <button onClick={() => setShowRuleModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
               </div>
 
-              {ruleForm.rule_type === 'categoria' ? (
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Categoría de Comisión *</label>
-                  <select
-                    value={ruleForm.category_name} onChange={e => setRuleForm({ ...ruleForm, category_name: e.target.value })}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
-                  >
-                    {categories.map(c => (
-                      <option key={c.id} value={c.nombre}>{c.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div style={{ marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#334155' }}>
-                      Servicio / Ítem del Catálogo *
-                    </label>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#be185d', background: '#fdf2f8', padding: '2px 8px', borderRadius: '9999px', border: '1px solid #fce7f3' }}>
-                      {allServices.length} ítems registrados
-                    </span>
-                  </div>
-                  {allServices.length > 0 ? (
-                    <select
-                      value={ruleForm.service_name}
-                      onChange={e => {
-                        const selected = allServices.find(s => s.nombre === e.target.value);
-                        setRuleForm({
-                          ...ruleForm,
-                          service_name: e.target.value,
-                          service_id: selected?.id || ''
-                        });
+              <form onSubmit={handleSaveRule}>
+                {/* 3-TAB SELECTOR (Matching User Mockup) */}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1fr', gap: '0.4rem', background: '#f8fafc', padding: '4px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <button
+                      type="button"
+                      onClick={() => setRuleForm({ ...ruleForm, rule_type: 'categoria' })}
+                      style={{
+                        padding: '0.55rem 0.4rem',
+                        borderRadius: '8px',
+                        border: ruleForm.rule_type === 'categoria' ? '1.5px solid #be185d' : 'none',
+                        background: ruleForm.rule_type === 'categoria' ? '#ffffff' : 'transparent',
+                        color: ruleForm.rule_type === 'categoria' ? '#be185d' : '#64748b',
+                        fontWeight: 800,
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: ruleForm.rule_type === 'categoria' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none'
                       }}
-                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #be185d', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
-                      required
                     >
-                      <option value="">-- Selecciona un Servicio / Ítem --</option>
-                      {allServices.map(s => (
-                        <option key={s.id} value={s.nombre}>
-                          {s.nombre} {s.precio ? `· RD$ ${Number(s.precio).toLocaleString('es-DO')}` : ''} {s.categoria ? `· [${s.categoria}]` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ej: Keratina, Alisado Brasileño..."
-                      value={ruleForm.service_name}
-                      onChange={e => setRuleForm({ ...ruleForm, service_name: e.target.value })}
-                      style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
-                    />
-                  )}
-                  <span style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                    💡 Selecciona el ítem al que deseas aplicar esta comisión específica o monto fijo.
-                  </span>
+                      Por categoría
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRuleForm({ ...ruleForm, rule_type: 'servicio' })}
+                      style={{
+                        padding: '0.55rem 0.4rem',
+                        borderRadius: '8px',
+                        border: ruleForm.rule_type === 'servicio' ? '1.5px solid #be185d' : 'none',
+                        background: ruleForm.rule_type === 'servicio' ? '#ffffff' : 'transparent',
+                        color: ruleForm.rule_type === 'servicio' ? '#be185d' : '#64748b',
+                        fontWeight: 800,
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: ruleForm.rule_type === 'servicio' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none'
+                      }}
+                    >
+                      Excepción por servicio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRuleForm({ ...ruleForm, rule_type: 'especial' })}
+                      style={{
+                        padding: '0.55rem 0.4rem',
+                        borderRadius: '8px',
+                        border: ruleForm.rule_type === 'especial' ? '1.5px solid #be185d' : 'none',
+                        background: ruleForm.rule_type === 'especial' ? '#fdf2f8' : 'transparent',
+                        color: ruleForm.rule_type === 'especial' ? '#be185d' : '#64748b',
+                        fontWeight: 900,
+                        fontSize: '0.75rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: ruleForm.rule_type === 'especial' ? '0 2px 5px rgba(190,24,93,0.1)' : 'none'
+                      }}
+                    >
+                      Regla especial
+                    </button>
+                  </div>
                 </div>
-              )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Tipo de Cálculo</label>
-                  <select
-                    value={ruleForm.tipo_calculo} onChange={e => setRuleForm({ ...ruleForm, tipo_calculo: e.target.value })}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                {/* --- TAB 1: POR CATEGORÍA --- */}
+                {ruleForm.rule_type === 'categoria' && (
+                  <div>
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>Categoría de Comisión *</label>
+                      <select
+                        value={ruleForm.category_name} onChange={e => setRuleForm({ ...ruleForm, category_name: e.target.value })}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                      >
+                        {categories.map(c => (
+                          <option key={c.id} value={c.nombre}>{c.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Tipo de Cálculo</label>
+                        <select
+                          value={ruleForm.tipo_calculo} onChange={e => setRuleForm({ ...ruleForm, tipo_calculo: e.target.value })}
+                          style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                        >
+                          <option value="Porcentaje">Porcentaje (%)</option>
+                          <option value="Monto_Fijo">Monto Fijo (RD$)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Valor *</label>
+                        <input
+                          type="number" step="0.01" required placeholder="25"
+                          value={ruleForm.valor} onChange={e => setRuleForm({ ...ruleForm, valor: e.target.value })}
+                          style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 800 }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* --- TAB 2: EXCEPCIÓN POR SERVICIO --- */}
+                {ruleForm.rule_type === 'servicio' && (
+                  <div>
+                    <div style={{ marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#334155' }}>
+                          Servicio / Ítem del Catálogo *
+                        </label>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#be185d', background: '#fdf2f8', padding: '2px 8px', borderRadius: '9999px', border: '1px solid #fce7f3' }}>
+                          {allServices.length} ítems registrados
+                        </span>
+                      </div>
+                      <select
+                        value={ruleForm.service_name}
+                        onChange={e => {
+                          const selected = allServices.find(s => s.nombre === e.target.value);
+                          setRuleForm({
+                            ...ruleForm,
+                            service_name: e.target.value,
+                            service_id: selected?.id || ''
+                          });
+                        }}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #be185d', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
+                        required
+                      >
+                        <option value="">-- Selecciona un Servicio / Ítem --</option>
+                        {allServices.map(s => (
+                          <option key={s.id} value={s.nombre}>
+                            {s.nombre} {s.precio ? `· RD$ ${Number(s.precio).toLocaleString('es-DO')}` : ''} {s.categoria ? `· [${s.categoria}]` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Tipo de Cálculo</label>
+                        <select
+                          value={ruleForm.tipo_calculo} onChange={e => setRuleForm({ ...ruleForm, tipo_calculo: e.target.value })}
+                          style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                        >
+                          <option value="Porcentaje">Porcentaje (%)</option>
+                          <option value="Monto_Fijo">Monto Fijo (RD$)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Valor *</label>
+                        <input
+                          type="number" step="0.01" required placeholder="25"
+                          value={ruleForm.valor} onChange={e => setRuleForm({ ...ruleForm, valor: e.target.value })}
+                          style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 800 }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* --- TAB 3: REGLA ESPECIAL (RESTADO, SUMADO O CONTAR METAS) --- */}
+                {ruleForm.rule_type === 'especial' && (
+                  <div>
+                    {/* Servicio / Ítem del catálogo * */}
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                        Servicio / Ítem del catálogo *
+                      </label>
+                      <select
+                        value={ruleForm.service_name}
+                        onChange={e => {
+                          const selected = allServices.find(s => s.nombre === e.target.value);
+                          setRuleForm({
+                            ...ruleForm,
+                            service_name: e.target.value,
+                            service_id: selected?.id || ''
+                          });
+                        }}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
+                        required
+                      >
+                        <option value="">-- Selecciona un Servicio / Ítem --</option>
+                        {allServices.map(s => (
+                          <option key={s.id} value={s.nombre}>
+                            {s.nombre} {s.precio ? `· RD$${Number(s.precio).toLocaleString('es-DO')}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Operación * */}
+                    <div style={{ marginBottom: '1rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                        Operación *
+                      </label>
+                      <select
+                        value={ruleForm.operacion || 'Restar'}
+                        onChange={e => setRuleForm({ ...ruleForm, operacion: e.target.value })}
+                        style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 800, fontSize: '0.85rem', background: '#ffffff' }}
+                      >
+                        <option value="Restar">Restar</option>
+                        <option value="Sumar">Sumar</option>
+                        <option value="Contar">Contar</option>
+                      </select>
+                      <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '3px', display: 'block', fontWeight: 600 }}>
+                        Opciones: Restar, Sumar o Contar
+                      </span>
+                    </div>
+
+                    {/* FIELDS FOR RESTAR / SUMAR */}
+                    {(ruleForm.operacion === 'Restar' || ruleForm.operacion === 'Sumar') && (
+                      <>
+                        <div style={{ marginBottom: '1rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                            {ruleForm.operacion === 'Restar' ? 'Monto a restar *' : 'Monto a sumar *'}
+                          </label>
+                          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                            <span style={{ position: 'absolute', left: '12px', fontWeight: 800, fontSize: '0.85rem', color: '#64748b' }}>RD$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              required
+                              placeholder="100"
+                              value={ruleForm.monto_ajuste}
+                              onChange={e => setRuleForm({ ...ruleForm, monto_ajuste: e.target.value })}
+                              style={{ width: '100%', padding: '0.65rem 0.65rem 0.65rem 2.75rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 800, fontSize: '0.9rem' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: '1.25rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                            Comisión a pagar *
+                          </label>
+                          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                            <input
+                              type="number"
+                              step="0.01"
+                              required
+                              placeholder="20"
+                              value={ruleForm.porcentaje_comision}
+                              onChange={e => setRuleForm({ ...ruleForm, porcentaje_comision: e.target.value })}
+                              style={{ width: '100%', padding: '0.65rem 2rem 0.65rem 0.75rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 800, fontSize: '0.9rem' }}
+                            />
+                            <span style={{ position: 'absolute', right: '12px', fontWeight: 800, fontSize: '0.9rem', color: '#64748b' }}>%</span>
+                          </div>
+                        </div>
+
+                        {/* LIVE PREVIEW BOX (Restar / Sumar) */}
+                        <div style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', borderRadius: '14px', padding: '0.85rem 1rem', marginBottom: '1.25rem' }}>
+                          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#be185d', textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.5px' }}>
+                            Vista previa
+                          </div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>
+                            {ruleForm.operacion === 'Restar' ? (
+                              <span>(RD${servicePrice.toLocaleString('es-DO')} – RD${ajusteVal.toLocaleString('es-DO')}) × {pctVal}% = <strong style={{ color: '#be185d' }}>RD${previewResult.toLocaleString('es-DO')}</strong></span>
+                            ) : (
+                              <span>(RD${servicePrice.toLocaleString('es-DO')} + RD${ajusteVal.toLocaleString('es-DO')}) × {pctVal}% = <strong style={{ color: '#be185d' }}>RD${previewResult.toLocaleString('es-DO')}</strong></span>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* FIELDS FOR CONTAR */}
+                    {ruleForm.operacion === 'Contar' && (
+                      <>
+                        <div style={{ marginBottom: '1rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                            Cantidad de servicios *
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            placeholder="100"
+                            value={ruleForm.cantidad_meta}
+                            onChange={e => setRuleForm({ ...ruleForm, cantidad_meta: e.target.value })}
+                            style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 800, fontSize: '0.9rem' }}
+                          />
+                        </div>
+
+                        <div style={{ marginBottom: '1rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                            Bono fijo a pagar *
+                          </label>
+                          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                            <span style={{ position: 'absolute', left: '12px', fontWeight: 800, fontSize: '0.85rem', color: '#64748b' }}>RD$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              required
+                              placeholder="2000"
+                              value={ruleForm.bono_monto}
+                              onChange={e => setRuleForm({ ...ruleForm, bono_monto: e.target.value })}
+                              style={{ width: '100%', padding: '0.65rem 0.65rem 0.65rem 2.75rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 800, fontSize: '0.9rem' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: '1rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                            Período
+                          </label>
+                          <select
+                            value={ruleForm.periodo || 'Mensual'}
+                            onChange={e => setRuleForm({ ...ruleForm, periodo: e.target.value })}
+                            style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
+                          >
+                            <option value="Mensual">Mensual</option>
+                            <option value="Quincenal">Quincenal</option>
+                            <option value="Semanal">Semanal</option>
+                            <option value="Diario">Diario</option>
+                          </select>
+                        </div>
+
+                        <div style={{ marginBottom: '1.25rem' }}>
+                          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.35rem' }}>
+                            Repetición
+                          </label>
+                          <select
+                            value={ruleForm.repeticion || 'Una vez por período'}
+                            onChange={e => setRuleForm({ ...ruleForm, repeticion: e.target.value })}
+                            style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontWeight: 700, fontSize: '0.85rem', background: '#ffffff' }}
+                          >
+                            <option value="Una vez por período">Una vez por período</option>
+                            <option value="Dos veces por período">Dos veces por período</option>
+                            <option value="Sin límite (cada vez que complete la meta)">Sin límite (cada vez que complete la meta)</option>
+                          </select>
+                        </div>
+
+                        {/* LIVE PREVIEW BOX (Contar) */}
+                        <div style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', borderRadius: '14px', padding: '0.85rem 1rem', marginBottom: '1.25rem' }}>
+                          <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#be185d', textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.5px' }}>
+                            Vista previa
+                          </div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>
+                            Al alcanzar <strong>{ruleForm.cantidad_meta || 100} {ruleForm.service_name || 'servicios'}</strong>: bono de <strong style={{ color: '#be185d' }}>RD${Number(ruleForm.bono_monto || 2000).toLocaleString('es-DO')}</strong>
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '2px', fontWeight: 600 }}>
+                            {ruleForm.periodo || 'Mensual'} • {ruleForm.repeticion || 'Una vez por período'}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* FOOTER ACTION BUTTONS */}
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowRuleModal(false)}
+                    style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, cursor: 'pointer', color: '#475569' }}
                   >
-                    <option value="Porcentaje">Porcentaje (%)</option>
-                    <option value="Monto_Fijo">Monto Fijo (RD$)</option>
-                  </select>
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 900, cursor: 'pointer', boxShadow: '0 3px 10px rgba(190,24,93,0.3)' }}
+                  >
+                    Guardar regla
+                  </button>
                 </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>Valor *</label>
-                  <input
-                    type="number" step="0.01" required placeholder="25"
-                    value={ruleForm.valor} onChange={e => setRuleForm({ ...ruleForm, valor: e.target.value })}
-                    style={{ width: '100%', padding: '0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 800 }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setShowRuleModal(false)} style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
-                <button type="submit" style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', border: 'none', background: '#be185d', color: '#ffffff', fontWeight: 800, cursor: 'pointer' }}>Guardar Regla</button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* --- MODAL 4: ASIGNAR COLABORADORES A ESQUEMA --- */}
       {assignModalOpen && schemeToAssign && (

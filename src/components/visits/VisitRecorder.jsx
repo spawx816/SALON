@@ -6200,7 +6200,7 @@ const VisitRecorder = () => {
                   }}
                 >
                   <LockIcon size={18} />
-                  <span>{((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Cierre bloqueado por faltante' : 'Cerrar caja de jornada'}</span>
+                  <span>{((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Cierre bloqueado por faltante' : '🖨️ Cerrar e Imprimir Arqueo (Sobre 80mm)'}</span>
                 </button>
               </div>
               <span style={{ fontSize: '0.725rem', color: '#64748b', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', fontWeight: 500 }}>
@@ -6349,7 +6349,7 @@ const VisitRecorder = () => {
                   opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1 
                 }}
               >
-                {((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Bloqueado por faltante' : 'Finalizar y Cerrar Caja'}
+                {((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Bloqueado por faltante' : '🖨️ Cerrar e Imprimir Cuadre (Sobre 80mm)'}
               </button>
             </div>
           </div>

@@ -287,13 +287,51 @@ function createCommissionsRouter(pool, processVisitCommissions) {
   router.post('/schemes/:id/rules', async (req, res) => {
     try {
       const { id } = req.params;
-      const { rule_type, category_name, service_name, tipo_calculo, valor, prioridad } = req.body;
+      const { 
+        rule_type, 
+        category_name, 
+        service_name, 
+        tipo_calculo, 
+        valor, 
+        prioridad,
+        operacion,
+        monto_ajuste,
+        porcentaje_comision,
+        cantidad_meta,
+        bono_monto,
+        bono_tipo,
+        periodo,
+        repeticion,
+        repeticion_limite,
+        detalles_json
+      } = req.body;
       if (!rule_type) return res.status(400).json({ error: 'El tipo de regla es obligatorio.' });
 
       await pool.query(
-        `INSERT INTO commission_scheme_rules (scheme_id, rule_type, category_name, service_name, tipo_calculo, valor, prioridad)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, rule_type, category_name || null, service_name || null, tipo_calculo || 'Porcentaje', parseFloat(valor) || 0, parseInt(prioridad) || 1]
+        `INSERT INTO commission_scheme_rules (
+          scheme_id, rule_type, category_name, service_name, tipo_calculo, valor, prioridad,
+          operacion, monto_ajuste, porcentaje_comision, cantidad_meta, bono_monto, bono_tipo,
+          periodo, repeticion, repeticion_limite, detalles_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id, 
+          rule_type, 
+          category_name || null, 
+          service_name || null, 
+          tipo_calculo || 'Porcentaje', 
+          parseFloat(valor) || 0, 
+          parseInt(prioridad) || 1,
+          operacion || (rule_type === 'especial' ? 'Restar' : null),
+          parseFloat(monto_ajuste) || 0,
+          parseFloat(porcentaje_comision) || (rule_type === 'especial' && operacion !== 'Contar' ? parseFloat(valor) || 0 : 0),
+          parseInt(cantidad_meta) || 0,
+          parseFloat(bono_monto) || 0,
+          bono_tipo || 'Fijo',
+          periodo || 'Mensual',
+          repeticion || 'Una vez por período',
+          parseInt(repeticion_limite) || 1,
+          typeof detalles_json === 'object' ? JSON.stringify(detalles_json) : (detalles_json || null)
+        ]
       );
 
       res.json({ success: true, message: 'Regla agregada exitosamente' });

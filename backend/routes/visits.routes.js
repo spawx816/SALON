@@ -158,22 +158,63 @@ function createVisitsRouter(pool, deps = {}) {
 
           let ruleFound = false;
 
-          // Prioridad 1: Regla específica por Servicio dentro del esquema del empleado
-          const serviceRule = schemeRules.find(r => 
-            r.rule_type === 'servicio' && 
+          // Prioridad 1: Regla Especial por Servicio (Restar / Sumar)
+          const specialRule = schemeRules.find(r => 
+            r.rule_type === 'especial' && 
             r.service_name && 
             (r.service_name.toLowerCase().trim() === cleanServiceName.toLowerCase().trim() || 
              r.service_name.toLowerCase().trim() === rawServiceName.toLowerCase().trim())
           );
 
-          if (serviceRule) {
-            commissionType = serviceRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
-            commissionVal = parseFloat(serviceRule.valor) || 0;
-            ruleDesc = `Esquema (${schemeName}) - Servicio: ${serviceRule.service_name}`;
-            ruleFound = true;
+          if (specialRule) {
+            const operacion = specialRule.operacion || 'Restar';
+            const ajuste = parseFloat(specialRule.monto_ajuste) || 0;
+            const pct = parseFloat(specialRule.porcentaje_comision) || parseFloat(specialRule.valor) || 0;
+
+            if (operacion === 'Restar') {
+              const adjustedBase = Math.max(0, baseAmt - (ajuste * qty));
+              earnedCommission = (adjustedBase * pct) / 100;
+              ruleDesc = `Esquema (${schemeName}) - Regla Especial: Restar RD$${ajuste} y pagar ${pct}% (Base: RD$${baseAmt} → RD$${adjustedBase})`;
+              commissionType = 'Porcentaje';
+              commissionVal = pct;
+              ruleFound = true;
+            } else if (operacion === 'Sumar') {
+              const adjustedBase = baseAmt + (ajuste * qty);
+              earnedCommission = (adjustedBase * pct) / 100;
+              ruleDesc = `Esquema (${schemeName}) - Regla Especial: Sumar RD$${ajuste} y pagar ${pct}% (Base: RD$${baseAmt} → RD$${adjustedBase})`;
+              commissionType = 'Porcentaje';
+              commissionVal = pct;
+              ruleFound = true;
+            } else if (operacion === 'Contar') {
+              // Si tiene porcentaje base definido, aplicarlo; si no, buscar regla regular por servicio/categoría
+              if (pct > 0) {
+                earnedCommission = (baseAmt * pct) / 100;
+                ruleDesc = `Esquema (${schemeName}) - Regla Especial (Contar Meta): ${pct}% base + Bono`;
+                commissionType = 'Porcentaje';
+                commissionVal = pct;
+                ruleFound = true;
+              }
+            }
           }
 
-          // Prioridad 2: Regla por Categoría dentro del esquema del empleado
+          // Prioridad 2: Regla específica por Servicio dentro del esquema del empleado
+          if (!ruleFound) {
+            const serviceRule = schemeRules.find(r => 
+              r.rule_type === 'servicio' && 
+              r.service_name && 
+              (r.service_name.toLowerCase().trim() === cleanServiceName.toLowerCase().trim() || 
+               r.service_name.toLowerCase().trim() === rawServiceName.toLowerCase().trim())
+            );
+
+            if (serviceRule) {
+              commissionType = serviceRule.tipo_calculo === 'Monto_Fijo' ? 'Monto_Fijo' : 'Porcentaje';
+              commissionVal = parseFloat(serviceRule.valor) || 0;
+              ruleDesc = `Esquema (${schemeName}) - Servicio: ${serviceRule.service_name}`;
+              ruleFound = true;
+            }
+          }
+
+          // Prioridad 3: Regla por Categoría dentro del esquema del empleado
           if (!ruleFound && serviceCategory) {
             const catRule = schemeRules.find(r => 
               r.rule_type === 'categoria' && 
@@ -188,7 +229,7 @@ function createVisitsRouter(pool, deps = {}) {
             }
           }
 
-          // Prioridad 3: Regla General del Esquema
+          // Prioridad 4: Regla General del Esquema
           if (!ruleFound) {
             const generalRule = schemeRules.find(r => 
               r.rule_type === 'general' || 
@@ -209,15 +250,14 @@ function createVisitsRouter(pool, deps = {}) {
           }
         }
 
-        let earnedCommission = 0;
-        if (commissionVal > 0) {
+        if (earnedCommission === 0 && commissionVal > 0) {
           if (commissionType === 'Porcentaje') {
             earnedCommission = (baseAmt * commissionVal) / 100;
           } else {
             earnedCommission = commissionVal * qty;
           }
-          earnedCommission = parseFloat(Number(earnedCommission).toFixed(2));
         }
+        earnedCommission = parseFloat(Number(earnedCommission).toFixed(2));
 
         if (earnedCommission > 0) {
           const [existingLog] = await pool.query(
