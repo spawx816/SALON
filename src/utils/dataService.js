@@ -1015,6 +1015,14 @@ export const dataService = {
     } catch { return []; }
   },
 
+  getWeeklyBillingComparison: async () => {
+    try {
+      const res = await fetch(`${API_URL}/dashboard/weekly-billing-comparison`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch { return null; }
+  },
+
   getAnalyticsReports: async (salonId = 'all', startDate = null, endDate = null) => {
     try {
       let url = `${API_URL}/reports/analytics?salon_id=${salonId}`;
@@ -1250,6 +1258,45 @@ export const dataService = {
     } catch (e) { console.error(e); return null; }
   },
 
+  processSubscriptionsNow: async () => {
+    try {
+      const res = await fetch(`${API_URL}/contracts/subscriptions/process-now`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      return await res.json();
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  resendPaymentReceipt: async (paymentId) => {
+    try {
+      const res = await fetch(`${API_URL}/payments/${paymentId}/resend-receipt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      return await res.json();
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  cleanDuplicatePayments: async () => {
+    try {
+      const res = await fetch(`${API_URL}/payments/clean-duplicates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      return await res.json();
+    } catch (e) {
+      console.error(e);
+      return { success: false, error: e.message };
+    }
+  },
+
   saveRole: async (role) => {
     try {
       const method = role.id ? 'PUT' : 'POST';
@@ -1359,6 +1406,23 @@ export const dataService = {
     return await res.json();
   },
 
+  setPrimaryCard: async (clientId, cardData) => {
+    const res = await fetch(`${API_URL}/clients/${clientId}/set-primary-card`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cardData)
+    });
+    return await res.json();
+  },
+
+  cleanupDuplicateCards: async (clientId) => {
+    const res = await fetch(`${API_URL}/clients/${clientId}/cleanup-duplicate-cards`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    return await res.json();
+  },
+
   // Salons
   getSalons: async () => {
     try {
@@ -1371,6 +1435,17 @@ export const dataService = {
     try {
       const res = await fetch(`${API_URL}/salons`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(salon)
+      });
+      return await res.json();
+    } catch (e) { console.error(e); }
+  },
+
+  updateSalon: async (id, salon) => {
+    try {
+      const res = await fetch(`${API_URL}/salons/${id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(salon)
       });
@@ -1612,9 +1687,12 @@ export const dataService = {
     }
   },
 
-  getScheduleOverrides: async () => {
+  getScheduleOverrides: async (filters = {}) => {
     try {
-      const res = await fetch(`${API_URL}/attendance/schedule-overrides`);
+      const params = new URLSearchParams();
+      if (filters && filters.salonId) params.append('salonId', filters.salonId);
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`${API_URL}/attendance/schedule-overrides${queryStr}`);
       return res.ok ? await res.json() : [];
     } catch (e) {
       console.error(e);
@@ -1662,6 +1740,72 @@ export const dataService = {
     }
   },
 
+  // Holidays Calendar APIs
+  getHolidays: async (year = '') => {
+    try {
+      const query = year ? `?year=${year}` : '';
+      const res = await fetch(`${API_URL}/holidays${query}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching holidays:', e);
+      return [];
+    }
+  },
+
+  saveHoliday: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/holidays`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error saving holiday:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  updateHoliday: async (id, payload) => {
+    try {
+      const res = await fetch(`${API_URL}/holidays/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error updating holiday:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  deleteHoliday: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/holidays/${id}`, {
+        method: 'DELETE'
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error deleting holiday:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
+  seedHolidays: async (year = 2026) => {
+    try {
+      const res = await fetch(`${API_URL}/holidays/seed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year })
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Error seeding holidays:', e);
+      return { success: false, error: e.message };
+    }
+  },
+
   getAttendancePending: async (filters = {}) => {
     try {
       const params = new URLSearchParams();
@@ -1678,9 +1822,12 @@ export const dataService = {
     }
   },
 
-  getAttendanceToday: async () => {
+  getAttendanceToday: async (filters = {}) => {
     try {
-      const res = await fetch(`${API_URL}/attendance/today`);
+      const params = new URLSearchParams();
+      if (filters && filters.salonId) params.append('salonId', filters.salonId);
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`${API_URL}/attendance/today${queryStr}`);
       return res.ok ? await res.json() : [];
     } catch (e) {
       console.error(e);
@@ -2087,6 +2234,32 @@ export const dataService = {
     } catch (e) {
       console.error('Error fetching payroll concepts:', e);
       return [];
+    }
+  },
+
+  getPayrollAuditLogs: async (payrollId) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/audit-logs/${payrollId}`);
+      return res.ok ? await res.json() : [];
+    } catch (e) {
+      console.error('Error fetching payroll audit logs:', e);
+      return [];
+    }
+  },
+
+  bulkApplyPayrollConcept: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/bulk-apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al aplicar concepto masivo');
+      return data;
+    } catch (e) {
+      console.error('Error applying bulk payroll concept:', e);
+      throw e;
     }
   },
 

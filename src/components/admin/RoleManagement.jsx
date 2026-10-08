@@ -4,7 +4,7 @@ import {
   Settings, Users, Key, Mail, UserCheck, Trash2, Edit2,
   Search, Building, TrendingUp, Scissors, Download, 
   List, Grid, LayoutTemplate, MapPin, Briefcase, Activity, 
-  ChevronLeft, ChevronRight, Eye, Phone, User
+  ChevronLeft, ChevronRight, Eye, Phone, User, Wallet, DollarSign
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
@@ -23,24 +23,15 @@ const format12h = (timeStr) => {
 
 const RoleManagement = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('rrhh');
-  const [roles, setRoles] = useState([]);
-  const [users, setUsers] = useState([]);
   const [staff, setStaff] = useState([]);
   const [salons, setSalons] = useState([]);
   const [schemes, setSchemes] = useState([]);
   
-  // States for New User
-  const [newUser, setNewUser] = useState({ 
-    nombre: '', email: '', password: '', role_id: '', salon_id: '', profile_photo: null,
-    hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
-  });
-  const [editingUser, setEditingUser] = useState(null);
-  
   const [newStaff, setNewStaff] = useState({ 
     nombre: '', cedula: '', contacto: '', posicion: '', email: '',
     direccion: '', localidad: '', salon_id: '', commission_scheme_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
-    profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
+    profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15,
+    tipo_salario: 'fijo_mas_comision', salario_base: 20000
   });
   const [editingStaff, setEditingStaff] = useState(null);
   const [staffSaving, setStaffSaving] = useState(false);
@@ -57,11 +48,7 @@ const RoleManagement = () => {
     Domingo: { active: false, entrada: '08:00', salida: '18:00' }
   });
 
-  // States for Role Editing
-  const [editingRole, setEditingRole] = useState(null);
-  const [roleForm, setRoleForm] = useState({ nombre: '', permisos: {} });
-
-  // New RRHH UI States
+  // RRHH UI States
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
@@ -71,20 +58,14 @@ const RoleManagement = () => {
   const [viewMode, setViewMode] = useState('lista'); // 'lista', 'agrupado', 'tabla'
   const itemsPerPage = 10;
 
-
   const loadData = async () => {
     try {
-      const r = await dataService.getRoles();
-      const u = await dataService.getUsers();
       const s = await dataService.getStaffRecords();
       const sal = await dataService.getSalons();
       const sch = await dataService.getCommissionSchemes();
-      setRoles(r || []);
-      setUsers(u || []);
       setStaff(s || []);
       setSalons(sal || []);
       setSchemes(sch || []);
-      if (r && r.length > 0 && !newUser.role_id) setNewUser(prev => ({ ...prev, role_id: r[0].id }));
     } catch (err) {
       console.error("Error loading management data:", err);
     }
@@ -95,54 +76,6 @@ const RoleManagement = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterLocation, filterRole, filterStatus]);
-
-  const handleCreateUser = async (e) => {
-    e.preventDefault();
-    let processedUser = { ...newUser };
-    if (scheduleMode === 'daily') {
-      const scheduleJSON = {};
-      let firstActiveDayEntrada = '';
-      let firstActiveDaySalida = '';
-      Object.keys(dailySchedules).forEach(day => {
-        if (dailySchedules[day].active) {
-          scheduleJSON[day] = {
-            entrada: dailySchedules[day].entrada,
-            salida: dailySchedules[day].salida
-          };
-          if (!firstActiveDayEntrada) {
-            firstActiveDayEntrada = dailySchedules[day].entrada;
-            firstActiveDaySalida = dailySchedules[day].salida;
-          }
-        }
-      });
-      processedUser.dias_laborables = JSON.stringify(scheduleJSON);
-      processedUser.hora_entrada = firstActiveDayEntrada || '08:00';
-      processedUser.hora_salida = firstActiveDaySalida || '18:00';
-    } else {
-      const activeDays = Object.keys(dailySchedules).filter(day => dailySchedules[day].active);
-      const sortedDays = daysOfWeek.filter(d => activeDays.includes(d));
-      processedUser.dias_laborables = sortedDays.join(',');
-    }
-
-    await dataService.saveUser(editingUser ? { ...processedUser, id: editingUser.id } : processedUser);
-    setNewUser({ 
-      nombre: '', email: '', password: '', role_id: roles[0]?.id || '', salon_id: '', profile_photo: null,
-      hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
-    });
-    setDailySchedules({
-      Lunes: { active: false, entrada: '08:00', salida: '18:00' },
-      Martes: { active: false, entrada: '08:00', salida: '18:00' },
-      Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
-      Jueves: { active: false, entrada: '08:00', salida: '18:00' },
-      Viernes: { active: false, entrada: '08:00', salida: '18:00' },
-      Sábado: { active: false, entrada: '08:00', salida: '18:00' },
-      Domingo: { active: false, entrada: '08:00', salida: '18:00' }
-    });
-    setScheduleMode('general');
-    setEditingUser(null);
-    loadData();
-    alert(editingUser ? 'Usuario actualizado correctamente' : 'Usuario creado correctamente');
-  };
 
   const handleSaveStaff = async (e) => {
     e.preventDefault();
@@ -188,7 +121,8 @@ const RoleManagement = () => {
         setNewStaff({ 
           nombre: '', cedula: '', contacto: '', posicion: '', email: '',
           direccion: '', localidad: '', salon_id: '', commission_scheme_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
-          profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15
+          profile_photo: null, hora_entrada: '', hora_salida: '', dias_laborables: '', tolerancia_minutos: 15,
+          tipo_salario: 'fijo_mas_comision', salario_base: 20000
         });
         setDailySchedules({
           Lunes: { active: false, entrada: '08:00', salida: '18:00' },
@@ -271,16 +205,21 @@ const RoleManagement = () => {
       hora_entrada: member.hora_entrada || '',
       hora_salida: member.hora_salida || '',
       dias_laborables: member.dias_laborables || '',
-      tolerancia_minutos: member.tolerancia_minutos !== undefined && member.tolerancia_minutos !== null ? member.tolerancia_minutos : 15
+      tolerancia_minutos: member.tolerancia_minutos !== undefined && member.tolerancia_minutos !== null ? member.tolerancia_minutos : 15,
+      tipo_salario: member.tipo_salario || 'fijo_mas_comision',
+      salario_base: member.salario_base !== undefined && member.salario_base !== null ? member.salario_base : (member.tipo_salario === 'comision_pura' ? 0 : 20000)
     });
   };
 
-  const handleDeleteUser = async (id) => {
-    if (window.confirm('¿Estás seguro de eliminar este usuario?')) {
-      await dataService.deleteUser(id);
-      loadData();
-    }
-  };
+  const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  const filteredStaff = staff.filter(member => {
+    if (searchTerm && !member.nombre.toLowerCase().includes(searchTerm.toLowerCase()) && !(member.cedula || '').includes(searchTerm)) return false;
+    if (filterLocation && String(member.salon_id) !== String(filterLocation)) return false;
+    if (filterRole && member.posicion !== filterRole) return false;
+    if (filterStatus && member.status !== filterStatus) return false;
+    return true;
+  });
 
   const handleExportStaff = () => {
     if (!staff || staff.length === 0) {
@@ -341,141 +280,6 @@ const RoleManagement = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const startEditUser = (user) => {
-    setEditingUser(user);
-    
-    let dailyObj = {
-      Lunes: { active: false, entrada: '08:00', salida: '18:00' },
-      Martes: { active: false, entrada: '08:00', salida: '18:00' },
-      Miércoles: { active: false, entrada: '08:00', salida: '18:00' },
-      Jueves: { active: false, entrada: '08:00', salida: '18:00' },
-      Viernes: { active: false, entrada: '08:00', salida: '18:00' },
-      Sábado: { active: false, entrada: '08:00', salida: '18:00' },
-      Domingo: { active: false, entrada: '08:00', salida: '18:00' }
-    };
-    let isDaily = false;
-
-    if (user.dias_laborables && user.dias_laborables.trim().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(user.dias_laborables);
-        isDaily = true;
-        Object.keys(parsed).forEach(day => {
-          if (parsed[day]) {
-            dailyObj[day] = {
-              active: true,
-              entrada: parsed[day].entrada || '08:00',
-              salida: parsed[day].salida || '18:00'
-            };
-          }
-        });
-      } catch (e) {}
-    } else {
-      const activeDays = user.dias_laborables ? user.dias_laborables.split(',') : [];
-      activeDays.forEach(day => {
-        if (dailyObj[day]) {
-          dailyObj[day].active = true;
-          dailyObj[day].entrada = user.hora_entrada || '08:00';
-          dailyObj[day].salida = user.hora_salida || '18:00';
-        }
-      });
-    }
-
-    setDailySchedules(dailyObj);
-    setScheduleMode(isDaily ? 'daily' : 'general');
-
-    setNewUser({ 
-      nombre: user.nombre, 
-      email: user.email, 
-      password: '', // Password stays empty for edit unless user wants to change it
-      role_id: user.role_id,
-      salon_id: user.salon_id || '',
-      profile_photo: user.profile_photo || null,
-      hora_entrada: user.hora_entrada || '',
-      hora_salida: user.hora_salida || '',
-      dias_laborables: user.dias_laborables || '',
-      tolerancia_minutos: user.tolerancia_minutos !== undefined && user.tolerancia_minutos !== null ? user.tolerancia_minutos : 15
-    });
-  };
-
-  const handleSaveRole = async (e) => {
-    e.preventDefault();
-    await dataService.saveRole(editingRole ? { ...roleForm, id: editingRole.id } : roleForm);
-    setEditingRole(null);
-    setRoleForm({ nombre: '', permisos: {} });
-    loadData();
-    alert('Rol actualizado');
-  };
-
-  const togglePermission = (perm) => {
-    setRoleForm(prev => ({
-      ...prev,
-      permisos: {
-        ...prev.permisos,
-        [perm]: !prev.permisos[perm]
-      }
-    }));
-  };
-
-  const PERMISSION_GROUPS = [
-    {
-      title: '🧾 Facturación, Ventas y Operaciones',
-      permissions: [
-        { key: 'process_payments', label: 'Punto de Venta (POS) & Cobros' },
-        { key: 'view_invoices', label: 'Historial de Facturas & Ventas' },
-        { key: 'void_invoices', label: 'Anular Facturas & Auditoría' },
-        { key: 'record_visits', label: 'Registrar Visitas y Servicios' },
-        { key: 'manage_services', label: 'Gestión de Servicios y Precios' },
-        { key: 'manage_commissions', label: 'Comisiones y Nómina de Personal' }
-      ]
-    },
-    {
-      title: '👥 Clientes y Membresías',
-      permissions: [
-        { key: 'manage_clients', label: 'Gestionar Base de Clientes' },
-        { key: 'view_contracts', label: 'Ver Contratos y Suscripciones' },
-        { key: 'manage_plans', label: 'Crear y Editar Planes de Belleza' }
-      ]
-    },
-    {
-      title: '⚙️ Administración, Personal y Reportes',
-      permissions: [
-        { key: 'view_analytics', label: 'Ver Analítica y Reportes Financieros' },
-        { key: 'manage_attendance', label: 'Control de Asistencia y Horarios' },
-        { key: 'manage_staff', label: 'Gestionar Personal y Roles del Sistema' },
-        { key: 'manage_surveys', label: 'Gestionar Encuestas de Satisfacción' },
-        { key: 'manage_marketing', label: 'Marketing y Envío de Correos' },
-        { key: 'manage_salons', label: 'Gestionar Sucursales / Localidades' }
-      ]
-    }
-  ];
-
-  const PERMISSION_LABELS = PERMISSION_GROUPS.reduce((acc, g) => {
-    g.permissions.forEach(p => { acc[p.key] = p.label; });
-    return acc;
-  }, {});
-
-  const filteredStaff = staff.filter(member => {
-    if (searchTerm && !member.nombre.toLowerCase().includes(searchTerm.toLowerCase()) && !(member.cedula || '').includes(searchTerm)) return false;
-    if (filterLocation && String(member.salon_id) !== String(filterLocation)) return false;
-    if (filterRole && member.posicion !== filterRole) return false;
-    if (filterStatus && member.status !== filterStatus) return false;
-    return true;
-  });
-
-  const daysOfWeek = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-  const activeDays = newUser.dias_laborables ? newUser.dias_laborables.split(',') : [];
-
-  const handleDayToggle = (day) => {
-    let updated;
-    if (activeDays.includes(day)) {
-      updated = activeDays.filter(d => d !== day);
-    } else {
-      updated = [...activeDays, day];
-    }
-    const sorted = daysOfWeek.filter(d => updated.includes(d));
-    setNewUser(prev => ({ ...prev, dias_laborables: sorted.join(',') }));
   };
 
   const renderScheduleConfig = (target, setTarget) => {
@@ -667,7 +471,7 @@ const RoleManagement = () => {
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-      {/* Header Banner Homologado */}
+      {/* Header Banner Homologado RRHH */}
       <div style={{
         background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
         borderRadius: '20px',
@@ -710,16 +514,45 @@ const RoleManagement = () => {
                 gap: '0.35rem'
               }}>
                 <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#60a5fa' }} />
-                Personal Activo
+                Expedientes de Personal
               </span>
             </div>
             <p style={{ color: '#94a3b8', margin: '0.35rem 0 0 0', fontSize: '0.9rem' }}>
-              Expedientes de personal, comisiones, horarios de trabajo, sucursales asignadas y vinculación al sistema.
+              Directorio de colaboradores, turnos, esquemas de comisión, asignación de sucursales y expedientes laborales.
             </p>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => {
+              setEditingStaff(null);
+              setNewStaff({
+                nombre: '', cedula: '', contacto: '', posicion: '', email: '',
+                direccion: '', localidad: '', salon_id: '', commission_scheme_id: '', fecha_entrada: new Date().toISOString().split('T')[0],
+                profile_photo: null, hora_entrada: '08:00', hora_salida: '18:00', dias_laborables: 'Lunes,Martes,Miércoles,Jueves,Viernes,Sábado', tolerancia_minutos: 15
+              });
+              setShowStaffForm(true);
+            }}
+            className="btn-primary"
+            style={{
+              background: '#d4af37',
+              color: '#000000',
+              fontWeight: 850,
+              padding: '0.75rem 1.4rem',
+              borderRadius: '12px',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              boxShadow: '0 4px 14px rgba(212, 175, 55, 0.35)'
+            }}
+          >
+            <UserPlus size={18} />
+            <span>Nuevo Colaborador</span>
+          </button>
+
           <button
             onClick={() => navigate('/seguridad')}
             style={{
@@ -736,393 +569,15 @@ const RoleManagement = () => {
               cursor: 'pointer',
               transition: 'all 0.2s'
             }}
+            title="Ir a Seguridad para administrar contraseñas, roles y permisos de acceso"
           >
             <Shield size={16} color="#d4af37" />
-            <span>Centro de Seguridad & Permisos</span>
+            <span>Usuarios & Seguridad</span>
           </button>
         </div>
       </div>
 
-      {/* Premium Segmented Switcher Navigation Tabs */}
-      <div style={{
-        display: 'inline-flex',
-        background: '#f1f5f9',
-        padding: '6px',
-        borderRadius: '16px',
-        marginBottom: '2.5rem',
-        border: '1px solid #e2e8f0',
-        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
-      }}>
-        <button 
-          onClick={() => setActiveTab('rrhh')}
-          style={{ 
-            padding: '10px 24px',
-            background: activeTab === 'rrhh' ? '#0f172a' : 'transparent',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 800,
-            color: activeTab === 'rrhh' ? '#ffffff' : '#64748b',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: activeTab === 'rrhh' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
-            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          <Scissors size={16} style={{ color: activeTab === 'rrhh' ? '#d4af37' : '#64748b' }} />
-          Colaboradores (RRHH)
-        </button>
-        <button 
-          onClick={() => setActiveTab('users')}
-          style={{ 
-            padding: '10px 24px',
-            background: activeTab === 'users' ? '#0f172a' : 'transparent',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 800,
-            color: activeTab === 'users' ? '#ffffff' : '#64748b',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: activeTab === 'users' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
-            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          <Users size={16} style={{ color: activeTab === 'users' ? '#d4af37' : '#64748b' }} />
-          Usuarios del Sistema
-        </button>
-        <button 
-          onClick={() => setActiveTab('roles')}
-          style={{ 
-            padding: '10px 24px',
-            background: activeTab === 'roles' ? '#0f172a' : 'transparent',
-            border: 'none',
-            borderRadius: '12px',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 800,
-            color: activeTab === 'roles' ? '#ffffff' : '#64748b',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: activeTab === 'roles' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
-            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
-        >
-          <Shield size={16} style={{ color: activeTab === 'roles' ? '#d4af37' : '#64748b' }} />
-          Roles y Permisos
-        </button>
-      </div>
-
-      {activeTab === 'users' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-          {/* New User Form */}
-          <div className="surface-card" style={{ padding: '2.5rem', border: '1px solid #e2e8f0', borderRadius: '20px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.04)' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, marginBottom: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#09090b' }}>
-              <UserPlus size={22} style={{ color: '#10b981' }} /> 
-              {editingUser ? 'Editar Acceso' : 'Nuevo Acceso'}
-            </h3>
-            
-            <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div className="input-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', display: 'block' }}>Nombre Completo</label>
-                <div style={{ position: 'relative' }}>
-                  <User size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    required 
-                    placeholder="Ej. Juan Pérez"
-                    value={newUser.nombre} 
-                    onChange={e => setNewUser({...newUser, nombre: e.target.value})}
-                    style={{ padding: '0 1rem 0 2.5rem', height: '46px', borderRadius: '10px', fontSize: '0.9rem' }}
-                  />
-                </div>
-              </div>
-              
-              <div className="input-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', display: 'block' }}>Email de Acceso</label>
-                <div style={{ position: 'relative' }}>
-                  <Mail size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                  <input 
-                    type="email" 
-                    className="input-field" 
-                    required 
-                    placeholder="correo@salonpro.com"
-                    value={newUser.email} 
-                    onChange={e => setNewUser({...newUser, email: e.target.value})}
-                    style={{ padding: '0 1rem 0 2.5rem', height: '46px', borderRadius: '10px', fontSize: '0.9rem' }}
-                  />
-                </div>
-              </div>
-              
-              <div className="input-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', display: 'block' }}>
-                  {editingUser ? 'Nueva Contraseña (dejar vacío para no cambiar)' : 'Contraseña Temporal'}
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Key size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
-                  <input 
-                    type="password" 
-                    className="input-field" 
-                    required={!editingUser}
-                    placeholder={editingUser ? "••••••••" : "Min. 6 caracteres"}
-                    value={newUser.password} 
-                    onChange={e => setNewUser({...newUser, password: e.target.value})}
-                    style={{ padding: '0 1rem 0 2.5rem', height: '46px', borderRadius: '10px', fontSize: '0.9rem' }}
-                  />
-                </div>
-              </div>
-              
-              <div className="input-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', display: 'block' }}>Asignar Rol</label>
-                <div style={{ position: 'relative' }}>
-                  <Shield size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
-                  <select 
-                    className="input-field" 
-                    required
-                    value={newUser.role_id} 
-                    onChange={e => setNewUser({...newUser, role_id: e.target.value})}
-                    style={{ padding: '0 2rem 0 3rem', textIndent: '14px', height: '46px', borderRadius: '10px', fontSize: '0.9rem', cursor: 'pointer', background: 'white' }}
-                  >
-                    {roles.map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
-                  </select>
-                </div>
-              </div>
-              
-              <div className="input-group">
-                <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', display: 'block' }}>Asignar Localidad (Sucursal)</label>
-                <div style={{ position: 'relative' }}>
-                  <Building size={16} color="#94a3b8" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
-                  <select 
-                    className="input-field"
-                    value={newUser.salon_id} 
-                    onChange={e => setNewUser({...newUser, salon_id: e.target.value})}
-                    style={{ padding: '0 2rem 0 3rem', textIndent: '14px', height: '46px', borderRadius: '10px', fontSize: '0.9rem', cursor: 'pointer', background: 'white' }}
-                  >
-                    <option value="">🌎 Acceso Global (Todas)</option>
-                    {salons.map(s => <option key={s.id} value={s.id}>📍 {s.name}</option>)}
-                  </select>
-                </div>
-                <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.5rem', fontWeight: 550, lineHeight: '1.4' }}>
-                  * Los usuarios con acceso global podrán visualizar reportes y administrar contratos de todas las sucursales del salón.
-                </p>
-              </div>
-
-              {editingUser && (
-                <>
-                  <div className="input-group" style={{ marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', marginBottom: '0.75rem', display: 'block' }}>Foto de Perfil (Asistencia / Poncheo)</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-                      <div style={{ width: '70px', height: '70px', borderRadius: '12px', border: '1px dashed #cbd5e1', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', flexShrink: 0 }}>
-                        {newUser.profile_photo ? (
-                          <img src={newUser.profile_photo} alt="Foto de perfil" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                          <User size={28} color="#94a3b8" />
-                        )}
-                      </div>
-                      <div>
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          id="profile-photo-upload" 
-                          style={{ display: 'none' }}
-                          onChange={(e) => {
-                            const file = e.target.files[0];
-                            if (!file) return;
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setNewUser(prev => ({ ...prev, profile_photo: reader.result }));
-                            };
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                        <label htmlFor="profile-photo-upload" className="btn-secondary" style={{ padding: '0.45rem 0.9rem', fontSize: '0.75rem', borderRadius: '8px', cursor: 'pointer', display: 'inline-block', fontWeight: 700, border: '1px solid #e2e8f0' }}>
-                          {newUser.profile_photo ? 'Cambiar Foto' : 'Subir Foto'}
-                        </label>
-                        <p style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.25rem', margin: 0 }}>PNG, JPG o JPEG de máx. 5MB</p>
-                      </div>
-                    </div>
-                  </div>
-                  {renderScheduleConfig(newUser, setNewUser)}
-                </>
-              )}
-              
-              <button 
-                type="submit" 
-                className="btn-primary" 
-                style={{ 
-                  marginTop: '0.75rem', 
-                  height: '46px', 
-                  borderRadius: '10px', 
-                  fontSize: '0.9rem', 
-                  fontWeight: 800,
-                  boxShadow: '0 4px 12px rgba(9, 9, 11, 0.12)'
-                }}
-              >
-                {editingUser ? 'Actualizar Usuario' : 'Crear Usuario'}
-              </button>
-              
-              {editingUser && (
-                <button 
-                  type="button" 
-                  onClick={() => { setEditingUser(null); setNewUser({ nombre: '', email: '', password: '', role_id: roles[0]?.id || '' }); }} 
-                  className="btn-secondary" 
-                  style={{ height: '46px', borderRadius: '10px', fontSize: '0.9rem', fontWeight: 800 }}
-                >
-                  Cancelar Edición
-                </button>
-              )}
-            </form>
-          </div>
-
-          {/* Users List */}
-          <div className="surface-card" style={{ padding: '2.5rem', border: '1px solid #e2e8f0', borderRadius: '20px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.04)' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, marginBottom: '1.75rem', color: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>Usuarios Activos</span>
-              <span style={{ fontSize: '0.8rem', background: '#f1f5f9', color: '#475569', padding: '3px 10px', borderRadius: '99px', fontWeight: 800 }}>
-                {users.length} Registrados
-              </span>
-            </h3>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {users.map(u => (
-                <div 
-                  key={u.id} 
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between', 
-                    padding: '1.25rem 1.5rem', 
-                    background: '#ffffff', 
-                    border: '1px solid #e2e8f0', 
-                    borderRadius: '16px',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.01)',
-                    transition: 'all 0.25s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#94a3b8';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.03)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#e2e8f0';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.01)';
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-                    <div style={{ 
-                      width: '46px', 
-                      height: '46px', 
-                      borderRadius: '50%', 
-                      background: '#09090b', 
-                      color: 'white', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      fontWeight: 800,
-                      fontSize: '1.1rem',
-                      boxShadow: '0 4px 10px rgba(9, 9, 11, 0.15)',
-                      overflow: 'hidden'
-                    }}>
-                      {u.profile_photo ? (
-                        <img src={u.profile_photo} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        u.nombre.charAt(0).toUpperCase()
-                      )}
-                    </div>
-                    <div>
-                      <p style={{ fontWeight: 800, fontSize: '1.05rem', color: '#09090b', margin: 0 }}>{u.nombre}</p>
-                      <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '4px 0 0 0', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                        <span>{u.email}</span>
-                        <span>•</span>
-                        <strong style={{ color: '#09090b', fontWeight: 800 }}>{u.role_name}</strong>
-                        {u.salon_id ? (
-                          <span style={{ 
-                            background: 'rgba(71, 85, 105, 0.05)', 
-                            padding: '2px 8px', 
-                            borderRadius: '99px', 
-                            color: '#475569',
-                            fontWeight: 700,
-                            border: '1px solid rgba(71, 85, 105, 0.1)',
-                            fontSize: '0.75rem'
-                          }}>
-                            📍 {salons.find(s => String(s.id) === String(u.salon_id))?.name || 'Sucursal'}
-                          </span>
-                        ) : (
-                          <span style={{ 
-                            background: 'rgba(59, 130, 246, 0.08)', 
-                            padding: '2px 8px', 
-                            borderRadius: '99px', 
-                            color: '#2563eb',
-                            fontWeight: 800,
-                            border: '1px solid rgba(59, 130, 246, 0.15)',
-                            fontSize: '0.75rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}>
-                            <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#2563eb' }}></span>
-                            Global
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button 
-                      onClick={() => startEditUser(u)} 
-                      style={{ 
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '50%',
-                        background: 'transparent',
-                        border: '1px solid #e2e8f0',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#94a3b8'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
-                      title="Editar"
-                    >
-                      <Edit2 size={15} color="#475569" />
-                    </button>
-                    <button 
-                      onClick={() => handleDeleteUser(u.id)} 
-                      style={{ 
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '50%',
-                        background: 'transparent',
-                        border: '1px solid #fee2e2',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#fca5a5'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = '#fee2e2'; }}
-                      title="Eliminar"
-                    >
-                      <Trash2 size={15} color="#dc2626" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'rrhh' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
           
           {/* RRHH Form Modal */}
           {showStaffForm && (
@@ -1213,6 +668,65 @@ const RoleManagement = () => {
                         <option key={sch.id} value={sch.id}>{sch.nombre} ({sch.tipo})</option>
                       ))}
                     </select>
+                  </div>
+
+                  {/* CONFIGURACIÓN SALARIAL (NÓMINA) */}
+                  <div style={{ padding: '1.25rem', background: '#f8faff', borderRadius: '14px', border: '1.5px solid #dbeafe', margin: '1.25rem 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                      <Wallet size={18} color="#0066ff" />
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e40af', margin: 0 }}>
+                        CONFIGURACIÓN SALARIAL (NÓMINA)
+                      </h4>
+                    </div>
+
+                    <div className="input-group" style={{ marginBottom: '1rem' }}>
+                      <label style={{ fontWeight: 700, color: '#1e293b' }}>Tipo de Salario</label>
+                      <select 
+                        className="input-field" 
+                        value={newStaff.tipo_salario || 'fijo_mas_comision'} 
+                        onChange={e => {
+                          const val = e.target.value;
+                          setNewStaff(prev => ({
+                            ...prev, 
+                            tipo_salario: val,
+                            salario_base: val === 'comision_pura' ? 0 : (prev.salario_base || 20000)
+                          }));
+                        }}
+                        required
+                      >
+                        <option value="fijo_mas_comision">Salario fijo más comisiones</option>
+                        <option value="comision_pura">Salario únicamente por comisiones</option>
+                        <option value="fijo_puro">Salario fijo únicamente</option>
+                      </select>
+                    </div>
+
+                    {newStaff.tipo_salario !== 'comision_pura' ? (
+                      <div className="input-group">
+                        <label style={{ fontWeight: 700, color: '#1e293b' }}>
+                          Monto del Salario Base Mensual (RD$)
+                        </label>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', fontWeight: 800, color: '#64748b', fontSize: '0.85rem' }}>
+                            RD$
+                          </span>
+                          <input 
+                            type="number" 
+                            step="0.01" 
+                            min="0"
+                            className="input-field" 
+                            style={{ paddingLeft: '3.2rem', fontWeight: 700, color: '#0f172a' }}
+                            placeholder="0.00"
+                            value={newStaff.salario_base !== undefined ? newStaff.salario_base : ''} 
+                            onChange={e => setNewStaff({...newStaff, salario_base: e.target.value})}
+                            required={newStaff.tipo_salario !== 'comision_pura'}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ background: '#eff6ff', borderRadius: '10px', padding: '0.75rem 1rem', border: '1px solid #bfdbfe', fontSize: '0.8rem', color: '#1e40af' }}>
+                        💎 <strong>Solo Comisiones:</strong> Este colaborador devengará el 100% de sus ingresos en base a las comisiones por servicios generadas en el POS (Salario base RD$ 0.00 en la nómina).
+                      </div>
+                    )}
                   </div>
 
                   <div className="input-group">
@@ -1408,8 +922,8 @@ const RoleManagement = () => {
                  <Shield size={28} color="#f59e0b" />
                </div>
                <div>
-                 <p style={{ fontSize: '1.75rem', fontWeight: 900, color: '#09090b', lineHeight: 1 }}>{users.filter(u => u.role_name?.toLowerCase().includes('admin') || u.role_name?.toLowerCase().includes('recep')).length}</p>
-                 <p style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginTop: '0.25rem' }}>ADMIN y</p>
+                 <p style={{ fontSize: '1.75rem', fontWeight: 900, color: '#09090b', lineHeight: 1 }}>{staff.filter(s => s.posicion?.toLowerCase().includes('recep') || s.posicion?.toLowerCase().includes('encargad') || s.posicion?.toLowerCase().includes('admin')).length}</p>
+                 <p style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginTop: '0.25rem' }}>Encargadas y</p>
                  <p style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Recepción</p>
                </div>
             </div>
@@ -1488,6 +1002,9 @@ const RoleManagement = () => {
                         💼 {schemes.find(sch => String(sch.id) === String(member.commission_scheme_id))?.nombre || 'Esquema'}
                       </span>
                     )}
+                    <span style={{ fontSize: '0.7rem', color: '#047857', fontWeight: 800, background: '#ecfdf5', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #a7f3d0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      💰 {member.tipo_salario === 'comision_pura' ? 'Solo Comisiones' : (member.tipo_salario === 'fijo_puro' ? `Fijo RD$ ${Number(member.salario_base || 0).toLocaleString()}` : `Fijo RD$ ${Number(member.salario_base || 0).toLocaleString()} + Comisiones`)}
+                    </span>
                   </div>
                   <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem' }}>Entrada: {member.fecha_entrada ? new Date(member.fecha_entrada).toLocaleDateString() : 'N/A'}</p>
                   <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.2rem' }}>ID: {member.cedula}</p>
@@ -1532,100 +1049,7 @@ const RoleManagement = () => {
           </div>
           
         </div>
-      )}
 
-      {activeTab === 'roles' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-           {/* Roles Sidebar */}
-           <div className="surface-card">
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '1.5rem' }}>Lista de Roles</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {roles.map(r => (
-                  <button 
-                    key={r.id} 
-                    onClick={() => {
-                        setEditingRole(r);
-                        let perms = {};
-                        try {
-                          perms = typeof r.permisos === 'string' ? JSON.parse(r.permisos) : (r.permisos || {});
-                        } catch (e) {
-                          console.error("Error parsing permissions", e);
-                        }
-                        setRoleForm({ nombre: r.nombre, permisos: perms });
-                    }}
-                    style={{ 
-                      padding: '1rem', textAlign: 'left', borderRadius: '12px', border: '1px solid var(--border-subtle)', cursor: 'pointer',
-                      background: editingRole?.id === r.id ? 'var(--text-primary)' : 'var(--bg-canvas)',
-                      color: editingRole?.id === r.id ? 'white' : 'var(--text-primary)',
-                      fontWeight: 600, transition: 'all 0.2s'
-                    }}
-                  >
-                    {r.nombre}
-                  </button>
-                ))}
-                <button 
-                   onClick={() => { setEditingRole(null); setRoleForm({ nombre: '', permisos: {} }); }}
-                   className="btn-secondary" style={{ marginTop: '1rem' }}
-                >
-                  + Crear Nuevo Rol
-                </button>
-              </div>
-           </div>
-
-           {/* Permission Editor */}
-           <div className="surface-card">
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '1.5rem' }}>
-                {editingRole ? `Editando: ${editingRole.nombre}` : 'Nuevo Rol de Usuario'}
-              </h3>
-              <form onSubmit={handleSaveRole}>
-                <div className="input-group" style={{ marginBottom: '2rem' }}>
-                  <label>Nombre del Rol</label>
-                  <input 
-                    type="text" className="input-field" placeholder="Ej. Encargada de Piso" required 
-                    value={roleForm.nombre} onChange={e => setRoleForm({...roleForm, nombre: e.target.value})}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '2rem' }}>
-                  {PERMISSION_GROUPS.map((group, gIdx) => (
-                    <div key={gIdx} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
-                      <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', fontWeight: 800, color: '#334155', letterSpacing: '0.3px' }}>
-                        {group.title}
-                      </h4>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.65rem' }}>
-                        {group.permissions.map(p => {
-                          const isGranted = Boolean(roleForm.permisos && roleForm.permisos[p.key]);
-                          return (
-                            <div 
-                              key={p.key} 
-                              onClick={() => togglePermission(p.key)}
-                              style={{ 
-                                padding: '0.75rem 0.9rem', borderRadius: '10px', border: '1px solid', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.65rem',
-                                background: isGranted ? '#f0fdf4' : '#ffffff',
-                                borderColor: isGranted ? '#22c55e' : '#cbd5e1',
-                                boxShadow: isGranted ? '0 2px 4px rgba(34,197,94,0.1)' : 'none',
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              {isGranted ? <CheckCircle2 size={18} color="#16a34a" /> : <XCircle size={18} color="#94a3b8" />}
-                              <span style={{ fontSize: '0.8rem', fontWeight: isGranted ? 700 : 500, color: isGranted ? '#14532d' : '#334155' }}>
-                                {p.label}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <button type="submit" className="btn-primary" style={{ width: '100%', padding: '1.25rem' }}>
-                  Guardar Configuración de Rol
-                </button>
-              </form>
-           </div>
-        </div>
-      )}
       {/* Modal - View Staff Profile details */}
       {selectedStaffDetail && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(9, 9, 11, 0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
@@ -1772,6 +1196,38 @@ const RoleManagement = () => {
                         })()}
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                {/* 4. Configuración Salarial (Nómina) */}
+                <div>
+                  <h5 style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', fontWeight: 850, color: '#047857', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    💰 Configuración Salarial (Nómina)
+                  </h5>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#ecfdf5', padding: '1rem', borderRadius: '12px', border: '1px solid #a7f3d0' }}>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#065f46', fontWeight: 700 }}>MODALIDAD DE PAGO</span>
+                      <strong style={{ fontSize: '0.85rem', color: '#047857' }}>
+                        {selectedStaffDetail.tipo_salario === 'comision_pura'
+                          ? 'Salario únicamente por comisiones'
+                          : (selectedStaffDetail.tipo_salario === 'fijo_puro'
+                            ? 'Salario fijo únicamente'
+                            : 'Salario fijo más comisiones')}
+                      </strong>
+                    </div>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.7rem', color: '#065f46', fontWeight: 700 }}>SALARIO MENSUAL</span>
+                      <strong style={{ fontSize: '0.95rem', color: '#047857', fontWeight: 900 }}>
+                        {selectedStaffDetail.tipo_salario === 'comision_pura'
+                          ? 'RD$ 0.00 (100% Comisiones)'
+                          : `RD$ ${Number(selectedStaffDetail.salario_base || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}`}
+                      </strong>
+                    </div>
+                    {selectedStaffDetail.tipo_salario !== 'comision_pura' && (
+                      <div style={{ gridColumn: 'span 2', fontSize: '0.75rem', color: '#047857', background: 'rgba(255,255,255,0.6)', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #d1fae5' }}>
+                        💡 <strong>Cálculo en Nómina Quincenal:</strong> RD$ {(Number(selectedStaffDetail.salario_base || 0) / 2).toLocaleString('es-DO', { minimumFractionDigits: 2 })} base por quincena {selectedStaffDetail.tipo_salario === 'fijo_mas_comision' ? '+ comisiones acumuladas.' : '(sin comisión variable).'}
+                      </div>
+                    )}
                   </div>
                 </div>
 

@@ -5,7 +5,8 @@ import {
   LayoutDashboard, Users, Calendar, LogOut, Menu, X, CreditCard,
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
   Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
-  Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft, Shield
+  Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft, Shield, DollarSign, History,
+  Crown, ShoppingCart, UserCheck, Key
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -141,13 +142,23 @@ const AppContent = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
   const [isMotivationalModalOpen, setIsMotivationalModalOpen] = useState(false);
+  const [isSalesOpen, setIsSalesOpen] = useState(false);
+  const [isSubscriptionsOpen, setIsSubscriptionsOpen] = useState(false);
+  const [isTeamOpen, setIsTeamOpen] = useState(false);
+  const [isAdministrationOpen, setIsAdministrationOpen] = useState(false);
   const [isAccountingOpen, setIsAccountingOpen] = useState(false);
   const [isBiOpen, setIsBiOpen] = useState(false);
+  const [isPayrollOpen, setIsPayrollOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
+  const isSalesActive = location.pathname.startsWith('/visitas') || location.pathname.startsWith('/cajas') || location.pathname.startsWith('/facturas') || location.pathname.startsWith('/servicios') || location.pathname.startsWith('/marketing');
+  const isSubscriptionsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/contratos') || location.pathname.startsWith('/pagos') || location.pathname.startsWith('/encuesta') || location.pathname.startsWith('/planes') || location.pathname.startsWith('/sucursales') || location.pathname.startsWith('/regalos');
+  const isTeamActive = location.pathname.startsWith('/equipo') || location.pathname.startsWith('/admin/asistencia');
+  const isAdministrationActive = location.pathname.startsWith('/seguridad') || location.pathname.startsWith('/configuracion');
   const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607');
   const isBiActive = location.pathname.startsWith('/analitica');
+  const isPayrollActive = location.pathname.startsWith('/nomina') || location.pathname.startsWith('/comisiones') || location.pathname.startsWith('/descuentos-empleados');
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
@@ -225,7 +236,35 @@ const AppContent = () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
       activityEvents.forEach(evt => window.removeEventListener(evt, handleActivity));
     };
-  }, [isDashboard]);  // Expandir automáticamente el submenú de Contabilidad si estamos en una ruta contable
+  }, [isDashboard]);  // Expandir automáticamente el submenú de Ventas si estamos en una ruta de ventas
+  useEffect(() => {
+    if (isSalesActive) {
+      setIsSalesOpen(true);
+    }
+  }, [isSalesActive]);
+
+  // Expandir automáticamente el submenú de Suscripciones si estamos en una ruta de suscripciones
+  useEffect(() => {
+    if (isSubscriptionsActive) {
+      setIsSubscriptionsOpen(true);
+    }
+  }, [isSubscriptionsActive]);
+
+  // Expandir automáticamente el submenú de Equipo si estamos en una ruta de equipo
+  useEffect(() => {
+    if (isTeamActive) {
+      setIsTeamOpen(true);
+    }
+  }, [isTeamActive]);
+
+  // Expandir automáticamente el submenú de Administración si estamos en una ruta de administración
+  useEffect(() => {
+    if (isAdministrationActive) {
+      setIsAdministrationOpen(true);
+    }
+  }, [isAdministrationActive]);
+
+  // Expandir automáticamente el submenú de Contabilidad si estamos en una ruta contable
   useEffect(() => {
     if (isAccountingActive) {
       setIsAccountingOpen(true);
@@ -238,6 +277,13 @@ const AppContent = () => {
       setIsBiOpen(true);
     }
   }, [isBiActive]);
+
+  // Expandir automáticamente el submenú de Nómina si estamos en una ruta de nómina
+  useEffect(() => {
+    if (isPayrollActive) {
+      setIsPayrollOpen(true);
+    }
+  }, [isPayrollActive]);
 
   if (!user) {
     if (location.pathname === '/asistencia') {
@@ -256,7 +302,7 @@ const AppContent = () => {
     }
 
     const isMarketingRoute = [
-      '/', '/plan-de-belleza', '/como-funciona', '/beneficios', 
+      '/plan-de-belleza', '/como-funciona', '/beneficios', 
       '/salones', '/preguntas-frecuentes', '/contacto', 
       '/terminos-y-condiciones', '/politica-de-privacidad', 
       '/cancelacion-y-reembolsos'
@@ -343,96 +389,415 @@ const AppContent = () => {
             <>
               <p className="nav-group-title">{t('menu.principal')}</p>
               <SidebarLink to="/" icon={LayoutDashboard} label={t('menu.dashboard')} active={location.pathname === '/'} onClick={closeMobileMenu} />
-              {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
-                <SidebarLink to="/lista-clientes" icon={Users} label={t('menu.clients')} active={location.pathname === '/lista-clientes'} onClick={closeMobileMenu} />
-              )}
-              {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits))) && (
-                <SidebarLink to="/visitas" icon={Calendar} label="Facturación" active={location.pathname === '/visitas'} onClick={closeMobileMenu} />
-              )}
-              {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.manage_salons))) && (
-                <SidebarLink to="/cajas" icon={Wallet} label="Cajas Registradoras" active={location.pathname === '/cajas'} onClick={closeMobileMenu} />
-              )}
-              {isAdmin && (
-                <SidebarLink to="/facturas" icon={Receipt} label="Historial de Facturas" active={location.pathname === '/facturas'} onClick={closeMobileMenu} />
-              )}
-              {(isAdmin || (user?.permissions && user.permissions.manage_clients)) && (
-                <SidebarLink to="/registro-cliente" icon={UserPlus} label="Registrar Cliente" active={location.pathname === '/registro-cliente'} onClick={closeMobileMenu} />
-              )}
-              {(isAdmin || (user?.permissions && user.permissions.manage_services)) && (
-                <SidebarLink to="/servicios" icon={Sparkles} label="Gestión de Servicios" active={location.pathname === '/servicios'} onClick={closeMobileMenu} />
-              )}
-              {(isAdmin || (user?.permissions && (user.permissions.manage_commissions || user.permissions.manage_staff))) && (
-                <SidebarLink to="/comisiones" icon={Percent} label="Comisiones" active={location.pathname === '/comisiones'} onClick={closeMobileMenu} />
-              )}
-              {(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) && (
-                <SidebarLink to="/descuentos-empleados" icon={BadgePercent} label="Descuentos Empleados" active={location.pathname === '/descuentos-empleados'} onClick={closeMobileMenu} />
-              )}
               
-              <div style={{ margin: '1.5rem 0.75rem 0.5rem', height: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
-              <button 
-                onClick={() => { setIsGiftCardModalOpen(true); closeMobileMenu(); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem 1rem', margin: '0.25rem 0.75rem',
-                  borderRadius: '12px', color: '#d4af37', background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.2)',
-                  fontSize: '0.875rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s', width: 'calc(100% - 1.5rem)',
-                  textAlign: 'left'
-                }}
-                className="hover-lift"
-              >
-                <Gift size={18} />
-                <span>Validar Gift Card</span>
-              </button>
-              <div style={{ margin: '0.5rem 0.75rem 1.5rem', height: '1px', background: 'rgba(255,255,255,0.1)' }}></div>
+              {/* Menú Desplegable Ventas */}
+              {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits || user.permissions.manage_salons || user.permissions.manage_services))) && (
+                <div style={{ margin: '0.2rem 0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsSalesOpen(!isSalesOpen)}
+                    className={`nav-dropdown-header ${isSalesActive ? 'active' : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <ShoppingCart size={18} strokeWidth={isSalesActive ? 2.5 : 2} style={{ color: isSalesActive ? '#10b981' : 'inherit' }} />
+                      <span>Ventas</span>
+                    </div>
+                    {isSalesOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                  </button>
 
-              <p className="nav-group-title">{t('menu.business')}</p>
-              {(isAdmin || (user?.permissions && user.permissions.manage_surveys)) && (
-                <SidebarLink to="/encuesta" icon={Settings} label={t('menu.surveys')} active={location.pathname === '/encuesta'} onClick={closeMobileMenu} />
+                  {/* Submenú de Ventas */}
+                  {isSalesOpen && (
+                    <div style={{ 
+                      marginLeft: '1.25rem', 
+                      paddingLeft: '0.65rem', 
+                      borderLeft: '2px solid rgba(16,185,129,0.4)',
+                      marginTop: '0.35rem',
+                      marginBottom: '0.35rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem'
+                    }}>
+                      {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits))) && (
+                        <SidebarLink 
+                          to="/visitas" 
+                          icon={Calendar} 
+                          label="Facturación" 
+                          active={location.pathname === '/visitas'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.manage_salons))) && (
+                        <SidebarLink 
+                          to="/cajas" 
+                          icon={Wallet} 
+                          label="Cajas Registradoras" 
+                          active={location.pathname === '/cajas'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {isAdmin && (
+                        <SidebarLink 
+                          to="/facturas" 
+                          icon={Receipt} 
+                          label="Historial de Facturas" 
+                          active={location.pathname === '/facturas'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || (user?.permissions && user.permissions.manage_services)) && (
+                        <SidebarLink 
+                          to="/servicios" 
+                          icon={Sparkles} 
+                          label="Catálogo" 
+                          active={location.pathname === '/servicios'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_marketing) && (
+                        <SidebarLink 
+                          to="/marketing" 
+                          icon={Mail} 
+                          label="Marketing" 
+                          active={location.pathname === '/marketing'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
-              {(isAdmin || (user?.permissions && user?.permissions.view_contracts)) && (
-                <SidebarLink to="/contratos" icon={FileSignature} label={t('menu.contracts')} active={location.pathname === '/contratos'} onClick={closeMobileMenu} />
+
+              {/* Menú Desplegable Suscripciones */}
+              {(isAdmin || (user?.permissions && (
+                user.permissions.manage_clients || 
+                user.permissions.view_contracts || 
+                user.permissions.process_payments || 
+                user.permissions.manage_surveys ||
+                user.permissions.manage_plans ||
+                user.permissions.manage_salons
+              ))) && (
+                <div style={{ margin: '0.2rem 0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsSubscriptionsOpen(!isSubscriptionsOpen)}
+                    className={`nav-dropdown-header ${isSubscriptionsActive ? 'active' : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <Crown size={18} strokeWidth={isSubscriptionsActive ? 2.5 : 2} style={{ color: '#d4af37' }} />
+                      <span>Suscripciones</span>
+                    </div>
+                    {isSubscriptionsOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                  </button>
+
+                  {/* Submenú de Suscripciones */}
+                  {isSubscriptionsOpen && (
+                    <div style={{ 
+                      marginLeft: '1.25rem', 
+                      paddingLeft: '0.65rem', 
+                      borderLeft: '2px solid rgba(212,175,55,0.4)',
+                      marginTop: '0.35rem',
+                      marginBottom: '0.35rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem'
+                    }}>
+                      {(isAdmin || user?.permissions?.manage_clients) && (
+                        <SidebarLink 
+                          to="/lista-clientes" 
+                          icon={Users} 
+                          label="Clientes" 
+                          active={location.pathname === '/lista-clientes'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_clients) && (
+                        <SidebarLink 
+                          to="/registro-cliente" 
+                          icon={UserPlus} 
+                          label="Registrar Clientes" 
+                          active={location.pathname === '/registro-cliente'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.view_contracts) && (
+                        <SidebarLink 
+                          to="/contratos" 
+                          icon={FileSignature} 
+                          label="Contratos" 
+                          active={location.pathname === '/contratos'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.process_payments) && (
+                        <SidebarLink 
+                          to="/pagos" 
+                          icon={CreditCard} 
+                          label="Pagos" 
+                          active={location.pathname === '/pagos'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_surveys) && (
+                        <SidebarLink 
+                          to="/encuesta" 
+                          icon={Star} 
+                          label="Encuestas" 
+                          active={location.pathname === '/encuesta'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_plans) && (
+                        <SidebarLink 
+                          to="/planes" 
+                          icon={PieChart} 
+                          label="Planes de Membresía" 
+                          active={location.pathname === '/planes'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_salons) && (
+                        <SidebarLink 
+                          to="/sucursales" 
+                          icon={MapPin} 
+                          label="Sucursales" 
+                          active={location.pathname === '/sucursales'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      <SidebarLink 
+                        to="/regalos" 
+                        icon={Gift} 
+                        label="Gift Cards" 
+                        active={location.pathname === '/regalos'} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => { setIsGiftCardModalOpen(true); closeMobileMenu(); }}
+                        className="nav-link"
+                        style={{
+                          width: '100%',
+                          background: 'none',
+                          border: 'none',
+                          color: '#d4af37',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.75rem',
+                          textAlign: 'left',
+                          padding: '0.5rem 0.75rem'
+                        }}
+                      >
+                        <Gift size={18} />
+                        <span>Validar Gift Card</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Menú Desplegable Equipo */}
+              {(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_attendance || user?.role_name?.toLowerCase()?.includes('recep')))) && (
+                <div style={{ margin: '0.2rem 0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsTeamOpen(!isTeamOpen)}
+                    className={`nav-dropdown-header ${isTeamActive ? 'active' : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <Users size={18} strokeWidth={isTeamActive ? 2.5 : 2} style={{ color: isTeamActive ? '#38bdf8' : 'inherit' }} />
+                      <span>Equipo</span>
+                    </div>
+                    {isTeamOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                  </button>
+
+                  {/* Submenú de Equipo */}
+                  {isTeamOpen && (
+                    <div style={{ 
+                      marginLeft: '1.25rem', 
+                      paddingLeft: '0.65rem', 
+                      borderLeft: '2px solid rgba(56,189,248,0.4)',
+                      marginTop: '0.35rem',
+                      marginBottom: '0.35rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem'
+                    }}>
+                      {(isAdmin || user?.permissions?.manage_staff) && (
+                        <SidebarLink 
+                          to="/equipo" 
+                          icon={Users} 
+                          label="Personal" 
+                          active={location.pathname === '/equipo'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_attendance || user?.role_name?.toLowerCase()?.includes('recep')) && (
+                        <SidebarLink 
+                          to="/admin/asistencia" 
+                          icon={Clock} 
+                          label="Control de Asistencia" 
+                          active={location.pathname === '/admin/asistencia'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </>
           )}
 
           {(isAdmin || 
-            user?.permissions?.manage_attendance || 
             user?.permissions?.manage_staff || 
-            user?.permissions?.manage_plans || 
-            user?.permissions?.process_payments || 
             user?.permissions?.view_analytics || 
             user?.permissions?.manage_salons || 
             user?.permissions?.manage_marketing || 
+            user?.permissions?.manage_security ||
+            user?.permissions?.manage_commissions ||
             user?.role_name?.toLowerCase()?.includes('recep')) && (
             <>
               <p className="nav-group-title">{t('menu.admin')}</p>
               
-              {(isAdmin || user?.permissions?.manage_staff) && (
-                <SidebarLink to="/equipo" icon={Users} label="RRHH (Colaboradores)" active={location.pathname === '/equipo'} onClick={closeMobileMenu} />
+              {/* Menú Desplegable Administración */}
+              {(isAdmin || user?.permissions?.manage_security) && (
+                <div style={{ margin: '0.2rem 0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsAdministrationOpen(!isAdministrationOpen)}
+                    className={`nav-dropdown-header ${isAdministrationActive ? 'active' : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <Shield size={18} strokeWidth={isAdministrationActive ? 2.5 : 2} style={{ color: isAdministrationActive ? '#a855f7' : 'inherit' }} />
+                      <span>Administración</span>
+                    </div>
+                    {isAdministrationOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                  </button>
+
+                  {/* Submenú de Administración */}
+                  {isAdministrationOpen && (
+                    <div style={{ 
+                      marginLeft: '1.25rem', 
+                      paddingLeft: '0.65rem', 
+                      borderLeft: '2px solid rgba(168,85,247,0.4)',
+                      marginTop: '0.35rem',
+                      marginBottom: '0.35rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem'
+                    }}>
+                      {(isAdmin || user?.permissions?.manage_security) && (
+                        <SidebarLink 
+                          to="/seguridad?tab=users" 
+                          icon={UserCheck} 
+                          label="Usuarios" 
+                          active={location.pathname === '/seguridad' && (!location.search || location.search.includes('tab=users'))} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_security) && (
+                        <SidebarLink 
+                          to="/seguridad?tab=roles" 
+                          icon={Key} 
+                          label="Roles y Permisos" 
+                          active={location.pathname === '/seguridad' && location.search.includes('tab=roles')} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || user?.permissions?.manage_security) && (
+                        <SidebarLink 
+                          to="/seguridad?tab=pin_settings" 
+                          icon={Shield} 
+                          label="Seguridad & PIN" 
+                          active={location.pathname === '/seguridad' && (location.search.includes('tab=pin_settings') || location.search.includes('tab=security') || location.search.includes('tab=monitoring') || location.search.includes('tab=access_control'))} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {isAdmin && (
+                        <SidebarLink 
+                          to="/configuracion" 
+                          icon={Settings} 
+                          label="Configuración" 
+                          active={location.pathname === '/configuracion'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
-              {(isAdmin || user?.permissions?.manage_staff) && (
-                <SidebarLink to="/nomina" icon={Wallet} label="Nómina" active={location.pathname === '/nomina'} onClick={closeMobileMenu} />
+              {/* Menú Desplegable Nómina */}
+              {(isAdmin || user?.permissions?.manage_staff || user?.permissions?.manage_commissions) && (
+                <div style={{ margin: '0.2rem 0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsPayrollOpen(!isPayrollOpen)}
+                    className={`nav-dropdown-header ${isPayrollActive ? 'active' : ''}`}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <Wallet size={18} strokeWidth={isPayrollActive ? 2.5 : 2} />
+                      <span>Nómina</span>
+                    </div>
+                    {isPayrollOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                  </button>
+
+                  {/* Submenú de Nómina */}
+                  {isPayrollOpen && (
+                    <div style={{ 
+                      marginLeft: '1.25rem', 
+                      paddingLeft: '0.65rem', 
+                      borderLeft: '2px solid rgba(255,255,255,0.15)',
+                      marginTop: '0.35rem',
+                      marginBottom: '0.35rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem'
+                    }}>
+                      <SidebarLink 
+                        to="/nomina" 
+                        icon={DollarSign} 
+                        label="Procesar Nómina" 
+                        active={location.pathname === '/nomina' && (!location.search || location.search.includes('tab=payroll'))} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/nomina/historial" 
+                        icon={History} 
+                        label="Historial de Nóminas" 
+                        active={location.pathname === '/nomina/historial' || (location.pathname === '/nomina' && (location.search.includes('tab=historial') || location.search.includes('tab=historical')))} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/nomina/regalias" 
+                        icon={Sparkles} 
+                        label="Regalías del Año" 
+                        active={location.pathname === '/nomina/regalias' || (location.pathname === '/nomina' && location.search.includes('tab=regalias'))} 
+                        onClick={closeMobileMenu} 
+                      />
+                      {(isAdmin || (user?.permissions && (user.permissions.manage_commissions || user.permissions.manage_staff))) && (
+                        <SidebarLink 
+                          to="/comisiones" 
+                          icon={Percent} 
+                          label="Comisiones" 
+                          active={location.pathname === '/comisiones'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) && (
+                        <SidebarLink 
+                          to="/descuentos-empleados" 
+                          icon={BadgePercent} 
+                          label="Descuentos Empleados" 
+                          active={location.pathname === '/descuentos-empleados'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
-              
-              {(isAdmin || user?.permissions?.manage_attendance || user?.role_name?.toLowerCase()?.includes('recep')) && (
-                <SidebarLink to="/admin/asistencia" icon={Clock} label="Control Asistencia" active={location.pathname === '/admin/asistencia'} onClick={closeMobileMenu} />
-              )}
-              
-              {(isAdmin || user?.permissions?.manage_salons) && (
-                <SidebarLink to="/sucursales" icon={MapPin} label="Sucursales" active={location.pathname === '/sucursales'} onClick={closeMobileMenu} />
-              )}
-              
-              {(isAdmin || user?.permissions?.manage_plans) && (
-                <SidebarLink to="/planes" icon={PieChart} label={t('menu.plans')} active={location.pathname === '/planes'} onClick={closeMobileMenu} />
-              )}
-              
-              {(isAdmin || user?.permissions?.process_payments) && (
-                <SidebarLink to="/pagos" icon={CreditCard} label={t('menu.payments')} active={location.pathname === '/pagos'} onClick={closeMobileMenu} />
-              )}
-              
-              {(isAdmin || user?.permissions?.manage_marketing) && (
-                <SidebarLink to="/marketing" icon={Mail} label={t('menu.marketing')} active={location.pathname === '/marketing'} onClick={closeMobileMenu} />
-              )}
+
               
               {/* Menú Desplegable Inteligencia de Negocios (BI) */}
               {(isAdmin || user?.permissions?.view_analytics) && (
@@ -440,17 +805,7 @@ const AppContent = () => {
                   <button
                     type="button"
                     onClick={() => setIsBiOpen(!isBiOpen)}
-                    className={`nav-link ${isBiActive ? 'active' : ''}`}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      border: 'none',
-                      cursor: 'pointer',
-                      background: 'transparent',
-                      textAlign: 'left'
-                    }}
+                    className={`nav-dropdown-header ${isBiActive ? 'active' : ''}`}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                       <TrendingUp size={18} strokeWidth={isBiActive ? 2.5 : 2} />
@@ -517,11 +872,6 @@ const AppContent = () => {
                   )}
                 </div>
               )}
-
-              {/* Módulo de Seguridad */}
-              {(isAdmin || user?.permissions?.manage_security) && (
-                <SidebarLink to="/seguridad" icon={Shield} label="Seguridad" active={location.pathname === '/seguridad'} onClick={closeMobileMenu} />
-              )}
               
               {isAdmin && (
                 <>
@@ -530,17 +880,7 @@ const AppContent = () => {
                     <button
                       type="button"
                       onClick={() => setIsAccountingOpen(!isAccountingOpen)}
-                      className={`nav-link ${isAccountingActive ? 'active' : ''}`}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        border: 'none',
-                        cursor: 'pointer',
-                        background: 'transparent',
-                        textAlign: 'left'
-                      }}
+                      className={`nav-dropdown-header ${isAccountingActive ? 'active' : ''}`}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <Landmark size={18} strokeWidth={isAccountingActive ? 2.5 : 2} />
@@ -585,8 +925,6 @@ const AppContent = () => {
                       </div>
                     )}
                   </div>
-
-                  <SidebarLink to="/configuracion" icon={Settings} label="Configuración" active={location.pathname === '/configuracion'} onClick={closeMobileMenu} />
                 </>
               )}
             </>
@@ -604,7 +942,15 @@ const AppContent = () => {
       {/* Main Content Area */}
       <main className="main-surface">
 
-        <div className="content-area hide-scrollbar" style={{ background: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) ? '#ffffff' : 'var(--bg-canvas)', padding: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) ? '0' : undefined }}>
+        <div 
+          className="content-area hide-scrollbar" 
+          style={{ 
+            background: '#ffffff', 
+            padding: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) 
+              ? '0' 
+              : (location.pathname === '/' ? '1.25rem 2rem 2rem 2rem' : '2rem') 
+          }}
+        >
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={location.pathname}
@@ -623,6 +969,7 @@ const AppContent = () => {
                 <Route path="/" element={isClient ? <ClientDashboard /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)} />
                 <Route path="/registro-cliente" element={isClient ? <Navigate to="/" /> : <ClientRegistration />} />
                 <Route path="/lista-clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
+                <Route path="/clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
                 <Route path="/visitas" element={isClient ? <Navigate to="/" /> : <VisitRecorder />} />
                 <Route path="/cajas" element={(isAdmin || (user?.permissions && user.permissions.process_payments)) ? <CashRegistersModule /> : <Navigate to="/" />} />
                 <Route path="/facturas" element={isAdmin ? <InvoiceHistory /> : <Navigate to="/" />} />
@@ -636,6 +983,8 @@ const AppContent = () => {
                 <Route path="/activar" element={<ActivateAccount />} />
                 <Route path="/equipo" element={isAdmin ? <StaffModule /> : <Navigate to="/" />} />
                 <Route path="/nomina" element={isAdmin ? <PayrollModule /> : <Navigate to="/" />} />
+                <Route path="/nomina/historial" element={isAdmin ? <PayrollModule initialTab="historical" /> : <Navigate to="/" />} />
+                <Route path="/nomina/regalias" element={isAdmin ? <PayrollModule initialTab="regalias" /> : <Navigate to="/" />} />
                 <Route path="/seguridad" element={isAdmin ? <SecurityModule /> : <Navigate to="/" />} />
                 <Route path="/sucursales" element={isAdmin ? <SalonsModule /> : <Navigate to="/" />} />
                 <Route path="/planes" element={isAdmin ? <PlansModule /> : <Navigate to="/" />} />

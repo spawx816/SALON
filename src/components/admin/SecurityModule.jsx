@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Shield, Users, Key, Mail, Trash2, Edit2, UserPlus, CheckCircle2, XCircle, 
   Search, Lock, Unlock, Smartphone, Globe, AlertTriangle, RefreshCw, Send,
@@ -12,9 +13,19 @@ import { useAuth } from '../../context/AuthContext';
 export default function SecurityModule() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
+  const [searchParams] = useSearchParams();
 
   // Tabs: 'users' | 'roles' | 'monitoring' | 'access_control' | 'pin_settings'
-  const [activeTab, setActiveTab] = useState('users');
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabFromUrl || 'users');
+
+  useEffect(() => {
+    const currentTabParam = searchParams.get('tab');
+    if (currentTabParam) {
+      setActiveTab(currentTabParam);
+    }
+  }, [searchParams]);
+
   const [loading, setLoading] = useState(false);
 
   // Users & Roles state

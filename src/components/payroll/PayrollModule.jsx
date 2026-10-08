@@ -1,17 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   DollarSign, Users, Calendar, Download, Plus, Search, Filter, 
   ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Printer, 
   Sliders, ArrowUpRight, ArrowDownRight, Edit2, Trash2, Eye, 
   Settings, FileText, Check, X, RefreshCw, Layers, PieChart as PieIcon, 
-  CreditCard, Sparkles, Building2, Briefcase, ChevronDown, CheckSquare, Square
+  CreditCard, Sparkles, Building2, Briefcase, ChevronDown, CheckSquare, Square,
+  RotateCcw, History, ShieldAlert, Lock, Info, FileSpreadsheet, UserCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import PayrollHistoryView from './PayrollHistoryView';
 
-export default function PayrollModule() {
+export default function PayrollModule({ initialTab }) {
   const { showNotification } = useNotification();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // Estados principales
   const [loading, setLoading] = useState(false);
@@ -19,9 +24,31 @@ export default function PayrollModule() {
   const [currentPeriod, setCurrentPeriod] = useState(null);
   const [items, setItems] = useState([]);
   const [concepts, setConcepts] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
 
-  // Pestaña principal activa: 'payroll' (Procesar nómina) o 'regalias' (Regalías del año)
-  const [mainTab, setMainTab] = useState('payroll');
+  // Pila de Deshacer (Undo Stack) para cambios masivos / ediciones en borrador
+  const [undoStack, setUndoStack] = useState([]);
+
+  // Pestaña principal activa: 'payroll' (Procesar nómina) | 'historical' (Histórico inmutable) | 'regalias' (Regalías del año)
+  const [mainTab, setMainTab] = useState(() => {
+    if (initialTab) return initialTab;
+    if (location.pathname.includes('/nomina/historial') || location.search.includes('tab=historial') || location.search.includes('tab=historical')) return 'historical';
+    if (location.pathname.includes('/nomina/regalias') || location.search.includes('tab=regalias')) return 'regalias';
+    return 'payroll';
+  });
+
+  // Sincronizar mainTab con cambios de ruta
+  useEffect(() => {
+    if (initialTab) {
+      setMainTab(initialTab);
+    } else if (location.pathname.includes('/nomina/historial') || location.search.includes('tab=historial') || location.search.includes('tab=historical')) {
+      setMainTab('historical');
+    } else if (location.pathname.includes('/nomina/regalias') || location.search.includes('tab=regalias')) {
+      setMainTab('regalias');
+    } else if (location.pathname === '/nomina') {
+      if (!location.search) setMainTab('payroll');
+    }
+  }, [location.pathname, location.search, initialTab]);
 
   // Filtros de la tabla
   const [filterSucursal, setFilterSucursal] = useState('Todas');
@@ -38,9 +65,11 @@ export default function PayrollModule() {
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [activeEmployeeIndex, setActiveEmployeeIndex] = useState(0);
   const [editingItem, setEditingItem] = useState(null);
+  const [editReason, setEditReason] = useState('');
+  const [newConceptForm, setNewConceptForm] = useState({ show: false, type: 'ingreso', label: '', amount: '' });
 
   const [showSummaryModal, setShowSummaryModal] = useState(false);
-  const [summaryTab, setSummaryTab] = useState('ingresos'); // 'ingresos' | 'descuentos'
+  const [summaryTab, setSummaryTab] = useState('ingresos'); // 'ingresos' | 'descuentos' | 'distribucion'
 
   const [showNewPeriodModal, setShowNewPeriodModal] = useState(false);
   const [newPeriodForm, setNewPeriodForm] = useState({
@@ -51,13 +80,31 @@ export default function PayrollModule() {
     departamento: 'Todos'
   });
 
+  // Modal de Aprobación de Nómina
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [approverName, setApproverName] = useState('Administrador');
+
+  // Modal de Acciones Masivas
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkForm, setBulkForm] = useState({
+    concept_type: 'Ingreso', // 'Ingreso' | 'Descuento'
+    concept_label: 'Bono de Desempeño',
+    custom_label: '',
+    amount: '',
+    operation: 'add', // 'add' (sumar) | 'set' (fijar)
+    reason: 'Incentivo de producción general'
+  });
+
+  // Modal de Auditoría
+  const [showAuditModal, setShowAuditModal] = useState(false);
+
   // Estados para Regalías
   const [regaliasYear, setRegaliasYear] = useState(new Date().getFullYear());
   const [regaliasData, setRegaliasData] = useState(null);
   const [selectedRegaliaEmployee, setSelectedRegaliaEmployee] = useState(null);
   const [showRegaliaDetailModal, setShowRegaliaDetailModal] = useState(false);
 
-  // Cargar períodos y conceptos al montar
+  // Cargar datos al montar
   useEffect(() => {
     loadInitialData();
   }, []);
@@ -74,6 +121,7 @@ export default function PayrollModule() {
       setConcepts(conceptsRes || []);
 
       if (periodsRes && periodsRes.length > 0) {
+        // Cargar el último período activo o el primero de la lista
         await loadPeriodDetail(periodsRes[0].id);
       } else {
         // Generar un período por defecto automáticamente si no existe ninguno
@@ -115,9 +163,14 @@ export default function PayrollModule() {
         setItems(res.items || []);
         setSelectedItemIds([]);
         setCurrentPage(1);
+        setUndoStack([]); // Reset undo stack al cambiar de período
+
+        // Cargar logs de auditoría para este período
+        const logs = await dataService.getPayrollAuditLogs(periodId);
+        setAuditLogs(logs || []);
       }
     } catch (err) {
-      showNotification('Error cargando detalles del período', 'error');
+      showNotification('Error cargando detalles del período: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -181,10 +234,12 @@ export default function PayrollModule() {
     );
   };
 
-  // Abrir modal de empleado
+  // Abrir modal de empleado individual
   const handleOpenEmployeeModal = (item, indexInFiltered) => {
     setEditingItem(JSON.parse(JSON.stringify(item)));
     setActiveEmployeeIndex(indexInFiltered);
+    setEditReason('');
+    setNewConceptForm({ show: false, type: 'ingreso', label: '', amount: '' });
     setShowEmployeeModal(true);
   };
 
@@ -194,11 +249,17 @@ export default function PayrollModule() {
     if (nextIdx >= filteredItems.length) nextIdx = 0;
     setActiveEmployeeIndex(nextIdx);
     setEditingItem(JSON.parse(JSON.stringify(filteredItems[nextIdx])));
+    setEditReason('');
+    setNewConceptForm({ show: false, type: 'ingreso', label: '', amount: '' });
   };
 
-  // Actualizar un concepto en el modal de edición
+  // Actualizar un concepto estándar en el modal de edición
   const handleUpdateConceptValue = (type, key, value) => {
     if (!editingItem) return;
+    if (currentPeriod?.status === 'Aprobada') {
+      showNotification('Esta nómina está aprobada y es inmutable', 'warning');
+      return;
+    }
     const numVal = parseFloat(value) || 0;
     const copy = { ...editingItem };
     copy[key] = numVal;
@@ -228,22 +289,110 @@ export default function PayrollModule() {
     setEditingItem(copy);
   };
 
-  const handleSaveEmployeeChanges = () => {
-    if (!editingItem) return;
-    setItems(prev => prev.map(it => it.id === editingItem.id ? editingItem : it));
-    showNotification(`Cambios guardados para ${editingItem.employee_name}`, 'success');
+  // Agregar un concepto personalizado a un empleado individual
+  const handleAddCustomConceptToEmployee = () => {
+    if (!editingItem || !newConceptForm.label || !newConceptForm.amount) return;
+    const amountNum = parseFloat(newConceptForm.amount) || 0;
+    if (amountNum <= 0) {
+      showNotification('El monto debe ser mayor a 0', 'warning');
+      return;
+    }
+
+    const copy = JSON.parse(JSON.stringify(editingItem));
+    if (!copy.detalles_json) copy.detalles_json = {};
+    if (!copy.detalles_json.conceptos_ingresos) copy.detalles_json.conceptos_ingresos = [];
+    if (!copy.detalles_json.conceptos_descuentos) copy.detalles_json.conceptos_descuentos = [];
+
+    if (newConceptForm.type === 'ingreso') {
+      copy.detalles_json.conceptos_ingresos.push({
+        id: `c_${Date.now()}`,
+        label: newConceptForm.label,
+        monto: amountNum,
+        custom: true
+      });
+      copy.otros_ingresos = Number((parseFloat(copy.otros_ingresos || 0) + amountNum).toFixed(2));
+    } else {
+      copy.detalles_json.conceptos_descuentos.push({
+        id: `d_${Date.now()}`,
+        label: newConceptForm.label,
+        monto: amountNum,
+        custom: true
+      });
+      copy.otros_descuentos = Number((parseFloat(copy.otros_descuentos || 0) + amountNum).toFixed(2));
+    }
+
+    const totalIng = (
+      parseFloat(copy.salario_fijo || 0) +
+      parseFloat(copy.comisiones || 0) +
+      parseFloat(copy.feriados || 0) +
+      parseFloat(copy.horas_extras || 0) +
+      parseFloat(copy.otros_ingresos || 0)
+    );
+
+    const totalDesc = (
+      parseFloat(copy.tss || 0) +
+      parseFloat(copy.servicios || 0) +
+      parseFloat(copy.prestamos || 0) +
+      parseFloat(copy.ausencias || 0) +
+      parseFloat(copy.tardanzas || 0) +
+      parseFloat(copy.otros_descuentos || 0)
+    );
+
+    copy.total_ingresos = Number(totalIng.toFixed(2));
+    copy.total_descuentos = Number(totalDesc.toFixed(2));
+    copy.neto_pagar = Number((totalIng - totalDesc).toFixed(2));
+
+    setEditingItem(copy);
+    setNewConceptForm({ show: false, type: 'ingreso', label: '', amount: '' });
+    showNotification(`Concepto "${newConceptForm.label}" agregado`, 'success');
+  };
+
+  // Guardar cambios individuales de un empleado
+  const handleSaveEmployeeChanges = async () => {
+    if (!editingItem || !currentPeriod) return;
+    if (currentPeriod.status === 'Aprobada') {
+      showNotification('Esta nómina está aprobada y es inmutable', 'warning');
+      return;
+    }
+
+    // Guardar estado previo para Deshacer
+    setUndoStack(prev => [...prev, JSON.parse(JSON.stringify(items))]);
+
+    const updatedItems = items.map(it => it.id === editingItem.id ? editingItem : it);
+    setItems(updatedItems);
     setShowEmployeeModal(false);
+
+    // Persistir borrador y auditoría
+    try {
+      await dataService.savePayrollDraft({
+        payroll_id: currentPeriod.id,
+        items: updatedItems,
+        status: currentPeriod.status || 'En preparación',
+        reason: editReason || `Ajuste manual individual en ${editingItem.employee_name}`,
+        user_name: 'Administrador'
+      });
+      showNotification(`Cambios guardados y auditados para ${editingItem.employee_name}`, 'success');
+      loadPeriodDetail(currentPeriod.id);
+    } catch (err) {
+      showNotification('Error al guardar cambios: ' + err.message, 'error');
+    }
   };
 
   // Guardar Borrador
   const handleSaveDraft = async () => {
     if (!currentPeriod) return;
+    if (currentPeriod.status === 'Aprobada') {
+      showNotification('Esta nómina está aprobada y es inmutable', 'warning');
+      return;
+    }
     setLoading(true);
     try {
       await dataService.savePayrollDraft({
         payroll_id: currentPeriod.id,
         items: items,
-        status: currentPeriod.status || 'En preparación'
+        status: currentPeriod.status || 'En preparación',
+        reason: 'Guardado manual de borrador',
+        user_name: 'Administrador'
       });
       showNotification('Nómina guardada como borrador correctamente', 'success');
       loadPeriodDetail(currentPeriod.id);
@@ -254,15 +403,91 @@ export default function PayrollModule() {
     }
   };
 
-  // Aprobar Nómina
-  const handleApprovePayroll = async () => {
+  // Aplicar Concepto Masivo
+  const handleApplyBulkConcept = async (e) => {
+    e.preventDefault();
+    if (selectedItemIds.length === 0) {
+      showNotification('Debes seleccionar al menos un colaborador', 'warning');
+      return;
+    }
+    const finalAmount = parseFloat(bulkForm.amount) || 0;
+    if (finalAmount <= 0) {
+      showNotification('El monto debe ser mayor a 0', 'warning');
+      return;
+    }
+
+    const conceptLabel = bulkForm.concept_label === 'Otro...' ? bulkForm.custom_label : bulkForm.concept_label;
+    if (!conceptLabel) {
+      showNotification('Especifica el nombre del concepto', 'warning');
+      return;
+    }
+
+    // Guardar estado previo para Deshacer
+    setUndoStack(prev => [...prev, JSON.parse(JSON.stringify(items))]);
+
+    setLoading(true);
+    try {
+      await dataService.bulkApplyPayrollConcept({
+        payroll_id: currentPeriod.id,
+        item_ids: selectedItemIds,
+        concept_label: conceptLabel,
+        concept_type: bulkForm.concept_type,
+        amount: finalAmount,
+        operation: bulkForm.operation,
+        reason: bulkForm.reason || 'Aplicación masiva',
+        user_name: 'Administrador'
+      });
+
+      showNotification(`¡Concepto "${conceptLabel}" aplicado a ${selectedItemIds.length} colaboradores!`, 'success');
+      setShowBulkModal(false);
+      setSelectedItemIds([]);
+      await loadPeriodDetail(currentPeriod.id);
+    } catch (err) {
+      showNotification('Error al aplicar concepto masivo: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Deshacer último cambio (Undo)
+  const handleUndo = async () => {
+    if (undoStack.length === 0) {
+      showNotification('No hay cambios recientes para deshacer', 'info');
+      return;
+    }
+    if (currentPeriod?.status === 'Aprobada') {
+      showNotification('Esta nómina ya está aprobada y es inmutable', 'warning');
+      return;
+    }
+
+    const previousItems = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, prev.length - 1));
+    setItems(previousItems);
+
+    try {
+      await dataService.savePayrollDraft({
+        payroll_id: currentPeriod.id,
+        items: previousItems,
+        status: currentPeriod.status || 'En preparación',
+        reason: 'Reversión / Deshacer de cambio anterior',
+        user_name: 'Administrador'
+      });
+      showNotification('¡Último cambio deshecho exitosamente!', 'success');
+      loadPeriodDetail(currentPeriod.id);
+    } catch (err) {
+      showNotification('Error al revertir cambios: ' + err.message, 'error');
+    }
+  };
+
+  // Aprobar Nómina Definitivamente (Inmutable)
+  const handleApprovePayrollConfirm = async () => {
     if (!currentPeriod) return;
-    if (!window.confirm('¿Estás seguro de que deseas aprobar esta nómina? Quedará registrada como lista para desembolso.')) return;
     setLoading(true);
     try {
       await dataService.approvePayroll(currentPeriod.id);
-      showNotification('¡Nómina aprobada con éxito!', 'success');
-      loadPeriodDetail(currentPeriod.id);
+      showNotification('¡Nómina aprobada exitosamente y registrada de forma inmutable!', 'success');
+      setShowApproveModal(false);
+      await loadPeriodDetail(currentPeriod.id);
       const allPers = await dataService.getPayrollPeriods();
       setPeriods(allPers || []);
     } catch (err) {
@@ -278,7 +503,7 @@ export default function PayrollModule() {
     setLoading(true);
     try {
       const res = await dataService.generatePayroll(newPeriodForm);
-      showNotification('Nuevo período generado correctamente', 'success');
+      showNotification('Nuevo período generado automáticamente con datos del personal', 'success');
       setShowNewPeriodModal(false);
       await loadInitialData();
     } catch (err) {
@@ -288,7 +513,7 @@ export default function PayrollModule() {
     }
   };
 
-  // Cálculo de totales de ingresos y descuentos para el Modal de Resumen
+  // Totales y Desglose para el Modal de Resumen y KPIs
   const summaryData = useMemo(() => {
     let totSalario = 0, totComisiones = 0, totFeriados = 0, totHorasExtras = 0, totOtrosIng = 0;
     let totTss = 0, totServicios = 0, totPrestamos = 0, totAusencias = 0, totTardanzas = 0, totOtrosDesc = 0;
@@ -312,21 +537,24 @@ export default function PayrollModule() {
     const totalDescuentos = totTss + totServicios + totPrestamos + totAusencias + totTardanzas + totOtrosDesc;
     const totalNeto = totalIngresos - totalDescuentos;
 
+    // Aporte Patronal TSS Estimado (SFS 7.09% + AFP 7.10% + SRL 1.20% = 15.39%)
+    const aportePatronalTss = Number((totSalario * 0.1539).toFixed(2));
+
     const ingresosBreakdown = [
       { label: 'Salario fijo', monto: totSalario, color: '#0066ff' },
       { label: 'Comisiones', monto: totComisiones, color: '#00b4d8' },
       { label: 'Horas extras', monto: totHorasExtras, color: '#48cae4' },
       { label: 'Feriados', monto: totFeriados, color: '#805ad5' },
-      { label: 'Otros ingresos', monto: totOtrosIng, color: '#6b46c1' }
+      { label: 'Otros ingresos / Bonos', monto: totOtrosIng, color: '#6b46c1' }
     ].map(item => ({
       ...item,
       percent: totalIngresos > 0 ? ((item.monto / totalIngresos) * 100).toFixed(1) : '0.0'
     }));
 
     const descuentosBreakdown = [
-      { label: 'TSS (Seguro/AFP)', monto: totTss, color: '#ef4444' },
+      { label: 'TSS (Seguro/AFP 5.91%)', monto: totTss, color: '#ef4444' },
       { label: 'Servicios de salón', monto: totServicios, color: '#f97316' },
-      { label: 'Préstamos', monto: totPrestamos, color: '#f59e0b' },
+      { label: 'Préstamos y Anticipos', monto: totPrestamos, color: '#f59e0b' },
       { label: 'Ausencias', monto: totAusencias, color: '#e11d48' },
       { label: 'Tardanzas', monto: totTardanzas, color: '#db2777' },
       { label: 'Otros descuentos', monto: totOtrosDesc, color: '#9333ea' }
@@ -340,6 +568,7 @@ export default function PayrollModule() {
       totalIngresos,
       totalDescuentos,
       totalNeto,
+      aportePatronalTss,
       ingresosBreakdown,
       descuentosBreakdown
     };
@@ -354,33 +583,37 @@ export default function PayrollModule() {
       <head>
         <title>Volante de Pago - ${item.employee_name}</title>
         <style>
-          body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 30px; color: #1e293b; }
+          body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 30px; color: #1e293b; max-width: 800px; margin: 0 auto; }
           .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; }
           .title { font-size: 20px; font-weight: 900; margin: 0; }
           .subtitle { font-size: 13px; color: #64748b; margin-top: 5px; }
-          .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 13px; }
+          .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 13px; background: #f8fafc; padding: 12px; border-radius: 8px; }
           .tables-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; }
           table { width: 100%; border-collapse: collapse; font-size: 13px; }
-          th { background: #f1f5f9; text-align: left; padding: 8px; border-bottom: 1px solid #cbd5e1; }
+          th { background: #f1f5f9; text-align: left; padding: 8px; border-bottom: 1px solid #cbd5e1; font-weight: 800; }
           td { padding: 8px; border-bottom: 1px solid #f1f5f9; }
-          .total-box { background: #eff6ff; border: 2px solid #3b82f6; border-radius: 12px; padding: 15px; text-align: center; margin-bottom: 40px; }
+          .total-box { background: #eff6ff; border: 2px solid #3b82f6; border-radius: 12px; padding: 15px; text-align: center; margin-bottom: 30px; }
           .total-amount { font-size: 24px; font-weight: 900; color: #1d4ed8; }
-          .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; margin-top: 60px; text-align: center; font-size: 12px; }
-          .sig-line { border-top: 1px solid #000; margin-top: 40px; padding-top: 5px; }
+          .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 50px; margin-top: 50px; text-align: center; font-size: 12px; }
+          .sig-line { border-top: 1px solid #000; margin-top: 40px; padding-top: 5px; font-weight: 700; }
+          .stamp-approved { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 900; background: #dcfce7; color: #166534; border: 1px solid #86efac; margin-top: 5px; }
           @media print { body { padding: 0; } }
         </style>
       </head>
       <body>
         <div class="header">
           <h1 class="title">ABATTE PELUQUERÍA / PLAN BEAUTY RD</h1>
-          <p class="subtitle">VOLANTE DE PAGO DE NÓMINA · ${currentPeriod?.period_name || 'Octubre 2026'}</p>
+          <p class="subtitle">VOLANTE OFICIAL DE PAGO DE NÓMINA · ${currentPeriod?.period_name || 'Octubre 2026'}</p>
+          ${currentPeriod?.status === 'Aprobada' ? '<div class="stamp-approved">✓ NÓMINA APROBADA E INMUTABLE</div>' : '<div style="color:#d97706; font-size:11px; font-weight:bold;">● DOCUMENTO EN BORRADOR</div>'}
         </div>
 
         <div class="meta-grid">
           <div><strong>Colaborador:</strong> ${item.employee_name}</div>
+          <div><strong>ID / Cédula:</strong> ${item.employee_id}</div>
           <div><strong>Posición:</strong> ${item.posicion}</div>
           <div><strong>Sucursal:</strong> ${item.sucursal}</div>
           <div><strong>Período:</strong> ${currentPeriod?.start_date || ''} al ${currentPeriod?.end_date || ''}</div>
+          <div><strong>Fecha Emisión:</strong> ${new Date().toLocaleDateString('es-DO')}</div>
         </div>
 
         <div class="tables-container">
@@ -388,12 +621,12 @@ export default function PayrollModule() {
             <table>
               <thead><tr><th>INGRESOS</th><th style="text-align: right;">MONTO (RD$)</th></tr></thead>
               <tbody>
-                <tr><td>Salario Fijo</td><td style="text-align: right;">${parseFloat(item.salario_fijo).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr><td>Comisiones</td><td style="text-align: right;">${parseFloat(item.comisiones).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Salario Fijo (Quincenal)</td><td style="text-align: right;">${parseFloat(item.salario_fijo).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Comisiones por Servicios</td><td style="text-align: right;">${parseFloat(item.comisiones).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Horas Extras</td><td style="text-align: right;">${parseFloat(item.horas_extras).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr><td>Feriados</td><td style="text-align: right;">${parseFloat(item.feriados).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr><td>Otros Ingresos</td><td style="text-align: right;">${parseFloat(item.otros_ingresos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr style="font-weight: bold; background: #f8fafc;"><td>TOTAL INGRESOS</td><td style="text-align: right; color: #0284c7;">RD$ ${parseFloat(item.total_ingresos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Feriados Trabajados</td><td style="text-align: right;">${parseFloat(item.feriados).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Otros Ingresos / Bonos</td><td style="text-align: right;">${parseFloat(item.otros_ingresos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr style="font-weight: bold; background: #f0fdf4;"><td>TOTAL INGRESOS</td><td style="text-align: right; color: #16a34a;">RD$ ${parseFloat(item.total_ingresos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
               </tbody>
             </table>
           </div>
@@ -402,20 +635,20 @@ export default function PayrollModule() {
             <table>
               <thead><tr><th>DESCUENTOS</th><th style="text-align: right;">MONTO (RD$)</th></tr></thead>
               <tbody>
-                <tr><td>TSS (Seguro / Pensión)</td><td style="text-align: right;">${parseFloat(item.tss).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr><td>Servicios / Consumos</td><td style="text-align: right;">${parseFloat(item.servicios).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr><td>Préstamos</td><td style="text-align: right;">${parseFloat(item.prestamos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>TSS (AFP 2.87% + SFS 3.04%)</td><td style="text-align: right;">${parseFloat(item.tss).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Servicios / Consumos Salón</td><td style="text-align: right;">${parseFloat(item.servicios).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Préstamos y Anticipos</td><td style="text-align: right;">${parseFloat(item.prestamos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Ausencias</td><td style="text-align: right;">${parseFloat(item.ausencias).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Tardanzas</td><td style="text-align: right;">${parseFloat(item.tardanzas).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Otros Descuentos</td><td style="text-align: right;">${parseFloat(item.otros_descuentos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr style="font-weight: bold; background: #f8fafc;"><td>TOTAL DESCUENTOS</td><td style="text-align: right; color: #ef4444;">RD$ ${parseFloat(item.total_descuentos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr style="font-weight: bold; background: #fef2f2;"><td>TOTAL DESCUENTOS</td><td style="text-align: right; color: #dc2626;">RD$ ${parseFloat(item.total_descuentos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
         <div class="total-box">
-          <div style="font-size: 13px; font-weight: bold; color: #64748b; text-transform: uppercase;">MONTO NETO A PAGAR</div>
+          <div style="font-size: 12px; font-weight: bold; color: #64748b; text-transform: uppercase;">MONTO NETO A DESEMBOLSAR</div>
           <div class="total-amount">RD$ ${parseFloat(item.neto_pagar).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
         </div>
 
@@ -425,7 +658,7 @@ export default function PayrollModule() {
             <div>${item.employee_name}</div>
           </div>
           <div>
-            <div class="sig-line">Por la Empresa</div>
+            <div class="sig-line">Por la Administración</div>
             <div>ABATTE PELUQUERÍA / RRHH</div>
           </div>
         </div>
@@ -440,12 +673,78 @@ export default function PayrollModule() {
     printWin.document.close();
   };
 
+  // Imprimir Nómina Completa
+  const handlePrintFullPayroll = () => {
+    const printWin = window.open('', '_blank');
+    const rowsHtml = items.map((it, idx) => `
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px;">
+        <td style="padding: 6px;">${idx + 1}</td>
+        <td style="padding: 6px; font-weight: bold;">${it.employee_name}</td>
+        <td style="padding: 6px;">${it.posicion}</td>
+        <td style="padding: 6px;">${it.sucursal}</td>
+        <td style="padding: 6px; text-align: right;">${parseFloat(it.salario_fijo).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+        <td style="padding: 6px; text-align: right;">${parseFloat(it.comisiones).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+        <td style="padding: 6px; text-align: right; color: #16a34a; font-weight: bold;">${parseFloat(it.total_ingresos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+        <td style="padding: 6px; text-align: right;">${parseFloat(it.tss).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+        <td style="padding: 6px; text-align: right; color: #dc2626; font-weight: bold;">${parseFloat(it.total_descuentos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+        <td style="padding: 6px; text-align: right; font-weight: 900; color: #0052cc;">RD$ ${parseFloat(it.neto_pagar).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+      </tr>
+    `).join('');
+
+    const content = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Planilla General de Nómina - ${currentPeriod?.period_name}</title>
+        <style>
+          body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 20px; color: #1e293b; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th { background: #0f172a; color: #fff; padding: 8px; font-size: 12px; text-align: left; }
+          .summary-kpi { display: flex; gap: 20px; margin: 15px 0; font-size: 14px; }
+          .kpi-card { background: #f8fafc; padding: 10px 15px; border-radius: 8px; border: 1px solid #cbd5e1; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        <h2>ABATTE PELUQUERÍA / PLAN BEAUTY RD</h2>
+        <h3>PLANILLA GENERAL DE NÓMINA · ${currentPeriod?.period_name}</h3>
+        <p>Período: ${currentPeriod?.start_date} al ${currentPeriod?.end_date} | Estado: ${currentPeriod?.status}</p>
+
+        <div class="summary-kpi">
+          <div class="kpi-card"><strong>Empleados:</strong> ${summaryData.totalEmpleados}</div>
+          <div class="kpi-card"><strong>Total Bruto:</strong> RD$ ${summaryData.totalIngresos.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div class="kpi-card"><strong>Total Descuentos:</strong> RD$ ${summaryData.totalDescuentos.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div class="kpi-card" style="background:#eff6ff; border-color:#93c5fd;"><strong>Total Neto a Desembolsar:</strong> RD$ ${summaryData.totalNeto.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Empleado</th><th>Cargo</th><th>Sucursal</th>
+              <th style="text-align: right;">S. Fijo</th><th style="text-align: right;">Comisiones</th>
+              <th style="text-align: right;">T. Ingresos</th><th style="text-align: right;">TSS</th>
+              <th style="text-align: right;">T. Descuentos</th><th style="text-align: right;">Neto Pagar</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <script>window.onload = function() { window.print(); }</script>
+      </body>
+      </html>
+    `;
+    printWin.document.write(content);
+    printWin.document.close();
+  };
+
   return (
     <div className="payroll-module-container" style={{ padding: '1.5rem', maxWidth: '1600px', margin: '0 auto' }}>
       
-      {/* PESTAÑAS PRINCIPALES SUPERIORES (Procesar Nómina vs Regalías del Año) */}
+      {/* PESTAÑAS PRINCIPALES SUPERIORES (Procesar Nómina | Histórico Inmutable | Regalías del Año) */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', gap: '0.75rem', background: '#f1f5f9', padding: '6px', borderRadius: '14px' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', background: '#f1f5f9', padding: '6px', borderRadius: '14px' }}>
           <button
             onClick={() => setMainTab('payroll')}
             style={{
@@ -468,6 +767,27 @@ export default function PayrollModule() {
           </button>
 
           <button
+            onClick={() => setMainTab('historical')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.65rem 1.4rem',
+              borderRadius: '10px',
+              border: 'none',
+              background: mainTab === 'historical' ? '#0f172a' : 'transparent',
+              color: mainTab === 'historical' ? '#ffffff' : '#64748b',
+              fontWeight: 800,
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              boxShadow: mainTab === 'historical' ? '0 4px 14px rgba(15, 23, 42, 0.25)' : 'none',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <History size={18} style={{ color: mainTab === 'historical' ? '#38bdf8' : '#64748b' }} /> Histórico de Nóminas
+          </button>
+
+          <button
             onClick={() => setMainTab('regalias')}
             style={{
               display: 'flex',
@@ -485,7 +805,7 @@ export default function PayrollModule() {
               transition: 'all 0.2s ease'
             }}
           >
-            <Sparkles size={18} style={{ color: mainTab === 'regalias' ? '#d4af37' : '#64748b' }} /> Regalías del Año (Doble Sueldo)
+            <Sparkles size={18} style={{ color: mainTab === 'regalias' ? '#d4af37' : '#64748b' }} /> Regalías del Año (Ley 16-92)
           </button>
         </div>
 
@@ -494,9 +814,9 @@ export default function PayrollModule() {
             <button 
               onClick={() => setShowNewPeriodModal(true)}
               className="btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', fontSize: '0.85rem', fontWeight: 800 }}
             >
-              <Plus size={16} /> Nuevo Período
+              <Plus size={16} /> Generar Nueva Nómina
             </button>
           </div>
         )}
@@ -504,48 +824,89 @@ export default function PayrollModule() {
 
       {mainTab === 'payroll' ? (
         <>
-          {/* HEADER PRINCIPAL IDÉNTICO A CAPTURA 1 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1.5rem' }}>
+          {/* HEADER PRINCIPAL CON ESTADO Y SELECTOR DE PERÍODO */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1.5rem' }}>
             <div>
               <h1 style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.4rem 0', letterSpacing: '-0.02em' }}>
                 Procesar nómina
               </h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <span style={{ fontSize: '1.1rem', color: '#475569', fontWeight: 600 }}>
-                  {currentPeriod?.period_name || '1ra quincena · Octubre 2026'}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <select
+                  value={currentPeriod?.id || ''}
+                  onChange={(e) => loadPeriodDetail(e.target.value)}
+                  style={{
+                    fontSize: '1.05rem',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {periods.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.period_name} ({p.status})
+                    </option>
+                  ))}
+                </select>
+
                 <span style={{
                   background: currentPeriod?.status === 'Aprobada' ? '#dcfce7' : '#fef3c7',
                   color: currentPeriod?.status === 'Aprobada' ? '#15803d' : '#d97706',
-                  padding: '4px 12px',
+                  padding: '4px 14px',
                   borderRadius: '20px',
-                  fontSize: '0.75rem',
+                  fontSize: '0.8rem',
                   fontWeight: 800,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px'
+                  gap: '6px',
+                  border: currentPeriod?.status === 'Aprobada' ? '1px solid #86efac' : '1px solid #fde68a'
                 }}>
-                  ● {currentPeriod?.status || 'En preparación'} <Edit2 size={12} style={{ cursor: 'pointer', opacity: 0.7 }} />
+                  {currentPeriod?.status === 'Aprobada' ? <Lock size={13} /> : <Edit2 size={13} />}
+                  {currentPeriod?.status === 'Aprobada' ? 'Aprobada (Inmutable)' : 'Borrador (Editable)'}
                 </span>
+
+                {auditLogs.length > 0 && (
+                  <button
+                    onClick={() => setShowAuditModal(true)}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      color: '#475569',
+                      padding: '4px 10px',
+                      borderRadius: '12px',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <History size={13} color="#0066ff" /> {auditLogs.length} cambios auditados
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* BOTONES SUPERIORES DERECHA */}
+            {/* BOTONES DE ACCIÓN SUPERIORES */}
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <button 
-                onClick={() => showNotification('Los conceptos de nómina se configuran automáticamente bajo la normativa laboral dominicana.', 'info')}
+                onClick={() => setShowAuditModal(true)}
                 className="btn-secondary"
-                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.875rem' }}
+                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.2rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem' }}
               >
-                <Settings size={16} /> Configuración de conceptos
+                <History size={16} /> Auditoría
               </button>
 
               <button 
-                onClick={() => showNotification('Importación de horas y datos biométricos sincronizada con el reloj de asistencia.', 'success')}
+                onClick={handlePrintFullPayroll}
                 className="btn-secondary"
-                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.875rem' }}
+                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.2rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem' }}
               >
-                <Download size={16} /> Importar datos
+                <Printer size={16} /> Imprimir planilla
               </button>
 
               <button 
@@ -571,7 +932,46 @@ export default function PayrollModule() {
             </div>
           </div>
 
-          {/* BARRA DE FILTROS IDÉNTICA A CAPTURA 1 */}
+          {/* TARJETAS RESUMEN KPI EN VISTA PRINCIPAL */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#64748b', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+                <Users size={16} color="#0066ff" /> Empleados
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a' }}>
+                {summaryData.totalEmpleados}
+              </div>
+            </div>
+
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#16a34a', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+                <ArrowUpRight size={16} /> Total Bruto / Ingresos
+              </div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#16a34a' }}>
+                RD$ {summaryData.totalIngresos.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#dc2626', fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.4rem' }}>
+                <ArrowDownRight size={16} /> Total Descuentos & TSS
+              </div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#dc2626' }}>
+                RD$ {summaryData.totalDescuentos.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+
+            <div style={{ background: '#eff6ff', border: '2px solid #93c5fd', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 4px 12px rgba(0, 102, 255, 0.08)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#1d4ed8', fontSize: '0.8rem', fontWeight: 800, marginBottom: '0.4rem' }}>
+                <CreditCard size={16} /> Neto Total a Desembolsar
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0052cc' }}>
+                RD$ {summaryData.totalNeto.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+
+          {/* BARRA DE FILTROS */}
           <div style={{
             background: '#ffffff',
             borderRadius: '16px',
@@ -588,23 +988,21 @@ export default function PayrollModule() {
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
                 Sucursal
               </label>
-              <div style={{ position: 'relative' }}>
-                <select 
-                  value={filterSucursal}
-                  onChange={(e) => setFilterSucursal(e.target.value)}
-                  className="input-field"
-                  style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', fontWeight: 600, fontSize: '0.875rem' }}
-                >
-                  <option value="Todas">Todas</option>
-                  <option value="San Vicente">San Vicente</option>
-                  <option value="Villa Mella">Villa Mella</option>
-                </select>
-              </div>
+              <select 
+                value={filterSucursal}
+                onChange={(e) => setFilterSucursal(e.target.value)}
+                className="input-field"
+                style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', fontWeight: 600, fontSize: '0.875rem' }}
+              >
+                <option value="Todas">Todas las sucursales</option>
+                <option value="San Vicente">Abatte San Vicente</option>
+                <option value="Villa Mella">Abatte Villa Mella</option>
+              </select>
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
-                Departamento
+                Departamento / Cargo
               </label>
               <select 
                 value={filterDepartamento}
@@ -612,100 +1010,153 @@ export default function PayrollModule() {
                 className="input-field"
                 style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', fontWeight: 600, fontSize: '0.875rem' }}
               >
-                <option value="Todos">Todos</option>
-                <option value="Estilista">Estilistas</option>
+                <option value="Todos">Todos los cargos</option>
+                <option value="Estilista">Estilistas / Peluqueras</option>
                 <option value="Barbero">Barberos</option>
                 <option value="Manicurista">Manicuristas</option>
-                <option value="Recepción">Recepción</option>
+                <option value="Recepción">Recepción / Caja</option>
                 <option value="Administración">Administración</option>
-                <option value="Soporte">Soporte</option>
+                <option value="Soporte">Soporte / Mantenimiento</option>
               </select>
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
-                Tipo de empleado
+                Buscar colaborador
               </label>
-              <select 
-                value={filterTipoEmpleado}
-                onChange={(e) => setFilterTipoEmpleado(e.target.value)}
-                className="input-field"
-                style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', fontWeight: 600, fontSize: '0.875rem' }}
-              >
-                <option value="Todos">Todos</option>
-                <option value="Fijo">Fijo</option>
-                <option value="Comision">Comisión</option>
-                <option value="Mixto">Mixto (Fijo + Comisión)</option>
-              </select>
+              <div style={{ position: 'relative' }}>
+                <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)' }} />
+                <input 
+                  type="text"
+                  placeholder="Nombre o cargo..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 1rem 0.65rem 2.4rem',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    background: '#f8fafc',
+                    fontSize: '0.875rem',
+                    outline: 'none'
+                  }}
+                />
+              </div>
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
-                Período
+                Período de nómina
               </label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.6rem 1rem', borderRadius: '10px' }}>
                 <Calendar size={16} color="#64748b" />
-                <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#1e293b' }}>
-                  {currentPeriod?.start_date ? `${currentPeriod.start_date.slice(8,10)} - ${currentPeriod.end_date.slice(8,10)} ${new Date(currentPeriod.start_date).toLocaleString('es-DO', { month: 'short' })} ${new Date(currentPeriod.start_date).getFullYear()}` : '01 - 15 Oct 2026'}
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>
+                  {currentPeriod?.start_date} al {currentPeriod?.end_date}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* BARRA DE BÚSQUEDA Y ACCIONES DE COLUMNAS */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <div style={{ position: 'relative', width: '100%', maxWidth: '380px' }}>
-              <Search size={18} color="#94a3b8" style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)' }} />
-              <input 
-                type="text"
-                placeholder="Buscar empleado..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.65rem 1rem 0.65rem 2.75rem',
-                  borderRadius: '12px',
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  fontSize: '0.875rem',
-                  outline: 'none',
-                  transition: 'border 0.2s ease'
-                }}
-              />
-            </div>
+          {/* BARRA FLOTANTE DE ACCIONES MASIVAS */}
+          {selectedItemIds.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              style={{
+                background: '#0f172a',
+                color: '#ffffff',
+                borderRadius: '14px',
+                padding: '0.85rem 1.5rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '1rem',
+                boxShadow: '0 8px 24px rgba(15, 23, 42, 0.25)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <span style={{ background: '#0066ff', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 900 }}>
+                  {selectedItemIds.length} seleccionados
+                </span>
+                <span style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
+                  Aplica cambios en lote a los colaboradores seleccionados.
+                </span>
+              </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-              <button 
-                onClick={() => showNotification('Columnas visibles por defecto', 'info')}
-                className="btn-secondary"
-                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700 }}
-              >
-                <Layers size={16} /> Columnas <ChevronDown size={14} />
-              </button>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <button
+                  onClick={() => setShowBulkModal(true)}
+                  disabled={currentPeriod?.status === 'Aprobada'}
+                  style={{
+                    background: '#0066ff',
+                    border: 'none',
+                    color: '#ffffff',
+                    padding: '0.5rem 1.25rem',
+                    borderRadius: '10px',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}
+                >
+                  <Plus size={16} /> Aplicar Concepto Masivo
+                </button>
 
-              <button 
-                onClick={() => showNotification('Agrega conceptos de bonos o deducciones personalizadas por colaborador.', 'info')}
-                className="btn-secondary"
-                style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#0066ff', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.1rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 800 }}
-              >
-                <Plus size={16} /> Agregar concepto <ChevronDown size={14} />
-              </button>
-            </div>
-          </div>
+                {undoStack.length > 0 && currentPeriod?.status !== 'Aprobada' && (
+                  <button
+                    onClick={handleUndo}
+                    style={{
+                      background: 'rgba(255,255,255,0.15)',
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      color: '#ffffff',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '10px',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem'
+                    }}
+                  >
+                    <RotateCcw size={15} /> Deshacer ({undoStack.length})
+                  </button>
+                )}
 
-          {/* TABLA PRINCIPAL DE NÓMINA (EXACTA A CAPTURA 1) */}
+                <button
+                  onClick={() => setSelectedItemIds([])}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 600
+                  }}
+                >
+                  Deseleccionar
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* TABLA PRINCIPAL DE NÓMINA */}
           <div style={{
             background: '#ffffff',
             borderRadius: '20px',
             border: '1px solid #e2e8f0',
             boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
             overflow: 'hidden',
-            marginBottom: '2rem'
+            marginBottom: '1.5rem'
           }}>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
                 <thead>
-                  {/* Fila Superior con Grupos de Cabecera */}
+                  {/* Fila Superior de Grupos */}
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <th style={{ padding: '0.85rem 1rem', width: '40px' }}>
                       <input 
@@ -716,23 +1167,26 @@ export default function PayrollModule() {
                       />
                     </th>
                     <th style={{ padding: '0.85rem 0.5rem', width: '40px', color: '#64748b', fontWeight: 700 }}>#</th>
-                    <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 800 }}>Empleado</th>
+                    <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 800 }}>Colaborador</th>
                     <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>Posición</th>
                     <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>Sucursal</th>
                     
-                    {/* Header Grupo Ingresos */}
+                    {/* Grupo Ingresos */}
                     <th colSpan="6" style={{ background: '#eff6ff', color: '#1e40af', fontWeight: 900, textAlign: 'center', borderLeft: '1px solid #dbeafe', borderRight: '1px solid #dbeafe', padding: '0.6rem' }}>
                       Ingresos (RD$)
                     </th>
 
-                    {/* Header Grupo Descuentos */}
+                    {/* Grupo Descuentos */}
                     <th colSpan="7" style={{ background: '#fef2f2', color: '#991b1b', fontWeight: 900, textAlign: 'center', borderRight: '1px solid #fee2e2', padding: '0.6rem' }}>
                       Descuentos (RD$)
                     </th>
 
                     {/* A Pagar */}
                     <th style={{ background: '#f0fdf4', color: '#166534', fontWeight: 900, textAlign: 'right', padding: '0.85rem 1.25rem' }}>
-                      A pagar (RD$)
+                      Neto a pagar (RD$)
+                    </th>
+                    <th style={{ background: '#f8fafc', textAlign: 'center', padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700 }}>
+                      Acciones
                     </th>
                   </tr>
 
@@ -741,23 +1195,24 @@ export default function PayrollModule() {
                     <th colSpan="5"></th>
                     
                     {/* Columnas Ingresos */}
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderLeft: '1px solid #dbeafe' }}>Salario fijo</th>
+                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderLeft: '1px solid #dbeafe' }}>S. Fijo</th>
                     <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Comisiones</th>
                     <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Feriados</th>
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Horas extras</th>
-                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros ingresos</th>
-                    <th style={{ background: '#eff6ff', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#1d4ed8', borderRight: '1px solid #dbeafe' }}>Total ingresos</th>
+                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>H. Extras</th>
+                    <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros Ing.</th>
+                    <th style={{ background: '#eff6ff', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#1d4ed8', borderRight: '1px solid #dbeafe' }}>Total Ingresos</th>
 
                     {/* Columnas Descuentos */}
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>TSS</th>
+                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>TSS (Ley)</th>
                     <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Servicios</th>
                     <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Préstamos</th>
                     <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Ausencias</th>
                     <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Tardanzas</th>
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros desc.</th>
-                    <th style={{ background: '#fef2f2', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#b91c1c', borderRight: '1px solid #fee2e2' }}>Total descuentos</th>
+                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Otros Desc.</th>
+                    <th style={{ background: '#fef2f2', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#b91c1c', borderRight: '1px solid #fee2e2' }}>Total Descuentos</th>
 
                     <th style={{ background: '#f0fdf4' }}></th>
+                    <th></th>
                   </tr>
                 </thead>
 
@@ -839,7 +1294,27 @@ export default function PayrollModule() {
 
                         {/* A Pagar */}
                         <td style={{ padding: '1rem 1.25rem', textAlign: 'right', fontWeight: 900, color: '#16a34a', background: '#f0fdf4' }}>
-                          {parseFloat(item.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          RD$ {parseFloat(item.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
+
+                        {/* Acciones individuales */}
+                        <td style={{ padding: '1rem', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                            <button
+                              onClick={() => handleOpenEmployeeModal(item, (currentPage - 1) * itemsPerPage + idx)}
+                              title="Ver / Editar Detalle"
+                              style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', color: '#334155' }}
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              onClick={() => handlePrintSlip(item)}
+                              title="Imprimir Volante Individual"
+                              style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '5px 8px', borderRadius: '6px', cursor: 'pointer', color: '#0066ff' }}
+                            >
+                              <Printer size={13} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -848,10 +1323,10 @@ export default function PayrollModule() {
               </table>
             </div>
 
-            {/* BARRA INFERIOR DE PAGINACIÓN */}
+            {/* BARRA DE PAGINACIÓN */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.5rem', background: '#ffffff', borderTop: '1px solid #f1f5f9', flexWrap: 'wrap', gap: '1rem' }}>
               <div style={{ fontSize: '0.875rem', color: '#64748b', fontWeight: 600 }}>
-                Mostrando {paginatedItems.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredItems.length)} de {filteredItems.length} empleados
+                Mostrando {paginatedItems.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, filteredItems.length)} de {filteredItems.length} colaboradores
               </div>
 
               <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
@@ -894,90 +1369,90 @@ export default function PayrollModule() {
             </div>
           </div>
 
-          {/* BARRA INFERIOR DE ACCIONES POR LOTE Y BOTONES FLOTANTES IDÉNTICA A CAPTURA 1 */}
+          {/* BARRA INFERIOR DE ACCIONES DE NÓMINA */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', padding: '0.5rem 0 3rem' }}>
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>
-                {selectedItemIds.length} seleccionados
-              </span>
-
-              <button 
-                onClick={() => showNotification('Selecciona empleados para aplicar un concepto masivo', 'info')}
-                className="btn-secondary"
-                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 600 }}
-              >
-                Aplicar concepto <ChevronDown size={14} />
-              </button>
-
-              <button 
-                onClick={() => showNotification('Selecciona empleados para modificar conceptos masivos', 'info')}
-                className="btn-secondary"
-                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 600 }}
-              >
-                Modificar concepto <ChevronDown size={14} />
-              </button>
-
-              <button 
-                onClick={() => showNotification('Acción de eliminación de conceptos seleccionados', 'info')}
-                className="btn-secondary"
-                style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.55rem 1rem', borderRadius: '10px', fontSize: '0.85rem' }}
-              >
-                <Trash2 size={15} /> Eliminar concepto
-              </button>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              {undoStack.length > 0 && currentPeriod?.status !== 'Aprobada' && (
+                <button 
+                  onClick={handleUndo}
+                  className="btn-secondary"
+                  style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 700 }}
+                >
+                  <RotateCcw size={16} /> Deshacer último cambio ({undoStack.length})
+                </button>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-              <button 
-                onClick={handleSaveDraft}
-                disabled={loading}
-                style={{
-                  background: '#ffffff',
-                  border: '1.5px solid #cbd5e1',
-                  color: '#334155',
-                  padding: '0.75rem 1.5rem',
-                  borderRadius: '12px',
-                  fontWeight: 800,
-                  fontSize: '0.9rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.04)'
-                }}
-              >
-                <FileText size={18} /> Guardar borrador
-              </button>
+              {currentPeriod?.status !== 'Aprobada' && (
+                <button 
+                  onClick={handleSaveDraft}
+                  disabled={loading}
+                  style={{
+                    background: '#ffffff',
+                    border: '1.5px solid #cbd5e1',
+                    color: '#334155',
+                    padding: '0.75rem 1.5rem',
+                    borderRadius: '12px',
+                    fontWeight: 800,
+                    fontSize: '0.9rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.04)'
+                  }}
+                >
+                  <FileText size={18} /> Guardar borrador
+                </button>
+              )}
 
-              <button 
-                onClick={handleApprovePayroll}
-                disabled={loading || currentPeriod?.status === 'Aprobada'}
-                style={{
-                  background: currentPeriod?.status === 'Aprobada' ? '#16a34a' : '#0066ff',
-                  border: 'none',
-                  color: '#ffffff',
-                  padding: '0.75rem 1.75rem',
-                  borderRadius: '12px',
-                  fontWeight: 800,
-                  fontSize: '0.9rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  cursor: currentPeriod?.status === 'Aprobada' ? 'default' : 'pointer',
-                  boxShadow: '0 4px 14px rgba(0, 102, 255, 0.35)'
-                }}
-              >
-                <Check size={18} /> {currentPeriod?.status === 'Aprobada' ? 'Nómina Aprobada' : 'Aprobar nómina'}
-              </button>
+              {currentPeriod?.status !== 'Aprobada' ? (
+                <button 
+                  onClick={() => setShowApproveModal(true)}
+                  disabled={loading}
+                  style={{
+                    background: '#0066ff',
+                    border: 'none',
+                    color: '#ffffff',
+                    padding: '0.75rem 1.85rem',
+                    borderRadius: '12px',
+                    fontWeight: 900,
+                    fontSize: '0.95rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(0, 102, 255, 0.35)'
+                  }}
+                >
+                  <Check size={18} /> Aprobar nómina
+                </button>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', padding: '0.75rem 1.5rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.9rem' }}>
+                  <Lock size={16} /> Nómina Aprobada e Inmutable
+                </div>
+              )}
             </div>
           </div>
         </>
+      ) : mainTab === 'historical' ? (
+        /* VISTA DE HISTÓRICO DE NÓMINAS APROBADAS */
+        <PayrollHistoryView 
+          periods={periods}
+          onViewPeriod={(periodId) => {
+            loadPeriodDetail(periodId);
+            setMainTab('payroll');
+          }}
+          onRefresh={loadInitialData}
+        />
       ) : (
         /* VISTA DE REGALÍAS DEL AÑO (SALARIO DE NAVIDAD LEY 16-92 RD) */
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h1 style={{ fontSize: '1.85rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.4rem 0' }}>
-                Cálculo de Regalías del Año
+                Cálculo de Regalías del Año (Doble Sueldo)
               </h1>
               <p style={{ color: '#64748b', fontSize: '0.9rem', margin: 0 }}>
                 Salario de Navidad según la Ley 16-92 del Código de Trabajo de la República Dominicana (Duodécima parte / 12 del salario devengado anual).
@@ -1088,7 +1563,7 @@ export default function PayrollModule() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 1: VOLANTE / DETALLE POR EMPLEADO (IDÉNTICO A CAPTURA 2) */}
+      {/* MODAL 1: VOLANTE / DETALLE POR EMPLEADO INDIVIDUAL */}
       {/* ========================================================================= */}
       <AnimatePresence>
         {showEmployeeModal && editingItem && (
@@ -1111,7 +1586,7 @@ export default function PayrollModule() {
                 background: '#ffffff',
                 borderRadius: '24px',
                 width: '100%',
-                maxWidth: '920px',
+                maxWidth: '960px',
                 maxHeight: '90vh',
                 overflowY: 'auto',
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
@@ -1142,11 +1617,11 @@ export default function PayrollModule() {
                         {editingItem.employee_name}
                       </h2>
                       <span style={{ background: '#dcfce7', color: '#16a34a', fontSize: '0.75rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px' }}>
-                        Activa
+                        Activo
                       </span>
                     </div>
                     <p style={{ margin: '0.2rem 0 0 0', color: '#64748b', fontSize: '0.875rem' }}>
-                      {editingItem.posicion} · Abatte {editingItem.sucursal}
+                      {editingItem.posicion} · Abatte {editingItem.sucursal} · ID: {editingItem.employee_id}
                     </p>
                   </div>
                 </div>
@@ -1181,11 +1656,11 @@ export default function PayrollModule() {
               </div>
 
               <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#64748b', marginBottom: '1.25rem' }}>
-                {currentPeriod?.period_name || '1ra quincena · Octubre 2026'}
+                Período: {currentPeriod?.period_name} ({currentPeriod?.start_date} al {currentPeriod?.end_date})
               </div>
 
-              {/* DOS COLUMNAS: INGRESOS Y DESCUENTOS (IDÉNTICAS A CAPTURA 2) */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.75rem' }}>
+              {/* DOS COLUMNAS: INGRESOS Y DESCUENTOS */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
                 
                 {/* COLUMNA 1: INGRESOS (VERDE) */}
                 <div style={{ background: '#fafcfa', border: '1px solid #e2ece2', borderRadius: '18px', padding: '1.25rem' }}>
@@ -1194,28 +1669,32 @@ export default function PayrollModule() {
                       <ArrowUpRight size={18} />
                       <span>Ingresos</span>
                     </div>
-                    <button 
-                      onClick={() => showNotification('Concepto adicional agregado a ingresos', 'info')}
-                      style={{ background: '#ffffff', border: '1px solid #d1e7dd', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      + Agregar ingreso
-                    </button>
+                    {currentPeriod?.status !== 'Aprobada' && (
+                      <button 
+                        onClick={() => setNewConceptForm({ show: true, type: 'ingreso', label: '', amount: '' })}
+                        style={{ background: '#ffffff', border: '1px solid #d1e7dd', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Plus size={13} /> Agregar ingreso
+                      </button>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {[
-                      { label: 'Salario fijo', key: 'salario_fijo' },
-                      { label: 'Comisiones', key: 'comisiones' },
-                      { label: 'Feriados', key: 'feriados' },
-                      { label: 'Horas extras', key: 'horas_extras' },
-                      { label: 'Otros ingresos', key: 'otros_ingresos' }
+                      { label: 'Salario Fijo (Quincenal)', key: 'salario_fijo' },
+                      { label: 'Comisiones por Servicios', key: 'comisiones' },
+                      { label: 'Feriados Trabajados', key: 'feriados' },
+                      { label: 'Horas Extras', key: 'horas_extras' },
+                      { label: 'Otros Ingresos / Bonos', key: 'otros_ingresos' }
                     ].map(field => (
                       <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
                         <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
                           <input 
                             type="number"
                             step="0.01"
+                            disabled={currentPeriod?.status === 'Aprobada'}
                             value={editingItem[field.key] || 0}
                             onChange={(e) => handleUpdateConceptValue('ingreso', field.key, e.target.value)}
                             style={{
@@ -1224,14 +1703,11 @@ export default function PayrollModule() {
                               padding: '0.4rem 0.6rem',
                               borderRadius: '8px',
                               border: '1px solid #d8e2dc',
-                              background: '#ffffff',
+                              background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
                               fontWeight: 700,
                               fontSize: '0.85rem'
                             }}
                           />
-                          <button style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', padding: '2px' }}>
-                            •••
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -1240,7 +1716,7 @@ export default function PayrollModule() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #d1e7dd' }}>
                     <span style={{ fontWeight: 800, color: '#166534', fontSize: '0.9rem' }}>Total ingresos</span>
                     <span style={{ fontWeight: 900, color: '#16a34a', fontSize: '1.25rem' }}>
-                      {parseFloat(editingItem.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      RD$ {parseFloat(editingItem.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
@@ -1252,29 +1728,33 @@ export default function PayrollModule() {
                       <ArrowDownRight size={18} />
                       <span>Descuentos</span>
                     </div>
-                    <button 
-                      onClick={() => showNotification('Concepto adicional agregado a descuentos', 'info')}
-                      style={{ background: '#ffffff', border: '1px solid #fcd5ce', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      + Agregar descuento
-                    </button>
+                    {currentPeriod?.status !== 'Aprobada' && (
+                      <button 
+                        onClick={() => setNewConceptForm({ show: true, type: 'descuento', label: '', amount: '' })}
+                        style={{ background: '#ffffff', border: '1px solid #fcd5ce', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Plus size={13} /> Agregar descuento
+                      </button>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {[
-                      { label: 'TSS', key: 'tss' },
-                      { label: 'Servicios', key: 'servicios' },
-                      { label: 'Préstamos', key: 'prestamos' },
-                      { label: 'Ausencias', key: 'ausencias' },
+                      { label: 'TSS (AFP 2.87% + SFS 3.04%)', key: 'tss' },
+                      { label: 'Servicios de salón consumidos', key: 'servicios' },
+                      { label: 'Préstamos y Anticipos', key: 'prestamos' },
+                      { label: 'Ausencias no justificadas', key: 'ausencias' },
                       { label: 'Tardanzas', key: 'tardanzas' },
                       { label: 'Otros descuentos', key: 'otros_descuentos' }
                     ].map(field => (
                       <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
                         <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
                           <input 
                             type="number"
                             step="0.01"
+                            disabled={currentPeriod?.status === 'Aprobada'}
                             value={editingItem[field.key] || 0}
                             onChange={(e) => handleUpdateConceptValue('descuento', field.key, e.target.value)}
                             style={{
@@ -1283,14 +1763,11 @@ export default function PayrollModule() {
                               padding: '0.4rem 0.6rem',
                               borderRadius: '8px',
                               border: '1px solid #f0ded9',
-                              background: '#ffffff',
+                              background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
                               fontWeight: 700,
                               fontSize: '0.85rem'
                             }}
                           />
-                          <button style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', padding: '2px' }}>
-                            •••
-                          </button>
                         </div>
                       </div>
                     ))}
@@ -1299,13 +1776,68 @@ export default function PayrollModule() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #fcd5ce' }}>
                     <span style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.9rem' }}>Total descuentos</span>
                     <span style={{ fontWeight: 900, color: '#dc2626', fontSize: '1.25rem' }}>
-                      {parseFloat(editingItem.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      RD$ {parseFloat(editingItem.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* BANNER INFERIOR MONTO A PAGAR (IDÉNTICO A CAPTURA 2) */}
+              {/* FORMULARIO INLINE PARA AGREGAR CONCEPTO DINÁMICO */}
+              {newConceptForm.show && (
+                <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '14px', padding: '1rem', marginBottom: '1.25rem' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>
+                    Agregar nuevo concepto de {newConceptForm.type === 'ingreso' ? 'Ingreso (+)' : 'Descuento (-)'}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '0.75rem', alignItems: 'center' }}>
+                    <input 
+                      type="text"
+                      placeholder="Nombre del concepto (ej. Incentivo transporte, Seguro complementario...)"
+                      value={newConceptForm.label}
+                      onChange={(e) => setNewConceptForm(prev => ({ ...prev, label: e.target.value }))}
+                      style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                    />
+                    <input 
+                      type="number"
+                      placeholder="Monto RD$"
+                      value={newConceptForm.amount}
+                      onChange={(e) => setNewConceptForm(prev => ({ ...prev, amount: e.target.value }))}
+                      style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                    />
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        onClick={handleAddCustomConceptToEmployee}
+                        style={{ background: '#0066ff', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', fontWeight: 800, cursor: 'pointer', fontSize: '0.85rem' }}
+                      >
+                        Agregar
+                      </button>
+                      <button
+                        onClick={() => setNewConceptForm({ show: false, type: 'ingreso', label: '', amount: '' })}
+                        style={{ background: '#e2e8f0', color: '#334155', border: 'none', padding: '0.5rem 0.75rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* MOTIVO DEL AJUSTE MANUAL (PARA AUDITORÍA) */}
+              {currentPeriod?.status !== 'Aprobada' && (
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#475569', marginBottom: '0.3rem' }}>
+                    Motivo del cambio manual (opcional para auditoría):
+                  </label>
+                  <input 
+                    type="text"
+                    placeholder="Ej. Ajuste de horas extras por jornada especial / Corrección de propina..."
+                    value={editReason}
+                    onChange={(e) => setEditReason(e.target.value)}
+                    style={{ width: '100%', padding: '0.55rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                  />
+                </div>
+              )}
+
+              {/* BANNER INFERIOR MONTO NETO A PAGAR */}
               <div style={{
                 background: '#f0f7ff',
                 border: '1px solid #d0e5ff',
@@ -1313,19 +1845,26 @@ export default function PayrollModule() {
                 padding: '1.25rem 1.5rem',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '1rem',
+                justifyContent: 'space-between',
                 marginBottom: '1.75rem'
               }}>
-                <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#e0efff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0066ff' }}>
-                  <CreditCard size={24} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#e0efff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0066ff' }}>
+                    <CreditCard size={24} />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block' }}>
+                      Monto neto a pagar al colaborador
+                    </span>
+                    <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#0052cc' }}>
+                      RD$ {parseFloat(editingItem.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block' }}>
-                    Monto a pagar
-                  </span>
-                  <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#0052cc' }}>
-                    RD$ {parseFloat(editingItem.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
+
+                <div style={{ fontSize: '0.8rem', color: '#64748b', textAlign: 'right' }}>
+                  <div>Ingresos: <strong>RD$ {parseFloat(editingItem.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong></div>
+                  <div>Descuentos: <strong>- RD$ {parseFloat(editingItem.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong></div>
                 </div>
               </div>
 
@@ -1336,7 +1875,7 @@ export default function PayrollModule() {
                   className="btn-secondary"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.25rem', borderRadius: '12px', fontWeight: 700 }}
                 >
-                  <Printer size={16} /> Imprimir Volante
+                  <Printer size={16} /> Imprimir Volante de Pago
                 </button>
 
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -1345,23 +1884,25 @@ export default function PayrollModule() {
                     className="btn-secondary"
                     style={{ padding: '0.75rem 1.5rem', borderRadius: '12px', fontWeight: 700 }}
                   >
-                    Cancelar
+                    Cerrar
                   </button>
-                  <button
-                    onClick={handleSaveEmployeeChanges}
-                    style={{
-                      background: '#0066ff',
-                      border: 'none',
-                      color: '#ffffff',
-                      padding: '0.75rem 1.75rem',
-                      borderRadius: '12px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 12px rgba(0, 102, 255, 0.3)'
-                    }}
-                  >
-                    Guardar cambios
-                  </button>
+                  {currentPeriod?.status !== 'Aprobada' && (
+                    <button
+                      onClick={handleSaveEmployeeChanges}
+                      style={{
+                        background: '#0066ff',
+                        border: 'none',
+                        color: '#ffffff',
+                        padding: '0.75rem 1.75rem',
+                        borderRadius: '12px',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(0, 102, 255, 0.3)'
+                      }}
+                    >
+                      Guardar cambios
+                    </button>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -1370,7 +1911,332 @@ export default function PayrollModule() {
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* MODAL 2: RESUMEN DE NÓMINA (IDÉNTICO A CAPTURA 3) */}
+      {/* MODAL 2: APLICAR CONCEPTO MASIVO */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {showBulkModal && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1.5rem'
+          }}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              style={{
+                background: '#ffffff',
+                borderRadius: '24px',
+                width: '100%',
+                maxWidth: '600px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                padding: '2rem'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+                    Aplicar Concepto Masivo
+                  </h2>
+                  <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0.25rem 0 0 0' }}>
+                    Aplicarás este concepto a <strong>{selectedItemIds.length} colaboradores</strong> seleccionados.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setShowBulkModal(false)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleApplyBulkConcept} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                    Tipo de Concepto
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setBulkForm(prev => ({ ...prev, concept_type: 'Ingreso' }))}
+                      style={{
+                        padding: '0.65rem',
+                        borderRadius: '10px',
+                        border: bulkForm.concept_type === 'Ingreso' ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                        background: bulkForm.concept_type === 'Ingreso' ? '#f0fdf4' : '#ffffff',
+                        color: bulkForm.concept_type === 'Ingreso' ? '#16a34a' : '#475569',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + Ingreso / Bono
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBulkForm(prev => ({ ...prev, concept_type: 'Descuento' }))}
+                      style={{
+                        padding: '0.65rem',
+                        borderRadius: '10px',
+                        border: bulkForm.concept_type === 'Descuento' ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                        background: bulkForm.concept_type === 'Descuento' ? '#fef2f2' : '#ffffff',
+                        color: bulkForm.concept_type === 'Descuento' ? '#dc2626' : '#475569',
+                        fontWeight: 800,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      - Descuento / Deducción
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                    Nombre del Concepto
+                  </label>
+                  <select
+                    value={bulkForm.concept_label}
+                    onChange={(e) => setBulkForm(prev => ({ ...prev, concept_label: e.target.value }))}
+                    className="input-field"
+                    style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: 600 }}
+                  >
+                    {bulkForm.concept_type === 'Ingreso' ? (
+                      <>
+                        <option value="Bono de Desempeño">Bono de Desempeño</option>
+                        <option value="Incentivo de Puntualidad">Incentivo de Puntualidad</option>
+                        <option value="Ajuste Horas Extras">Ajuste Horas Extras</option>
+                        <option value="Bono Feriado">Bono Feriado</option>
+                        <option value="Otro...">Otro concepto personalizado...</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="Descuento Uniforme">Descuento Uniforme</option>
+                        <option value="Seguro Complementario">Seguro Complementario</option>
+                        <option value="Anticipo Extra">Anticipo Extraordinario</option>
+                        <option value="Ajuste Ausencias">Ajuste Ausencias</option>
+                        <option value="Otro...">Otro concepto personalizado...</option>
+                      </>
+                    )}
+                  </select>
+
+                  {bulkForm.concept_label === 'Otro...' && (
+                    <input 
+                      type="text"
+                      placeholder="Escribe el nombre del concepto..."
+                      value={bulkForm.custom_label}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, custom_label: e.target.value }))}
+                      style={{ width: '100%', marginTop: '0.5rem', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                      required
+                    />
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                      Monto (RD$)
+                    </label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={bulkForm.amount}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, amount: e.target.value }))}
+                      style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 800 }}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                      Modo de Aplicación
+                    </label>
+                    <select
+                      value={bulkForm.operation}
+                      onChange={(e) => setBulkForm(prev => ({ ...prev, operation: e.target.value }))}
+                      className="input-field"
+                      style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: 600 }}
+                    >
+                      <option value="add">Sumar al monto existente</option>
+                      <option value="set">Fijar este valor exacto</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                    Motivo / Justificación (Auditoría)
+                  </label>
+                  <input 
+                    type="text"
+                    placeholder="Ej. Aprobado por Gerencia General para el período..."
+                    value={bulkForm.reason}
+                    onChange={(e) => setBulkForm(prev => ({ ...prev, reason: e.target.value }))}
+                    style={{ width: '100%', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+                  />
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}>
+                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: '0.25rem' }}>Vista previa de impacto:</div>
+                  <div style={{ color: '#475569' }}>
+                    Se aplicará <strong>RD$ {parseFloat(bulkForm.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> como <strong>{bulkForm.concept_type}</strong> a <strong>{selectedItemIds.length} colaboradores</strong>.
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkModal(false)}
+                    className="btn-secondary"
+                    style={{ padding: '0.7rem 1.5rem', borderRadius: '10px', fontWeight: 700 }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    style={{
+                      background: '#0066ff',
+                      border: 'none',
+                      color: '#ffffff',
+                      padding: '0.7rem 1.75rem',
+                      borderRadius: '10px',
+                      fontWeight: 800,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Confirmar y Aplicar
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MODAL 3: CONFIRMACIÓN DE APROBACIÓN DE NÓMINA (INMUTABLE) */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {showApproveModal && currentPeriod && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.7)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1.5rem'
+          }}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              style={{
+                background: '#ffffff',
+                borderRadius: '24px',
+                width: '100%',
+                maxWidth: '620px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)',
+                padding: '2.5rem'
+              }}
+            >
+              <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+                <div style={{ width: '64px', height: '64px', borderRadius: '20px', background: '#eff6ff', color: '#0066ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto' }}>
+                  <ShieldAlert size={32} />
+                </div>
+                <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.5rem 0' }}>
+                  Aprobar Nómina Definitiva
+                </h2>
+                <p style={{ color: '#64748b', fontSize: '0.9rem', margin: 0 }}>
+                  Por favor confirma los detalles de la nómina antes de proceder al cierre oficial.
+                </p>
+              </div>
+
+              <div style={{ background: '#f8fafc', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.85rem' }}>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Período</span>
+                    <strong style={{ color: '#0f172a', fontSize: '0.95rem' }}>{currentPeriod.period_name}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Fechas</span>
+                    <strong style={{ color: '#0f172a' }}>{currentPeriod.start_date} al {currentPeriod.end_date}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Cantidad de Colaboradores</span>
+                    <strong style={{ color: '#0066ff', fontSize: '1.1rem' }}>{summaryData.totalEmpleados} colaboradores</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem' }}>Monto Total a Desembolsar</span>
+                    <strong style={{ color: '#16a34a', fontSize: '1.2rem' }}>RD$ {summaryData.totalNeto.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* ALERTA DE INMUTABILIDAD */}
+              <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '12px', padding: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start', marginBottom: '1.75rem' }}>
+                <Lock size={20} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ fontSize: '0.825rem', color: '#92400e', lineHeight: '1.4' }}>
+                  <strong>Aviso de Inmutabilidad:</strong> Una vez aprobada, esta nómina pasará al histórico y <strong>no podrá ser editada</strong>. Las modificaciones futuras en salarios o configuraciones de empleados nunca alterarán este registro.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
+                  Aprobado por:
+                </label>
+                <input 
+                  type="text"
+                  value={approverName}
+                  onChange={(e) => setApproverName(e.target.value)}
+                  style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowApproveModal(false)}
+                  className="btn-secondary"
+                  style={{ padding: '0.75rem 1.5rem', borderRadius: '12px', fontWeight: 700 }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApprovePayrollConfirm}
+                  disabled={loading}
+                  style={{
+                    background: '#16a34a',
+                    border: 'none',
+                    color: '#ffffff',
+                    padding: '0.75rem 2rem',
+                    borderRadius: '12px',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(22, 163, 74, 0.35)'
+                  }}
+                >
+                  Confirmar y Aprobar Nómina
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MODAL 4: RESUMEN DE NÓMINA CON GRÁFICOS Y DESGLOSE */}
       {/* ========================================================================= */}
       <AnimatePresence>
         {showSummaryModal && (
@@ -1404,21 +2270,14 @@ export default function PayrollModule() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
                 <div>
                   <h2 style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.25rem 0' }}>
-                    Resumen de nómina
+                    Resumen general de nómina
                   </h2>
                   <p style={{ color: '#64748b', margin: 0, fontWeight: 600, fontSize: '0.9rem' }}>
-                    {currentPeriod?.period_name || '1ra quincena · Octubre 2026'}
+                    {currentPeriod?.period_name} ({currentPeriod?.start_date} al {currentPeriod?.end_date})
                   </p>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  {/* Selectores superiores */}
-                  <div style={{ display: 'flex', gap: '0.5rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '4px 8px', fontSize: '0.8rem', fontWeight: 600 }}>
-                    <span>Sucursal: <strong>{filterSucursal}</strong></span>
-                    <span>|</span>
-                    <span>Depto: <strong>{filterDepartamento}</strong></span>
-                  </div>
-
                   <button 
                     onClick={() => setShowSummaryModal(false)}
                     style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
@@ -1428,7 +2287,7 @@ export default function PayrollModule() {
                 </div>
               </div>
 
-              {/* 4 TARJETAS KPI SUPERIORES (IDÉNTICAS A CAPTURA 3) */}
+              {/* 4 TARJETAS KPI */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#eff6ff', color: '#0066ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1445,8 +2304,8 @@ export default function PayrollModule() {
                     <ArrowUpRight size={22} />
                   </div>
                   <div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block' }}>Total ingresos</span>
-                    <span style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block' }}>Total Ingresos</span>
+                    <span style={{ fontSize: '1.15rem', fontWeight: 900, color: '#16a34a' }}>
                       RD$ {summaryData.totalIngresos.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
@@ -1457,8 +2316,8 @@ export default function PayrollModule() {
                     <ArrowDownRight size={22} />
                   </div>
                   <div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block' }}>Total descuentos</span>
-                    <span style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'block' }}>Total Descuentos</span>
+                    <span style={{ fontSize: '1.15rem', fontWeight: 900, color: '#dc2626' }}>
                       RD$ {summaryData.totalDescuentos.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
@@ -1469,7 +2328,7 @@ export default function PayrollModule() {
                     <CreditCard size={22} />
                   </div>
                   <div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1d4ed8', display: 'block' }}>Nómina a pagar</span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1d4ed8', display: 'block' }}>Neto a Pagar</span>
                     <span style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0052cc' }}>
                       RD$ {summaryData.totalNeto.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </span>
@@ -1492,7 +2351,7 @@ export default function PayrollModule() {
                     cursor: 'pointer'
                   }}
                 >
-                  Ingresos
+                  Desglose de Ingresos
                 </button>
                 <button
                   onClick={() => setSummaryTab('descuentos')}
@@ -1507,11 +2366,11 @@ export default function PayrollModule() {
                     cursor: 'pointer'
                   }}
                 >
-                  Descuentos
+                  Desglose de Descuentos & TSS
                 </button>
               </div>
 
-              {/* GRÁFICO CIRCULAR + TABLA DE DESGLOSE (IDÉNTICO A CAPTURA 3) */}
+              {/* GRÁFICO CIRCULAR + TABLA DE DESGLOSE */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '3rem', alignItems: 'center', marginBottom: '2.5rem' }}>
                 
                 {/* DONUT SVG INTERACTIVO */}
@@ -1519,7 +2378,6 @@ export default function PayrollModule() {
                   <svg width="280" height="280" viewBox="0 0 280 280">
                     <circle cx="140" cy="140" r="100" fill="transparent" stroke="#f1f5f9" strokeWidth="32" />
                     
-                    {/* Segmentos del Donut */}
                     {summaryTab === 'ingresos' ? (
                       <>
                         <circle cx="140" cy="140" r="100" fill="transparent" stroke="#0066ff" strokeWidth="32" strokeDasharray="313 628" strokeDashoffset="0" />
@@ -1539,8 +2397,8 @@ export default function PayrollModule() {
                   </svg>
 
                   <div style={{ position: 'absolute', textAlign: 'center' }}>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a' }}>
-                      RD$ {summaryTab === 'ingresos' ? (summaryData.totalIngresos / 1000).toFixed(0) + ',350' : (summaryData.totalDescuentos / 1000).toFixed(0) + ',475'}
+                    <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#0f172a' }}>
+                      RD$ {(summaryTab === 'ingresos' ? summaryData.totalIngresos : summaryData.totalDescuentos).toLocaleString('en-US', { minimumFractionDigits: 0 })}
                     </div>
                     <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>
                       Total {summaryTab}
@@ -1548,7 +2406,7 @@ export default function PayrollModule() {
                   </div>
                 </div>
 
-                {/* TABLA DE PORCENTAJES IDÉNTICA A CAPTURA 3 */}
+                {/* TABLA DE PORCENTAJES */}
                 <div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                     <thead>
@@ -1566,7 +2424,7 @@ export default function PayrollModule() {
                             {row.label}
                           </td>
                           <td style={{ padding: '0.85rem 0', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
-                            {row.monto.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            RD$ {row.monto.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                           </td>
                           <td style={{ padding: '0.85rem 0', textAlign: 'right', fontWeight: 700, color: '#64748b' }}>
                             {row.percent}%
@@ -1598,6 +2456,131 @@ export default function PayrollModule() {
                   className="btn-secondary"
                   style={{ padding: '0.75rem 2rem', borderRadius: '12px', fontWeight: 700 }}
                 >
+                  Cerrar Resumen
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: HISTORIAL DE AUDITORÍA DE NÓMINA */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {showAuditModal && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1.5rem'
+          }}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              style={{
+                background: '#ffffff',
+                borderRadius: '24px',
+                width: '100%',
+                maxWidth: '900px',
+                maxHeight: '85vh',
+                overflowY: 'auto',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                padding: '2rem'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+                    Registro de Auditoría de Nómina
+                  </h2>
+                  <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0.2rem 0 0 0' }}>
+                    Trazabilidad de todos los cambios manuales y modificaciones aplicadas al período.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setShowAuditModal(false)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                >
+                  <X size={22} />
+                </button>
+              </div>
+
+              {auditLogs.length > 0 ? (
+                <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '14px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>Fecha / Hora</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>Colaborador</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>Campo / Concepto</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Valor Original</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Nuevo Valor</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>Tipo</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>Motivo</th>
+                        <th style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>Usuario</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLogs.map((log, i) => (
+                        <tr key={log.id || i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>
+                            {new Date(log.created_at).toLocaleString('es-DO', { dateStyle: 'short', timeStyle: 'short' })}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: '#0f172a' }}>
+                            {log.employee_name || 'Nómina General'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', color: '#334155' }}>
+                            {log.field_name}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#dc2626', fontWeight: 600 }}>
+                            RD$ {log.old_value}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#16a34a', fontWeight: 800 }}>
+                            RD$ {log.new_value}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem' }}>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '8px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              background: log.action_type === 'Aprobación Definitiva' ? '#dcfce7' : '#f1f5f9',
+                              color: log.action_type === 'Aprobación Definitiva' ? '#15803d' : '#475569'
+                            }}>
+                              {log.action_type}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>
+                            {log.reason || 'Sin motivo especificado'}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', color: '#475569', fontWeight: 600 }}>
+                            {log.user_name}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
+                  <History size={36} color="#cbd5e1" style={{ marginBottom: '0.75rem' }} />
+                  <p style={{ margin: 0, fontWeight: 600 }}>No hay cambios manuales registrados en este período.</p>
+                </div>
+              )}
+
+              <div style={{ textAlign: 'right', marginTop: '1.5rem' }}>
+                <button
+                  onClick={() => setShowAuditModal(false)}
+                  className="btn-secondary"
+                  style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', fontWeight: 700 }}
+                >
                   Cerrar
                 </button>
               </div>
@@ -1607,7 +2590,7 @@ export default function PayrollModule() {
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* MODAL 3: CREAR NUEVO PERÍODO */}
+      {/* MODAL 6: CREAR / GENERAR NUEVA NÓMINA */}
       {/* ========================================================================= */}
       <AnimatePresence>
         {showNewPeriodModal && (
@@ -1623,111 +2606,133 @@ export default function PayrollModule() {
             padding: '1.5rem'
           }}>
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
               style={{
                 background: '#ffffff',
-                borderRadius: '20px',
+                borderRadius: '24px',
                 width: '100%',
-                maxWidth: '520px',
-                padding: '2rem',
-                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+                maxWidth: '560px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                padding: '2.5rem'
               }}
             >
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 900, marginBottom: '1rem', color: '#0f172a' }}>
-                Generar Nuevo Período de Nómina
-              </h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+                  Generar Nuevo Período de Nómina
+                </h2>
+                <button 
+                  onClick={() => setShowNewPeriodModal(false)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
 
-              <form onSubmit={handleCreateNewPeriod} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <form onSubmit={handleCreateNewPeriod} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#64748b', marginBottom: '0.35rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                     Nombre del Período
                   </label>
                   <input 
                     type="text"
-                    required
                     value={newPeriodForm.period_name}
-                    onChange={(e) => setNewPeriodForm({ ...newPeriodForm, period_name: e.target.value })}
-                    className="input-field"
-                    placeholder="Ej. 2da quincena · Octubre 2026"
+                    onChange={(e) => setNewPeriodForm(prev => ({ ...prev, period_name: e.target.value }))}
+                    style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                    required
                   />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#64748b', marginBottom: '0.35rem' }}>
-                      Fecha Inicio
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                      Fecha de Inicio
                     </label>
                     <input 
                       type="date"
-                      required
                       value={newPeriodForm.start_date}
-                      onChange={(e) => setNewPeriodForm({ ...newPeriodForm, start_date: e.target.value })}
-                      className="input-field"
+                      onChange={(e) => setNewPeriodForm(prev => ({ ...prev, start_date: e.target.value }))}
+                      style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                      required
                     />
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#64748b', marginBottom: '0.35rem' }}>
-                      Fecha Fin
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                      Fecha de Fin (Corte)
                     </label>
                     <input 
                       type="date"
-                      required
                       value={newPeriodForm.end_date}
-                      onChange={(e) => setNewPeriodForm({ ...newPeriodForm, end_date: e.target.value })}
-                      className="input-field"
+                      onChange={(e) => setNewPeriodForm(prev => ({ ...prev, end_date: e.target.value }))}
+                      style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
+                      required
                     />
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#64748b', marginBottom: '0.35rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                       Sucursal
                     </label>
-                    <select 
+                    <select
                       value={newPeriodForm.sucursal}
-                      onChange={(e) => setNewPeriodForm({ ...newPeriodForm, sucursal: e.target.value })}
+                      onChange={(e) => setNewPeriodForm(prev => ({ ...prev, sucursal: e.target.value }))}
                       className="input-field"
+                      style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: 600 }}
                     >
-                      <option value="Todas">Todas</option>
-                      <option value="San Vicente">San Vicente</option>
-                      <option value="Villa Mella">Villa Mella</option>
+                      <option value="Todas">Todas las sucursales</option>
+                      <option value="San Vicente">Abatte San Vicente</option>
+                      <option value="Villa Mella">Abatte Villa Mella</option>
                     </select>
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#64748b', marginBottom: '0.35rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                       Departamento
                     </label>
-                    <select 
+                    <select
                       value={newPeriodForm.departamento}
-                      onChange={(e) => setNewPeriodForm({ ...newPeriodForm, departamento: e.target.value })}
+                      onChange={(e) => setNewPeriodForm(prev => ({ ...prev, departamento: e.target.value }))}
                       className="input-field"
+                      style={{ width: '100%', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: 600 }}
                     >
-                      <option value="Todos">Todos</option>
-                      <option value="Estilistas">Estilistas</option>
-                      <option value="Barberos">Barberos</option>
-                      <option value="Recepción">Recepción</option>
+                      <option value="Todos">Todos los departamentos</option>
+                      <option value="Estilista">Estilistas</option>
+                      <option value="Barbero">Barberos</option>
+                      <option value="Manicurista">Manicuristas</option>
                     </select>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-                  <button 
-                    type="button" 
+                <div style={{ background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '1rem', fontSize: '0.825rem', color: '#1e40af' }}>
+                  <Info size={16} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'text-bottom' }} />
+                  El sistema calculará automáticamente para cada empleado: salarios fijos proporcionales, comisiones del período, horas extras, feriados, TSS legal (5.91%), préstamos y consumos de salón.
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
                     onClick={() => setShowNewPeriodModal(false)}
                     className="btn-secondary"
-                    style={{ padding: '0.65rem 1.25rem', borderRadius: '10px' }}
+                    style={{ padding: '0.7rem 1.5rem', borderRadius: '10px', fontWeight: 700 }}
                   >
                     Cancelar
                   </button>
-                  <button 
-                    type="submit" 
-                    className="btn-primary"
-                    style={{ padding: '0.65rem 1.5rem', borderRadius: '10px' }}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    style={{
+                      background: '#0066ff',
+                      border: 'none',
+                      color: '#ffffff',
+                      padding: '0.7rem 1.75rem',
+                      borderRadius: '10px',
+                      fontWeight: 800,
+                      cursor: 'pointer'
+                    }}
                   >
                     Generar Nómina
                   </button>
@@ -1739,7 +2744,7 @@ export default function PayrollModule() {
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* MODAL 4: DESGLOSE MENSUAL DE REGALÍA */}
+      {/* MODAL 7: DESGLOSE MENSUAL DE REGALÍA */}
       {/* ========================================================================= */}
       <AnimatePresence>
         {showRegaliaDetailModal && selectedRegaliaEmployee && (
@@ -1755,85 +2760,87 @@ export default function PayrollModule() {
             padding: '1.5rem'
           }}>
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
               style={{
                 background: '#ffffff',
                 borderRadius: '24px',
                 width: '100%',
-                maxWidth: '780px',
-                padding: '2.5rem',
-                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+                maxWidth: '750px',
+                maxHeight: '85vh',
+                overflowY: 'auto',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                padding: '2rem'
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <div>
-                  <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.25rem 0' }}>
-                    Desglose Anual de Regalía · {selectedRegaliaEmployee.employee_name}
+                  <h2 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+                    Desglose de Regalía · {selectedRegaliaEmployee.employee_name}
                   </h2>
-                  <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>
-                    {selectedRegaliaEmployee.posicion} · {selectedRegaliaEmployee.sucursal} · Año {regaliasYear}
+                  <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0.2rem 0 0 0' }}>
+                    {selectedRegaliaEmployee.posicion} · Abatte {selectedRegaliaEmployee.sucursal} · Año Fiscal {regaliasYear}
                   </p>
                 </div>
-
                 <button 
                   onClick={() => setShowRegaliaDetailModal(false)}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                 >
-                  <X size={22} />
+                  <X size={20} />
                 </button>
               </div>
 
-              <div style={{ maxHeight: '350px', overflowY: 'auto', marginBottom: '1.5rem', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+              <div style={{ background: '#f8fafc', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '1.5rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontWeight: 800, color: '#475569' }}>
-                      <th style={{ padding: '0.75rem 1rem' }}>Mes</th>
-                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Salario Ordinario</th>
+                    <tr style={{ background: '#0f172a', color: '#fff', fontWeight: 800 }}>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left' }}>Mes</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Salario Fijo</th>
                       <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Comisiones</th>
-                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Total Mes</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Devengado Mes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedRegaliaEmployee.desglose_mensual?.map((mes, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: '#0f172a' }}>{mes.mes} ({idx + 1})</td>
-                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#64748b' }}>
-                          RD$ {parseFloat(mes.salario_ordinario).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    {selectedRegaliaEmployee.desglose_mensual?.map((m, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: '#0f172a' }}>{m.mes}</td>
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#475569' }}>
+                          RD$ {parseFloat(m.salario_ordinario || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#64748b' }}>
-                          RD$ {parseFloat(mes.comisiones).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#475569' }}>
+                          RD$ {parseFloat(m.comisiones || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 800, color: '#16a34a' }}>
-                          RD$ {parseFloat(mes.total_mes).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 800, color: '#0066ff' }}>
+                          RD$ {parseFloat(m.total_mes || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
                     ))}
+                    <tr style={{ background: '#eff6ff', fontWeight: 900, borderTop: '2px solid #bfdbfe' }}>
+                      <td style={{ padding: '1rem', color: '#1d4ed8' }}>Total Devengado Anual</td>
+                      <td colSpan="2"></td>
+                      <td style={{ padding: '1rem', textAlign: 'right', color: '#0052cc', fontSize: '1rem' }}>
+                        RD$ {parseFloat(selectedRegaliaEmployee.total_acumulado_anual).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
 
-              <div style={{ background: '#eff6ff', border: '2px solid #bfdbfe', borderRadius: '16px', padding: '1.25rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <div>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e40af', display: 'block' }}>Fórmula de Ley 16-92</span>
-                  <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600 }}>
-                    RD$ {parseFloat(selectedRegaliaEmployee.total_acumulado_anual).toLocaleString('en-US', { minimumFractionDigits: 2 })} / 12 meses
-                  </span>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e40af', display: 'block' }}>Monto de Regalía</span>
-                  <span style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0066ff' }}>
-                    RD$ {parseFloat(selectedRegaliaEmployee.monto_regalia).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
+              <div style={{ background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: '16px', padding: '1.25rem', textAlign: 'center', marginBottom: '1.5rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#166534', textTransform: 'uppercase', display: 'block', marginBottom: '0.25rem' }}>
+                  Regalía Pascual (Salario de Navidad · Duodécima Parte / 12)
+                </span>
+                <span style={{ fontSize: '1.8rem', fontWeight: 900, color: '#16a34a' }}>
+                  RD$ {parseFloat(selectedRegaliaEmployee.monto_regalia).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </span>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <div style={{ textAlign: 'right' }}>
                 <button
                   onClick={() => setShowRegaliaDetailModal(false)}
                   className="btn-secondary"
-                  style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', fontWeight: 700 }}
+                  style={{ padding: '0.65rem 1.75rem', borderRadius: '10px', fontWeight: 700 }}
                 >
                   Cerrar
                 </button>

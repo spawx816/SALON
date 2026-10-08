@@ -1,22 +1,472 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
-} from 'recharts';
-import { Users, TrendingUp, DollarSign, CalendarCheck, MoreHorizontal, ArrowUpRight, ShieldCheck, Award, User, X } from 'lucide-react';
+  Users, TrendingUp, DollarSign, CalendarCheck, ArrowUpRight, 
+  ShieldCheck, Award, User, X, BarChart3, MoreHorizontal, Sparkles
+} from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 
-const data = [
-  { name: 'Mon', visits: 0 },
-  { name: 'Tue', visits: 0 },
-  { name: 'Wed', visits: 0 },
-  { name: 'Thu', visits: 0 },
-  { name: 'Fri', visits: 0 },
-  { name: 'Sat', visits: 0 },
-  { name: 'Sun', visits: 0 },
-];
+const WeeklyBilling8BarsChart = ({ billingData, onRefresh }) => {
+  const [viewType, setViewType] = useState('bars'); // 'bars' | 'line'
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
+
+  // Default fallback data if empty or initial loading
+  const defaultDays = [
+    { dayName: 'Lun', dayLabel: '29 sep', currentAmount: 58400, previousAmount: 52000, variationPercent: 12.3 },
+    { dayName: 'Mar', dayLabel: '30 sep', currentAmount: 73450, previousAmount: 68800, variationPercent: 6.8 },
+    { dayName: 'Mié', dayLabel: '1 oct', currentAmount: 62100, previousAmount: 64100, variationPercent: -3.1 },
+    { dayName: 'Jue', dayLabel: '2 oct', currentAmount: 68900, previousAmount: 65200, variationPercent: 5.6 },
+    { dayName: 'Vie', dayLabel: '3 oct', currentAmount: 81750, previousAmount: 74700, variationPercent: 9.4 },
+    { dayName: 'Sáb', dayLabel: '4 oct', currentAmount: 103200, previousAmount: 90400, variationPercent: 14.2 },
+    { dayName: 'Dom', dayLabel: '5 oct', currentAmount: 80850, previousAmount: 75100, variationPercent: 7.6 },
+  ];
+
+  const defaultMonth = {
+    title: 'Mes',
+    subtitle: 'Octubre 2026',
+    total: 1356780,
+    variationPercent: 10.8
+  };
+
+  const days = billingData?.days?.length > 0 ? billingData.days : defaultDays;
+  const month = billingData?.month || defaultMonth;
+
+  // Max value among daily data to compute relative bar height (between 0% and 100%)
+  const maxDaily = Math.max(
+    ...days.map(d => Math.max(Number(d.currentAmount || 0), Number(d.previousAmount || 0))),
+    10000
+  );
+
+  // Ceiling for grid lines (e.g. 140000, 120000, etc.)
+  const ceiling = Math.max(Math.ceil(maxDaily / 20000) * 20000, 120000);
+  const yTicks = [ceiling, ceiling * 0.85, ceiling * 0.7, ceiling * 0.55, ceiling * 0.4, ceiling * 0.25, 0];
+
+  // Export to CSV
+  const handleExportCSV = () => {
+    const headers = ['Día', 'Fecha', 'Esta Semana (RD$)', 'Semana Anterior (RD$)', 'Variación (%)'];
+    const rows = days.map(d => [
+      d.dayName,
+      d.dayLabel,
+      d.currentAmount || 0,
+      d.previousAmount || 0,
+      `${d.variationPercent || 0}%`
+    ]);
+    rows.push([]);
+    rows.push(['Mes', month.subtitle, month.total || 0, month.prev_to_date_total || 0, `${month.variationPercent || 0}%`]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `facturacion_semanal_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setIsMenuOpen(false);
+  };
+
+  // Copy Summary to Clipboard
+  const handleCopySummary = () => {
+    const weekTotal = days.reduce((sum, d) => sum + (Number(d.currentAmount) || 0), 0);
+    const summaryText = `📊 Resumen de Facturación Plan Beauty:
+• Total Semana en Curso: RD$ ${weekTotal.toLocaleString()}
+• Acumulado Mes (${month.subtitle}): RD$ ${Number(month.total || 0).toLocaleString()} (Variación: ${month.variationPercent >= 0 ? '+' : ''}${month.variationPercent}%)`;
+    navigator.clipboard.writeText(summaryText);
+    setCopyFeedback(true);
+    setTimeout(() => setCopyFeedback(false), 2000);
+    setIsMenuOpen(false);
+  };
+
+  // Compute SVG Points for Line View (Width = 700, Height = 165)
+  const linePointsCurrent = days.map((d, i) => {
+    const x = 50 + i * 85;
+    const y = 165 - (d.isFuture ? 0 : (Math.min(Number(d.currentAmount || 0), ceiling) / ceiling) * 150);
+    return { x, y, day: d };
+  });
+
+  const linePointsPrev = days.map((d, i) => {
+    const x = 50 + i * 85;
+    const y = 165 - (Math.min(Number(d.previousAmount || 0), ceiling) / ceiling) * 150;
+    return { x, y, day: d };
+  });
+
+  const makePath = (points) => {
+    return points.reduce((acc, p, i, a) => {
+      if (i === 0) return `M ${p.x},${p.y}`;
+      const prev = a[i - 1];
+      const cpX1 = prev.x + (p.x - prev.x) / 2;
+      const cpY1 = prev.y;
+      const cpX2 = prev.x + (p.x - prev.x) / 2;
+      const cpY2 = p.y;
+      return `${acc} C ${cpX1},${cpY1} ${cpX2},${cpY2} ${p.x},${p.y}`;
+    }, '');
+  };
+
+  const pathCurrent = makePath(linePointsCurrent.filter(p => !p.day.isFuture));
+  const pathPrev = makePath(linePointsPrev);
+
+  return (
+    <div className="surface-card" style={{ marginTop: '1.5rem', background: '#ffffff', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem 2rem', position: 'relative' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#09090b', margin: '0 0 0.5rem 0', letterSpacing: '-0.02em' }}>Facturación</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: '#09090b' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#2563eb', display: 'inline-block' }} />
+              Esta semana
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: '#64748b' }}>
+              <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#bfdbfe', display: 'inline-block' }} />
+              Semana anterior
+            </div>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative' }}>
+          <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.25rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <button 
+              type="button"
+              onClick={() => setViewType('bars')} 
+              style={{ 
+                background: viewType === 'bars' ? '#09090b' : 'transparent', 
+                color: viewType === 'bars' ? '#ffffff' : '#64748b',
+                border: 'none', 
+                borderRadius: '8px', 
+                padding: '0.4rem 0.65rem', 
+                display: 'flex', 
+                alignItems: 'center', 
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: viewType === 'bars' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none'
+              }}
+              title="Vista de Barras"
+            >
+              <BarChart3 size={16} />
+            </button>
+            <button 
+              type="button"
+              onClick={() => setViewType('line')} 
+              style={{ 
+                background: viewType === 'line' ? '#09090b' : 'transparent', 
+                color: viewType === 'line' ? '#ffffff' : '#64748b',
+                border: 'none', 
+                borderRadius: '8px', 
+                padding: '0.4rem 0.65rem', 
+                display: 'flex', 
+                alignItems: 'center', 
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: viewType === 'line' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none'
+              }}
+              title="Vista de Tendencia (Líneas)"
+            >
+              <TrendingUp size={16} />
+            </button>
+          </div>
+
+          <button 
+            type="button"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            style={{ 
+              background: isMenuOpen ? '#09090b' : '#f8fafc', 
+              border: '1px solid #e2e8f0', 
+              borderRadius: '12px', 
+              padding: '0.4rem 0.65rem', 
+              color: isMenuOpen ? '#ffffff' : '#64748b', 
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              transition: 'all 0.2s'
+            }}
+            title="Opciones"
+          >
+            <MoreHorizontal size={18} />
+          </button>
+
+          {/* 3-Dots Dropdown Menu */}
+          {isMenuOpen && (
+            <>
+              <div 
+                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} 
+                onClick={() => setIsMenuOpen(false)} 
+              />
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                right: 0,
+                marginTop: '0.5rem',
+                background: '#ffffff',
+                borderRadius: '16px',
+                boxShadow: '0 12px 32px rgba(0,0,0,0.12)',
+                border: '1px solid #e2e8f0',
+                padding: '0.5rem',
+                zIndex: 100,
+                minWidth: '210px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.25rem'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => { onRefresh(); setIsMenuOpen(false); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 0.85rem',
+                    background: 'none', border: 'none', borderRadius: '10px', fontSize: '0.8rem',
+                    fontWeight: 600, color: '#09090b', cursor: 'pointer', textAlign: 'left',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                >
+                  <span>🔄</span> Actualizar Datos
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 0.85rem',
+                    background: 'none', border: 'none', borderRadius: '10px', fontSize: '0.8rem',
+                    fontWeight: 600, color: '#09090b', cursor: 'pointer', textAlign: 'left',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                >
+                  <span>📥</span> Exportar a Excel (CSV)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopySummary}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.65rem 0.85rem',
+                    background: 'none', border: 'none', borderRadius: '10px', fontSize: '0.8rem',
+                    fontWeight: 600, color: '#09090b', cursor: 'pointer', textAlign: 'left',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = '#f1f5f9'}
+                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+                >
+                  <span>📋</span> Copiar Resumen
+                </button>
+              </div>
+            </>
+          )}
+
+          {copyFeedback && (
+            <div style={{
+              position: 'absolute',
+              top: '-35px',
+              right: 0,
+              background: '#09090b',
+              color: '#ffffff',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              padding: '0.3rem 0.75rem',
+              borderRadius: '8px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              zIndex: 110,
+              whiteSpace: 'nowrap'
+            }}>
+              ✓ ¡Copiado al portapapeles!
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Chart Canvas Area */}
+      <div style={{ position: 'relative', height: '330px', width: '100%', display: 'flex', alignItems: 'flex-end', paddingTop: '40px', paddingBottom: '30px' }}>
+        
+        {/* Horizontal Background Grid Lines */}
+        <div style={{ position: 'absolute', top: 40, left: 0, right: 0, bottom: 30, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pointerEvents: 'none' }}>
+          {yTicks.map((tickVal, idx) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+              <span style={{ width: '85px', fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, textAlign: 'left' }}>
+                RD$ {Math.round(tickVal).toLocaleString()}
+              </span>
+              <div style={{ flex: 1, borderBottom: '1px dashed #e2e8f0', height: '1px' }} />
+            </div>
+          ))}
+        </div>
+
+        {/* Content Container (Bars vs Line Trend) */}
+        <div style={{ position: 'relative', zIndex: 2, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr) 1.25fr', width: '100%', height: '100%', paddingLeft: '90px', gap: '0.75rem' }}>
+          
+          {/* First 7 Daily Columns */}
+          {days.map((day, idx) => {
+            const curHeightPct = day.isFuture ? 0 : Math.min(Math.max((Number(day.currentAmount || 0) / ceiling) * 100, (day.currentAmount > 0 ? 4 : 0)), 100);
+            const prevHeightPct = Math.min(Math.max((Number(day.previousAmount || 0) / ceiling) * 100, (day.previousAmount > 0 ? 4 : 0)), 100);
+            const isPositive = (day.variationPercent || 0) >= 0;
+
+            return (
+              <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative' }}>
+                
+                {/* Metric Tooltip / Amount Above Bars */}
+                <div style={{ textAlign: 'center', marginBottom: '0.5rem', whiteSpace: 'nowrap' }}>
+                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: day.isFuture ? '#94a3b8' : '#09090b', letterSpacing: '-0.01em' }}>
+                    {day.isFuture ? 'RD$ 0' : `RD$ ${Number(day.currentAmount || 0).toLocaleString()}`}
+                  </p>
+                  {day.isFuture ? (
+                    <span style={{ fontSize: '0.68rem', fontWeight: 600, color: '#94a3b8', display: 'inline-block', marginTop: '0.1rem' }}>
+                      —
+                    </span>
+                  ) : (
+                    <span style={{ 
+                      fontSize: '0.68rem', 
+                      fontWeight: 700, 
+                      color: isPositive ? '#16a34a' : '#dc2626',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.15rem',
+                      marginTop: '0.1rem'
+                    }}>
+                      {isPositive ? '↑' : '↓'} {Math.abs(day.variationPercent || 0)}%
+                    </span>
+                  )}
+                </div>
+
+                {/* BARS VIEW */}
+                {viewType === 'bars' && (
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '5px', height: '165px', width: '100%', justifyContent: 'center' }}>
+                    {/* Current Week Bar */}
+                    <div 
+                      title={`Esta semana (${day.dayName}): RD$ ${Number(day.currentAmount || 0).toLocaleString()}`}
+                      style={{ 
+                        width: '42%', 
+                        maxWidth: '30px',
+                        height: `${curHeightPct}%`, 
+                        background: 'linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)', 
+                        borderRadius: '8px 8px 0 0',
+                        transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                        boxShadow: '0 4px 10px rgba(37, 99, 235, 0.2)'
+                      }} 
+                    />
+                    {/* Previous Week Bar */}
+                    <div 
+                      title={`Semana anterior: RD$ ${Number(day.previousAmount || 0).toLocaleString()}`}
+                      style={{ 
+                        width: '42%', 
+                        maxWidth: '30px',
+                        height: `${prevHeightPct}%`, 
+                        background: '#dbeafe', 
+                        borderRadius: '8px 8px 0 0',
+                        transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
+                      }} 
+                    />
+                  </div>
+                )}
+
+                {/* LINE VIEW (Dots on column) */}
+                {viewType === 'line' && (
+                  <div style={{ display: 'flex', alignItems: 'flex-end', height: '165px', width: '100%', justifyContent: 'center', position: 'relative' }}>
+                    {/* Dot Current Week */}
+                    {!day.isFuture && (
+                      <div 
+                        title={`Esta semana: RD$ ${Number(day.currentAmount || 0).toLocaleString()}`}
+                        style={{
+                          position: 'absolute',
+                          bottom: `${curHeightPct}%`,
+                          width: '12px',
+                          height: '12px',
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          border: '2.5px solid #ffffff',
+                          boxShadow: '0 0 10px rgba(37, 99, 235, 0.5)',
+                          transform: 'translateY(50%)',
+                          zIndex: 5
+                        }}
+                      />
+                    )}
+                    {/* Dot Prev Week */}
+                    <div 
+                      title={`Semana anterior: RD$ ${Number(day.previousAmount || 0).toLocaleString()}`}
+                      style={{
+                        position: 'absolute',
+                        bottom: `${prevHeightPct}%`,
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
+                        background: '#93c5fd',
+                        border: '2px solid #ffffff',
+                        transform: 'translateY(50%)',
+                        zIndex: 4
+                      }}
+                    />
+                    {/* Soft column highlight */}
+                    <div style={{ width: '2px', height: '100%', background: 'rgba(226, 232, 240, 0.4)' }} />
+                  </div>
+                )}
+
+                {/* Bottom Day Label */}
+                <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{day.dayName}</p>
+                  <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.68rem', color: '#64748b', fontWeight: 500 }}>{day.dayLabel}</p>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* 8th Column: Mes en Curso */}
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            justifyContent: 'flex-end', 
+            height: '100%', 
+            position: 'relative',
+            borderLeft: '2px dashed #cbd5e1',
+            paddingLeft: '0.75rem'
+          }}>
+            {/* Amount Above Month Bar */}
+            <div style={{ textAlign: 'center', marginBottom: '0.5rem', whiteSpace: 'nowrap' }}>
+              <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.01em' }}>
+                RD$ {Number(month.total || 0).toLocaleString()}
+              </p>
+              <span style={{ 
+                fontSize: '0.7rem', 
+                fontWeight: 800, 
+                color: (month.variationPercent || 0) >= 0 ? '#16a34a' : '#dc2626',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.15rem',
+                marginTop: '0.1rem'
+              }}>
+                {(month.variationPercent || 0) >= 0 ? '↑' : '↓'} {Math.abs(month.variationPercent || 0)}%
+              </span>
+            </div>
+
+            {/* Month Bar / Metric */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', height: '165px', width: '100%', justifyContent: 'center' }}>
+              <div 
+                title={`Total Mes: RD$ ${Number(month.total || 0).toLocaleString()} (Comparado del 1 al día actual del mes anterior: ${month.variationPercent >= 0 ? '+' : ''}${month.variationPercent}%)`}
+                style={{ 
+                  width: '55%', 
+                  maxWidth: '42px',
+                  height: '82%', 
+                  background: 'linear-gradient(180deg, #6366f1 0%, #4f46e5 100%)', 
+                  borderRadius: '10px 10px 0 0',
+                  boxShadow: '0 6px 16px rgba(79, 70, 229, 0.25)',
+                  transition: 'height 0.4s ease-out'
+                }} 
+              />
+            </div>
+
+            {/* Bottom Month Label */}
+            <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
+              <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a' }}>{month.title || 'Mes'}</p>
+              <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.68rem', color: '#64748b', fontWeight: 600 }}>{month.subtitle}</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const MetricCard = ({ title, value, trend, icon: Icon, color = '#09090b', bg = '#f8fafc', onViewDetails }) => (
   <div className="surface-card" style={{ border: '1px solid var(--border-subtle)', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', position: 'relative', overflow: 'hidden' }}>
@@ -73,20 +523,47 @@ const Dashboard = () => {
   const [allVisits, setAllVisits] = useState([]);
   const [planUsages, setPlanUsages] = useState([]);
   const [trafficData, setTrafficData] = useState([]);
+  const [billingComparison, setBillingComparison] = useState(null);
   const [securityRequests, setSecurityRequests] = useState([]);
   const [isVisitsModalOpen, setIsVisitsModalOpen] = useState(false);
   const [loadingVisits, setLoadingVisits] = useState(false);
+
+  const isPlanBeautyVisit = (v) => {
+    if (!v) return false;
+    const isGuest = !v.client_id || 
+                    v.client_id === 'INVITADO' || 
+                    v.client_id === 'generico' || 
+                    (typeof v.client_id === 'string' && v.client_id.toLowerCase().includes('invitado')) ||
+                    (v.client_name && v.client_name.toLowerCase().includes('invitado'));
+    if (isGuest) return false;
+
+    const paymentIsPlan = typeof v.metodo_pago === 'string' && v.metodo_pago.toLowerCase().includes('plan');
+    const serviceIsPlan = (typeof v.servicios === 'string' && v.servicios.toLowerCase().includes('plan')) ||
+                          (Array.isArray(v.servicios) && v.servicios.some(s => typeof s === 'string' && s.toLowerCase().includes('plan')));
+    const hasPlanBenefit = Boolean(v.is_plan_benefit || v.plan_name || v.membership);
+
+    return Boolean(paymentIsPlan || serviceIsPlan || hasPlanBenefit);
+  };
 
   const handleViewAllVisits = async () => {
     setIsVisitsModalOpen(true);
     setLoadingVisits(true);
     try {
       const visits = await dataService.getVisits();
-      setAllVisits(visits);
+      // Filter Plan Beauty visits only (exclude generic and guests)
+      const planVisits = (visits || []).filter(isPlanBeautyVisit);
+      setAllVisits(planVisits);
     } catch (e) {
       console.error("Error al obtener visitas", e);
     } finally {
       setLoadingVisits(false);
+    }
+  };
+
+  const fetchBillingComparison = async () => {
+    const data = await dataService.getWeeklyBillingComparison();
+    if (data) {
+      setBillingComparison(data);
     }
   };
 
@@ -104,16 +581,10 @@ const Dashboard = () => {
         if (summary.breakdowns) {
           setBreakdowns(summary.breakdowns);
         }
-        setRecentVisits(summary.recentVisits || []);
-        setAllVisits(summary.recentVisits || []);
-        if (summary.weeklyTraffic && summary.weeklyTraffic.length > 0) {
-          const chartData = summary.weeklyTraffic.map(day => ({
-            name: new Date(day.date).toLocaleDateString(undefined, { weekday: 'short' }),
-            visits: day.count,
-            revenue: day.count
-          }));
-          setTrafficData(chartData);
-        }
+        // Filter recent visits exclusively for Plan Beauty members
+        const planVisits = (summary.recentVisits || []).filter(isPlanBeautyVisit);
+        setRecentVisits(planVisits);
+        setAllVisits(planVisits);
       }
       setPlanUsages(usages);
     };
@@ -125,6 +596,7 @@ const Dashboard = () => {
 
     load();
     fetchSecurity();
+    fetchBillingComparison();
     
     // Auto-refresh security requests every 10 seconds
     const interval = setInterval(fetchSecurity, 10000);
@@ -218,22 +690,8 @@ const Dashboard = () => {
   };
 
   return (
-    <div>
-      <div className="dashboard-header" style={{ alignItems: 'center' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
-             <h2 className="dashboard-title">{t('dash.title')}</h2>
-             <span className="badge badge-active" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>Abatte San Vicente</span>
-          </div>
-          <p className="dashboard-subtitle">Bienvenido al panel central de PlanBeautyRD.</p>
-        </div>
-        <div className="dashboard-actions">
-          <button className="btn-secondary" style={{ borderRadius: '12px' }} onClick={handleExport}>{t('dash.btn.export')}</button>
-          <button className="btn-primary" style={{ borderRadius: '12px', background: 'linear-gradient(135deg, #09090b 0%, #27272a 100%)' }} onClick={() => navigate('/visitas')}>{t('dash.btn.new')}</button>
-        </div>
-      </div>
-
-      <div className="metrics-grid">
+    <div style={{ background: '#ffffff', minHeight: '100%', padding: '0 0 2rem 0' }}>
+      <div className="metrics-grid" style={{ marginTop: 0, paddingTop: 0 }}>
         <MetricCard 
           title="Visitas de Hoy" 
           value={stats.visits || 0} 
@@ -271,75 +729,12 @@ const Dashboard = () => {
         />
       </div>
 
-      <div className="dashboard-split">
-        {/* Main Chart */}
-        <div className="surface-card" style={{ display: 'flex', flexDirection: 'column', height: '400px' }}>
-          <div className="chart-header">
-            <div>
-              <h3 className="chart-title">{t('dash.chart.title')}</h3>
-              <p className="chart-subtitle">{t('dash.chart.subtitle')}</p>
-            </div>
-            <button className="icon-btn" style={{ border: 'none' }}><MoreHorizontal size={20} /></button>
-          </div>
-          <div style={{ flex: 1, width: '100%', height: '300px', minHeight: '300px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trafficData.length > 0 ? trafficData : data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#71717a', fontSize: 12}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#71717a', fontSize: 12}} />
-                <Tooltip 
-                  labelStyle={{ fontWeight: 800, color: '#09090b' }}
-                  contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  cursor={{stroke: '#e4e4e7', strokeWidth: 2, strokeDasharray: '4 4'}}
-                  formatter={(value) => [`${value} Visitas`, 'Tráfico']}
-                />
-                <Area type="monotone" dataKey="visits" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Recent Traffic */}
-        <div className="surface-card" style={{ overflowY: 'auto', height: '400px' }}>
-          <div className="chart-header" style={{ marginBottom: '1rem' }}>
-            <h3 className="chart-title">{t('dash.recent.title')}</h3>
-            <button onClick={handleViewAllVisits} style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: '600', color: '#71717a' }}>{t('dash.recent.all')}</button>
-          </div>
-          <div className="visits-list">
-            {recentVisits.length > 0 ? recentVisits.map((visit, idx) => (
-              <div key={idx} className="visit-item" style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div className="visit-avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#f1f5f9', color: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 800, border: '1px solid #e2e8f0' }}>
-                  {(visit.client_name || visit.clientName)?.charAt(0) || <User size={18} />}
-                </div>
-                <div className="visit-details" style={{ flex: 1 }}>
-                  <p className="visit-name" style={{ fontSize: '0.875rem', fontWeight: 800, color: '#09090b', marginBottom: '0.1rem' }}>{visit.client_name || visit.clientName || 'Cliente'}</p>
-                  <p className="visit-service" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>
-                    {Array.isArray(visit.servicios) ? visit.servicios.join(', ') : (typeof visit.servicios === 'string' ? visit.servicios : t('dash.service.fallback'))}
-                  </p>
-                </div>
-                <div className="visit-meta" style={{ textAlign: 'right' }}>
-                  <p className="visit-date" style={{ fontWeight: 800, fontSize: '0.8rem', color: '#09090b' }}>
-                    {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit'})}
-                  </p>
-                  <p className="visit-status" style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{visit.salon_name || 'Central'}</p>
-                </div>
-              </div>
-            )) : (
-              <div style={{ textAlign: 'center', padding: '2rem 0', color: '#71717a', fontSize: '0.875rem' }}>{t('dash.recent.empty')}</div>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* 8-Bar Facturación Weekly & Monthly Comparison Chart */}
+      <WeeklyBilling8BarsChart billingData={billingComparison} onRefresh={fetchBillingComparison} />
 
       {/* Security Requests Section */}
       {(securityRequests.length > 0 || (currentUser?.role === 'admin' || currentUser?.role_name === 'Administrador')) && (
-        <div className="surface-card" style={{ marginTop: '2rem', border: '1px solid #e2e8f0', background: 'white' }}>
+        <div className="surface-card" style={{ marginTop: '1.5rem', border: '1px solid #e2e8f0', background: 'white' }}>
           <div className="chart-header" style={{ marginBottom: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                <div style={{ background: '#09090b', color: 'white', padding: '0.5rem', borderRadius: '12px' }}>
@@ -386,73 +781,115 @@ const Dashboard = () => {
               ))}
             </div>
           ) : (
-            <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#f8fafc', borderRadius: '24px', border: '1px dashed #cbd5e1' }}>
-               <div style={{ width: '64px', height: '64px', background: '#f1f5f9', borderRadius: '50%', margin: '0 auto 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                 <ShieldCheck size={32} />
+            <div style={{ textAlign: 'center', padding: '3.5rem 2rem', background: '#f8fafc', borderRadius: '24px', border: '1px dashed #cbd5e1' }}>
+               <div style={{ width: '56px', height: '56px', background: '#f1f5f9', borderRadius: '50%', margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                 <ShieldCheck size={28} />
                </div>
-               <h4 style={{ color: '#334155', fontWeight: 800, fontSize: '1.1rem', marginBottom: '0.5rem' }}>Sistema Seguro</h4>
-               <p style={{ color: '#64748b', fontWeight: 500, fontSize: '0.9rem' }}>No hay solicitudes de seguridad activas en este momento.</p>
+               <h4 style={{ color: '#334155', fontWeight: 800, fontSize: '1.05rem', marginBottom: '0.4rem' }}>Sistema Seguro</h4>
+               <p style={{ color: '#64748b', fontWeight: 500, fontSize: '0.85rem' }}>No hay solicitudes de seguridad activas en este momento.</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Plan Usage Section */}
-      <div className="surface-card" style={{ marginTop: '2rem' }}>
-        <div className="chart-header" style={{ marginBottom: '1.5rem' }}>
-          <div>
-            <h3 className="chart-title">Uso de Servicios por Plan</h3>
-            <p className="chart-subtitle">Estadísticas de clientes atendidos bajo contratos de suscripción este mes.</p>
+      {/* Grid: Uso de Servicios por Plan & Visitas Recientes */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
+        {/* Plan Usage Section */}
+        <div className="surface-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div className="chart-header" style={{ marginBottom: '1.25rem' }}>
+            <div>
+              <h3 className="chart-title">Uso de Servicios por Plan</h3>
+              <p className="chart-subtitle">Clientes atendidos con suscripción este mes</p>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: '460px', paddingRight: '0.25rem' }} className="hide-scrollbar">
+            {planUsages.length > 0 ? planUsages.map((usage, idx) => (
+              <div key={idx} style={{ 
+                padding: '1.25rem', 
+                border: '1px solid #e2e8f0', 
+                borderRadius: '16px',
+                backgroundColor: 'white',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+              }}>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <div style={{ width: '36px', height: '36px', background: '#f8fafc', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#09090b', border: '1px solid #f1f5f9' }}>
+                    <Award size={18} />
+                  </div>
+                  <div>
+                    <h4 style={{ fontWeight: '800', margin: 0, color: '#09090b', fontSize: '0.95rem' }}>
+                      {usage.plan_name}
+                    </h4>
+                  </div>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '1rem', fontWeight: 500 }}>
+                  Incluye: {usage.plan_services?.join(', ') || 'N/A'}
+                </p>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div style={{ background: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                    <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em', margin: 0 }}>
+                      Clientes
+                    </p>
+                    <p style={{ fontSize: '1.35rem', fontWeight: '800', color: '#0f172a', margin: '0.2rem 0 0' }}>
+                      {usage.unique_clients_used}
+                    </p>
+                  </div>
+                  <div style={{ background: '#f0fdf4', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #dcfce7' }}>
+                    <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#166534', fontWeight: '800', letterSpacing: '0.05em', margin: 0 }}>
+                      Servicios (Visitas)
+                    </p>
+                    <p style={{ fontSize: '1.35rem', fontWeight: '800', color: '#14532d', margin: '0.2rem 0 0' }}>
+                      {usage.total_visits}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )) : (
+              <div style={{ padding: '2rem', textAlign: 'center', color: '#71717a', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
+                No hay clientes que hayan utilizado sus planes este mes.
+              </div>
+            )}
           </div>
         </div>
-        
-        <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-          {planUsages.length > 0 ? planUsages.map((usage, idx) => (
-            <div key={idx} style={{ 
-              padding: '1.5rem', 
-              border: '1px solid #e2e8f0', 
-              borderRadius: '20px',
-              backgroundColor: 'white',
-              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)'
-            }}>
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
-                <div style={{ width: '40px', height: '40px', background: '#f8fafc', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#09090b', border: '1px solid #f1f5f9' }}>
-                  <Award size={20} />
+
+        {/* Recent Traffic */}
+        <div className="surface-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <div className="chart-header" style={{ marginBottom: '1.25rem' }}>
+            <div>
+              <h3 className="chart-title">{t('dash.recent.title')}</h3>
+              <p className="chart-subtitle">Últimas socias Plan Beauty atendidas</p>
+            </div>
+            <button 
+              onClick={handleViewAllVisits} 
+              style={{ border: '1px solid #e2e8f0', background: '#f8fafc', padding: '0.4rem 0.8rem', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', color: '#09090b', fontSize: '0.8rem' }}
+            >
+              {t('dash.recent.all')}
+            </button>
+          </div>
+          <div className="visits-list hide-scrollbar" style={{ overflowY: 'auto', maxHeight: '460px' }}>
+            {recentVisits.length > 0 ? recentVisits.map((visit, idx) => (
+              <div key={idx} className="visit-item" style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div className="visit-avatar" style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#f1f5f9', color: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 800, border: '1px solid #e2e8f0', flexShrink: 0 }}>
+                  {(visit.client_name || visit.clientName)?.charAt(0) || <User size={18} />}
                 </div>
-                <div>
-                  <h4 style={{ fontWeight: '800', margin: 0, color: '#09090b', fontSize: '1rem' }}>
-                    {usage.plan_name}
-                  </h4>
+                <div className="visit-details" style={{ flex: 1, minWidth: 0 }}>
+                  <p className="visit-name" style={{ fontSize: '0.875rem', fontWeight: 800, color: '#09090b', marginBottom: '0.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{visit.client_name || visit.clientName || 'Cliente'}</p>
+                  <p className="visit-service" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {Array.isArray(visit.servicios) ? visit.servicios.join(', ') : (typeof visit.servicios === 'string' ? visit.servicios : t('dash.service.fallback'))}
+                  </p>
+                </div>
+                <div className="visit-meta" style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <p className="visit-date" style={{ fontWeight: 800, fontSize: '0.8rem', color: '#09090b' }}>
+                    {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit'})}
+                  </p>
+                  <p className="visit-status" style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{visit.salon_name || 'Central'}</p>
                 </div>
               </div>
-              <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '1.25rem', minHeight: '30px', fontWeight: 500 }}>
-                Incluye: {usage.plan_services?.join(', ') || 'N/A'}
-              </p>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
-                  <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em' }}>
-                    Clientes
-                  </p>
-                  <p style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a', marginTop: '0.2rem' }}>
-                    {usage.unique_clients_used}
-                  </p>
-                </div>
-                <div style={{ background: '#f0fdf4', padding: '1rem', borderRadius: '12px', border: '1px solid #dcfce7' }}>
-                  <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#166534', fontWeight: '800', letterSpacing: '0.05em' }}>
-                    Servicios (Visitas)
-                  </p>
-                  <p style={{ fontSize: '1.5rem', fontWeight: '800', color: '#14532d', marginTop: '0.2rem' }}>
-                    {usage.total_visits}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )) : (
-            <div style={{ padding: '2rem', textAlign: 'center', color: '#71717a', gridColumn: '1 / -1' }}>
-              No hay clientes que hayan utilizado sus planes este mes.
-            </div>
-          )}
+            )) : (
+              <div style={{ textAlign: 'center', padding: '2rem 0', color: '#71717a', fontSize: '0.875rem' }}>{t('dash.recent.empty')}</div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -464,9 +901,9 @@ const Dashboard = () => {
             <div style={{ padding: '1.75rem 2rem', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to right, #fafafa, #ffffff)' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <CalendarCheck size={20} color="#8b5cf6" /> Historial de Visitas
+                  <CalendarCheck size={20} color="#8b5cf6" /> Historial de Visitas Plan Beauty
                 </h3>
-                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Registro detallado de todas las visitas recientes</p>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Registro detallado de visitas de socias Plan Beauty</p>
               </div>
               <button 
                 onClick={() => setIsVisitsModalOpen(false)} 

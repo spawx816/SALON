@@ -1,0 +1,1055 @@
+/* PayrollHistory.css - Estilos para Historial de Nóminas y Comparación */
+
+.payroll-history-page {
+  padding: 1rem 1.5rem 4.5rem;
+  max-width: 1440px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #0f172a;
+}
+
+/* Header */
+.ph-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.ph-title-box h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 0.15rem 0;
+  letter-spacing: -0.02em;
+}
+
+.ph-title-box p {
+  color: #64748b;
+  font-size: 0.875rem;
+  margin: 0;
+  font-weight: 500;
+}
+
+.ph-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.ph-select {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #1e293b;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.5rem 2rem 0.5rem 0.85rem;
+  border-radius: 10px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  transition: all 0.2s;
+}
+
+.ph-select:hover, .ph-select:focus {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.ph-search-box {
+  position: relative;
+  min-width: 200px;
+}
+
+.ph-search-box input {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.5rem 0.85rem 0.5rem 2.1rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #1e293b;
+  outline: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  transition: all 0.2s;
+}
+
+.ph-search-box input:focus {
+  border-color: #0066ff;
+  box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
+}
+
+.ph-search-box .search-icon {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+/* KPI Stat Cards */
+.ph-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ph-kpi-card {
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 16px;
+  padding: 1.15rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.ph-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 14px rgba(0,0,0,0.04);
+}
+
+.ph-kpi-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ph-kpi-icon.blue {
+  background: #eff6ff;
+  color: #0066ff;
+}
+
+.ph-kpi-icon.green {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.ph-kpi-icon.purple {
+  background: #f5f3ff;
+  color: #7c3aed;
+}
+
+.ph-kpi-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.ph-kpi-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 0.2rem;
+}
+
+.ph-kpi-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.ph-kpi-sub {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-top: 0.15rem;
+}
+
+/* Monthly Accordion Sections */
+.ph-month-group {
+  margin-bottom: 1.25rem;
+}
+
+.ph-month-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.25rem;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 0.4rem;
+}
+
+.ph-month-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #475569;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ph-month-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ph-chevron-btn {
+  background: none;
+  border: none;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+/* Period Row Items */
+.ph-period-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ph-period-card {
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 12px;
+  padding: 0.55rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  transition: all 0.15s ease;
+}
+
+.ph-period-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.03);
+}
+
+.ph-period-card.selected {
+  background: #f0f7ff;
+  border-color: #93c5fd;
+}
+
+.ph-period-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 220px;
+}
+
+.ph-checkbox {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid #cbd5e1;
+  accent-color: #0066ff;
+  cursor: pointer;
+}
+
+.ph-lock-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ph-period-names {
+  display: flex;
+  flex-direction: column;
+}
+
+.ph-period-name {
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.ph-period-dates {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.ph-period-center {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex: 1;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.ph-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.825rem;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.ph-meta-item strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.ph-meta-item .meta-icon {
+  color: #64748b;
+}
+
+.ph-period-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 220px;
+  font-size: 0.78rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.ph-period-status .status-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.ph-period-status .approved-label {
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.ph-period-status .approved-meta {
+  font-size: 0.72rem;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.ph-period-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #0066ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.ph-period-action-btn:hover {
+  background: #eff6ff;
+  transform: scale(1.08);
+}
+
+.ph-period-action-btn:hover {
+  background: #eff6ff;
+  transform: scale(1.08);
+}
+
+/* Floating Compare Action Bar */
+.ph-floating-bar {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.06);
+  z-index: 99;
+  max-width: 90vw;
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translate(-50%, 20px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.ph-selection-badge-box {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.ph-badge-count {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #0066ff;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.ph-selection-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.ph-chips-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.ph-chip {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #1e293b;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.35rem 0.65rem;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.ph-chip button {
+  background: none;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: #64748b;
+}
+
+.ph-chip button:hover {
+  color: #ef4444;
+}
+
+.ph-clear-btn {
+  background: none;
+  border: none;
+  color: #0066ff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.3rem 0.6rem;
+}
+
+.ph-clear-btn:hover {
+  text-decoration: underline;
+}
+
+.ph-compare-btn {
+  background: #0066ff;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 0.65rem 1.4rem;
+  font-weight: 800;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 102, 255, 0.25);
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.ph-compare-btn:hover:not(:disabled) {
+  background: #0052cc;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 102, 255, 0.35);
+}
+
+.ph-compare-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ===================================================
+   MODAL DE COMPARACIÓN DE PERÍODOS
+   =================================================== */
+.pcm-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 9999;
+}
+
+.pcm-modal {
+  background: #ffffff;
+  border-radius: 24px;
+  width: 100%;
+  max-width: 1200px;
+  max-height: 92vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  animation: modalIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.pcm-header {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.pcm-title-area {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pcm-header-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #0066ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pcm-title-area h2 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 0.15rem 0;
+  letter-spacing: -0.01em;
+}
+
+.pcm-title-area p {
+  color: #64748b;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.pcm-close-btn {
+  background: #f1f5f9;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pcm-close-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.pcm-body {
+  padding: 1.75rem 2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/* Period Selectors with Swap button */
+.pcm-selectors-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pcm-period-card {
+  flex: 1;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pcm-period-card-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pcm-period-card-name {
+  font-weight: 800;
+  font-size: 1rem;
+  color: #0f172a;
+  margin-bottom: 0.15rem;
+}
+
+.pcm-period-card-meta {
+  font-size: 0.8rem;
+  color: #64748b;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.pcm-swap-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0066ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.pcm-swap-btn:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  transform: rotate(180deg);
+}
+
+/* 4 KPI Comparison Cards */
+.pcm-kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.pcm-kpi-card {
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid #f1f5f9;
+}
+
+.pcm-kpi-card.green-theme {
+  background: #ffffff;
+  border-color: #f1f5f9;
+}
+
+.pcm-kpi-card.blue-theme {
+  background: #ffffff;
+  border-color: #f1f5f9;
+}
+
+.pcm-kpi-card.red-theme {
+  background: #ffffff;
+  border-color: #f1f5f9;
+}
+
+.pcm-kpi-card.purple-theme {
+  background: #ffffff;
+  border-color: #f1f5f9;
+}
+
+.pcm-kpi-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.825rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 0.75rem;
+}
+
+.pcm-kpi-amounts {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.pcm-kpi-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.pcm-kpi-col-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.pcm-kpi-col-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.1rem;
+}
+
+.pcm-diff-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.pcm-diff-pill.green {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.pcm-diff-pill.red {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.pcm-diff-pill.gray {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+/* Tabs & Export Row */
+.pcm-tabs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.5rem;
+}
+
+.pcm-tabs {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.pcm-tab-btn {
+  background: none;
+  border: none;
+  padding: 0.5rem 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s;
+}
+
+.pcm-tab-btn:hover {
+  color: #0f172a;
+}
+
+.pcm-tab-btn.active {
+  color: #0066ff;
+}
+
+.pcm-tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -0.55rem;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #0066ff;
+  border-radius: 3px 3px 0 0;
+}
+
+.pcm-export-btn {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pcm-export-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+/* Comparison Tables Grid */
+.pcm-tables-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.pcm-table-box {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.pcm-table-header-title {
+  padding: 0.85rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.pcm-table-header-title.green {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.pcm-table-header-title.red {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.pcm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.pcm-table th {
+  padding: 0.65rem 1rem;
+  color: #64748b;
+  font-weight: 700;
+  text-align: right;
+  border-bottom: 1px solid #f1f5f9;
+  background: #f8fafc;
+}
+
+.pcm-table th:first-child {
+  text-align: left;
+}
+
+.pcm-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f8fafc;
+  text-align: right;
+  color: #334155;
+  font-weight: 600;
+}
+
+.pcm-table td:first-child {
+  text-align: left;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.pcm-table tr.total-row td {
+  font-weight: 800;
+  background: #f8fafc;
+  border-top: 2px solid #e2e8f0;
+  color: #0f172a;
+}
+
+.pcm-diff-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.pcm-bar-indicator {
+  width: 16px;
+  height: 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.pcm-bar-indicator.green {
+  background: #22c55e;
+}
+
+.pcm-bar-indicator.red {
+  background: #ef4444;
+}
+
+.pcm-bar-indicator.gray {
+  background: #94a3b8;
+}
+
+/* Resumen de Comparación / Insights Box */
+.pcm-insights-card {
+  background: #f8faff;
+  border: 1px solid #dbeafe;
+  border-radius: 20px;
+  padding: 1.5rem;
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.pcm-insights-left {
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+}
+
+.pcm-insights-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #1e3a8a;
+  margin-bottom: 0.75rem;
+}
+
+.pcm-insights-statement {
+  font-size: 0.85rem;
+  color: #475569;
+  margin-bottom: 0.25rem;
+}
+
+.pcm-insights-big-change {
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.pcm-insights-big-change.increase {
+  color: #16a34a;
+}
+
+.pcm-insights-big-change.decrease {
+  color: #dc2626;
+}
+
+.pcm-insights-period-label {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+}
+
+.pcm-insights-col {
+  flex: 1;
+  min-width: 250px;
+}
+
+.pcm-insights-col-title {
+  font-size: 0.825rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 0.5rem;
+}
+
+.pcm-insights-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.825rem;
+  color: #334155;
+  font-weight: 600;
+}
+
+.pcm-insights-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pcm-bullet {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.pcm-bullet.green {
+  background: #22c55e;
+}
+
+.pcm-bullet.red {
+  background: #ef4444;
+}
+
+/* Responsiveness */
+@media (max-width: 960px) {
+  .pcm-tables-grid {
+    grid-template-columns: 1fr;
+  }
+  .pcm-selectors-row {
+    flex-direction: column;
+  }
+  .pcm-swap-btn {
+    align-self: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .payroll-history-page {
+    padding: 1rem;
+  }
+  .ph-period-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ph-period-center {
+    width: 100%;
+    justify-content: flex-between;
+  }
+  .ph-floating-bar {
+    width: calc(100% - 2rem);
+    flex-wrap: wrap;
+    border-radius: 16px;
+  }
+}

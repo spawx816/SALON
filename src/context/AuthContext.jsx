@@ -100,10 +100,22 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{ user, login, logout, loading, sessionTerminatedReason }}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    return {
+      user: null,
+      login: async () => false,
+      logout: () => {},
+      loading: false,
+      sessionTerminatedReason: null
+    };
+  }
+  return context;
+};
 

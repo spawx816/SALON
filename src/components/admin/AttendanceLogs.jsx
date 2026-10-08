@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, User, Calendar, MapPin, Smartphone, Image as ImageIcon, Search, Check, RefreshCw, Printer } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
+import { useAuth } from '../../context/AuthContext';
 
 const format12h = (timeStr) => {
   if (!timeStr) return '';
@@ -59,6 +60,13 @@ const getDRHour = (timestamp) => {
 };
 
 const AttendanceLogs = () => {
+  const { user: currentUser } = useAuth();
+  const userRole = (currentUser?.role || currentUser?.role_name || '').toLowerCase();
+  const isGlobalAdmin = (userRole === 'admin' || userRole === 'administrador') && !currentUser?.salon_id;
+  const userSalonId = currentUser?.salon_id ? String(currentUser.salon_id) : '';
+  const isAdminUser = userRole === 'admin' || userRole === 'administrador' || isGlobalAdmin;
+  const canManageHolidays = isAdminUser || Boolean(currentUser?.permissions?.manage_settings) || Boolean(currentUser?.permissions?.manage_staff);
+
   const [logs, setLogs] = useState([]);
   const [todayLogs, setTodayLogs] = useState([]);
   const [todayLoading, setTodayLoading] = useState(false);
@@ -67,7 +75,7 @@ const AttendanceLogs = () => {
     startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString('sv-SE'), // últimos 7 días
     endDate: new Date().toLocaleDateString('sv-SE'),
     employeeId: '',
-    salonId: '',
+    salonId: (!isGlobalAdmin && userSalonId) ? userSalonId : '',
     status: '',
     type: ''
   });
@@ -76,6 +84,13 @@ const AttendanceLogs = () => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [activeTab, setActiveTab] = useState('history'); // 'history', 'today', 'overrides'
   const [positionFilter, setPositionFilter] = useState('');
+
+  // Lock salonId for branch-assigned users whenever currentUser is loaded
+  useEffect(() => {
+    if (!isGlobalAdmin && userSalonId) {
+      setFilters(prev => ({ ...prev, salonId: userSalonId }));
+    }
+  }, [isGlobalAdmin, userSalonId]);
 
   // Schedule overrides states
   const [overridesList, setOverridesList] = useState([]);
@@ -106,6 +121,21 @@ const AttendanceLogs = () => {
   const [payrollPage, setPayrollPage] = useState(1);
   const [payrollSearch, setPayrollSearch] = useState('');
   const [payrollFilter, setPayrollFilter] = useState('all'); // 'all', 'tardy', 'overtime', 'absent'
+
+  // Holidays states
+  const [holidays, setHolidays] = useState([]);
+  const [holidayYear, setHolidayYear] = useState('2026');
+  const [holidayLoading, setHolidayLoading] = useState(false);
+  const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
+  const [editingHoliday, setEditingHoliday] = useState(null);
+  const [holidayForm, setHolidayForm] = useState({
+    date: '',
+    name: '',
+    type: 'Oficial',
+    rate_multiplier: 2.00,
+    is_active: 1,
+    notes: ''
+  });
 
   // History Pagination & Timezone helpers
   const [historyPage, setHistoryPage] = useState(1);
@@ -162,10 +192,16 @@ const AttendanceLogs = () => {
     }
   };
 
+  const effectiveSalonId = (!isGlobalAdmin && userSalonId) ? userSalonId : filters.salonId;
+
   const loadLogs = async () => {
     setLoading(true);
     try {
-      const data = await dataService.getAttendanceLogs(filters);
+      const activeFilters = {
+        ...filters,
+        salonId: effectiveSalonId
+      };
+      const data = await dataService.getAttendanceLogs(activeFilters);
       setLogs(data || []);
     } catch (err) {
       console.error("Error loading attendance history:", err);
@@ -177,7 +213,7 @@ const AttendanceLogs = () => {
   const loadTodayLogs = async () => {
     setTodayLoading(true);
     try {
-      const data = await dataService.getAttendanceToday();
+      const data = await dataService.getAttendanceToday({ salonId: effectiveSalonId });
       setTodayLogs(data || []);
     } catch (err) {
       console.error("Error loading today attendance logs:", err);
@@ -198,18 +234,22 @@ const AttendanceLogs = () => {
           return !role.includes('admin') && !role.includes('client') && u.status !== 'Inactivo';
         });
 
-        const combined = [...(staff || [])];
+        let combined = [...(staff || [])];
         systemStaff.forEach(sysUser => {
           if (!combined.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
             combined.push(sysUser);
           }
         });
 
+        if (!isGlobalAdmin && userSalonId) {
+          combined = combined.filter(emp => String(emp.salon_id) === String(userSalonId));
+        }
+
         setEmployees(combined);
 
         // Fetch overrides list on mount
         try {
-          const overridesData = await dataService.getScheduleOverrides();
+          const overridesData = await dataService.getScheduleOverrides({ salonId: effectiveSalonId });
           setOverridesList(overridesData || []);
         } catch (ovErr) {
           console.error("Error loading overrides on mount:", ovErr);
@@ -226,7 +266,7 @@ const AttendanceLogs = () => {
       }
     };
     loadEmployees();
-  }, []);
+  }, [isGlobalAdmin, userSalonId]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -239,7 +279,7 @@ const AttendanceLogs = () => {
   const loadOverrides = async () => {
     setLoading(true);
     try {
-      const data = await dataService.getScheduleOverrides();
+      const data = await dataService.getScheduleOverrides({ salonId: effectiveSalonId });
       setOverridesList(data || []);
     } catch (err) {
       console.error("Error loading schedule overrides:", err);
@@ -251,7 +291,11 @@ const AttendanceLogs = () => {
   const loadPendingLogs = async () => {
     setPendingLoading(true);
     try {
-      const data = await dataService.getAttendancePending(filters);
+      const activeFilters = {
+        ...filters,
+        salonId: effectiveSalonId
+      };
+      const data = await dataService.getAttendancePending(activeFilters);
       setPendingLogs(data || []);
     } catch (err) {
       console.error("Error loading pending logs:", err);
@@ -330,6 +374,145 @@ const AttendanceLogs = () => {
     }
   };
 
+  const loadHolidays = async () => {
+    setHolidayLoading(true);
+    try {
+      const data = await dataService.getHolidays(holidayYear);
+      setHolidays(data || []);
+    } catch (err) {
+      console.error("Error loading holidays:", err);
+    } finally {
+      setHolidayLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHolidays();
+  }, [holidayYear]);
+
+  const handleOpenHolidayModal = (holiday = null) => {
+    if (!canManageHolidays) {
+      alert("Solo el personal administrador puede agregar o modificar feriados oficiales.");
+      return;
+    }
+    if (holiday) {
+      setEditingHoliday(holiday);
+      setHolidayForm({
+        date: holiday.date ? holiday.date.substring(0, 10) : '',
+        name: holiday.name || '',
+        type: holiday.type || 'Oficial',
+        rate_multiplier: holiday.rate_multiplier !== undefined ? holiday.rate_multiplier : 2.00,
+        is_active: holiday.is_active !== undefined ? holiday.is_active : 1,
+        notes: holiday.notes || ''
+      });
+    } else {
+      setEditingHoliday(null);
+      setHolidayForm({
+        date: `${holidayYear}-01-01`,
+        name: '',
+        type: 'Oficial',
+        rate_multiplier: 2.00,
+        is_active: 1,
+        notes: ''
+      });
+    }
+    setIsHolidayModalOpen(true);
+  };
+
+  const handleSaveHoliday = async (e) => {
+    e.preventDefault();
+    if (!canManageHolidays) {
+      alert("No tienes permisos para modificar el calendario de feriados.");
+      return;
+    }
+    if (!holidayForm.date || !holidayForm.name.trim()) {
+      alert("Por favor indica la fecha y el nombre del día feriado.");
+      return;
+    }
+
+    setHolidayLoading(true);
+    try {
+      let res;
+      if (editingHoliday) {
+        res = await dataService.updateHoliday(editingHoliday.id, holidayForm);
+      } else {
+        res = await dataService.saveHoliday(holidayForm);
+      }
+
+      if (res && res.success) {
+        setIsHolidayModalOpen(false);
+        setEditingHoliday(null);
+        setHolidayForm({ date: '', name: '', type: 'Oficial', rate_multiplier: 2.00, is_active: 1, notes: '' });
+        await loadHolidays();
+      } else {
+        alert("Fallo al guardar día feriado: " + (res?.error || 'Error desconocido'));
+      }
+    } catch (err) {
+      console.error("Error saving holiday:", err);
+      alert("Error al procesar la solicitud.");
+    } finally {
+      setHolidayLoading(false);
+    }
+  };
+
+  const handleDeleteHoliday = async (id, name) => {
+    if (!canManageHolidays) {
+      alert("No tienes permisos para eliminar feriados.");
+      return;
+    }
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar el día feriado "${name}"?`)) {
+      return;
+    }
+
+    setHolidayLoading(true);
+    try {
+      const res = await dataService.deleteHoliday(id);
+      if (res && res.success) {
+        await loadHolidays();
+      } else {
+        alert("Fallo al eliminar día feriado: " + (res?.error || 'Error desconocido'));
+      }
+    } catch (err) {
+      console.error("Error deleting holiday:", err);
+      alert("Error al procesar la solicitud.");
+    } finally {
+      setHolidayLoading(false);
+    }
+  };
+
+  const handleToggleHolidayActive = async (holiday) => {
+    if (!canManageHolidays) return;
+    try {
+      const newActive = holiday.is_active ? 0 : 1;
+      await dataService.updateHoliday(holiday.id, { is_active: newActive });
+      await loadHolidays();
+    } catch (err) {
+      console.error("Error toggling holiday active status:", err);
+    }
+  };
+
+  const handleSeedDefaultHolidays = async () => {
+    if (!canManageHolidays) return;
+    if (!window.confirm(`¿Deseas restablecer los días feriados oficiales de República Dominicana para el año ${holidayYear}?`)) {
+      return;
+    }
+
+    setHolidayLoading(true);
+    try {
+      const res = await dataService.seedHolidays(parseInt(holidayYear, 10));
+      if (res && res.success) {
+        await loadHolidays();
+      } else {
+        alert("Fallo al restablecer feriados: " + (res?.error || 'Error desconocido'));
+      }
+    } catch (err) {
+      console.error("Error seeding holidays:", err);
+      alert("Error al procesar la solicitud.");
+    } finally {
+      setHolidayLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'today' || activeTab === 'overrides') {
       loadOverrides();
@@ -339,6 +522,9 @@ const AttendanceLogs = () => {
     }
     if (activeTab === 'pending') {
       loadPendingLogs();
+    }
+    if (activeTab === 'holidays') {
+      loadHolidays();
     }
   }, [activeTab]);
 
@@ -449,6 +635,9 @@ const AttendanceLogs = () => {
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'salonId' && !isGlobalAdmin && userSalonId) {
+      return;
+    }
     setFilters(prev => ({ ...prev, [name]: value }));
   };
 
@@ -467,7 +656,7 @@ const AttendanceLogs = () => {
   };
 
 
-  // Helper function to calculate net daily attendance, compensated tardiness, and overtime
+  // Helper function to calculate net daily attendance, compensated tardiness, overtime, and holiday calculations
   const computeDetailedPayroll = (emp, empLogs) => {
     // Group logs by Dominican Republic date (YYYY-MM-DD)
     const logsByDate = new Map();
@@ -487,14 +676,47 @@ const AttendanceLogs = () => {
     let totalCheckins = 0;
     let tardyCheckins = 0;
     let compensatedDaysCount = 0;
+    let holidayHoursWorked = 0;
+    let holidayPayAmount = 0;
+    const holidayRecords = [];
+
+    const baseSal = Number(emp.salario_base || 0);
+    const effectiveBaseSal = baseSal > 0 ? baseSal : 20000;
+    const hourlyRate = (effectiveBaseSal / 23.83 / 8);
 
     logsByDate.forEach((dayLogs, dateStr) => {
+      // Find matching active holiday in state
+      const matchingHoliday = holidays.find(h => (h.is_active || h.is_active === 1) && (h.date === dateStr || h.date.startsWith(dateStr)));
+
       // Sort to reliably pick earliest check-in and latest check-out
       const dayCheckIns = dayLogs.filter(l => l.type === 'Check-In').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
       const dayCheckOuts = dayLogs.filter(l => l.type === 'Check-Out').sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       const checkIn = dayCheckIns[0] || null;
       const checkOut = dayCheckOuts[0] || null;
       const absent = dayLogs.find(l => l.type === 'Ausencia');
+
+      // Holiday calculation for hours worked on this day
+      if (matchingHoliday && checkIn) {
+        const inTime = new Date(checkIn.timestamp).getTime();
+        const outTime = checkOut ? new Date(checkOut.timestamp).getTime() : null;
+        let dayWorkedHours = 0;
+        if (outTime && outTime > inTime) {
+          dayWorkedHours = Math.round(((outTime - inTime) / (1000 * 60 * 60)) * 10) / 10;
+        } else {
+          dayWorkedHours = 8;
+        }
+        const multiplier = parseFloat(matchingHoliday.rate_multiplier || 2.00);
+        const dayHolidayPay = Math.round(dayWorkedHours * hourlyRate * multiplier * 100) / 100;
+        holidayHoursWorked += dayWorkedHours;
+        holidayPayAmount += dayHolidayPay;
+        holidayRecords.push({
+          date: dateStr,
+          name: matchingHoliday.name,
+          hours: dayWorkedHours,
+          multiplier,
+          pay: dayHolidayPay
+        });
+      }
 
       // If marked as Ausencia and no check-in occurred on this day
       if (absent && !checkIn) {
@@ -575,7 +797,10 @@ const AttendanceLogs = () => {
       absencesCount,
       punctualityRate,
       tardyCheckins,
-      compensatedDaysCount
+      compensatedDaysCount,
+      holidayHoursWorked: Math.round(holidayHoursWorked * 10) / 10,
+      holidayPayAmount: Math.round(holidayPayAmount * 100) / 100,
+      holidayRecords
     };
   };
 
@@ -603,8 +828,8 @@ const AttendanceLogs = () => {
       return true;
     });
 
-    const activeSalon = salons.find(s => String(s.id) === String(filters.salonId));
-    const salonName = activeSalon ? activeSalon.name.replace('Abatte Peluquería ', '') : 'Todas las sucursales';
+    const activeSalon = salons.find(s => String(s.id) === String(effectiveSalonId));
+    const salonName = activeSalon ? activeSalon.name.replace('Abatte Peluquería ', '') : (!isGlobalAdmin && userSalonId ? 'Mi Sucursal' : 'Todas las sucursales');
     
     const startStr = filters.startDate ? new Date(filters.startDate + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A';
     const endStr = filters.endDate ? new Date(filters.endDate + 'T00:00:00').toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A';
@@ -1243,15 +1468,15 @@ const AttendanceLogs = () => {
     };
   };
 
-  const filteredEmployees = filters.salonId
-    ? employees.filter(emp => String(emp.salon_id) === String(filters.salonId))
+  const filteredEmployees = effectiveSalonId
+    ? employees.filter(emp => String(emp.salon_id) === String(effectiveSalonId))
     : employees;
 
   // Get all unique positions for the dropdown filter
   const uniquePositions = [...new Set(employees.map(emp => emp.rol || emp.posicion || emp.role_name || 'Personal').filter(Boolean))];
 
   const weeklyFilteredEmployees = employees.filter(emp => {
-    const matchesSalon = !filters.salonId || String(emp.salon_id) === String(filters.salonId);
+    const matchesSalon = !effectiveSalonId || String(emp.salon_id) === String(effectiveSalonId);
     const pos = emp.rol || emp.posicion || emp.role_name || 'Personal';
     const matchesPosition = !positionFilter || pos.toLowerCase().trim() === positionFilter.toLowerCase().trim();
     return matchesSalon && matchesPosition;
@@ -1315,117 +1540,131 @@ const AttendanceLogs = () => {
 
       {/* Tab Navigation */}
       <div 
-        className="hide-scrollbar" 
         style={{ 
           display: 'flex', 
-          gap: '0.5rem', 
-          borderBottom: '1px solid #e2e8f0', 
-          marginBottom: '1.5rem', 
-          paddingBottom: '0.5rem',
-          overflowX: 'auto',
-          WebkitOverflowScrolling: 'touch',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none'
+          gap: '0.6rem', 
+          borderBottom: '2px solid #e2e8f0', 
+          marginBottom: '1.75rem', 
+          paddingBottom: '0.75rem',
+          flexWrap: 'wrap',
+          alignItems: 'center'
         }}
       >
         <button
           onClick={() => setActiveTab('history')}
           style={{
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'history' ? '3px solid #10b981' : '3px solid transparent',
-            color: activeTab === 'history' ? '#09090b' : '#64748b',
+            background: activeTab === 'history' ? '#09090b' : 'white',
+            border: activeTab === 'history' ? '1px solid #09090b' : '1px solid #e2e8f0',
+            color: activeTab === 'history' ? '#ffffff' : '#64748b',
             fontWeight: 800,
-            fontSize: '0.9rem',
-            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '10px',
             cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            flexShrink: 0
+            transition: 'all 0.15s ease'
           }}
         >
           Historial de Ponches
         </button>
+
         <button
           onClick={() => setActiveTab('today')}
           style={{
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'today' ? '3px solid #10b981' : '3px solid transparent',
-            color: activeTab === 'today' ? '#09090b' : '#64748b',
+            background: activeTab === 'today' ? '#09090b' : 'white',
+            border: activeTab === 'today' ? '1px solid #09090b' : '1px solid #e2e8f0',
+            color: activeTab === 'today' ? '#ffffff' : '#64748b',
             fontWeight: 800,
-            fontSize: '0.9rem',
-            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '10px',
             cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            flexShrink: 0
+            transition: 'all 0.15s ease'
           }}
         >
           Estatus de Hoy
         </button>
+
         <button
           onClick={() => setActiveTab('pending')}
           style={{
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'pending' ? '3px solid #ef4444' : '3px solid transparent',
-            color: activeTab === 'pending' ? '#ef4444' : '#64748b',
+            background: activeTab === 'pending' ? '#ef4444' : 'white',
+            border: activeTab === 'pending' ? '1px solid #ef4444' : '1px solid #fee2e2',
+            color: activeTab === 'pending' ? '#ffffff' : '#dc2626',
             fontWeight: 800,
-            fontSize: '0.9rem',
-            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '10px',
             cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            flexShrink: 0
+            transition: 'all 0.15s ease'
           }}
         >
           ⚠️ Pendientes
         </button>
+
         <button
           onClick={() => setActiveTab('weekly')}
           style={{
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'weekly' ? '3px solid #10b981' : '3px solid transparent',
-            color: activeTab === 'weekly' ? '#09090b' : '#64748b',
+            background: activeTab === 'weekly' ? '#09090b' : 'white',
+            border: activeTab === 'weekly' ? '1px solid #09090b' : '1px solid #e2e8f0',
+            color: activeTab === 'weekly' ? '#ffffff' : '#64748b',
             fontWeight: 800,
-            fontSize: '0.9rem',
-            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '10px',
             cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            flexShrink: 0
+            transition: 'all 0.15s ease'
           }}
         >
           📅 Horario Semanal
         </button>
+
+        <button
+          onClick={() => setActiveTab('holidays')}
+          style={{
+            background: activeTab === 'holidays' ? '#047857' : '#ecfdf5',
+            border: activeTab === 'holidays' ? '1px solid #047857' : '1px solid #a7f3d0',
+            color: activeTab === 'holidays' ? '#ffffff' : '#047857',
+            fontWeight: 850,
+            fontSize: '0.85rem',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '10px',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            boxShadow: activeTab === 'holidays' ? '0 4px 10px rgba(4, 120, 87, 0.25)' : 'none'
+          }}
+        >
+          🌴 Calendario de Días Feriados
+        </button>
+
         <button
           onClick={() => setActiveTab('overrides')}
           style={{
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'overrides' ? '3px solid #10b981' : '3px solid transparent',
-            color: activeTab === 'overrides' ? '#09090b' : '#64748b',
+            background: activeTab === 'overrides' ? '#09090b' : 'white',
+            border: activeTab === 'overrides' ? '1px solid #09090b' : '1px solid #e2e8f0',
+            color: activeTab === 'overrides' ? '#ffffff' : '#64748b',
             fontWeight: 800,
-            fontSize: '0.9rem',
-            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '10px',
             cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            flexShrink: 0
+            transition: 'all 0.15s ease'
           }}
         >
           Cambios de Horario (Excepciones)
         </button>
+
         <button
           onClick={() => setActiveTab('payroll')}
           style={{
-            background: 'none',
-            border: 'none',
-            borderBottom: activeTab === 'payroll' ? '3px solid #10b981' : '3px solid transparent',
-            color: activeTab === 'payroll' ? '#09090b' : '#64748b',
+            background: activeTab === 'payroll' ? '#09090b' : 'white',
+            border: activeTab === 'payroll' ? '1px solid #09090b' : '1px solid #e2e8f0',
+            color: activeTab === 'payroll' ? '#ffffff' : '#64748b',
             fontWeight: 800,
-            fontSize: '0.9rem',
-            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '10px',
             cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            flexShrink: 0
+            transition: 'all 0.15s ease'
           }}
         >
           📊 Resumen de Nómina / Totales
@@ -1434,21 +1673,48 @@ const AttendanceLogs = () => {
 
       {activeTab === 'today' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          {/* Today Holiday Banner Alert */}
+          {(() => {
+            const todayDRStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+            const todayHoliday = holidays.find(h => (h.is_active || h.is_active === 1) && (h.date === todayDRStr || h.date.startsWith(todayDRStr)));
+            if (!todayHoliday) return null;
+            return (
+              <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '1rem 1.5rem', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.1)' }}>
+                <span style={{ fontSize: '1.75rem' }}>🌴</span>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#047857' }}>
+                    ¡Hoy es Día Feriado Oficial: {todayHoliday.name}!
+                  </h4>
+                  <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.82rem', color: '#065f46' }}>
+                    Todo el personal que registre ponche de asistencia hoy computará automáticamente sus horas para pago con el recargo legal ({todayHoliday.rate_multiplier || 2.00}x) en Nómina.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Localidad Filter Bar */}
           <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', background: '#f8fafc', padding: '1rem 1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', gap: '1rem', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Localidad:</span>
-              <select
-                name="salonId"
-                value={filters.salonId}
-                onChange={handleFilterChange}
-                style={{ padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer', fontWeight: 700, color: '#09090b', minWidth: '220px' }}
-              >
-                <option value="">Todas las localidades</option>
-                {salons.map(sal => (
-                  <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
-                ))}
-              </select>
+              {!isGlobalAdmin && userSalonId ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.9rem', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                  <MapPin size={15} />
+                  <span>{salons.find(s => String(s.id) === String(userSalonId))?.name?.replace('Abatte Peluquería ', '') || 'Mi Sucursal'}</span>
+                </div>
+              ) : (
+                <select
+                  name="salonId"
+                  value={filters.salonId}
+                  onChange={handleFilterChange}
+                  style={{ padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer', fontWeight: 700, color: '#09090b', minWidth: '220px' }}
+                >
+                  <option value="">Todas las localidades</option>
+                  {salons.map(sal => (
+                    <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 
@@ -1609,17 +1875,24 @@ const AttendanceLogs = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Localidad</label>
-              <select
-                name="salonId"
-                value={filters.salonId}
-                onChange={handleFilterChange}
-                style={{ padding: '0.6rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer' }}
-              >
-                <option value="">Todas las localidades</option>
-                {salons.map(sal => (
-                  <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
-                ))}
-              </select>
+              {!isGlobalAdmin && userSalonId ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.6rem 1rem', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                  <MapPin size={15} />
+                  <span>{salons.find(s => String(s.id) === String(userSalonId))?.name?.replace('Abatte Peluquería ', '') || 'Mi Sucursal'}</span>
+                </div>
+              ) : (
+                <select
+                  name="salonId"
+                  value={filters.salonId}
+                  onChange={handleFilterChange}
+                  style={{ padding: '0.6rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer' }}
+                >
+                  <option value="">Todas las localidades</option>
+                  {salons.map(sal => (
+                    <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 
@@ -1749,17 +2022,24 @@ const AttendanceLogs = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Localidad:</span>
-                <select
-                  name="salonId"
-                  value={filters.salonId}
-                  onChange={handleFilterChange}
-                  style={{ padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer', fontWeight: 700, color: '#09090b', minWidth: '200px' }}
-                >
-                  <option value="">Todas las localidades</option>
-                  {salons.map(sal => (
-                    <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
-                  ))}
-                </select>
+                {!isGlobalAdmin && userSalonId ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.9rem', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                    <MapPin size={15} />
+                    <span>{salons.find(s => String(s.id) === String(userSalonId))?.name?.replace('Abatte Peluquería ', '') || 'Mi Sucursal'}</span>
+                  </div>
+                ) : (
+                  <select
+                    name="salonId"
+                    value={filters.salonId}
+                    onChange={handleFilterChange}
+                    style={{ padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer', fontWeight: 700, color: '#09090b', minWidth: '200px' }}
+                  >
+                    <option value="">Todas las localidades</option>
+                    {salons.map(sal => (
+                      <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -2008,17 +2288,24 @@ const AttendanceLogs = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Localidad</label>
-              <select
-                name="salonId"
-                value={filters.salonId}
-                onChange={handleFilterChange}
-                style={{ padding: '0.6rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer' }}
-              >
-                <option value="">Todas las localidades</option>
-                {salons.map(sal => (
-                  <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
-                ))}
-              </select>
+              {!isGlobalAdmin && userSalonId ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.6rem 1rem', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                  <MapPin size={15} />
+                  <span>{salons.find(s => String(s.id) === String(userSalonId))?.name?.replace('Abatte Peluquería ', '') || 'Mi Sucursal'}</span>
+                </div>
+              ) : (
+                <select
+                  name="salonId"
+                  value={filters.salonId}
+                  onChange={handleFilterChange}
+                  style={{ padding: '0.6rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer' }}
+                >
+                  <option value="">Todas las localidades</option>
+                  {salons.map(sal => (
+                    <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -2108,6 +2395,29 @@ const AttendanceLogs = () => {
                           <td style={{ padding: '1rem 1.5rem' }}>
                             <div style={{ fontWeight: 700, color: '#09090b' }}>{formatDRTime(log.timestamp)}</div>
                             <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{formatDRDate(log.timestamp)}</div>
+                            {(() => {
+                              const dKey = getDRDateKey(log.timestamp);
+                              const matchHol = holidays.find(h => (h.is_active || h.is_active === 1) && (h.date === dKey || h.date.startsWith(dKey)));
+                              if (!matchHol) return null;
+                              return (
+                                <div style={{ marginTop: '4px' }}>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 800,
+                                    color: '#047857',
+                                    background: '#ecfdf5',
+                                    padding: '0.15rem 0.5rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid #a7f3d0'
+                                  }}>
+                                    🌴 Feriado: {matchHol.name}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </td>
       
                           {/* Horario Asignado */}
@@ -2380,17 +2690,24 @@ const AttendanceLogs = () => {
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Localidad:</span>
-                <select
-                  name="salonId"
-                  value={filters.salonId}
-                  onChange={handleFilterChange}
-                  style={{ padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer', fontWeight: 700, color: '#09090b', minWidth: '180px' }}
-                >
-                  <option value="">Todas las localidades</option>
-                  {salons.map(sal => (
-                    <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
-                  ))}
-                </select>
+                {!isGlobalAdmin && userSalonId ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 0.9rem', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                    <MapPin size={15} />
+                    <span>{salons.find(s => String(s.id) === String(userSalonId))?.name?.replace('Abatte Peluquería ', '') || 'Mi Sucursal'}</span>
+                  </div>
+                ) : (
+                  <select
+                    name="salonId"
+                    value={filters.salonId}
+                    onChange={handleFilterChange}
+                    style={{ padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', background: 'white', cursor: 'pointer', fontWeight: 700, color: '#09090b', minWidth: '180px' }}
+                  >
+                    <option value="">Todas las localidades</option>
+                    {salons.map(sal => (
+                      <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
+                    ))}
+                  </select>
+                )}
               </div>
               <button
                 onClick={() => setIsOverrideModalOpen(true)}
@@ -2616,17 +2933,24 @@ const AttendanceLogs = () => {
 
                 {/* Localidad Filter */}
                 <div style={{ minWidth: '180px' }}>
-                  <select
-                    name="salonId"
-                    value={filters.salonId}
-                    onChange={(e) => { handleFilterChange(e); setPayrollPage(1); }}
-                    style={{ padding: '0.6rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', outline: 'none', background: 'white', width: '100%', cursor: 'pointer', fontWeight: 650, color: '#334155' }}
-                  >
-                    <option value="">Todas las localidades</option>
-                    {salons.map(sal => (
-                      <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
-                    ))}
-                  </select>
+                  {!isGlobalAdmin && userSalonId ? (
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.6rem 1rem', background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 800, width: '100%', boxSizing: 'border-box' }}>
+                      <MapPin size={15} />
+                      <span>{salons.find(s => String(s.id) === String(userSalonId))?.name?.replace('Abatte Peluquería ', '') || 'Mi Sucursal'}</span>
+                    </div>
+                  ) : (
+                    <select
+                      name="salonId"
+                      value={filters.salonId}
+                      onChange={(e) => { handleFilterChange(e); setPayrollPage(1); }}
+                      style={{ padding: '0.6rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', outline: 'none', background: 'white', width: '100%', cursor: 'pointer', fontWeight: 650, color: '#334155' }}
+                    >
+                      <option value="">Todas las localidades</option>
+                      {salons.map(sal => (
+                        <option key={sal.id} value={sal.id}>{sal.name.replace('Abatte Peluquería ', '')}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 {/* Filter Selector */}
@@ -2637,6 +2961,7 @@ const AttendanceLogs = () => {
                     style={{ padding: '0.6rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', outline: 'none', background: 'white', width: '100%', cursor: 'pointer', fontWeight: 650, color: '#334155' }}
                   >
                     <option value="all">Ver Todos los Empleados</option>
+                    <option value="holidays">🌴 Solo con Feriados Trabajados</option>
                     <option value="tardy">⚠️ Solo con Tardanzas</option>
                     <option value="overtime">🚀 Solo con Horas Extras</option>
                     <option value="absent">🛑 Solo con Ausencias</option>
@@ -2672,36 +2997,48 @@ const AttendanceLogs = () => {
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      <th style={{ padding: '1rem 1.5rem', color: '#64748b', fontWeight: 800 }}>Empleado</th>
-                      <th style={{ padding: '1rem 1.5rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Días Laborados</th>
-                      <th style={{ padding: '1rem 1.5rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tardanza Total</th>
-                      <th style={{ padding: '1rem 1.5rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Horas Extra Totales</th>
-                      <th style={{ padding: '1rem 1.5rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Ausencias / Faltas</th>
-                      <th style={{ padding: '1rem 1.5rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tasa Puntualidad</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800 }}>Empleado</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Días Laborados</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#047857', fontWeight: 800, textAlign: 'center' }}>🌴 Horas Feriados</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#047857', fontWeight: 800, textAlign: 'right' }}>💰 Pago Feriados</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tardanza Total</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Horas Extra Totales</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Ausencias / Faltas</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tasa Puntualidad</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedPayroll.map(p => (
                       <tr key={p.id} className="hover-row" style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: 800, color: '#09090b' }}>
+                        <td style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#09090b' }}>
                           {p.nombre}
                           <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>ID: {p.id}</div>
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', textAlign: 'center', fontWeight: 700, color: '#475569' }}>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 700, color: '#475569' }}>
                           {p.daysWorked} días
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', textAlign: 'center', fontWeight: 700, color: p.totalLateness > 0 ? '#b91c1c' : '#64748b' }}>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 800, color: p.holidayHoursWorked > 0 ? '#047857' : '#94a3b8' }}>
+                          {p.holidayHoursWorked > 0 ? (
+                            <span style={{ background: '#ecfdf5', color: '#047857', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid #a7f3d0' }}>
+                              🌴 {p.holidayHoursWorked} hrs
+                            </span>
+                          ) : '0 hrs'}
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'right', fontWeight: 900, color: p.holidayPayAmount > 0 ? '#047857' : '#94a3b8' }}>
+                          {p.holidayPayAmount > 0 ? `RD$ ${p.holidayPayAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : 'RD$ 0.00'}
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 700, color: p.totalLateness > 0 ? '#b91c1c' : '#64748b' }}>
                           {p.totalLateness > 0 ? `⚠️ ${formatMins(p.totalLateness)}` : '0 min'}
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', textAlign: 'center', fontWeight: 800, color: p.totalOvertime > 0 ? '#16a34a' : '#64748b' }}>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 800, color: p.totalOvertime > 0 ? '#16a34a' : '#64748b' }}>
                           {p.totalOvertime > 0 ? `🚀 ${formatMins(p.totalOvertime)}` : '0 min'}
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', textAlign: 'center', fontWeight: 700, color: p.absencesCount > 0 ? '#b91c1c' : '#64748b' }}>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 700, color: p.absencesCount > 0 ? '#b91c1c' : '#64748b' }}>
                           <span style={p.absencesCount > 0 ? { background: '#fef2f2', color: '#ef4444', padding: '0.25rem 0.5rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 } : {}}>
                             {p.absencesCount}
                           </span>
                         </td>
-                        <td style={{ padding: '1rem 1.5rem', textAlign: 'center' }}>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
                           <span style={{
                             padding: '0.25rem 0.6rem',
                             borderRadius: '99px',
@@ -2717,7 +3054,7 @@ const AttendanceLogs = () => {
                     ))}
                     {filteredPayroll.length === 0 && (
                       <tr>
-                        <td colSpan="6" style={{ textAlign: 'center', padding: '3rem 0', color: '#94a3b8', fontWeight: 600 }}>
+                        <td colSpan="8" style={{ textAlign: 'center', padding: '3rem 0', color: '#94a3b8', fontWeight: 600 }}>
                           No se encontraron empleados que coincidan con los filtros.
                         </td>
                       </tr>
@@ -2788,6 +3125,522 @@ const AttendanceLogs = () => {
           </div>
         );
       })()}
+
+      {/* TAB: CALENDARIO DE DÍAS FERIADOS */}
+      {activeTab === 'holidays' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+          
+          {/* Header Banner & Controls */}
+          <div style={{
+            background: 'linear-gradient(135deg, #064e3b 0%, #047857 100%)',
+            borderRadius: '20px',
+            padding: isMobile ? '1.5rem' : '2rem',
+            color: '#ffffff',
+            boxShadow: '0 10px 25px -5px rgba(4, 120, 87, 0.3)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1.5rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.15)',
+                padding: '1rem',
+                borderRadius: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(4px)',
+                border: '1px solid rgba(255, 255, 255, 0.2)'
+              }}>
+                <Calendar size={32} color="#ffffff" strokeWidth={2.3} />
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <h2 style={{ fontSize: isMobile ? '1.35rem' : '1.65rem', fontWeight: 900, margin: 0, letterSpacing: '-0.3px' }}>
+                    Calendario Oficial de Días Feriados
+                  </h2>
+                  <span style={{
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: '99px',
+                    border: '1px solid rgba(255, 255, 255, 0.3)'
+                  }}>
+                    RD &middot; Ley Laboral Art. 205
+                  </span>
+                </div>
+                <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.88rem', color: '#d1fae5', maxWidth: '650px' }}>
+                  Control de días no laborables oficiales y festivos empresariales. Las horas trabajadas en estos días se computan automáticamente para pago con recargo legal en Nómina.
+                </p>
+              </div>
+            </div>
+
+            {/* Actions Bar */}
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Year Selector */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255, 255, 255, 0.12)', padding: '0.35rem 0.75rem', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.25)' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 750, color: '#ecfdf5' }}>Año:</span>
+                <select
+                  value={holidayYear}
+                  onChange={(e) => setHolidayYear(e.target.value)}
+                  style={{ background: 'transparent', color: '#ffffff', fontWeight: 900, fontSize: '0.9rem', border: 'none', outline: 'none', cursor: 'pointer' }}
+                >
+                  <option value="2025" style={{ color: '#09090b' }}>2025</option>
+                  <option value="2026" style={{ color: '#09090b' }}>2026</option>
+                  <option value="2027" style={{ color: '#09090b' }}>2027</option>
+                </select>
+              </div>
+
+              {canManageHolidays && (
+                <>
+                  <button
+                    onClick={() => handleOpenHolidayModal()}
+                    style={{
+                      background: '#ffffff',
+                      color: '#047857',
+                      fontWeight: 850,
+                      padding: '0.65rem 1.25rem',
+                      borderRadius: '12px',
+                      border: 'none',
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>+ Agregar Feriado</span>
+                  </button>
+
+                  <button
+                    onClick={handleSeedDefaultHolidays}
+                    disabled={holidayLoading}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.15)',
+                      color: '#ffffff',
+                      fontWeight: 750,
+                      padding: '0.65rem 1.1rem',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      backdropFilter: 'blur(4px)'
+                    }}
+                    title="Restablece los 12 feriados nacionales oficiales de la República Dominicana"
+                  >
+                    <RefreshCw size={14} className={holidayLoading ? 'animate-spin' : ''} />
+                    <span>Restablecer Oficiales RD</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Quick Metrics KPI Cards */}
+          {(() => {
+            const todayDRStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+            const upcoming = holidays.filter(h => (h.is_active || h.is_active === 1) && h.date >= todayDRStr);
+            const nextHol = upcoming.length > 0 ? upcoming[0] : null;
+            const activeCount = holidays.filter(h => h.is_active || h.is_active === 1).length;
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+                <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Feriados del Año</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.4rem' }}>
+                    <h3 style={{ fontSize: '1.85rem', fontWeight: 900, color: '#09090b', margin: 0 }}>{holidays.length}</h3>
+                    <span style={{ fontSize: '0.78rem', color: '#047857', fontWeight: 700 }}>({activeCount} activos)</span>
+                  </div>
+                  <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>Año fiscal {holidayYear}</p>
+                </div>
+
+                <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Próximo Día Feriado</span>
+                  <div style={{ marginTop: '0.4rem' }}>
+                    {nextHol ? (
+                      <div>
+                        <h4 style={{ fontSize: '1.05rem', fontWeight: 900, color: '#047857', margin: 0 }}>{nextHol.name}</h4>
+                        <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.78rem', color: '#475569', fontWeight: 700 }}>
+                          📅 {formatDRDate(nextHol.date)}
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#94a3b8', margin: 0 }}>Sin feriados pendientes</h4>
+                        <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.75rem', color: '#cbd5e1' }}>Completados en este ciclo</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recargo de Ley República Dominicana</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.4rem' }}>
+                    <h3 style={{ fontSize: '1.85rem', fontWeight: 900, color: '#047857', margin: 0 }}>2.00x</h3>
+                    <span style={{ fontSize: '0.78rem', color: '#059669', fontWeight: 800 }}>(+100% Recargo)</span>
+                  </div>
+                  <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>Art. 205 Código de Trabajo RD</p>
+                </div>
+
+                <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Cálculo por Horas Trabajadas</span>
+                  <div style={{ marginTop: '0.4rem' }}>
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 900, color: '#09090b', margin: 0 }}>Proporcional Exacto</h4>
+                    <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                      Ej. 4h laboradas = 4h pagadas a tarifa doble de feriado.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Banner Instructivo */}
+          <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '1rem 1.25rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.2rem' }}>💡</span>
+            <div style={{ fontSize: '0.82rem', color: '#065f46', lineHeight: 1.4 }}>
+              <strong>Regla de Cálculo en Nómina:</strong> Todo empleado que registre ponche de asistencia en una fecha marcada como día feriado activo recibirá el pago correspondiente a las horas exactas trabajadas <code>(Salario Base / 23.83 / 8) &times; Multiplicador</code>, alimentando automáticamente la columna <strong>Feriados</strong> en el cálculo quincenal.
+            </div>
+          </div>
+
+          {/* Holidays Data Table */}
+          <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 10px rgba(0,0,0,0.01)' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 800 }}>
+                    <th style={{ padding: '1rem 1.25rem' }}>Fecha</th>
+                    <th style={{ padding: '1rem 1.25rem' }}>Día de la Semana</th>
+                    <th style={{ padding: '1rem 1.25rem' }}>Nombre del Feriado</th>
+                    <th style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>Tipo</th>
+                    <th style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>Factor de Pago</th>
+                    <th style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>Personal con Ponche</th>
+                    <th style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>Estado</th>
+                    {canManageHolidays && (
+                      <th style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>Acciones</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {holidayLoading ? (
+                    <tr>
+                      <td colSpan={canManageHolidays ? 8 : 7} style={{ textAlign: 'center', padding: '3rem 0', color: '#64748b' }}>
+                        <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem', animation: 'spin 1s linear infinite', color: '#10b981' }} />
+                        <div>Cargando calendario de feriados...</div>
+                      </td>
+                    </tr>
+                  ) : holidays.length === 0 ? (
+                    <tr>
+                      <td colSpan={canManageHolidays ? 8 : 7} style={{ textAlign: 'center', padding: '3rem 0', color: '#94a3b8', fontWeight: 600 }}>
+                        No hay feriados registrados para el año {holidayYear}. {canManageHolidays ? 'Pulsa "Restablecer Oficiales RD" para cargar los feriados oficiales.' : ''}
+                      </td>
+                    </tr>
+                  ) : (
+                    holidays.map(holiday => {
+                      const dayOfWeekNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+                      const holDateParts = holiday.date ? holiday.date.split('-') : [];
+                      let dayName = '';
+                      if (holDateParts.length === 3) {
+                        const dObj = new Date(Date.UTC(parseInt(holDateParts[0]), parseInt(holDateParts[1]) - 1, parseInt(holDateParts[2]), 12, 0, 0));
+                        dayName = dayOfWeekNames[dObj.getUTCDay()] || '';
+                      }
+
+                      // Check employees who punched on this holiday date in logs
+                      const holidayPunches = logs.filter(l => getDRDateKey(l.timestamp) === holiday.date && l.type === 'Check-In');
+                      const uniqueWorkedEmps = [...new Set(holidayPunches.map(p => p.employeeName || p.employee_id))];
+
+                      return (
+                        <tr key={holiday.id} className="hover-row" style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          {/* Date */}
+                          <td style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#09090b', whiteSpace: 'nowrap' }}>
+                            📅 {formatDRDate(holiday.date)}
+                          </td>
+
+                          {/* Weekday */}
+                          <td style={{ padding: '1rem 1.25rem', fontWeight: 700, color: '#475569' }}>
+                            <span style={{ background: '#f1f5f9', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.78rem', color: '#334155' }}>
+                              {dayName || 'N/A'}
+                            </span>
+                          </td>
+
+                          {/* Name & notes */}
+                          <td style={{ padding: '1rem 1.25rem', fontWeight: 800, color: '#09090b' }}>
+                            <div>{holiday.name}</div>
+                            {holiday.notes && (
+                              <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 500, marginTop: '2px' }}>
+                                {holiday.notes}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Type */}
+                          <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
+                            <span style={{
+                              padding: '0.25rem 0.65rem',
+                              borderRadius: '99px',
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              background: holiday.type === 'Oficial' ? '#ecfdf5' : (holiday.type === 'Empresarial' ? '#f5f3ff' : '#eff6ff'),
+                              color: holiday.type === 'Oficial' ? '#047857' : (holiday.type === 'Empresarial' ? '#6b21a8' : '#1d4ed8'),
+                              border: holiday.type === 'Oficial' ? '1px solid #a7f3d0' : (holiday.type === 'Empresarial' ? '1px solid #ddd6fe' : '1px solid #bfdbfe')
+                            }}>
+                              {holiday.type || 'Oficial'}
+                            </span>
+                          </td>
+
+                          {/* Rate Multiplier */}
+                          <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 850, color: '#047857' }}>
+                            <span style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '0.25rem 0.6rem', borderRadius: '8px', fontSize: '0.8rem' }}>
+                              {Number(holiday.rate_multiplier || 2.00).toFixed(2)}x ({(Number(holiday.rate_multiplier || 2.00) - 1) * 100}% extra)
+                            </span>
+                          </td>
+
+                          {/* Employees who punched */}
+                          <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
+                            {uniqueWorkedEmps.length > 0 ? (
+                              <span style={{
+                                background: '#dbeafe',
+                                color: '#1e40af',
+                                padding: '0.25rem 0.6rem',
+                                borderRadius: '99px',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                border: '1px solid #bfdbfe',
+                                cursor: 'help'
+                              }} title={`Colaboradores: ${uniqueWorkedEmps.join(', ')}`}>
+                                👥 {uniqueWorkedEmps.length} colaboradores
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>0 ponches</span>
+                            )}
+                          </td>
+
+                          {/* Active / Inactive Switch */}
+                          <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
+                            {canManageHolidays ? (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleHolidayActive(holiday)}
+                                style={{
+                                  border: 'none',
+                                  background: holiday.is_active ? '#dcfce7' : '#f1f5f9',
+                                  color: holiday.is_active ? '#15803d' : '#94a3b8',
+                                  padding: '0.35rem 0.75rem',
+                                  borderRadius: '99px',
+                                  fontWeight: 800,
+                                  fontSize: '0.75rem',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease',
+                                  border: holiday.is_active ? '1px solid #bbf7d0' : '1px solid #cbd5e1'
+                                }}
+                              >
+                                {holiday.is_active ? '✓ Activo' : '✕ Inactivo'}
+                              </button>
+                            ) : (
+                              <span style={{
+                                display: 'inline-block',
+                                background: holiday.is_active ? '#dcfce7' : '#f1f5f9',
+                                color: holiday.is_active ? '#15803d' : '#94a3b8',
+                                padding: '0.35rem 0.75rem',
+                                borderRadius: '99px',
+                                fontWeight: 800,
+                                fontSize: '0.75rem',
+                                border: holiday.is_active ? '1px solid #bbf7d0' : '1px solid #cbd5e1'
+                              }}>
+                                {holiday.is_active ? '✓ Activo' : '✕ Inactivo'}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          {canManageHolidays && (
+                            <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
+                                <button
+                                  onClick={() => handleOpenHolidayModal(holiday)}
+                                  style={{
+                                    background: 'white',
+                                    border: '1px solid #cbd5e1',
+                                    borderRadius: '8px',
+                                    padding: '0.4rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    color: '#334155',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteHoliday(holiday.id, holiday.name)}
+                                  style={{
+                                    background: '#fef2f2',
+                                    border: '1px solid #fecaca',
+                                    borderRadius: '8px',
+                                    padding: '0.4rem 0.65rem',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    color: '#dc2626',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  Eliminar
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* Modal - Crear / Editar Día Feriado */}
+      {isHolidayModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(9, 9, 11, 0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: 'white', borderRadius: '24px', width: '90%', maxWidth: '480px', border: '1px solid #e2e8f0', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '1.25rem 1.75rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.3px', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>🌴</span> {editingHoliday ? 'Editar Día Feriado' : 'Registrar Nuevo Día Feriado'}
+              </h3>
+              <button
+                onClick={() => setIsHolidayModalOpen(false)}
+                style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8', fontWeight: 700 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveHoliday} style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                  Fecha del Feriado *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={holidayForm.date}
+                  onChange={(e) => setHolidayForm({ ...holidayForm, date: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', outline: 'none' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                  Nombre del Feriado *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Día de la Constitución, Viernes Santo..."
+                  value={holidayForm.name}
+                  onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', outline: 'none' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    Tipo de Feriado
+                  </label>
+                  <select
+                    value={holidayForm.type}
+                    onChange={(e) => setHolidayForm({ ...holidayForm, type: e.target.value })}
+                    style={{ width: '100%', padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', background: 'white', cursor: 'pointer' }}
+                  >
+                    <option value="Oficial">Oficial Nacional</option>
+                    <option value="Empresarial">Festivo Empresa</option>
+                    <option value="Especial">Especial / Local</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    Multiplicador Pago *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1.0"
+                    max="4.0"
+                    required
+                    value={holidayForm.rate_multiplier}
+                    onChange={(e) => setHolidayForm({ ...holidayForm, rate_multiplier: parseFloat(e.target.value) || 2.00 })}
+                    style={{ width: '100%', padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', outline: 'none' }}
+                  />
+                  <span style={{ fontSize: '0.68rem', color: '#047857', fontWeight: 650, marginTop: '2px', display: 'block' }}>
+                    2.00x = 100% de recargo legal RD
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                  Estado de Computación
+                </label>
+                <select
+                  value={holidayForm.is_active}
+                  onChange={(e) => setHolidayForm({ ...holidayForm, is_active: parseInt(e.target.value, 10) })}
+                  style={{ width: '100%', padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', background: 'white', cursor: 'pointer' }}
+                >
+                  <option value="1">Activo (Aplica recargo automático en nómina)</option>
+                  <option value="0">Inactivo (No computar para pago)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                  Notas / Observaciones
+                </label>
+                <textarea
+                  rows="2"
+                  placeholder="Información adicional sobre el feriado..."
+                  value={holidayForm.notes}
+                  onChange={(e) => setHolidayForm({ ...holidayForm, notes: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.85rem', outline: 'none', resize: 'none' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsHolidayModalOpen(false)}
+                  disabled={holidayLoading}
+                  style={{ background: '#f1f5f9', color: '#475569', border: 'none', padding: '0.65rem 1.2rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 750, cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={holidayLoading}
+                  style={{ background: '#047857', color: 'white', border: 'none', padding: '0.65rem 1.4rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 12px rgba(4, 120, 87, 0.25)' }}
+                >
+                  {holidayLoading ? 'Guardando...' : (editingHoliday ? 'Actualizar Feriado' : 'Guardar Día Feriado')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal - Authorize Temporary Schedule Override */}
       {isOverrideModalOpen && (

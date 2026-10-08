@@ -1,19 +1,58 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { dataService } from '../../utils/dataService';
 import { getCardNetErrorMessage } from '../../utils/cardnetErrors';
 import { loadCardNetScript } from '../../utils/cardnetScriptLoader';
-import { FileSignature, Camera, ShieldCheck, Smartphone, Info, Search, UserCheck, CreditCard, Calendar, TrendingUp, Scissors, Trash2, Edit2, Plus, ArrowLeft, RefreshCw, AlertTriangle, User, Award, Mail, Phone, Settings, Users, DollarSign, MapPin, Banknote, Store } from 'lucide-react';
+import { 
+  FileSignature, Camera, ShieldCheck, Smartphone, Info, Search, UserCheck, CreditCard, 
+  Calendar, TrendingUp, Scissors, Trash2, Edit2, Plus, ArrowLeft, RefreshCw, AlertTriangle, 
+  User, Award, Mail, Phone, Settings, Users, DollarSign, MapPin, Banknote, Store, Star, 
+  Sparkles, MessageCircle, LayoutGrid, List, ChevronLeft, ChevronRight, Cake, ArrowUpDown, 
+  Filter, Eye, CheckCircle2, Building2, X as CloseIcon
+} from 'lucide-react';
 import { useTranslation } from '../../context/LanguageContext';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { Lock, CheckCircle, ShieldOff } from 'lucide-react';
+import { formatName, getInitials } from '../../utils/formatters';
+
+// Helpers para WhatsApp y Cumpleaños
+const getWhatsAppUrl = (phone, clientName) => {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\D/g, '');
+  if (!digits || digits.length < 7) return null;
+  const cleanNumber = digits.length === 10 ? `1${digits}` : digits;
+  const msg = encodeURIComponent(`¡Hola ${clientName || ''}! Te saludamos de Abatte Peluquería / Plan Beauty RD.`);
+  return `https://wa.me/${cleanNumber}?text=${msg}`;
+};
+
+const isBirthdayThisWeek = (birthdayStr) => {
+  if (!birthdayStr) return false;
+  try {
+    const today = new Date();
+    const bday = new Date(birthdayStr);
+    if (isNaN(bday.getTime())) return false;
+    const bdayMonth = bday.getUTCMonth();
+    const bdayDay = bday.getUTCDate();
+    const thisYearBday = new Date(today.getFullYear(), bdayMonth, bdayDay);
+    
+    // Normalizar horas
+    today.setHours(0, 0, 0, 0);
+    thisYearBday.setHours(0, 0, 0, 0);
+    
+    const diffDays = Math.round((thisYearBday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays >= 0 && diffDays <= 7;
+  } catch {
+    return false;
+  }
+};
 
 const ClientProfile = () => {
   const { t } = useTranslation();
   const { showNotification } = useNotification();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
   const [client, setClient] = useState(null);
   const [allClients, setAllClients] = useState([]);
@@ -21,14 +60,23 @@ const ClientProfile = () => {
   const [payments, setPayments] = useState([]);
   const { user } = useAuth();
   
-  // OTP States
+  // OTP & Staff States
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpValue, setOtpValue] = useState('');
   const [activeOtpCode, setActiveOtpCode] = useState(null);
   const [deductingService, setDeductingService] = useState(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  
+  // List Controls & Filters
   const [listFilter, setListFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // all, active, inactive
+  const [statusFilter, setStatusFilter] = useState('all'); // all, active, pending, cancelled, inactive
+  const [salonFilter, setSalonFilter] = useState('all'); // all, or salon_id
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
+  const [sortBy, setSortBy] = useState('name_asc'); // 'name_asc' | 'name_desc' | 'status' | 'salon'
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(12);
+  const [salonsList, setSalonsList] = useState([]);
+  
   const [giftCards, setGiftCards] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState({
@@ -58,6 +106,7 @@ const ClientProfile = () => {
 
         const mapped = clientsData.map(c => ({
           ...c,
+          nombre: formatName(c.nombre),
           planName: c.planName || 'Sin Plan'
         }));
 
@@ -75,22 +124,63 @@ const ClientProfile = () => {
         console.error("Error fetching employees:", err);
       }
     };
+    const fetchSalons = async () => {
+      try {
+        const data = await dataService.getSalons();
+        setSalonsList(data || []);
+      } catch (err) {
+        console.error("Error fetching salons:", err);
+      }
+    };
     fetchAll();
     fetchEmployees();
+    fetchSalons();
   }, []); // Load once on mount
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const searchVal = params.get('cedula') || params.get('search') || params.get('id');
+    if (searchVal) {
+      setSearchTerm(searchVal);
+      dataService.findClientByCedula(searchVal).then(found => {
+        if (found) {
+          selectClient(found);
+        }
+      }).catch(err => console.error('Error auto-loading client:', err));
+    }
+  }, [location.search]);
 
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
-    if (!searchTerm) {
+    if (!searchTerm.trim()) {
       setClient(null);
       return;
     }
-    const found = await dataService.findClientByCedula(searchTerm);
-    if (found) {
-      await selectClient(found);
-    } else {
-      alert('Cliente no encontrado');
-      setClient(null);
+    const clean = searchTerm.trim().toLowerCase();
+    
+    // Primero buscar localmente en allClients (por cédula, nombre, teléfono o email)
+    const localMatch = allClients.find(c => 
+      (c.cedula && c.cedula.toLowerCase() === clean) ||
+      (c.nombre && c.nombre.toLowerCase().includes(clean)) ||
+      (c.telefono && String(c.telefono).includes(clean)) ||
+      (c.email && c.email.toLowerCase().includes(clean))
+    );
+
+    if (localMatch) {
+      await selectClient(localMatch);
+      return;
+    }
+
+    // Si no está local, buscar en el servidor
+    try {
+      const found = await dataService.findClientByCedula(searchTerm);
+      if (found) {
+        await selectClient(found);
+      } else {
+        showNotification('No se encontró ningún cliente con ese criterio', 'warning');
+      }
+    } catch (err) {
+      showNotification('Error al consultar cliente: ' + err.message, 'error');
     }
   };
 
@@ -102,7 +192,6 @@ const ClientProfile = () => {
   const [allCards, setAllCards] = useState([]);
   const [editingCard, setEditingCard] = useState(null);
   const [editCardForm, setEditCardForm] = useState({ expiration: '', enable: true });
-  const [salonsList, setSalonsList] = useState([]);
   
   // Get the primary active contract for display
   const contract = contracts.find(c => c.status === 'Active' || c.status === 'Pending_Retry') || contracts[0];
@@ -130,10 +219,14 @@ const ClientProfile = () => {
 
   const selectClient = async (found) => {
     setCardInfo(null); // Reset state before new fetch
-    setClient(found);
+    const formattedFound = {
+      ...found,
+      nombre: formatName(found.nombre)
+    };
+    setClient(formattedFound);
     const initialBday = found.fecha_nacimiento ? String(found.fecha_nacimiento).split('T')[0] : '';
     setEditForm({
-      nombre: found.nombre || '',
+      nombre: formatName(found.nombre || ''),
       email: found.email || '',
       telefono: found.telefono || '',
       cedula: found.cedula || '',
@@ -231,15 +324,17 @@ const ClientProfile = () => {
   const handleSaveEdit = async () => {
     try {
       const cleanBday = editForm.fecha_nacimiento ? editForm.fecha_nacimiento.split('T')[0] : '';
+      const formattedClientName = formatName(editForm.nombre);
       const payload = {
         ...editForm,
+        nombre: formattedClientName,
         fecha_nacimiento: cleanBday,
         fechaNacimiento: cleanBday
       };
       await dataService.updateClient(client.id, payload);
-      const updatedClient = { ...client, ...payload, fecha_nacimiento: cleanBday };
+      const updatedClient = { ...client, ...payload, nombre: formattedClientName, fecha_nacimiento: cleanBday };
       setClient(updatedClient);
-      setAllClients(prev => (prev || []).map(c => (String(c.id) === String(client.id) || (c.cedula && c.cedula === client.cedula)) ? { ...c, ...payload, fecha_nacimiento: cleanBday } : c));
+      setAllClients(prev => (prev || []).map(c => (String(c.id) === String(client.id) || (c.cedula && c.cedula === client.cedula)) ? { ...c, ...payload, nombre: formattedClientName, fecha_nacimiento: cleanBday } : c));
       setIsEditing(false);
       showNotification('Perfil actualizado con éxito', 'success');
     } catch (e) {
@@ -414,6 +509,42 @@ const ClientProfile = () => {
         await selectClient(client);
       } else {
         throw new Error(res.Message || 'Error al eliminar tarjeta');
+      }
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
+
+  const handleSetPrimaryCard = async (card) => {
+    try {
+      showNotification('Estableciendo tarjeta como principal...');
+      const res = await dataService.setPrimaryCard(client.id, {
+        paymentProfileId: card.PaymentProfileId,
+        brand: card.Brand,
+        last4: card.Last4,
+        expiration: card.Expiration,
+        token: card.Token
+      });
+      if (res.success) {
+        showNotification('Tarjeta establecida como principal para cobros automáticos', 'success');
+        await selectClient(client);
+      } else {
+        throw new Error(res.error || 'Error al cambiar tarjeta principal');
+      }
+    } catch (e) {
+      showNotification(e.message, 'error');
+    }
+  };
+
+  const handleCleanupDuplicates = async () => {
+    try {
+      showNotification('Depurando perfiles duplicados en CardNet...');
+      const res = await dataService.cleanupDuplicateCards(client.id);
+      if (res.success) {
+        showNotification(res.message || 'Bóveda depurada con éxito', 'success');
+        await selectClient(client);
+      } else {
+        throw new Error(res.error || 'Error al depurar bóveda');
       }
     } catch (e) {
       showNotification(e.message, 'error');
@@ -808,30 +939,27 @@ const ClientProfile = () => {
         </div>
       </div>
 
-      <div className="action-bar" style={{ background: 'white', padding: '1rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '1rem', width: '100%' }}>
-          <div className="search-input-wrapper" style={{ margin: 0, position: 'relative' }}>
-            <Search className="icon" size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-            <input
-              placeholder={t('profile.search')}
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                if (!e.target.value) setClient(null);
-              }}
-              style={{ width: '100%', padding: '0.85rem 1rem 0.85rem 3rem', fontSize: '1rem', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc', transition: 'all 0.2s ease' }}
-              required
-            />
-          </div>
-          <button type="submit" className="btn-primary" style={{ padding: '0 3rem', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 800 }}>{t('profile.btn.lookup')}</button>
-          {client && (
-            <button type="button" className="btn-secondary" style={{ borderRadius: '12px' }} onClick={() => { setClient(null); setSearchTerm(''); }}>Limpiar</button>
-          )}
-        </form>
-      </div>
-
       {client ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) 2fr', gap: '2rem', alignItems: 'start' }}>
+        <div>
+          {/* Barra Superior al Consultar un Cliente */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', background: 'white', padding: '0.85rem 1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', flexWrap: 'wrap', gap: '1rem' }}>
+            <button 
+              type="button" 
+              className="btn-secondary" 
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: '10px', padding: '0.55rem 1.1rem', fontWeight: 800, fontSize: '0.82rem' }}
+              onClick={() => { setClient(null); setSearchTerm(''); }}
+            >
+              <ArrowLeft size={16} />
+              <span>Volver al Listado de Clientes</span>
+            </button>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Expediente activo:</span>
+              <span style={{ fontSize: '0.88rem', fontWeight: 900, color: '#0f172a', background: '#f8fafc', padding: '0.3rem 0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>{formatName(client.nombre)}</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) 2fr', gap: '2rem', alignItems: 'start' }}>
           {/* Main Info Card */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
              <div className="surface-card" style={{ textAlign: 'center', position: 'relative' }}>
@@ -841,7 +969,7 @@ const ClientProfile = () => {
                   onClick={() => {
                     if (!isEditing && client) {
                       setEditForm({
-                        nombre: client.nombre || '',
+                        nombre: formatName(client.nombre || ''),
                         email: client.email || '',
                         telefono: client.telefono || '',
                         cedula: client.cedula || '',
@@ -861,8 +989,8 @@ const ClientProfile = () => {
                   <Settings size={16} />
                 </button>
 
-                <div style={{ width: '80px', height: '80px', background: '#f1f5f9', borderRadius: '50%', margin: '1rem auto', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#09090b', border: '1px solid #e2e8f0', fontSize: '2rem', fontWeight: 800 }}>
-                  {client.nombre ? client.nombre.substring(0, 2).toUpperCase() : <User size={36} />}
+                <div style={{ width: '80px', height: '80px', background: '#f1f5f9', borderRadius: '50%', margin: '1rem auto', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#09090b', border: '1px solid #e2e8f0', fontSize: '1.75rem', fontWeight: 900 }}>
+                  {client.nombre ? getInitials(client.nombre) : <User size={36} />}
                 </div>
 
                 {isEditing ? (
@@ -975,7 +1103,7 @@ const ClientProfile = () => {
                 ) : (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                      <h3 style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>{client.nombre}</h3>
+                      <h3 style={{ fontSize: '1.5rem', fontWeight: 900, fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0, color: '#0f172a' }}>{formatName(client.nombre)}</h3>
                       {pendingSurvey?.hasPending && (
                         <motion.div
                           initial={{ scale: 0.9, opacity: 0 }}
@@ -1526,78 +1654,110 @@ const ClientProfile = () => {
 
                 {/* Gestionar Tarjetas Section */}
                 <div style={{ marginTop: '1.5rem' }}>
-                  <p style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '1rem', letterSpacing: '0.05em' }}>
-                    Bóveda de Tarjetas Registradas
-                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <p style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', margin: 0, letterSpacing: '0.05em' }}>
+                      Bóveda de Tarjetas Registradas
+                    </p>
+                    {client?.cardnet_customer_id && allCards.length > 1 && (
+                      <button 
+                        onClick={handleCleanupDuplicates}
+                        title="Eliminar perfiles duplicados obsoletos de esta tarjeta en CardNet"
+                        style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 700, padding: '0.25rem 0.6rem', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                      >
+                        <Sparkles size={11} color="#8b5cf6" /> Depurar Bóveda
+                      </button>
+                    )}
+                  </div>
                   
                   {allCards.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      {allCards.map(card => (
-                        <div key={card.PaymentProfileId} style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '1rem' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                              <div style={{ background: 'var(--text-primary)', color: 'white', padding: '0.25rem 0.4rem', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 900 }}>
-                                {card.Brand}
-                              </div>
-                              <p style={{ fontSize: '0.85rem', fontWeight: 700 }}>•••• {card.Last4}</p>
-                              {!card.Enable && <span style={{ fontSize: '0.6rem', background: '#fee2e2', color: '#991b1b', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 800 }}>OFF</span>}
-                            </div>
-                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                              <button 
-                                onClick={() => handleChargeCard(card)}
-                                style={{ background: '#3b82f6', border: 'none', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                              >
-                                <DollarSign size={10} /> COBRAR
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  setEditingCard(card.PaymentProfileId);
-                                  setEditCardForm({ expiration: card.Expiration, enable: card.Enable });
-                                }}
-                                style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
-                              >
-                                <Edit2 size={14} />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteCard(card)}
-                                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </div>
+                      {allCards.map(card => {
+                        const isCurrentPrimary = card.IsPrimary || (cardInfo && (String(card.PaymentProfileId) === String(cardInfo.PaymentProfileId) || (card.Last4 === cardInfo.Last4 && card.Brand === cardInfo.Brand)));
 
-                          {editingCard === card.PaymentProfileId && (
-                            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                              <div style={{ display: 'flex', gap: '1rem' }}>
-                                <div style={{ flex: 1 }}>
-                                  <label style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Expiración (YYYYMM)</label>
-                                  <input 
-                                    type="text" 
-                                    className="input-field" 
-                                    style={{ fontSize: '0.8rem', padding: '0.5rem' }}
-                                    value={editCardForm.expiration || ''}
-                                    onChange={e => setEditCardForm({ ...editCardForm, expiration: e.target.value })}
-                                    placeholder="202812"
-                                  />
+                        return (
+                          <div key={card.PaymentProfileId} style={{ background: 'var(--bg-canvas)', border: isCurrentPrimary ? '1px solid #10b981' : '1px solid var(--border-subtle)', borderRadius: '12px', padding: '1rem', transition: 'all 0.2s' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{ background: 'var(--text-primary)', color: 'white', padding: '0.25rem 0.4rem', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 900 }}>
+                                  {card.Brand}
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1rem' }}>
-                                  <input 
-                                    type="checkbox" 
-                                    checked={editCardForm.enable}
-                                    onChange={e => setEditCardForm({ ...editCardForm, enable: e.target.checked })}
-                                  />
-                                  <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>Habilitada</span>
-                                </div>
+                                <p style={{ fontSize: '0.85rem', fontWeight: 700, margin: 0 }}>•••• {card.Last4}</p>
+                                {isCurrentPrimary ? (
+                                  <span style={{ fontSize: '0.6rem', background: '#d1fae5', color: '#065f46', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                    <CheckCircle size={10} /> PRINCIPAL
+                                  </span>
+                                ) : (
+                                  !card.Enable && <span style={{ fontSize: '0.6rem', background: '#fee2e2', color: '#991b1b', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 800 }}>OFF</span>
+                                )}
                               </div>
-                              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                <button className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.75rem' }} onClick={() => handleUpdateCard(card)}>Guardar</button>
-                                <button className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.75rem' }} onClick={() => setEditingCard(null)}>Cancelar</button>
+                              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                {!isCurrentPrimary && (
+                                  <button 
+                                    onClick={() => handleSetPrimaryCard(card)}
+                                    title="Establecer como tarjeta principal para cobros automáticos"
+                                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)', padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                  >
+                                    <Star size={10} color="#f59e0b" fill="#f59e0b" /> HACER PRINCIPAL
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => handleChargeCard(card)}
+                                  style={{ background: '#3b82f6', border: 'none', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.6rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                >
+                                  <DollarSign size={10} /> COBRAR
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    setEditingCard(card.PaymentProfileId);
+                                    setEditCardForm({ expiration: card.Expiration, enable: card.Enable });
+                                  }}
+                                  title="Editar expiración o estado"
+                                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.2rem' }}
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteCard(card)}
+                                  title="Eliminar de la bóveda"
+                                  style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.2rem' }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
                               </div>
                             </div>
-                          )}
-                        </div>
-                      ))}
+
+                            {editingCard === card.PaymentProfileId && (
+                              <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px dashed var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <div style={{ display: 'flex', gap: '1rem' }}>
+                                  <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Expiración (YYYYMM)</label>
+                                    <input 
+                                      type="text" 
+                                      className="input-field" 
+                                      style={{ fontSize: '0.8rem', padding: '0.5rem' }}
+                                      value={editCardForm.expiration || ''}
+                                      onChange={e => setEditCardForm({ ...editCardForm, expiration: e.target.value })}
+                                      placeholder="202812"
+                                    />
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1rem' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={editCardForm.enable}
+                                      onChange={e => setEditCardForm({ ...editCardForm, enable: e.target.checked })}
+                                    />
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>Habilitada</span>
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                  <button className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.75rem' }} onClick={() => handleUpdateCard(card)}>Guardar</button>
+                                  <button className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.75rem' }} onClick={() => setEditingCard(null)}>Cancelar</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div style={{ padding: '1rem', textAlign: 'center', background: 'var(--bg-canvas)', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
@@ -2001,71 +2161,200 @@ const ClientProfile = () => {
             </div>
           </div>
         </div>
+      </div>
       ) : (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1.5rem', background: 'white', padding: '1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-            <div>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>
-                Listado General de Clientes
-              </h3>
-              <p style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>Búsqueda rápida y filtrado por estatus.</p>
-            </div>
+          {/* Header de la Sección de Listado */}
+          <div style={{ background: 'white', padding: '1.5rem', borderRadius: '20px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             
-            <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
-               <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.35rem', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '0.25rem' }}>
-                  <button 
-                    onClick={() => setStatusFilter('all')}
-                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'all' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'all' ? '#0f172a' : '#64748b', boxShadow: statusFilter === 'all' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.25rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Users size={20} color="#2563eb" />
+                  Listado General de Clientes
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+                  Explora, filtra y gestiona el historial de clientes por estatus, sucursal y membresía.
+                </p>
+              </div>
+
+              {/* Selector de Modo de Vista (Tarjetas / Tabla Pro) */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8fafc', padding: '0.35rem', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('grid')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.5rem 0.9rem',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: viewMode === 'grid' ? '#0f172a' : 'transparent',
+                    color: viewMode === 'grid' ? 'white' : '#64748b',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <LayoutGrid size={15} />
+                  <span>Tarjetas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.5rem 0.9rem',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: viewMode === 'table' ? '#0f172a' : 'transparent',
+                    color: viewMode === 'table' ? 'white' : '#64748b',
+                    fontSize: '0.78rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <List size={15} />
+                  <span>Tabla Pro</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Barra de Filtros Multifunción */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+              
+              {/* Pills de Estatus */}
+              <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.3rem', borderRadius: '12px', border: '1px solid #e2e8f0', gap: '0.2rem', flexWrap: 'wrap' }}>
+                {[
+                  { id: 'all', label: 'Todos' },
+                  { id: 'active', label: 'Activos', count: allClients.filter(c => (c.status === 'Active' || c.contract_status === 'Active' || c.contract_status === 'Activo') && c.planName && c.planName !== 'Sin Plan').length },
+                  { id: 'pending', label: 'Cobro Pendiente', count: allClients.filter(c => c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && c.contract_status !== 'Cancelled')).length },
+                  { id: 'cancelled', label: 'Cancelados', count: allClients.filter(c => c.status === 'Cancelled' || c.contract_status === 'Cancelled').length },
+                  { id: 'inactive', label: 'Sin Plan' }
+                ].map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => { setStatusFilter(p.id); setCurrentPage(1); }}
+                    style={{
+                      padding: '0.45rem 0.85rem',
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: statusFilter === p.id ? 'white' : 'transparent',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      color: statusFilter === p.id ? '#0f172a' : '#64748b',
+                      boxShadow: statusFilter === p.id ? '0 2px 5px rgba(0,0,0,0.06)' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      transition: 'all 0.15s ease'
+                    }}
                   >
-                    Todos
+                    <span>{p.label}</span>
+                    {p.count !== undefined && (
+                      <span style={{ 
+                        fontSize: '0.65rem', 
+                        padding: '1px 5px', 
+                        borderRadius: '99px', 
+                        background: p.id === 'active' ? '#dcfce7' : (p.id === 'pending' ? '#fef3c7' : (p.id === 'cancelled' ? '#fee2e2' : '#e2e8f0')),
+                        color: p.id === 'active' ? '#166534' : (p.id === 'pending' ? '#b45309' : (p.id === 'cancelled' ? '#991b1b' : '#475569')),
+                        fontWeight: 900
+                      }}>
+                        {p.count}
+                      </span>
+                    )}
                   </button>
-                  <button 
-                    onClick={() => setStatusFilter('active')}
-                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'active' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'active' ? '#10b981' : '#64748b', boxShadow: statusFilter === 'active' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
+                ))}
+              </div>
+
+              {/* Filtros secundarios: Sucursal, Ordenamiento y Buscador */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
+                
+                {/* Selector de Sucursal */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', padding: '0.4rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
+                  <Store size={14} color="#64748b" />
+                  <select
+                    value={salonFilter}
+                    onChange={(e) => { setSalonFilter(e.target.value); setCurrentPage(1); }}
+                    style={{ border: 'none', background: 'transparent', fontSize: '0.78rem', fontWeight: 700, color: '#1e293b', outline: 'none', cursor: 'pointer' }}
                   >
-                    Activos
-                  </button>
-                  <button 
-                    onClick={() => setStatusFilter('pending')}
-                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'pending' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'pending' ? '#d97706' : '#64748b', boxShadow: statusFilter === 'pending' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
-                  >
-                    Cobro Pendiente
-                  </button>
-                  <button 
-                    onClick={() => setStatusFilter('cancelled')}
-                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'cancelled' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'cancelled' ? '#dc2626' : '#64748b', boxShadow: statusFilter === 'cancelled' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
-                  >
-                    Cancelados
-                  </button>
-                  <button 
-                    onClick={() => setStatusFilter('inactive')}
-                    style={{ padding: '0.4rem 1rem', borderRadius: '8px', border: 'none', background: statusFilter === 'inactive' ? 'white' : 'transparent', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', color: statusFilter === 'inactive' ? '#64748b' : '#64748b', boxShadow: statusFilter === 'inactive' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none', transition: 'all 0.2s ease' }}
-                  >
-                    Sin Plan
-                  </button>
+                    <option value="all">Todas las Sedes</option>
+                    {salonsList.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
                 </div>
 
-               <div className="search-input-wrapper" style={{ width: '280px', margin: 0, position: 'relative' }}>
-                 <Search className="icon" size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                 <input 
-                   placeholder="Filtrar por nombre o teléfono..." 
-                   value={listFilter}
-                   onChange={(e) => setListFilter(e.target.value)}
-                   style={{ width: '100%', padding: '0.6rem 1rem 0.6rem 2.25rem', fontSize: '0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#f8fafc' }}
-                 />
-               </div>
+                {/* Selector de Orden */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', padding: '0.4rem 0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
+                  <ArrowUpDown size={14} color="#64748b" />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    style={{ border: 'none', background: 'transparent', fontSize: '0.78rem', fontWeight: 700, color: '#1e293b', outline: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="name_asc">Nombre (A - Z)</option>
+                    <option value="name_desc">Nombre (Z - A)</option>
+                    <option value="status">Por Estado</option>
+                    <option value="salon">Por Sede</option>
+                  </select>
+                </div>
+
+                {/* Buscador de Texto Rápido Unificado */}
+                <div className="search-input-wrapper" style={{ width: '300px', margin: 0, position: 'relative' }}>
+                  <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                  <input
+                    placeholder="Buscar por nombre, cédula o teléfono..."
+                    value={listFilter}
+                    onChange={(e) => { setListFilter(e.target.value); setCurrentPage(1); }}
+                    style={{ width: '100%', padding: '0.55rem 2rem 0.55rem 2.25rem', fontSize: '0.82rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#f8fafc' }}
+                  />
+                  {listFilter && (
+                    <button 
+                      type="button" 
+                      onClick={() => setListFilter('')} 
+                      style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  )}
+                </div>
+
+              </div>
+
             </div>
+
           </div>
 
+          {/* Renderizado de Datos Filtrados y Paginados */}
           {(() => {
-            const filteredList = allClients.filter(c => {
-              const matchesSearch = !listFilter || 
-                (c.nombre && c.nombre.toLowerCase().includes(listFilter.toLowerCase())) ||
-                (c.telefono && String(c.telefono).includes(listFilter)) ||
-                (c.cedula && String(c.cedula).includes(listFilter));
-              
-              if (!matchesSearch) return false;
+            const salonMap = {};
+            salonsList.forEach(s => { salonMap[s.id] = s.name; });
 
+            // 1. Filtrado
+            const filtered = allClients.filter(c => {
+              // Búsqueda de texto (unificada con buscador rápido y general)
+              const query = (listFilter || '').toLowerCase().trim();
+              if (query) {
+                const matchName = c.nombre && c.nombre.toLowerCase().includes(query);
+                const matchPhone = c.telefono && String(c.telefono).includes(query);
+                const matchCedula = c.cedula && String(c.cedula).toLowerCase().includes(query);
+                const matchEmail = c.email && c.email.toLowerCase().includes(query);
+                if (!matchName && !matchPhone && !matchCedula && !matchEmail) return false;
+              }
+
+              // Filtro por Sucursal
+              if (salonFilter !== 'all') {
+                if (String(c.salon_id) !== String(salonFilter)) return false;
+              }
+
+              // Filtro por Estado
               const isCancelled = c.status === 'Cancelled' || c.contract_status === 'Cancelled';
               const isPendingRetry = c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && !isCancelled);
               const isActive = (c.status === 'Active' || c.contract_status === 'Active' || c.contract_status === 'Activo') && c.planName && c.planName !== 'Sin Plan';
@@ -2074,113 +2363,476 @@ const ClientProfile = () => {
               if (statusFilter === 'pending') return isPendingRetry;
               if (statusFilter === 'cancelled') return isCancelled;
               if (statusFilter === 'inactive') return !isActive && !isPendingRetry && !isCancelled;
+
               return true;
             });
 
+            // 2. Ordenamiento
+            const sorted = [...filtered].sort((a, b) => {
+              if (sortBy === 'name_asc') return (a.nombre || '').localeCompare(b.nombre || '');
+              if (sortBy === 'name_desc') return (b.nombre || '').localeCompare(a.nombre || '');
+              if (sortBy === 'status') return (a.status || '').localeCompare(b.status || '');
+              if (sortBy === 'salon') return String(a.salon_id || '').localeCompare(String(b.salon_id || ''));
+              return 0;
+            });
+
+            // 3. Paginación
+            const totalItems = sorted.length;
+            const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+            const validPage = Math.min(Math.max(1, currentPage), totalPages);
+            const startIndex = (validPage - 1) * itemsPerPage;
+            const pageItems = sorted.slice(startIndex, startIndex + itemsPerPage);
+
             return (
-              <div className="grid-3" style={{ gap: '1.5rem' }}>
-                {filteredList.length > 0 ? filteredList.map(c => {
-                  const isCancelled = c.status === 'Cancelled' || c.contract_status === 'Cancelled';
-                  const isSuspended = c.contract_status === 'Suspended' || (c.retry_count >= 90);
-                  const isPendingRetry = c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && !isCancelled && !isSuspended);
-                  const isActive = (c.status === 'Active' || c.contract_status === 'Active' || c.contract_status === 'Activo') && c.planName && c.planName !== 'Sin Plan';
+              <div>
+                
+                {/* Resumen de Resultados */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', padding: '0 0.5rem' }}>
+                  <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
+                    Mostrando <strong style={{ color: '#0f172a' }}>{totalItems > 0 ? startIndex + 1 : 0}</strong> a <strong style={{ color: '#0f172a' }}>{Math.min(startIndex + itemsPerPage, totalItems)}</strong> de <strong style={{ color: '#0f172a' }}>{totalItems}</strong> clientes
+                  </span>
 
-                  let topBarColor = '#cbd5e1';
-                  let boxBg = '#f8fafc';
-                  let boxBorder = '#e2e8f0';
-                  let titleColor = '#64748b';
-                  let titleText = 'MEMBRESÍA';
-                  let valueColor = '#94a3b8';
-                  let valueText = 'Sin Suscripción';
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>Por página:</span>
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                      style={{ padding: '0.25rem 0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.75rem', fontWeight: 700, background: 'white' }}
+                    >
+                      <option value={12}>12</option>
+                      <option value={24}>24</option>
+                      <option value={48}>48</option>
+                    </select>
+                  </div>
+                </div>
 
-                  if (isCancelled) {
-                    topBarColor = '#dc2626';
-                    boxBg = '#fef2f2';
-                    boxBorder = '#fecaca';
-                    titleColor = '#dc2626';
-                    titleText = '✕ ESTADO DE MEMBRESÍA';
-                    valueColor = '#991b1b';
-                    valueText = `✕ Cancelado (${c.planName || 'Plan Beauty'})`;
-                  } else if (isSuspended) {
-                    topBarColor = '#7f1d1d';
-                    boxBg = '#fef2f2';
-                    boxBorder = '#f87171';
-                    titleColor = '#991b1b';
-                    titleText = '🛑 ESTADO DE MEMBRESÍA';
-                    valueColor = '#7f1d1d';
-                    valueText = 'Suspendido por Mora';
-                  } else if (isPendingRetry) {
-                    topBarColor = '#f59e0b';
-                    boxBg = '#fffbeb';
-                    boxBorder = '#fde68a';
-                    titleColor = '#d97706';
-                    titleText = '⚠️ COBRO PENDIENTE';
-                    valueColor = '#b45309';
-                    valueText = `Tarjeta declinada (${c.planName || 'Plan Beauty'})`;
-                  } else if (isActive) {
-                    topBarColor = '#10b981';
-                    boxBg = '#f0fdf4';
-                    boxBorder = '#bbf7d0';
-                    titleColor = '#166534';
-                    titleText = '✓ MEMBRESÍA ACTIVA';
-                    valueColor = '#14532d';
-                    valueText = `${c.planName}`;
-                  }
+                {pageItems.length === 0 ? (
+                  <div className="surface-card" style={{ padding: '4rem', textAlign: 'center', borderRadius: '20px', background: 'white' }}>
+                    <Users size={48} style={{ margin: '0 auto 1.25rem', color: '#94a3b8', opacity: 0.4 }} />
+                    <h4 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 0.5rem 0' }}>No se encontraron clientes</h4>
+                    <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>Intenta ajustar los filtros de búsqueda o el estatus seleccionado.</p>
+                  </div>
+                ) : viewMode === 'table' ? (
+                  
+                  /* VISTA: TABLA PRO INTERACTIVA */
+                  <div className="surface-card" style={{ padding: 0, overflow: 'hidden', borderRadius: '20px', background: 'white', border: '1px solid #e2e8f0', boxShadow: '0 4px 14px rgba(0,0,0,0.03)' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                            <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cliente</th>
+                            <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sede</th>
+                            <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Membresía / Plan</th>
+                            <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Contacto</th>
+                            <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cumpleaños</th>
+                            <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pageItems.map(c => {
+                            const isCancelled = c.status === 'Cancelled' || c.contract_status === 'Cancelled';
+                            const isSuspended = c.contract_status === 'Suspended' || (c.retry_count >= 90);
+                            const isPendingRetry = c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && !isCancelled && !isSuspended);
+                            const isActive = (c.status === 'Active' || c.contract_status === 'Active' || c.contract_status === 'Activo') && c.planName && c.planName !== 'Sin Plan';
+                            const isBday = isBirthdayThisWeek(c.fecha_nacimiento);
+                            const salonName = salonMap[c.salon_id] || c.salon_name || 'Sin Sede';
+                            const waUrl = getWhatsAppUrl(c.telefono, c.nombre);
 
-                  return (
-                    <div key={c.id} className="surface-card client-list-card" style={{ cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative', overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }} onClick={() => selectClient(c)} onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0,0,0,0.1)'; }} onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0,0,0,0.05)'; }}>
-                      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: topBarColor }}></div>
-                      
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem' }}>
-                        <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: isCancelled ? '#fee2e2' : (isPendingRetry ? '#fef3c7' : '#f8fafc'), border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isCancelled ? '#dc2626' : (isPendingRetry ? '#d97706' : '#0f172a'), fontSize: '1.25rem', fontWeight: 800, flexShrink: 0 }}>
-                          {(c.nombre || 'U').charAt(0).toUpperCase()}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <h4 style={{ fontWeight: 800, fontSize: '1.1rem', color: '#09090b', marginBottom: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.nombre}>{c.nombre}</h4>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>ID: {c.cedula}</p>
-                            {c.registration_source && (
-                              <span style={{ 
-                                fontSize: '0.6rem', 
-                                fontWeight: 800, 
-                                color: c.registration_source === 'Self' ? '#10b981' : '#3b82f6',
-                                background: c.registration_source === 'Self' ? '#f0fdf4' : '#eff6ff',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                border: `1px solid ${c.registration_source === 'Self' ? '#bbf7d0' : '#bfdbfe'}`
+                            return (
+                              <tr 
+                                key={c.id} 
+                                style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s ease', cursor: 'pointer' }}
+                                onClick={() => selectClient(c)}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                              >
+                                {/* Columna Cliente */}
+                                <td style={{ padding: '1rem 1.25rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                                    <div style={{ 
+                                      width: '40px', height: '40px', borderRadius: '12px', 
+                                      background: isActive ? '#eff6ff' : (isPendingRetry ? '#fffbeb' : (isCancelled ? '#fee2e2' : '#f1f5f9')),
+                                      color: isActive ? '#1d4ed8' : (isPendingRetry ? '#d97706' : (isCancelled ? '#dc2626' : '#475569')),
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.85rem', flexShrink: 0
+                                    }}>
+                                      {getInitials(c.nombre)}
+                                    </div>
+                                    <div>
+                                      <p style={{ margin: 0, fontWeight: 800, fontSize: '0.88rem', color: '#0f172a' }}>{formatName(c.nombre)}</p>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
+                                        <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>ID: {c.cedula}</span>
+                                        {c.registration_source && (
+                                          <span style={{ 
+                                            fontSize: '0.6rem', fontWeight: 800, 
+                                            background: c.registration_source === 'Self' ? '#f0fdf4' : '#eff6ff', 
+                                            color: c.registration_source === 'Self' ? '#166534' : '#1d4ed8',
+                                            padding: '1px 5px', borderRadius: '4px', border: `1px solid ${c.registration_source === 'Self' ? '#bbf7d0' : '#bfdbfe'}`
+                                          }}>
+                                            {c.registration_source.toUpperCase()}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* Columna Sede */}
+                                <td style={{ padding: '1rem 1.25rem' }}>
+                                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <Store size={13} color="#2563eb" />
+                                    {salonName}
+                                  </span>
+                                </td>
+
+                                {/* Columna Membresía */}
+                                <td style={{ padding: '1rem 1.25rem' }}>
+                                  {isActive ? (
+                                    <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '0.25rem 0.65rem', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                                      <span style={{ width: '6px', height: '6px', background: '#22c55e', borderRadius: '50%' }}></span>
+                                      {c.planName || 'Plan Beauty'}
+                                    </span>
+                                  ) : isPendingRetry ? (
+                                    <span style={{ background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', padding: '0.25rem 0.65rem', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                                      <AlertTriangle size={12} color="#d97706" />
+                                      Cobro Pendiente
+                                    </span>
+                                  ) : isCancelled ? (
+                                    <span style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', padding: '0.25rem 0.65rem', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 800 }}>
+                                      ✕ Cancelado
+                                    </span>
+                                  ) : (
+                                    <span style={{ background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', padding: '0.25rem 0.65rem', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 700 }}>
+                                      Sin Suscripción
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* Columna Contacto */}
+                                <td style={{ padding: '1rem 1.25rem' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0f172a' }}>{c.telefono || 'Sin tel'}</span>
+                                      {waUrl && (
+                                        <a
+                                          href={waUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          title="Escribir por WhatsApp"
+                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.45rem', borderRadius: '6px', background: '#dcfce7', color: '#15803d', fontSize: '0.68rem', fontWeight: 800, textDecoration: 'none' }}
+                                        >
+                                          <MessageCircle size={11} /> WA
+                                        </a>
+                                      )}
+                                    </div>
+                                    <span style={{ fontSize: '0.72rem', color: '#64748b' }}>{c.email || 'Sin correo'}</span>
+                                  </div>
+                                </td>
+
+                                {/* Columna Cumpleaños */}
+                                <td style={{ padding: '1rem 1.25rem' }}>
+                                  {c.fecha_nacimiento ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                      <span style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 600 }}>
+                                        {new Date(c.fecha_nacimiento).toLocaleDateString('es-DO', { month: 'short', day: 'numeric' })}
+                                      </span>
+                                      {isBday && (
+                                        <span title="Semana de Cumpleaños (15% Desc)" style={{ background: '#fdf2f8', color: '#db2777', border: '1px solid #fbcfe8', padding: '0.15rem 0.4rem', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                                          <Cake size={11} /> -15%
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>No reg.</span>
+                                  )}
+                                </td>
+
+                                {/* Columna Acción */}
+                                <td style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>
+                                  <button
+                                    onClick={() => selectClient(c)}
+                                    className="btn-secondary"
+                                    style={{ padding: '0.45rem 0.85rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                                  >
+                                    <Eye size={13} />
+                                    <span>Ver Ficha</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                ) : (
+
+                  /* VISTA: MODO TARJETAS (GRID) */
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '1.5rem' }}>
+                    {pageItems.map(c => {
+                      const isCancelled = c.status === 'Cancelled' || c.contract_status === 'Cancelled';
+                      const isSuspended = c.contract_status === 'Suspended' || (c.retry_count >= 90);
+                      const isPendingRetry = c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && !isCancelled && !isSuspended);
+                      const isActive = (c.status === 'Active' || c.contract_status === 'Active' || c.contract_status === 'Activo') && c.planName && c.planName !== 'Sin Plan';
+                      const isBday = isBirthdayThisWeek(c.fecha_nacimiento);
+                      const salonName = salonMap[c.salon_id] || c.salon_name || 'Sin Sede';
+                      const waUrl = getWhatsAppUrl(c.telefono, c.nombre);
+
+                      let topBarColor = '#cbd5e1';
+                      let boxBg = '#f8fafc';
+                      let boxBorder = '#e2e8f0';
+                      let titleColor = '#64748b';
+                      let titleText = 'MEMBRESÍA';
+                      let valueColor = '#94a3b8';
+                      let valueText = 'Sin Suscripción';
+
+                      if (isCancelled) {
+                        topBarColor = '#dc2626';
+                        boxBg = '#fef2f2';
+                        boxBorder = '#fecaca';
+                        titleColor = '#dc2626';
+                        titleText = '✕ ESTADO DE MEMBRESÍA';
+                        valueColor = '#991b1b';
+                        valueText = `✕ Cancelado (${c.planName || 'Plan Beauty'})`;
+                      } else if (isSuspended) {
+                        topBarColor = '#7f1d1d';
+                        boxBg = '#fef2f2';
+                        boxBorder = '#f87171';
+                        titleColor = '#991b1b';
+                        titleText = '🛑 ESTADO DE MEMBRESÍA';
+                        valueColor = '#7f1d1d';
+                        valueText = 'Suspendido por Mora';
+                      } else if (isPendingRetry) {
+                        topBarColor = '#f59e0b';
+                        boxBg = '#fffbeb';
+                        boxBorder = '#fde68a';
+                        titleColor = '#d97706';
+                        titleText = '⚠️ COBRO PENDIENTE';
+                        valueColor = '#b45309';
+                        valueText = `Tarjeta declinada (${c.planName || 'Plan Beauty'})`;
+                      } else if (isActive) {
+                        topBarColor = '#10b981';
+                        boxBg = '#f0fdf4';
+                        boxBorder = '#bbf7d0';
+                        titleColor = '#166534';
+                        titleText = '✓ MEMBRESÍA ACTIVA';
+                        valueColor = '#14532d';
+                        valueText = `${c.planName}`;
+                      }
+
+                      return (
+                        <div
+                          key={c.id}
+                          className="surface-card client-list-card"
+                          style={{
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            position: 'relative',
+                            overflow: 'hidden',
+                            borderRadius: '20px',
+                            background: 'white',
+                            border: '1px solid #e2e8f0',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+                            padding: '1.75rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between'
+                          }}
+                          onClick={() => selectClient(c)}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-3px)';
+                            e.currentTarget.style.boxShadow = '0 12px 24px -4px rgba(0,0,0,0.08)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.03)';
+                          }}
+                        >
+                          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '5px', background: topBarColor }}></div>
+
+                          <div>
+                            {/* Header de la Tarjeta */}
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.9rem', marginBottom: '1.25rem' }}>
+                              <div style={{
+                                width: '50px',
+                                height: '50px',
+                                borderRadius: '14px',
+                                background: isCancelled ? '#fee2e2' : (isPendingRetry ? '#fef3c7' : (isActive ? '#eff6ff' : '#f8fafc')),
+                                border: '1px solid #e2e8f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: isCancelled ? '#dc2626' : (isPendingRetry ? '#d97706' : (isActive ? '#1d4ed8' : '#0f172a')),
+                                fontSize: '1.1rem',
+                                fontWeight: 900,
+                                flexShrink: 0
                               }}>
-                                {c.registration_source.toUpperCase()}
+                                {getInitials(c.nombre)}
+                              </div>
+
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <h4 style={{ fontWeight: 900, fontSize: '1.05rem', color: '#09090b', margin: '0 0 0.25rem 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={formatName(c.nombre)}>
+                                  {formatName(c.nombre)}
+                                </h4>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 700 }}>ID: {c.cedula}</span>
+                                  {c.registration_source && (
+                                    <span style={{
+                                      fontSize: '0.6rem',
+                                      fontWeight: 800,
+                                      color: c.registration_source === 'Self' ? '#166534' : '#1d4ed8',
+                                      background: c.registration_source === 'Self' ? '#f0fdf4' : '#eff6ff',
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      border: `1px solid ${c.registration_source === 'Self' ? '#bbf7d0' : '#bfdbfe'}`
+                                    }}>
+                                      {c.registration_source.toUpperCase()}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Sede y Cumpleaños Tags */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', background: '#f8fafc', padding: '0.2rem 0.5rem', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                <Store size={12} color="#2563eb" /> {salonName}
                               </span>
-                            )}
+
+                              {isBday && (
+                                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#db2777', background: '#fdf2f8', padding: '0.2rem 0.5rem', borderRadius: '6px', border: '1px solid #fbcfe8', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <Cake size={12} /> Cumpleaños esta semana (-15%)
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Caja de Estado de Membresía */}
+                            <div style={{ background: boxBg, padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', border: `1px solid ${boxBorder}` }}>
+                              <p style={{ fontSize: '0.65rem', color: titleColor, fontWeight: 800, textTransform: 'uppercase', margin: '0 0 0.2rem 0', letterSpacing: '0.05em' }}>{titleText}</p>
+                              <p style={{ fontSize: '0.88rem', fontWeight: 800, color: valueColor, margin: 0 }}>{valueText}</p>
+                            </div>
+
+                            {/* Contactos */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: '#475569' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                                  <Phone size={14} color="#64748b" />
+                                  <span style={{ fontWeight: 700 }}>{c.telefono || 'Sin teléfono'}</span>
+                                </div>
+                                {waUrl && (
+                                  <a
+                                    href={waUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.2rem 0.5rem', borderRadius: '6px', background: '#dcfce7', color: '#15803d', fontSize: '0.7rem', fontWeight: 800, textDecoration: 'none' }}
+                                  >
+                                    <MessageCircle size={12} /> WhatsApp
+                                  </a>
+                                )}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem', color: '#64748b' }}>
+                                <Mail size={14} color="#64748b" style={{ flexShrink: 0 }} />
+                                <span style={{ wordBreak: 'break-all', fontWeight: 600 }}>{c.email || 'Sin correo'}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Botón de Acción Inferior */}
+                          <div style={{ paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+                            <button
+                              className="btn-primary"
+                              style={{ width: '100%', padding: '0.75rem', fontSize: '0.78rem', background: '#09090b', color: 'white', borderRadius: '12px', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                            >
+                              <Eye size={14} />
+                              <span>Ver Historial Completo</span>
+                            </button>
                           </div>
                         </div>
-                      </div>
-
-                      <div style={{ background: boxBg, padding: '0.85rem', borderRadius: '10px', marginBottom: '1.25rem', border: `1px solid ${boxBorder}` }}>
-                        <p style={{ fontSize: '0.65rem', color: titleColor, fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.25rem', letterSpacing: '0.05em' }}>{titleText}</p>
-                        <p style={{ fontSize: '0.9rem', fontWeight: 800, color: valueColor }}>{valueText}</p>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: '#64748b' }}>
-                          <Phone size={14} strokeWidth={2.5} style={{ color: '#94a3b8' }} /> <span style={{ fontWeight: 600 }}>{c.telefono}</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: '#64748b' }}>
-                          <Mail size={14} strokeWidth={2.5} style={{ color: '#94a3b8', flexShrink: 0 }} /> <span style={{ wordBreak: 'break-all', lineHeight: 1.2, fontWeight: 600 }}>{c.email}</span>
-                        </div>
-                      </div>
-
-                      <div style={{ marginTop: '1.5rem', display: 'flex' }}>
-                        <button className="btn-primary" style={{ width: '100%', padding: '0.75rem', fontSize: '0.75rem', background: '#09090b', color: 'white', borderRadius: '10px', fontWeight: 800, transition: 'all 0.2s ease' }}>Ver Historial Completo</button>
-                      </div>
-                    </div>
-                  );
-                }) : (
-                  <div className="surface-card" style={{ gridColumn: 'span 3', padding: '4rem', textAlign: 'center' }}>
-                    <Users size={48} style={{ margin: '0 auto 1.5rem', opacity: 0.2 }} />
-                    <p>No se encontraron clientes con los filtros seleccionados.</p>
+                      );
+                    })}
                   </div>
                 )}
+
+                {/* Controles de Paginación */}
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginTop: '2rem' }}>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={validPage === 1}
+                      style={{
+                        padding: '0.5rem 0.9rem',
+                        borderRadius: '10px',
+                        border: '1px solid #e2e8f0',
+                        background: validPage === 1 ? '#f8fafc' : 'white',
+                        color: validPage === 1 ? '#94a3b8' : '#0f172a',
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        cursor: validPage === 1 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem'
+                      }}
+                    >
+                      <ChevronLeft size={16} />
+                      <span>Anterior</span>
+                    </button>
+
+                    <div style={{ display: 'flex', gap: '0.3rem' }}>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter(p => p === 1 || p === totalPages || Math.abs(p - validPage) <= 1)
+                        .map((p, idx, arr) => {
+                          const prev = arr[idx - 1];
+                          return (
+                            <React.Fragment key={p}>
+                              {prev && p - prev > 1 && (
+                                <span style={{ padding: '0.5rem 0.4rem', color: '#94a3b8', fontSize: '0.8rem' }}>...</span>
+                              )}
+                              <button
+                                onClick={() => setCurrentPage(p)}
+                                style={{
+                                  width: '36px',
+                                  height: '36px',
+                                  borderRadius: '10px',
+                                  border: validPage === p ? 'none' : '1px solid #e2e8f0',
+                                  background: validPage === p ? '#0f172a' : 'white',
+                                  color: validPage === p ? 'white' : '#64748b',
+                                  fontWeight: 800,
+                                  fontSize: '0.8rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {p}
+                              </button>
+                            </React.Fragment>
+                          );
+                        })}
+                    </div>
+
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={validPage === totalPages}
+                      style={{
+                        padding: '0.5rem 0.9rem',
+                        borderRadius: '10px',
+                        border: '1px solid #e2e8f0',
+                        background: validPage === totalPages ? '#f8fafc' : 'white',
+                        color: validPage === totalPages ? '#94a3b8' : '#0f172a',
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        cursor: validPage === totalPages ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.3rem'
+                      }}
+                    >
+                      <span>Siguiente</span>
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                )}
+
               </div>
             );
           })()}
