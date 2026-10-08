@@ -794,7 +794,12 @@ const startInternalScheduler = () => {
   setTimeout(async () => {
     console.log('[SCHEDULER] Verificación inicial de suscripciones al iniciar servidor...');
     try {
-      const res = await processSubscriptionsInternal("127.0.0.1");
+      const res = await processSubscriptionsInternal(pool, { 
+        CARDNET_CONFIG, 
+        getCardNetAuthHeaders, 
+        sendPaymentReceiptEmail, 
+        sendPaymentFailedEmail 
+      }, "127.0.0.1");
       console.log(`[SCHEDULER] Verificación inicial completada. Procesados: ${res.processed}, Éxitos: ${res.successful}, Fallidos: ${res.failed}`);
     } catch (e) {
       console.error('[SCHEDULER] Error en verificación inicial:', e.message);
@@ -806,7 +811,12 @@ const startInternalScheduler = () => {
   
   setInterval(async () => {
     try {
-      const res = await processSubscriptionsInternal("127.0.0.1");
+      const res = await processSubscriptionsInternal(pool, { 
+        CARDNET_CONFIG, 
+        getCardNetAuthHeaders, 
+        sendPaymentReceiptEmail, 
+        sendPaymentFailedEmail 
+      }, "127.0.0.1");
       console.log(`[SCHEDULER] Billing process completed. Procesados: ${res.processed}, Éxitos: ${res.successful}, Fallidos: ${res.failed}`);
     } catch (err) {
       console.error('[SCHEDULER] Billing process failed:', err.message);
