@@ -279,7 +279,7 @@ function createAuthRouter(pool, helpers = {}) {
   });
 
   // === AUTHENTICATION / LOGIN ===
-  router.post('/auth/login', async (req, res) => {
+  router.post(['/auth/login', '/login'], async (req, res) => {
     const clientIp = getClientIp(req);
     const ua = req.headers['user-agent'] || '';
     const deviceInfo = parseDeviceInfo(ua);
@@ -327,12 +327,21 @@ function createAuthRouter(pool, helpers = {}) {
       }
 
       // 3. Usuarios de sistema
+      const cleanIdent = String(email || '').trim().toLowerCase();
       const [users] = await pool.query(`
         SELECT u.*, r.nombre as role_name, r.permisos 
         FROM users u
         LEFT JOIN roles r ON u.role_id = r.id
-        WHERE u.email = ? AND u.password = ? AND u.tipo != 'client'
-      `, [email, password]);
+        LEFT JOIN staff_records s ON (LOWER(TRIM(s.nombre)) = LOWER(TRIM(u.nombre)) OR (s.email IS NOT NULL AND LOWER(TRIM(s.email)) = LOWER(TRIM(u.email))))
+        WHERE (
+          LOWER(TRIM(u.email)) = ?
+          OR LOWER(TRIM(u.email)) = CONCAT(?, '@planbeautyrd.com')
+          OR (? IN ('enmelyn', 'emelyn', 'enmelyn@planbeautyrd.com', 'emelyn@planbeautyrd.com') AND LOWER(TRIM(u.email)) IN ('enmelyn@planbeautyrd.com', 'emelyn@planbeautyrd.com'))
+          OR (? IN ('yafreisi', 'yafreisi@planbeautyrd.com', 'yafreisidonejimenez@gmail.com') AND (LOWER(TRIM(u.email)) IN ('yafreisi@planbeautyrd.com', 'yafreisidonejimenez@gmail.com') OR LOWER(TRIM(u.nombre)) LIKE '%yafreisi%'))
+          OR (? IN ('antia', 'antia@planbeautyrd.com') AND (LOWER(TRIM(u.email)) = 'antia@planbeautyrd.com' OR LOWER(TRIM(u.nombre)) LIKE '%antia%'))
+          OR (s.cedula IS NOT NULL AND REPLACE(s.cedula, '-', '') = REPLACE(?, '-', ''))
+        ) AND u.password = ? AND u.tipo != 'client'
+      `, [cleanIdent, cleanIdent, cleanIdent, cleanIdent, cleanIdent, cleanIdent, password]);
 
       if (users.length > 0) {
         const user = users[0];
