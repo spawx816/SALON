@@ -298,20 +298,35 @@ export default function PayrollModule({ initialTab }) {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
   }, [items]);
 
-  // Lista dinámica de sucursales reales
+  // Lista dinámica de sucursales reales sin duplicados
   const availableSucursales = useMemo(() => {
-    const set = new Set(['San Vicente', 'Villa Mella', 'Disponibles (*)']);
-    if (salonsList && Array.isArray(salonsList)) {
+    const normalizeSucursal = (name) => {
+      if (!name || typeof name !== 'string') return '';
+      const clean = name.trim();
+      if (clean.toLowerCase().includes('disponible')) return 'Disponibles (*)';
+      if (clean.toLowerCase().includes('villa mella') || clean.toLowerCase().includes('mella')) return 'Abatte Peluquería Sirena Villa Mella';
+      if (clean.toLowerCase().includes('san vicente') || clean.toLowerCase().includes('vicente')) return 'Abatte Peluquería San Vicente';
+      return clean;
+    };
+
+    const set = new Set();
+    if (salonsList && Array.isArray(salonsList) && salonsList.length > 0) {
       salonsList.forEach(s => {
-        if (s.name) set.add(s.name);
+        if (s.name) set.add(normalizeSucursal(s.name));
       });
     }
     items.forEach(it => {
-      if (it.sucursal && typeof it.sucursal === 'string' && it.sucursal.trim()) {
-        set.add(it.sucursal.trim());
+      if (it.sucursal) {
+        set.add(normalizeSucursal(it.sucursal));
       }
     });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
+    // Fallback if empty
+    if (set.size === 0) {
+      set.add('Abatte Peluquería San Vicente');
+      set.add('Abatte Peluquería Sirena Villa Mella');
+      set.add('Disponibles (*)');
+    }
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
   }, [salonsList, items]);
 
   // Filtrado de items
