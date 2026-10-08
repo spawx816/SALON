@@ -95,6 +95,12 @@ export default function PayrollModule({ initialTab }) {
     reason: 'Incentivo de producción general'
   });
 
+  // Modal de Asignación Masiva de TSS
+  const [showBulkTssModal, setShowBulkTssModal] = useState(false);
+  const [bulkTssValue, setBulkTssValue] = useState('591.00');
+  const [bulkTssMode, setBulkTssMode] = useState('fixed'); // 'fixed' | 'law_percentage'
+  const [bulkTssScope, setBulkTssScope] = useState('all'); // 'all' | 'selected'
+
   // Modal de Auditoría
   const [showAuditModal, setShowAuditModal] = useState(false);
 
@@ -444,6 +450,96 @@ export default function PayrollModule({ initialTab }) {
       await loadPeriodDetail(currentPeriod.id);
     } catch (err) {
       showNotification('Error al aplicar concepto masivo: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Aplicar TSS Masivo a empleados
+  const handleApplyBulkTss = async (e) => {
+    if (e) e.preventDefault();
+    if (!currentPeriod) return;
+    if (currentPeriod.status === 'Aprobada') {
+      showNotification('Esta nómina está aprobada y es inmutable', 'warning');
+      return;
+    }
+
+    const targetIds = bulkTssScope === 'selected' && selectedItemIds.length > 0
+      ? selectedItemIds
+      : items.map(it => it.id);
+
+    if (targetIds.length === 0) {
+      showNotification('No hay colaboradores seleccionados para aplicar el cambio', 'warning');
+      return;
+    }
+
+    // Guardar estado previo para Deshacer (Undo)
+    setUndoStack(prev => [...prev, JSON.parse(JSON.stringify(items))]);
+
+    const fixedVal = parseFloat(bulkTssValue) || 0;
+
+    const updatedItems = items.map(it => {
+      if (!targetIds.includes(it.id)) return it;
+
+      let newTss = 0;
+      if (bulkTssMode === 'law_percentage') {
+        // TSS de ley en RD: 5.91% del salario fijo
+        const baseSalary = parseFloat(it.salario_fijo || 0);
+        newTss = Number((baseSalary * 0.0591).toFixed(2));
+      } else {
+        newTss = fixedVal;
+      }
+
+      const copy = { ...it, tss: newTss };
+
+      const totalIng = (
+        parseFloat(copy.salario_fijo || 0) +
+        parseFloat(copy.comisiones || 0) +
+        parseFloat(copy.feriados || 0) +
+        parseFloat(copy.horas_extras || 0) +
+        parseFloat(copy.otros_ingresos || 0)
+      );
+
+      const totalDesc = (
+        newTss +
+        parseFloat(copy.servicios || 0) +
+        parseFloat(copy.prestamos || 0) +
+        parseFloat(copy.ausencias || 0) +
+        parseFloat(copy.tardanzas || 0) +
+        parseFloat(copy.otros_descuentos || 0)
+      );
+
+      copy.total_ingresos = Number(totalIng.toFixed(2));
+      copy.total_descuentos = Number(totalDesc.toFixed(2));
+      copy.neto_pagar = Number((totalIng - totalDesc).toFixed(2));
+
+      return copy;
+    });
+
+    setItems(updatedItems);
+    setShowBulkTssModal(false);
+
+    setLoading(true);
+    try {
+      await dataService.savePayrollDraft({
+        payroll_id: currentPeriod.id,
+        items: updatedItems,
+        status: currentPeriod.status || 'En preparación',
+        reason: bulkTssMode === 'law_percentage'
+          ? `Recálculo masivo de TSS al 5.91% de ley (${targetIds.length} colaboradores)`
+          : `Asignación masiva de TSS fijo RD$ ${fixedVal.toFixed(2)} (${targetIds.length} colaboradores)`,
+        user_name: 'Administrador'
+      });
+
+      showNotification(
+        bulkTssMode === 'law_percentage'
+          ? `¡TSS recalculado al 5.91% de ley para ${targetIds.length} colaboradores!`
+          : `¡TSS de RD$ ${fixedVal.toLocaleString('es-DO', { minimumFractionDigits: 2 })} asignado a ${targetIds.length} colaboradores!`,
+        'success'
+      );
+      await loadPeriodDetail(currentPeriod.id);
+    } catch (err) {
+      showNotification('Error guardando cambios de TSS: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -1203,7 +1299,42 @@ export default function PayrollModule({ initialTab }) {
                     <th style={{ background: '#eff6ff', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#1d4ed8', borderRight: '1px solid #dbeafe' }}>Total Ingresos</th>
 
                     {/* Columnas Descuentos */}
-                    <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>TSS (Ley)</th>
+                    <th style={{ background: '#fffafb', padding: '0.45rem 0.6rem', textAlign: 'right', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.35rem' }}>
+                        <span>TSS (Ley)</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBulkTssValue('591.00');
+                            setBulkTssMode('fixed');
+                            setBulkTssScope('all');
+                            setShowBulkTssModal(true);
+                          }}
+                          title="Asignar el mismo valor de TSS masivo a todos los empleados"
+                          style={{
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            border: '1px solid #fca5a5',
+                            borderRadius: '6px',
+                            padding: '2px 5px',
+                            fontSize: '0.65rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '2px',
+                            lineHeight: 1,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#fecaca'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                        >
+                          <Sliders size={10} />
+                          <span>Fijar</span>
+                        </button>
+                      </div>
+                    </th>
                     <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Servicios</th>
                     <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Préstamos</th>
                     <th style={{ background: '#fffafb', padding: '0.6rem 0.75rem', textAlign: 'right' }}>Ausencias</th>
@@ -2112,6 +2243,234 @@ export default function PayrollModule({ initialTab }) {
                     }}
                   >
                     Confirmar y Aplicar
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MODAL: ASIGNACIÓN MASIVA DE TSS (LEY) */}
+      {/* ========================================================================= */}
+      <AnimatePresence>
+        {showBulkTssModal && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1.5rem'
+          }}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              style={{
+                background: '#ffffff',
+                borderRadius: '24px',
+                width: '100%',
+                maxWidth: '560px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                padding: '2rem'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#fef2f2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Sliders size={22} />
+                  </div>
+                  <div>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
+                      Asignación Masiva de TSS (Ley)
+                    </h2>
+                    <p style={{ color: '#64748b', fontSize: '0.8rem', margin: '0.2rem 0 0 0' }}>
+                      Establece un valor uniforme de TSS o recalcula la tasa oficial de Ley.
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowBulkTssModal(false)}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleApplyBulkTss} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {/* Modo de asignación */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                    Modo de Operación
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setBulkTssMode('fixed')}
+                      style={{
+                        padding: '0.75rem 0.5rem',
+                        borderRadius: '12px',
+                        border: bulkTssMode === 'fixed' ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                        background: bulkTssMode === 'fixed' ? '#fef2f2' : '#ffffff',
+                        color: bulkTssMode === 'fixed' ? '#991b1b' : '#475569',
+                        fontWeight: 800,
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '0.2rem'
+                      }}
+                    >
+                      <span>Monto Fijo Uniforme</span>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.8 }}>Mismo valor a todos</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBulkTssMode('law_percentage')}
+                      style={{
+                        padding: '0.75rem 0.5rem',
+                        borderRadius: '12px',
+                        border: bulkTssMode === 'law_percentage' ? '2px solid #0284c7' : '1px solid #cbd5e1',
+                        background: bulkTssMode === 'law_percentage' ? '#f0f9ff' : '#ffffff',
+                        color: bulkTssMode === 'law_percentage' ? '#0369a1' : '#475569',
+                        fontWeight: 800,
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '0.2rem'
+                      }}
+                    >
+                      <span>Cálculo Automático Ley</span>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.8 }}>5.91% de salario base</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Input de Monto Fijo si está en modo fixed */}
+                {bulkTssMode === 'fixed' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                      Valor de TSS a Asignar (RD$)
+                    </label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      placeholder="591.00"
+                      value={bulkTssValue}
+                      onChange={(e) => setBulkTssValue(e.target.value)}
+                      style={{ 
+                        width: '100%', 
+                        padding: '0.75rem 1rem', 
+                        borderRadius: '12px', 
+                        border: '1px solid #cbd5e1', 
+                        fontWeight: 900,
+                        fontSize: '1.1rem',
+                        color: '#b91c1c'
+                      }}
+                      required
+                    />
+
+                    {/* Botones de valores rápidos comunes */}
+                    <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>Valores rápidos:</span>
+                      {['591.00', '561.45', '600.00', '0.00'].map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setBulkTssValue(val)}
+                          style={{
+                            background: bulkTssValue === val ? '#fee2e2' : '#f1f5f9',
+                            color: bulkTssValue === val ? '#991b1b' : '#334155',
+                            border: `1px solid ${bulkTssValue === val ? '#fca5a5' : '#e2e8f0'}`,
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '6px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          RD$ {val}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Alcance del cambio */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                    Aplicar a:
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#334155', cursor: 'pointer', fontWeight: 600 }}>
+                      <input 
+                        type="radio" 
+                        name="bulkTssScope" 
+                        checked={bulkTssScope === 'all'} 
+                        onChange={() => setBulkTssScope('all')} 
+                      />
+                      Todos los colaboradores del período ({items.length})
+                    </label>
+                    {selectedItemIds.length > 0 && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#334155', cursor: 'pointer', fontWeight: 600 }}>
+                        <input 
+                          type="radio" 
+                          name="bulkTssScope" 
+                          checked={bulkTssScope === 'selected'} 
+                          onChange={() => setBulkTssScope('selected')} 
+                        />
+                        Solo seleccionados ({selectedItemIds.length})
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                {/* Resumen de impacto */}
+                <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '14px', border: '1px solid #e2e8f0', fontSize: '0.84rem' }}>
+                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: '0.2rem' }}>Resumen del cambio:</div>
+                  <div style={{ color: '#475569', lineHeight: 1.4 }}>
+                    {bulkTssMode === 'law_percentage' ? (
+                      <span>Se recalculará automáticamente el <strong>5.91% de TSS legal</strong> basado en el salario fijo de cada colaborador.</span>
+                    ) : (
+                      <span>Se fijará la retención de TSS en <strong>RD$ {parseFloat(bulkTssValue || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong> a cada colaborador. Los totales de descuentos y neto a pagar se recalcularán automáticamente.</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Botones de acción */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkTssModal(false)}
+                    className="btn-secondary"
+                    style={{ padding: '0.7rem 1.5rem', borderRadius: '10px', fontWeight: 700 }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    style={{
+                      background: '#dc2626',
+                      border: 'none',
+                      color: '#ffffff',
+                      padding: '0.7rem 1.75rem',
+                      borderRadius: '10px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(220, 38, 38, 0.25)'
+                    }}
+                  >
+                    {loading ? 'Aplicando...' : 'Aplicar TSS Masivo'}
                   </button>
                 </div>
               </form>
