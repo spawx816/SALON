@@ -4,27 +4,22 @@ import { dataService } from '../utils/dataService';
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(() => {
+    try {
+      const savedUser = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {
+      if (typeof window !== 'undefined') localStorage.removeItem('salon_pro_user');
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(false);
   const [sessionTerminatedReason, setSessionTerminatedReason] = useState(null);
   const userRef = useRef(user);
 
   useEffect(() => {
     userRef.current = user;
   }, [user]);
-
-  useEffect(() => {
-    const savedUser = localStorage.getItem('salon_pro_user');
-    if (savedUser) {
-      try {
-        const parsed = JSON.parse(savedUser);
-        setUser(parsed);
-      } catch (e) {
-        localStorage.removeItem('salon_pro_user');
-      }
-    }
-    setLoading(false);
-  }, []);
 
   // Heartbeat de seguridad: valida periódicamente (y al cargar) si la sesión está activa y la auto-registra
   useEffect(() => {
