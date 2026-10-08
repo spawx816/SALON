@@ -87,10 +87,9 @@ function createDashboardRouter(pool) {
             v.metodo_pago, 
             v.servicios,
             v.client_id,
-            v.ticket_type,
             c.id as contract_id,
             c.status as contract_status,
-            cl.membership_id
+            c.plan_id as contract_plan_id
           FROM visits v
           LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
           LEFT JOIN contracts c ON (v.client_id = c.client_id AND c.status IN ('Active', 'Activo'))
@@ -145,7 +144,6 @@ function createDashboardRouter(pool) {
         const sId = visitsBreakdownBySalon[v.salon_id] ? v.salon_id : salonsData[0].id;
         const metodo = String(v.metodo_pago || '').toLowerCase();
         const serviciosStr = typeof v.servicios === 'string' ? v.servicios.toLowerCase() : JSON.stringify(v.servicios || '').toLowerCase();
-        const ticketType = String(v.ticket_type || '').toLowerCase();
         const isNamedClient = v.client_id && v.client_id !== 'INVITADO' && v.client_id !== 'generico' && v.client_id !== '0' && !String(v.client_id).startsWith('gen_');
 
         const isPlan = 
@@ -156,7 +154,6 @@ function createDashboardRouter(pool) {
           serviciosStr.includes('plan beauty') || 
           serviciosStr.includes('membres') ||
           serviciosStr.includes('lavado plan') ||
-          ticketType.includes('plan') ||
           v.contract_id !== null ||
           (isNamedClient && (Number(v.total) === 0 || metodo.includes('plan')));
 

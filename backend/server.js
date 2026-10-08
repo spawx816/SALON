@@ -753,11 +753,13 @@ app.use('/api/cardnet', createCardnetRouter(pool, {
   dgiiService 
 }));
 
-app.use('/api/dgii', createDgiiRouter(pool, {
+const dgiiRouterInstance = createDgiiRouter(pool, {
   allocateNextDgiiSequence: dgiiService.allocateNextDgiiSequence,
   buildAndSignNotaCreditoXml: dgiiService.buildAndSignNotaCreditoXml,
   generateAndTransmitNotaCredito: dgiiService.generateAndTransmitNotaCredito
-}));
+});
+app.use('/api', dgiiRouterInstance);
+app.use('/api/dgii', dgiiRouterInstance);
 
 const { router: invoicesRouter } = createInvoicesRouter(pool);
 app.use('/api/invoices', invoicesRouter);
