@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { 
   DollarSign, Users, UserX, Calendar, CreditCard, Filter, ChevronRight, 
-  MapPin, Clock, ArrowDown, ArrowUp, BarChart2, List, Banknote, Receipt, Search
+  MapPin, Clock, ArrowDown, ArrowUp, BarChart2, List, Banknote, Receipt, Search,
+  ChevronLeft, ChevronsLeft, ChevronsRight, X
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import InvoiceHistory from './InvoiceHistory';
+import { formatName } from '../../utils/formatters';
 
 const ServiceAnalytics = () => {
   const { t } = useTranslation();
@@ -18,6 +20,8 @@ const ServiceAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [activeReport, setActiveReport] = useState(searchParams.get('tab') || 'sales');
   const [clientPaymentSearch, setClientPaymentSearch] = useState('');
+  const [clientPaymentsPage, setClientPaymentsPage] = useState(1);
+  const [clientPaymentsPageSize, setClientPaymentsPageSize] = useState(25);
   
   // Sync tab with query param
   useEffect(() => {
@@ -190,34 +194,85 @@ const ServiceAnalytics = () => {
         const totalCharged = filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
         const avgTicket = filteredPayments.length > 0 ? totalCharged / filteredPayments.length : 0;
 
+        // Pagination calculations
+        const totalPages = Math.ceil(filteredPayments.length / clientPaymentsPageSize) || 1;
+        const currentPageSafe = Math.min(Math.max(1, clientPaymentsPage), totalPages);
+        const startIndex = (currentPageSafe - 1) * clientPaymentsPageSize;
+        const paginatedPayments = filteredPayments.slice(startIndex, startIndex + clientPaymentsPageSize);
+
+        // Generate visible page numbers for pagination
+        const getPageNumbers = () => {
+          const pages = [];
+          const maxVisible = 5;
+          if (totalPages <= maxVisible) {
+            for (let i = 1; i <= totalPages; i++) pages.push(i);
+          } else {
+            if (currentPageSafe <= 3) {
+              pages.push(1, 2, 3, 4, '...', totalPages);
+            } else if (currentPageSafe >= totalPages - 2) {
+              pages.push(1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+            } else {
+              pages.push(1, '...', currentPageSafe - 1, currentPageSafe, currentPageSafe + 1, '...', totalPages);
+            }
+          }
+          return pages;
+        };
+
         return (
           <div className="report-view">
+            {/* Header & Search */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
               <div>
-                <h3 style={{ margin: 0, fontWeight: 800, fontSize: '1.25rem' }}>Desglose de Cobros por Cliente</h3>
+                <h3 style={{ margin: 0, fontWeight: 800, fontSize: '1.25rem', color: 'var(--text-primary)' }}>Desglose de Cobros por Cliente</h3>
                 <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   Detalle individual de pagos y suscripciones ({startDate} al {endDate})
                 </p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <div style={{ position: 'relative' }}>
-                  <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                  <Search size={16} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
                   <input
                     type="text"
                     placeholder="Buscar cliente, teléfono, sucursal..."
                     value={clientPaymentSearch}
-                    onChange={(e) => setClientPaymentSearch(e.target.value)}
+                    onChange={(e) => {
+                      setClientPaymentSearch(e.target.value);
+                      setClientPaymentsPage(1);
+                    }}
                     style={{
-                      padding: '0.55rem 1rem 0.55rem 2.25rem',
+                      padding: '0.6rem 2.2rem 0.6rem 2.4rem',
                       borderRadius: '12px',
                       border: '1px solid var(--border-subtle)',
                       background: 'var(--bg-canvas)',
                       color: 'var(--text-primary)',
                       fontSize: '0.85rem',
                       outline: 'none',
-                      minWidth: '240px'
+                      minWidth: '260px',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
                     }}
                   />
+                  {clientPaymentSearch && (
+                    <button
+                      type="button"
+                      onClick={() => { setClientPaymentSearch(''); setClientPaymentsPage(1); }}
+                      style={{
+                        position: 'absolute',
+                        right: '0.6rem',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--text-secondary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '0.2rem'
+                      }}
+                      title="Limpiar búsqueda"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -226,7 +281,7 @@ const ServiceAnalytics = () => {
                     background: '#8b5cf6',
                     color: '#ffffff',
                     border: 'none',
-                    padding: '0.55rem 1rem',
+                    padding: '0.6rem 1.1rem',
                     borderRadius: '12px',
                     fontSize: '0.8rem',
                     fontWeight: 800,
@@ -234,7 +289,8 @@ const ServiceAnalytics = () => {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.4rem',
-                    boxShadow: '0 2px 8px rgba(139, 92, 246, 0.3)'
+                    boxShadow: '0 2px 8px rgba(139, 92, 246, 0.25)',
+                    transition: 'opacity 0.2s'
                   }}
                 >
                   <span>Actualizar</span>
@@ -242,28 +298,28 @@ const ServiceAnalytics = () => {
               </div>
             </div>
 
-            {/* Quick KPI summary */}
+            {/* Quick KPI summary cards */}
             <div style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', 
               gap: '1rem', 
               marginBottom: '1.5rem' 
             }}>
               <div style={{ 
-                background: 'linear-gradient(135deg, #09090b, #18181b)', 
+                background: 'linear-gradient(135deg, #18181b 0%, #27272a 100%)', 
                 color: 'white', 
                 padding: '1.25rem 1.5rem', 
                 borderRadius: '18px',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
+                boxShadow: '0 8px 20px rgba(0,0,0,0.12)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '1rem'
               }}>
-                <div style={{ background: 'rgba(212, 175, 55, 0.15)', padding: '0.75rem', borderRadius: '14px' }}>
-                  <DollarSign size={22} color="#d4af37" />
+                <div style={{ background: 'rgba(234, 179, 8, 0.15)', padding: '0.75rem', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <DollarSign size={22} color="#facc15" />
                 </div>
                 <div>
-                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', opacity: 0.6 }}>Total Recaudado</p>
+                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', letterSpacing: '0.04em' }}>Total Recaudado</p>
                   <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#facc15' }}>
                     RD$ {Number(totalCharged).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
@@ -271,19 +327,20 @@ const ServiceAnalytics = () => {
               </div>
 
               <div style={{ 
-                background: 'var(--bg-canvas)', 
+                background: 'var(--bg-card, #ffffff)', 
                 padding: '1.25rem 1.5rem', 
                 borderRadius: '18px',
                 border: '1px solid var(--border-subtle)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '1rem'
+                gap: '1rem',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
               }}>
-                <div style={{ background: 'rgba(139, 92, 246, 0.12)', padding: '0.75rem', borderRadius: '14px' }}>
+                <div style={{ background: 'rgba(139, 92, 246, 0.12)', padding: '0.75rem', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <CreditCard size={22} color="#8b5cf6" />
                 </div>
                 <div>
-                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Transacciones</p>
+                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Transacciones</p>
                   <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: 'var(--text-primary)' }}>
                     {filteredPayments.length} <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>cobros</span>
                   </p>
@@ -291,19 +348,20 @@ const ServiceAnalytics = () => {
               </div>
 
               <div style={{ 
-                background: 'var(--bg-canvas)', 
+                background: 'var(--bg-card, #ffffff)', 
                 padding: '1.25rem 1.5rem', 
                 borderRadius: '18px',
                 border: '1px solid var(--border-subtle)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '1rem'
+                gap: '1rem',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
               }}>
-                <div style={{ background: 'rgba(16, 185, 129, 0.12)', padding: '0.75rem', borderRadius: '14px' }}>
+                <div style={{ background: 'rgba(16, 185, 129, 0.12)', padding: '0.75rem', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Receipt size={22} color="#10b981" />
                 </div>
                 <div>
-                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Ticket Promedio</p>
+                  <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Ticket Promedio</p>
                   <p style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#10b981' }}>
                     RD$ {Number(avgTicket).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
@@ -311,75 +369,143 @@ const ServiceAnalytics = () => {
               </div>
             </div>
 
-            {/* Table */}
-            <div className="table-responsive" style={{ borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', background: 'var(--bg-card, #18181b)' }}>
+            {/* Table Container with High-Contrast Clear Theme */}
+            <div className="table-responsive" style={{ 
+              borderRadius: '16px', 
+              overflow: 'hidden', 
+              border: '1px solid var(--border-subtle)',
+              background: 'var(--bg-card, #ffffff)',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.02)'
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: 'transparent' }}>
                 <thead>
-                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-canvas, #09090b)' }}>
-                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Cliente</th>
-                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Teléfono</th>
-                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Sucursal</th>
-                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Concepto / Detalle</th>
-                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Método</th>
-                    <th style={{ padding: '1rem', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', textAlign: 'right' }}>Monto</th>
+                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-canvas, #f8fafc)' }}>
+                    <th style={{ padding: '1rem 1.25rem', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>Cliente</th>
+                    <th style={{ padding: '1rem 1.25rem', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>Teléfono</th>
+                    <th style={{ padding: '1rem 1.25rem', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>Sucursal</th>
+                    <th style={{ padding: '1rem 1.25rem', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>Concepto / Detalle</th>
+                    <th style={{ padding: '1rem 1.25rem', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>Método</th>
+                    <th style={{ padding: '1rem 1.25rem', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em', textAlign: 'right' }}>Monto</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPayments.length > 0 ? (
-                    filteredPayments.map((pay, idx) => {
+                  {paginatedPayments.length > 0 ? (
+                    paginatedPayments.map((pay, idx) => {
                       const methodClean = pay.method === 'CardNet_Recurring_Setup' ? 'CardNet' :
                                           pay.method === 'CardNet_Auto' ? 'CardNet Auto' :
                                           pay.method === 'Tarjeta_Guardada' ? 'CardNet Manual' :
                                           pay.method || 'Efectivo/POS';
                       
                       const isSirena = (pay.salon_name || '').toLowerCase().includes('sirena') || (pay.salon_name || '').toLowerCase().includes('villa mella');
+                      const formattedClient = formatName(pay.client_name || 'Consumidor Final');
 
                       return (
                         <tr 
                           key={pay.id || idx} 
                           style={{ 
                             borderBottom: '1px solid var(--border-subtle)', 
-                            background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
-                            transition: 'background 0.2s'
+                            background: idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.01)',
+                            transition: 'background 0.15s ease'
                           }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(139, 92, 246, 0.04)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.01)'}
                         >
-                          <td style={{ padding: '1rem', fontSize: '0.92rem', fontWeight: 800, color: 'var(--text-primary, #ffffff)' }}>
-                            {pay.client_name}
+                          {/* Cliente */}
+                          <td style={{ padding: '1rem 1.25rem', fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                              <div style={{ 
+                                width: '28px', 
+                                height: '28px', 
+                                borderRadius: '8px', 
+                                background: 'rgba(139, 92, 246, 0.12)', 
+                                color: '#7c3aed', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                fontSize: '0.75rem', 
+                                fontWeight: 800 
+                              }}>
+                                {formattedClient.charAt(0).toUpperCase()}
+                              </div>
+                              <span>{formattedClient}</span>
+                            </div>
                           </td>
-                          <td style={{ padding: '1rem' }}>
+
+                          {/* Teléfono */}
+                          <td style={{ padding: '1rem 1.25rem' }}>
                             <span style={{ 
                               display: 'inline-block', 
-                              padding: '0.2rem 0.6rem', 
-                              borderRadius: '6px', 
-                              background: 'rgba(255,255,255,0.08)', 
-                              fontSize: '0.82rem', 
+                              padding: '0.25rem 0.65rem', 
+                              borderRadius: '8px', 
+                              background: 'var(--bg-canvas, #f1f5f9)', 
+                              border: '1px solid var(--border-subtle)',
+                              fontSize: '0.8rem', 
                               fontFamily: 'monospace',
                               fontWeight: 600,
-                              color: 'var(--text-secondary, #a1a1aa)'
+                              color: 'var(--text-secondary)'
                             }}>
                               {pay.client_phone || 'N/D'}
                             </span>
                           </td>
-                          <td style={{ padding: '1rem', fontSize: '0.88rem', fontWeight: 700, color: isSirena ? '#38bdf8' : '#e2e8f0' }}>
-                            {pay.salon_name || 'San Vicente'}
+
+                          {/* Sucursal */}
+                          <td style={{ padding: '1rem 1.25rem' }}>
+                            <span style={{ 
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.4rem',
+                              fontSize: '0.84rem', 
+                              fontWeight: 700, 
+                              color: isSirena ? '#0284c7' : '#7c3aed',
+                              background: isSirena ? 'rgba(2, 132, 199, 0.08)' : 'rgba(124, 58, 237, 0.08)',
+                              padding: '0.25rem 0.65rem',
+                              borderRadius: '8px',
+                              border: `1px solid ${isSirena ? 'rgba(2, 132, 199, 0.2)' : 'rgba(124, 58, 237, 0.2)'}`
+                            }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isSirena ? '#0284c7' : '#7c3aed' }}></span>
+                              {pay.salon_name || 'San Vicente'}
+                            </span>
                           </td>
-                          <td style={{ padding: '1rem', fontSize: '0.86rem', color: 'var(--text-secondary, #a1a1aa)', fontStyle: 'italic' }}>
-                            {pay.description || 'Cobro de Plan / Servicio'}
+
+                          {/* Concepto / Detalle */}
+                          <td style={{ padding: '1rem 1.25rem', fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                              <span style={{ fontWeight: 600 }}>{pay.description || 'Cobro de Plan / Servicio'}</span>
+                            </div>
                           </td>
-                          <td style={{ padding: '1rem' }}>
+
+                          {/* Método */}
+                          <td style={{ padding: '1rem 1.25rem' }}>
                             <span style={{ 
                               display: 'inline-block',
                               fontSize: '0.78rem', 
                               padding: '0.25rem 0.65rem', 
                               borderRadius: '8px', 
                               fontWeight: 700,
-                              background: methodClean.includes('CardNet') ? 'rgba(139, 92, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)',
-                              color: methodClean.includes('CardNet') ? '#c084fc' : '#34d399'
+                              background: methodClean.toLowerCase().includes('cardnet') || methodClean.toLowerCase().includes('tarjeta') 
+                                ? 'rgba(139, 92, 246, 0.12)' 
+                                : methodClean.toLowerCase().includes('efectivo')
+                                ? 'rgba(16, 185, 129, 0.12)'
+                                : 'rgba(59, 130, 246, 0.12)',
+                              color: methodClean.toLowerCase().includes('cardnet') || methodClean.toLowerCase().includes('tarjeta') 
+                                ? '#7c3aed' 
+                                : methodClean.toLowerCase().includes('efectivo')
+                                ? '#059669'
+                                : '#2563eb',
+                              border: `1px solid ${
+                                methodClean.toLowerCase().includes('cardnet') || methodClean.toLowerCase().includes('tarjeta')
+                                  ? 'rgba(139, 92, 246, 0.25)'
+                                  : methodClean.toLowerCase().includes('efectivo')
+                                  ? 'rgba(16, 185, 129, 0.25)'
+                                  : 'rgba(59, 130, 246, 0.25)'
+                              }`
                             }}>
                               {methodClean}
                             </span>
                           </td>
-                          <td style={{ padding: '1rem', fontSize: '0.95rem', fontWeight: 900, textAlign: 'right', color: 'var(--text-primary, #ffffff)' }}>
+
+                          {/* Monto */}
+                          <td style={{ padding: '1rem 1.25rem', fontSize: '0.96rem', fontWeight: 900, textAlign: 'right', color: 'var(--text-primary)' }}>
                             RD$ {Number(pay.amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
@@ -387,13 +513,180 @@ const ServiceAnalytics = () => {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={6} style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                        No se encontraron cobros registrados para el rango de fechas y filtros seleccionados.
+                      <td colSpan={6} style={{ padding: '3.5rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                          <Search size={32} style={{ opacity: 0.3 }} />
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>No se encontraron cobros</p>
+                          <p style={{ margin: 0, fontSize: '0.8rem', opacity: 0.7 }}>Prueba ajustando el rango de fechas o los términos de búsqueda.</p>
+                        </div>
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+
+              {/* Pagination Controls */}
+              {filteredPayments.length > 0 && (
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  padding: '1rem 1.25rem', 
+                  borderTop: '1px solid var(--border-subtle)',
+                  background: 'var(--bg-canvas, #f8fafc)',
+                  flexWrap: 'wrap',
+                  gap: '1rem'
+                }}>
+                  {/* Left: Range Info */}
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    Mostrando <strong style={{ color: 'var(--text-primary)' }}>{startIndex + 1}</strong> - <strong style={{ color: 'var(--text-primary)' }}>{Math.min(startIndex + clientPaymentsPageSize, filteredPayments.length)}</strong> de <strong style={{ color: 'var(--text-primary)' }}>{filteredPayments.length}</strong> cobros
+                  </div>
+
+                  {/* Center: Page Size Selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                    <span>Filas por página:</span>
+                    <select
+                      value={clientPaymentsPageSize}
+                      onChange={(e) => {
+                        setClientPaymentsPageSize(Number(e.target.value));
+                        setClientPaymentsPage(1);
+                      }}
+                      style={{
+                        padding: '0.35rem 0.6rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-subtle)',
+                        background: 'var(--bg-card, #ffffff)',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value={15}>15</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+
+                  {/* Right: Page Buttons */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <button
+                      type="button"
+                      disabled={currentPageSafe === 1}
+                      onClick={() => setClientPaymentsPage(1)}
+                      title="Primera Página"
+                      style={{
+                        padding: '0.35rem 0.5rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-subtle)',
+                        background: 'var(--bg-card, #ffffff)',
+                        color: currentPageSafe === 1 ? 'var(--border-subtle)' : 'var(--text-primary)',
+                        cursor: currentPageSafe === 1 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: currentPageSafe === 1 ? 0.5 : 1
+                      }}
+                    >
+                      <ChevronsLeft size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={currentPageSafe === 1}
+                      onClick={() => setClientPaymentsPage(prev => Math.max(1, prev - 1))}
+                      title="Página Anterior"
+                      style={{
+                        padding: '0.35rem 0.5rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-subtle)',
+                        background: 'var(--bg-card, #ffffff)',
+                        color: currentPageSafe === 1 ? 'var(--border-subtle)' : 'var(--text-primary)',
+                        cursor: currentPageSafe === 1 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: currentPageSafe === 1 ? 0.5 : 1
+                      }}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+
+                    {getPageNumbers().map((p, pIdx) => {
+                      if (p === '...') {
+                        return <span key={`ellipsis-${pIdx}`} style={{ padding: '0.2rem 0.4rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>...</span>;
+                      }
+                      const isAct = p === currentPageSafe;
+                      return (
+                        <button
+                          key={`page-${p}`}
+                          type="button"
+                          onClick={() => setClientPaymentsPage(p)}
+                          style={{
+                            minWidth: '32px',
+                            height: '32px',
+                            padding: '0 0.4rem',
+                            borderRadius: '8px',
+                            border: isAct ? 'none' : '1px solid var(--border-subtle)',
+                            background: isAct ? '#8b5cf6' : 'var(--bg-card, #ffffff)',
+                            color: isAct ? '#ffffff' : 'var(--text-primary)',
+                            fontWeight: isAct ? 800 : 600,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      disabled={currentPageSafe === totalPages}
+                      onClick={() => setClientPaymentsPage(prev => Math.min(totalPages, prev + 1))}
+                      title="Página Siguiente"
+                      style={{
+                        padding: '0.35rem 0.5rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-subtle)',
+                        background: 'var(--bg-card, #ffffff)',
+                        color: currentPageSafe === totalPages ? 'var(--border-subtle)' : 'var(--text-primary)',
+                        cursor: currentPageSafe === totalPages ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: currentPageSafe === totalPages ? 0.5 : 1
+                      }}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={currentPageSafe === totalPages}
+                      onClick={() => setClientPaymentsPage(totalPages)}
+                      title="Última Página"
+                      style={{
+                        padding: '0.35rem 0.5rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-subtle)',
+                        background: 'var(--bg-card, #ffffff)',
+                        color: currentPageSafe === totalPages ? 'var(--border-subtle)' : 'var(--text-primary)',
+                        cursor: currentPageSafe === totalPages ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        opacity: currentPageSafe === totalPages ? 0.5 : 1
+                      }}
+                    >
+                      <ChevronsRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
