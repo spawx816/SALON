@@ -127,15 +127,19 @@ ${itemsXml}
   }
 
   async function allocateNextDgiiSequence(tipo = 'E34') {
+    const connection = await pool.getConnection();
     try {
-      const [batches] = await pool.query(
+      await connection.beginTransaction();
+
+      const [batches] = await connection.query(
         `SELECT * FROM dgii_ncf_sequences 
          WHERE tipo_comprobante = ? AND estado = 'Activo' AND cantidad_usada < cantidad_aprobada 
-         ORDER BY id ASC LIMIT 1`,
+         ORDER BY id ASC LIMIT 1 FOR UPDATE`,
         [tipo]
       );
 
       if (batches.length === 0) {
+        await connection.rollback();
         console.warn(`⚠️ [DGII NCF] No hay secuencias ${tipo} activas con saldo disponible.`);
         return null;
       }
@@ -151,18 +155,22 @@ ${itemsXml}
       const newSecuenciaActual = currentAssignedNum;
       const newEstado = newCantidadUsada >= seq.cantidad_aprobada ? 'Agotado' : 'Activo';
 
-      await pool.query(
+      await connection.query(
         `UPDATE dgii_ncf_sequences 
          SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
          WHERE id = ?`,
         [newCantidadUsada, newSecuenciaActual, newEstado, seq.id]
       );
 
-      console.log(`✅ [DGII NOTA CRÉDITO SECUENCIA]: Asignado ${encfNumber} (Usados ${newCantidadUsada}/${seq.cantidad_aprobada})`);
+      await connection.commit();
+      console.log(`✅ [DGII NOTA CRÉDITO SECUENCIA ATÓMICA]: Asignado ${encfNumber} (Usados ${newCantidadUsada}/${seq.cantidad_aprobada})`);
       return encfNumber;
     } catch (err) {
+      await connection.rollback();
       console.error('[DGII ALLOCATE SEQUENCE ERROR]:', err);
       return null;
+    } finally {
+      connection.release();
     }
   }
 

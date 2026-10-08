@@ -344,62 +344,77 @@ function createVisitsRouter(pool, deps = {}) {
 
       const targetType = (requestedType || (clientRnc ? 'E31' : 'E32')).toUpperCase();
       
-      const [batches] = await pool.query(
-        `SELECT * FROM dgii_ncf_sequences 
-         WHERE estado = 'Activo' AND cantidad_usada < cantidad_aprobada 
-         ORDER BY (tipo_comprobante = ?) DESC, (tipo_comprobante = 'E32') DESC, (tipo_comprobante = 'E31') DESC, id ASC 
-         LIMIT 1`,
-        [targetType]
-      );
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
 
-      if (batches.length === 0) {
-        console.warn('[DGII NCF] No hay secuencias e-NCF activas con saldo disponible en dgii_ncf_sequences.');
-        return null;
+        const [batches] = await connection.query(
+          `SELECT * FROM dgii_ncf_sequences 
+           WHERE estado = 'Activo' AND cantidad_usada < cantidad_aprobada 
+           ORDER BY (tipo_comprobante = ?) DESC, (tipo_comprobante = 'E32') DESC, (tipo_comprobante = 'E31') DESC, id ASC 
+           LIMIT 1 FOR UPDATE`,
+          [targetType]
+        );
+
+        if (batches.length === 0) {
+          await connection.rollback();
+          console.warn('[DGII NCF] No hay secuencias e-NCF activas con saldo disponible en dgii_ncf_sequences.');
+          return null;
+        }
+
+        const seq = batches[0];
+        const prefix = seq.tipo_comprobante || seq.numero_desde.slice(0, 3);
+        const rawSeqStr = seq.numero_desde.slice(prefix.length);
+        const startNum = parseInt(rawSeqStr, 10) || 1;
+        const currentAssignedNum = startNum + seq.cantidad_usada;
+        const encfNumber = prefix + String(currentAssignedNum).padStart(10, '0');
+
+        const newCantidadUsada = seq.cantidad_usada + 1;
+        const newSecuenciaActual = currentAssignedNum;
+        const newEstado = newCantidadUsada >= seq.cantidad_aprobada ? 'Agotado' : 'Activo';
+
+        await connection.query(
+          `UPDATE dgii_ncf_sequences 
+           SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
+           WHERE id = ?`,
+          [newCantidadUsada, newSecuenciaActual, newEstado, seq.id]
+        );
+
+        const securityCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+        const emisorRnc = '131917038';
+        const totalFormatted = Number(totalAmount || 0).toFixed(2);
+        const qrUrl = seq.tipo_comprobante === 'E32'
+          ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&CodigoSeguridad=${securityCode}`
+          : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${clientRnc || ''}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&FechaEmision=02-10-2026&FechaFirma=02-10-2026&CodigoSeguridad=${securityCode}`;
+
+        await connection.query(
+          `UPDATE visits 
+           SET ncf = ?, ncf_type = ?, ncf_name = ?, rnc_cliente = ?, rzn_soc_cliente = ?, codigo_seguridad_ecf = ?, qr_code_url = ? 
+           WHERE id = ?`,
+          [encfNumber, seq.tipo_comprobante, seq.nombre_comprobante, clientRnc || null, clientRazonSocial || null, securityCode, qrUrl, visitId]
+        );
+
+        await connection.commit();
+        console.log(`✅ [DGII e-NCF Asignado Atómicamente]: ${encfNumber} (${seq.nombre_comprobante}) para Factura/Visita ${visitId}.`);
+
+        return {
+          ncf: encfNumber,
+          ncf_type: seq.tipo_comprobante,
+          ncf_name: seq.nombre_comprobante,
+          codigo_seguridad: securityCode,
+          qr_code_url: qrUrl,
+          secuencia_id: seq.id,
+          secuencia_actual: newSecuenciaActual,
+          cantidad_usada: newCantidadUsada,
+          cantidad_aprobada: seq.cantidad_aprobada,
+          cantidad_restante: seq.cantidad_aprobada - newCantidadUsada
+        };
+      } catch (allocErr) {
+        await connection.rollback();
+        throw allocErr;
+      } finally {
+        connection.release();
       }
-
-      const seq = batches[0];
-      const prefix = seq.tipo_comprobante || seq.numero_desde.slice(0, 3);
-      const rawSeqStr = seq.numero_desde.slice(prefix.length);
-      const startNum = parseInt(rawSeqStr, 10) || 1;
-      const currentAssignedNum = startNum + seq.cantidad_usada;
-      const encfNumber = prefix + String(currentAssignedNum).padStart(10, '0');
-
-      const newCantidadUsada = seq.cantidad_usada + 1;
-      const newSecuenciaActual = currentAssignedNum;
-      const newEstado = newCantidadUsada >= seq.cantidad_aprobada ? 'Agotado' : 'Activo';
-
-      await pool.query(
-        `UPDATE dgii_ncf_sequences 
-         SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
-         WHERE id = ?`,
-        [newCantidadUsada, newSecuenciaActual, newEstado, seq.id]
-      );
-
-      const securityCode = crypto.randomBytes(3).toString('hex').toUpperCase();
-      const emisorRnc = '131917038';
-      const totalFormatted = Number(totalAmount || 0).toFixed(2);
-      const qrUrl = seq.tipo_comprobante === 'E32'
-        ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&CodigoSeguridad=${securityCode}`
-        : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${clientRnc || ''}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&FechaEmision=02-10-2026&FechaFirma=02-10-2026&CodigoSeguridad=${securityCode}`;
-
-      await pool.query(
-        `UPDATE visits 
-         SET ncf = ?, ncf_type = ?, ncf_name = ?, rnc_cliente = ?, rzn_soc_cliente = ?, codigo_seguridad_ecf = ?, qr_code_url = ? 
-         WHERE id = ?`,
-        [encfNumber, seq.tipo_comprobante, seq.nombre_comprobante, clientRnc || null, clientRazonSocial || null, securityCode, qrUrl, visitId]
-      );
-
-      console.log(`✅ [DGII e-NCF Asignado]: ${encfNumber} (${seq.nombre_comprobante}) para Factura/Visita ${visitId}.`);
-
-      return {
-        ncf: encfNumber,
-        ncf_type: seq.tipo_comprobante,
-        ncf_name: seq.nombre_comprobante,
-        codigo_seguridad: securityCode,
-        qr_code_url: qrUrl,
-        secuencia_id: seq.id,
-        cantidad_disponible: seq.cantidad_aprobada - newCantidadUsada
-      };
     } catch (err) {
       console.error('[DGII NCF ASSIGN ERROR]:', err);
       return null;
