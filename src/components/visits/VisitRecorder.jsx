@@ -4493,20 +4493,20 @@ const VisitRecorder = () => {
                   try {
                     const empId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '');
                     const empObj = employees.find(e => String(e.id) === empId || e.nombre === (clientFound?.nombre || clientFound?.name));
-                    const email = empObj?.email || '';
-                    const res = await fetch('/api/employees/nomina-otp', {
+                    const email = empObj?.email || clientFound?.email || '';
+                    const res = await fetch('/api/nomina-otp', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ employee_id: empObj?.id || empId, email, amount: finalTotalAmount })
                     });
-                    const data = await res.json();
+                    const data = await res.json().catch(() => ({}));
                     if (res.ok && data.success) {
                       setNominaOtpSent(true);
                     } else {
-                      setNominaOtpError(data.error || 'Error enviando código al correo.');
+                      setNominaOtpError(data.error || 'Error enviando código de autorización al correo.');
                     }
                   } catch (err) {
-                    setNominaOtpError('Error de red.');
+                    setNominaOtpError(err.message || 'Error de comunicación con el servidor.');
                   } finally {
                     setNominaOtpSending(false);
                   }
@@ -4654,12 +4654,12 @@ const VisitRecorder = () => {
                       try {
                         const empId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '');
                         const empObj = employees.find(e => String(e.id) === empId || e.nombre === (clientFound?.nombre || clientFound?.name));
-                        const res = await fetch('/api/employees/verify-nomina-otp', {
+                        const res = await fetch('/api/verify-nomina-otp', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ employee_id: empObj?.id || empId, pin: nominaOtpValue })
                         });
-                        const data = await res.json();
+                        const data = await res.json().catch(() => ({}));
                         if (res.ok && data.success) {
                           setShowNominaModal(false);
                           // Execute checkout with nomina payment method
@@ -4667,10 +4667,10 @@ const VisitRecorder = () => {
                           setAppliedPayments(nomina_payment);
                           await executeCheckout(nomina_payment);
                         } else {
-                          setNominaOtpError(data.error || 'C\u00f3digo incorrecto. Intenta nuevamente.');
+                          setNominaOtpError(data.error || 'Código incorrecto. Intenta nuevamente.');
                         }
                       } catch (err) {
-                        setNominaOtpError('Error de red.');
+                        setNominaOtpError(err.message || 'Error de comunicación con el servidor.');
                       } finally {
                         setNominaOtpVerifying(false);
                       }

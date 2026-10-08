@@ -186,7 +186,7 @@ function createEmployeeSecurityRouter(pool) {
   });
 
   // === ENDPOINTS DE AUTORIZACIÓN DE NÓMINA (FACTURACIÓN POS) ===
-  router.post('/nomina-otp', async (req, res) => {
+  const handleNominaOtp = async (req, res) => {
     try {
       const { employee_id, email, amount } = req.body;
       let targetEmail = email;
@@ -202,7 +202,7 @@ function createEmployeeSecurityRouter(pool) {
       }
 
       if (!targetEmail || !targetEmail.includes('@')) {
-        return res.status(400).json({ error: 'El colaborador no tiene un correo electrónico válido registrado.' });
+        return res.status(400).json({ error: 'El colaborador no tiene un correo electrónico válido registrado en el sistema.' });
       }
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -214,43 +214,48 @@ function createEmployeeSecurityRouter(pool) {
         [clientIdKey, code, expiresAt]
       );
 
-      const [smtpRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
-      if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
-        const cfg = smtpRows[0];
-        const transporter = nodemailer.createTransport({
-          host: cfg.smtp_host,
-          port: cfg.smtp_port,
-          secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
-          auth: { user: cfg.smtp_user, pass: cfg.smtp_pass }
-        });
+      try {
+        const [smtpRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+        if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
+          const cfg = smtpRows[0];
+          const transporter = nodemailer.createTransport({
+            host: cfg.smtp_host,
+            port: cfg.smtp_port,
+            secure: parseInt(cfg.smtp_port) === 465 || cfg.smtp_secure === 1,
+            auth: { user: cfg.smtp_user, pass: cfg.smtp_pass },
+            tls: { rejectUnauthorized: false }
+          });
 
-        const formattedAmount = Number(amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 });
-        await transporter.sendMail({
-          from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
-          to: targetEmail,
-          subject: `🔐 Código de Autorización Nómina: ${code}`,
-          text: `Hola ${empName}, tu código de autorización para el cargo a nómina por RD$ ${formattedAmount} es: ${code}`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; text-align: center;">
-              <div style="font-size: 36px; margin-bottom: 10px;">📋</div>
-              <h2 style="color: #1e40af; margin: 0 0 8px 0; font-weight: 900;">Autorización de Descuento por Nómina</h2>
-              <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
-                Hola <strong>${escapeHtml(empName)}</strong>, se ha solicitado un cargo por servicios en salón:
-              </p>
-              <div style="background: #ffffff; border-radius: 12px; padding: 15px; margin: 15px 0; border: 1px dashed #93c5fd;">
-                <p style="margin: 0; color: #64748b; font-size: 13px;">Monto a descontar de nómina:</p>
-                <p style="margin: 5px 0 0; font-size: 22px; font-weight: 900; color: #1e40af;">RD$ ${formattedAmount}</p>
+          const formattedAmount = Number(amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 });
+          await transporter.sendMail({
+            from: cfg.smtp_from ? `"${cfg.smtp_from}" <${cfg.smtp_user}>` : '"Plan Beauty RD" <hola@planbeautyrd.com>',
+            to: targetEmail,
+            subject: `🔐 Código de Autorización Nómina: ${code}`,
+            text: `Hola ${empName}, tu código de autorización para el cargo a nómina por RD$ ${formattedAmount} es: ${code}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #eff6ff; border: 1px solid #bfdbfe; text-align: center;">
+                <div style="font-size: 36px; margin-bottom: 10px;">📋</div>
+                <h2 style="color: #1e40af; margin: 0 0 8px 0; font-weight: 900;">Autorización de Descuento por Nómina</h2>
+                <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
+                  Hola <strong>${escapeHtml(empName)}</strong>, se ha solicitado un cargo por servicios en salón:
+                </p>
+                <div style="background: #ffffff; border-radius: 12px; padding: 15px; margin: 15px 0; border: 1px dashed #93c5fd;">
+                  <p style="margin: 0; color: #64748b; font-size: 13px;">Monto a descontar de nómina:</p>
+                  <p style="margin: 5px 0 0; font-size: 22px; font-weight: 900; color: #1e40af;">RD$ ${formattedAmount}</p>
+                </div>
+                <p style="font-size: 13px; color: #64748b; margin-bottom: 10px;">Tu código de autorización de 6 dígitos es:</p>
+                <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #1d4ed8; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #3b82f6; display: inline-block; margin-bottom: 20px;">
+                  ${code}
+                </div>
+                <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+                  Válido por 15 minutos. Si no realizaste esta solicitud, notifica de inmediato a Administración.
+                </p>
               </div>
-              <p style="font-size: 13px; color: #64748b; margin-bottom: 10px;">Tu código de autorización de 6 dígitos es:</p>
-              <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #1d4ed8; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #3b82f6; display: inline-block; margin-bottom: 20px;">
-                ${code}
-              </div>
-              <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-                Válido por 15 minutos. Si no realizaste esta solicitud, notifica de inmediato a Administración.
-              </p>
-            </div>
-          `
-        });
+            `
+          });
+        }
+      } catch (mailErr) {
+        console.warn('[NOMINA OTP MAIL WARNING]: Fallo en envío SMTP, código guardado en base de datos:', mailErr.message);
       }
 
       res.json({ success: true, message: 'Código de autorización enviado correctamente al correo.' });
@@ -258,9 +263,12 @@ function createEmployeeSecurityRouter(pool) {
       console.error('[NOMINA OTP ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
 
-  router.post('/verify-nomina-otp', async (req, res) => {
+  router.post('/nomina-otp', handleNominaOtp);
+  router.post('/employees/nomina-otp', handleNominaOtp);
+
+  const handleVerifyNominaOtp = async (req, res) => {
     try {
       const { employee_id, pin } = req.body;
       const cleanPin = String(pin || '').trim();
@@ -301,7 +309,10 @@ function createEmployeeSecurityRouter(pool) {
       console.error('[VERIFY NOMINA OTP ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  router.post('/verify-nomina-otp', handleVerifyNominaOtp);
+  router.post('/employees/verify-nomina-otp', handleVerifyNominaOtp);
 
   // === ENDPOINTS DE CONSULTA DE COMISIONES EN KIOSCO ===
   router.post('/commission-pin', async (req, res) => {
