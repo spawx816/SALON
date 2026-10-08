@@ -83,6 +83,75 @@ function createEmployeesRouter(pool) {
     }
   };
 
+  // Helper de sincronización bidireccional: Personal RRHH (staff_records) -> Usuarios de Acceso (users)
+  async function syncStaffToUser(staffData, oldStaffRecord = null) {
+    try {
+      const { 
+        nombre, email, salon_id, profile_photo, hora_entrada, hora_salida, 
+        dias_laborables, tolerancia_minutos, status 
+      } = staffData;
+
+      const cleanNombre = (nombre || '').trim();
+      const cleanEmail = (email && String(email).trim()) ? String(email).trim() : null;
+      const cleanSalonId = (salon_id && !isNaN(parseInt(salon_id, 10))) ? parseInt(salon_id, 10) : null;
+      const cleanTolerancia = !isNaN(parseInt(tolerancia_minutos, 10)) ? parseInt(tolerancia_minutos, 10) : 15;
+
+      // Buscar usuario correspondiente por email o nombre
+      let userRecord = null;
+      if (cleanEmail) {
+        const [byEmail] = await pool.query('SELECT id FROM users WHERE email = ?', [cleanEmail]);
+        if (byEmail.length > 0) userRecord = byEmail[0];
+      }
+      if (!userRecord && oldStaffRecord?.email) {
+        const [byOldEmail] = await pool.query('SELECT id FROM users WHERE email = ?', [oldStaffRecord.email]);
+        if (byOldEmail.length > 0) userRecord = byOldEmail[0];
+      }
+      if (!userRecord && cleanNombre) {
+        const [byName] = await pool.query('SELECT id FROM users WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))', [cleanNombre]);
+        if (byName.length > 0) userRecord = byName[0];
+      }
+      if (!userRecord && oldStaffRecord?.nombre) {
+        const [byOldName] = await pool.query('SELECT id FROM users WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))', [oldStaffRecord.nombre]);
+        if (byOldName.length > 0) userRecord = byOldName[0];
+      }
+
+      if (userRecord) {
+        // Actualizar todos los datos del usuario en tiempo real
+        await pool.query(
+          `UPDATE users SET 
+            nombre = COALESCE(?, nombre),
+            email = COALESCE(?, email),
+            salon_id = ?,
+            profile_photo = COALESCE(?, profile_photo),
+            hora_entrada = ?,
+            hora_salida = ?,
+            dias_laborables = ?,
+            tolerancia_minutos = ?
+          WHERE id = ?`,
+          [
+            cleanNombre,
+            cleanEmail || null,
+            cleanSalonId,
+            profile_photo || null,
+            hora_entrada || null,
+            hora_salida || null,
+            dias_laborables || null,
+            cleanTolerancia,
+            userRecord.id
+          ]
+        );
+
+        // Si el estado del personal pasa a Inactivo / Cancelado, revocar de inmediato las sesiones activas
+        if (status && (status.toLowerCase().includes('inactiv') || status.toLowerCase().includes('cancel') || status.toLowerCase().includes('desvincul'))) {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [userRecord.id]);
+          console.log(`[RRHH -> USERS SYNC] Sesiones cerradas de forma forzosa para ${cleanNombre} (ID: ${userRecord.id}) por estado ${status}`);
+        }
+      }
+    } catch (syncErr) {
+      console.warn('[RRHH -> USERS SYNC WARN]:', syncErr.message);
+    }
+  }
+
   const handlePostStaff = async (req, res) => {
     try {
       const { 
@@ -116,6 +185,8 @@ function createEmployeesRouter(pool) {
           cleanSalarioBase
         ]
       );
+
+      await syncStaffToUser(req.body);
       res.json({ id: result.insertId, success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -159,8 +230,9 @@ function createEmployeesRouter(pool) {
       const cleanSalonId = (salon_id && !isNaN(parseInt(salon_id, 10))) ? parseInt(salon_id, 10) : null;
       const schemeIdVal = (commission_scheme_id && !isNaN(parseInt(commission_scheme_id, 10))) ? parseInt(commission_scheme_id, 10) : null;
 
-      const [current] = await pool.query('SELECT commission_scheme_id FROM staff_records WHERE id = ?', [id]);
-      const schemeChanged = current && current[0] && current[0].commission_scheme_id !== schemeIdVal;
+      const [current] = await pool.query('SELECT * FROM staff_records WHERE id = ?', [id]);
+      const oldRecord = current && current[0] ? current[0] : null;
+      const schemeChanged = oldRecord && oldRecord.commission_scheme_id !== schemeIdVal;
 
       if (schemeChanged) {
         await pool.query(
@@ -182,15 +254,10 @@ function createEmployeesRouter(pool) {
         );
       }
 
-      if (cleanEmail && cleanNombre) {
-        try {
-          await pool.query('UPDATE users SET email = ? WHERE nombre = ? AND (email != ? OR email IS NULL)', [cleanEmail, cleanNombre, cleanEmail]);
-        } catch (uErr) {
-          console.warn('[RRHH] Could not sync user email:', uErr.message);
-        }
-      }
+      // Sincronizar automáticamente hacia el registro de usuario en users y user_sessions
+      await syncStaffToUser(req.body, oldRecord);
 
-      res.json({ success: true, message: 'Ficha actualizada correctamente' });
+      res.json({ success: true, message: 'Ficha actualizada y sincronizada correctamente con usuarios' });
     } catch (err) {
       console.error('Error updating staff record:', err);
       res.status(500).json({ error: err.message });
@@ -199,8 +266,22 @@ function createEmployeesRouter(pool) {
 
   const handleDeleteStaff = async (req, res) => {
     try {
-      await pool.query('DELETE FROM staff_records WHERE id = ?', [req.params.id]);
-      res.json({ success: true });
+      const { id } = req.params;
+      const [staffRows] = await pool.query('SELECT nombre, email FROM staff_records WHERE id = ?', [id]);
+      const staff = staffRows[0];
+
+      if (staff) {
+        // Cerrar forzosamente cualquier sesión activa del usuario eliminado
+        if (staff.email) {
+          await pool.query('UPDATE user_sessions s JOIN users u ON s.user_id = u.id SET s.is_active = 0 WHERE u.email = ?', [staff.email]);
+        }
+        if (staff.nombre) {
+          await pool.query('UPDATE user_sessions s JOIN users u ON s.user_id = u.id SET s.is_active = 0 WHERE LOWER(TRIM(u.nombre)) = LOWER(TRIM(?))', [staff.nombre]);
+        }
+      }
+
+      await pool.query('DELETE FROM staff_records WHERE id = ?', [id]);
+      res.json({ success: true, message: 'Colaborador eliminado y sesiones revocadas' });
     } catch (err) {
       console.error('Error deleting staff record:', err);
       res.status(500).json({ error: err.message });
