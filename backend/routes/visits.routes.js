@@ -628,9 +628,14 @@ function createVisitsRouter(pool, deps = {}) {
         await pool.query('UPDATE visits SET cash_register_id = ? WHERE id = ?', [activeRegId, id]);
 
         if (Array.isArray(applied_payments) && applied_payments.length > 0) {
+          const devueltaVal = parseFloat(devuelta) || 0;
           for (const p of applied_payments) {
-            const pAmt = parseFloat(p.amount) || 0;
+            let pAmt = parseFloat(p.amount) || 0;
             const pMethod = p.method || 'Efectivo';
+            // Si es efectivo y se dio devuelta en pago único o supera el total de la factura, registrar el valor neto real que queda en caja
+            if (pMethod.toLowerCase().includes('efectivo') && devueltaVal > 0 && applied_payments.length === 1) {
+              pAmt = Math.max(0, pAmt - devueltaVal);
+            }
             if (pAmt > 0 || pMethod.toLowerCase().includes('plan')) {
               await pool.query(
                 `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)

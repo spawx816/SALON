@@ -468,6 +468,227 @@ const WeeklyBilling8BarsChart = ({ billingData, onRefresh }) => {
   );
 };
 
+const VisitasPorLocalidadChart = ({ data, onRefresh }) => {
+  // Default values matching sample design if no visits exist
+  const defaultLocations = [
+    { rank: '01', salon_name: 'Sucursal A', visits: 500, percentage: 50, color: '#0066ff' },
+    { rank: '02', salon_name: 'Sucursal B', visits: 300, percentage: 30, color: '#3b82f6' },
+    { rank: '03', salon_name: 'Sucursal C', visits: 200, percentage: 20, color: '#93c5fd' }
+  ];
+
+  const now = new Date();
+  const monthNamesLong = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+  const currentMonthLabel = `${monthNamesLong[now.getMonth()]} ${now.getFullYear()}`;
+
+  const locations = (data?.locations && data.locations.length > 0)
+    ? data.locations
+    : defaultLocations;
+
+  const totalVisits = data !== null && data !== undefined ? Number(data.totalVisits || 0) : 1000;
+  const monthLabel = data?.monthLabel || currentMonthLabel;
+
+  // Donut SVG Math
+  const cx = 110;
+  const cy = 110;
+  const R = 86; // outer radius
+  const r = 50; // inner radius
+
+  let accumulatedPercent = 0;
+
+  const slices = locations.map((loc) => {
+    const pct = loc.percentage || 0;
+    const startPct = accumulatedPercent;
+    const endPct = accumulatedPercent + pct;
+    accumulatedPercent += pct;
+
+    const startAngle = (startPct / 100) * 2 * Math.PI - Math.PI / 2;
+    const endAngle = (endPct / 100) * 2 * Math.PI - Math.PI / 2;
+
+    const x1 = cx + R * Math.cos(startAngle);
+    const y1 = cy + R * Math.sin(startAngle);
+    const x2 = cx + R * Math.cos(endAngle);
+    const y2 = cy + R * Math.sin(endAngle);
+
+    const x3 = cx + r * Math.cos(endAngle);
+    const y3 = cy + r * Math.sin(endAngle);
+    const x4 = cx + r * Math.cos(startAngle);
+    const y4 = cy + r * Math.sin(startAngle);
+
+    const largeArc = pct > 50 ? 1 : 0;
+    const pathData = pct >= 99.9
+      ? `M ${cx} ${cy - R} A ${R} ${R} 0 1 1 ${cx - 0.01} ${cy - R} L ${cx - 0.01} ${cy - r} A ${r} ${r} 0 1 0 ${cx} ${cy - r} Z`
+      : `M ${x1} ${y1} A ${R} ${R} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${r} ${r} 0 ${largeArc} 0 ${x4} ${y4} Z`;
+
+    const midAngle = (startAngle + endAngle) / 2;
+    const midR = (R + r) / 2;
+    const textX = cx + midR * Math.cos(midAngle);
+    const textY = cy + midR * Math.sin(midAngle) + 4; // subtle baseline adjustment
+
+    return {
+      ...loc,
+      pathData,
+      textX,
+      textY,
+      showText: pct >= 8
+    };
+  });
+
+  return (
+    <div className="surface-card" style={{
+      background: '#ffffff',
+      borderRadius: '24px',
+      border: '1px solid #e2e8f0',
+      boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
+      padding: '1.75rem',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      height: '100%'
+    }}>
+      {/* Header */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.02em' }}>
+              Visitas por localidad
+            </h3>
+            <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: '#64748b', fontWeight: 500 }}>
+              Acumulado del mes en curso
+            </p>
+          </div>
+
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            padding: '0.4rem 0.8rem',
+            borderRadius: '10px',
+            border: '1px solid #e2e8f0',
+            background: '#ffffff',
+            fontSize: '0.78rem',
+            fontWeight: 700,
+            color: '#334155'
+          }}>
+            <CalendarCheck size={14} color="#64748b" />
+            <span>{monthLabel}</span>
+          </div>
+        </div>
+
+        {/* Content: Donut + Ranking */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(190px, 220px) 1fr', gap: '1.5rem', alignItems: 'center', margin: '0.5rem 0 1.25rem' }}>
+          
+          {/* Left: Donut SVG */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
+            <svg width="220" height="220" viewBox="0 0 220 220" style={{ overflow: 'visible' }}>
+              {slices.map((s, idx) => (
+                <g key={idx}>
+                  <path
+                    d={s.pathData}
+                    fill={s.color}
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
+                    style={{ transition: 'all 0.3s ease' }}
+                  />
+                  {s.showText && (
+                    <text
+                      x={s.textX}
+                      y={s.textY}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="11.5"
+                      fontWeight="800"
+                      style={{ pointerEvents: 'none', userSelect: 'none' }}
+                    >
+                      {s.percentage} %
+                    </text>
+                  )}
+                </g>
+              ))}
+
+              {/* Center Content */}
+              <text x={cx} y={cy - 2} textAnchor="middle" fill="#09090b" fontSize="22" fontWeight="900" letterSpacing="-0.03em">
+                {Number(totalVisits).toLocaleString()}
+              </text>
+              <text x={cx} y={cy + 17} textAnchor="middle" fill="#64748b" fontSize="9.5" fontWeight="600">
+                Visitas este mes
+              </text>
+            </svg>
+          </div>
+
+          {/* Right: Participación por sucursal */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>
+              Participación por sucursal
+            </h4>
+
+            {locations.map((loc, idx) => (
+              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', minWidth: '18px' }}>
+                      {loc.rank || String(idx + 1).padStart(2, '0')}
+                    </span>
+                    <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: loc.color || '#0066ff', display: 'inline-block' }} />
+                    <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
+                      {loc.salon_name}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontWeight: 800, color: '#09090b', fontSize: '0.9rem' }}>
+                      {Number(loc.visits || 0).toLocaleString()}
+                    </span>
+                    <span style={{
+                      background: '#eff6ff',
+                      color: '#0066ff',
+                      fontWeight: 800,
+                      fontSize: '0.75rem',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '6px'
+                    }}>
+                      {loc.percentage || 0} %
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar track */}
+                <div style={{ width: '100%', height: '7px', background: '#f1f5f9', borderRadius: '999px', overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${Math.min(Math.max(loc.percentage || 0, 0), 100)}%`,
+                    height: '100%',
+                    background: loc.color || '#0066ff',
+                    borderRadius: '999px',
+                    transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingTop: '0.75rem',
+        borderTop: '1px solid #f1f5f9',
+        fontSize: '0.72rem',
+        color: '#94a3b8',
+        fontWeight: 600
+      }}>
+        <span>De mayor a menor · Mes en curso</span>
+        <span>{data?.totalVisits > 0 ? 'Datos en vivo' : 'Datos de ejemplo'}</span>
+      </div>
+    </div>
+  );
+};
+
 const MetricCard = ({ title, value, trend, icon: Icon, color = '#09090b', bg = '#f8fafc', onViewDetails }) => (
   <div className="surface-card" style={{ border: '1px solid var(--border-subtle)', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', position: 'relative', overflow: 'hidden' }}>
     <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: color }}></div>
@@ -522,6 +743,7 @@ const Dashboard = () => {
   const [recentVisits, setRecentVisits] = useState([]);
   const [allVisits, setAllVisits] = useState([]);
   const [planUsages, setPlanUsages] = useState([]);
+  const [visitsByLocation, setVisitsByLocation] = useState(null);
   const [trafficData, setTrafficData] = useState([]);
   const [billingComparison, setBillingComparison] = useState(null);
   const [securityRequests, setSecurityRequests] = useState([]);
@@ -567,6 +789,13 @@ const Dashboard = () => {
     }
   };
 
+  const fetchVisitsByLocation = async () => {
+    const data = await dataService.getVisitsByLocation();
+    if (data) {
+      setVisitsByLocation(data);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       const summary = await dataService.getDashboardSummary();
@@ -597,6 +826,7 @@ const Dashboard = () => {
     load();
     fetchSecurity();
     fetchBillingComparison();
+    fetchVisitsByLocation();
     
     // Auto-refresh security requests every 10 seconds
     const interval = setInterval(fetchSecurity, 10000);
@@ -792,66 +1022,10 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Grid: Uso de Servicios por Plan & Visitas Recientes */}
+      {/* Grid: Visitas por localidad & Visitas Recientes */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
-        {/* Plan Usage Section */}
-        <div className="surface-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <div className="chart-header" style={{ marginBottom: '1.25rem' }}>
-            <div>
-              <h3 className="chart-title">Uso de Servicios por Plan</h3>
-              <p className="chart-subtitle">Clientes atendidos con suscripción este mes</p>
-            </div>
-          </div>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: '460px', paddingRight: '0.25rem' }} className="hide-scrollbar">
-            {planUsages.length > 0 ? planUsages.map((usage, idx) => (
-              <div key={idx} style={{ 
-                padding: '1.25rem', 
-                border: '1px solid #e2e8f0', 
-                borderRadius: '16px',
-                backgroundColor: 'white',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-              }}>
-                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <div style={{ width: '36px', height: '36px', background: '#f8fafc', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#09090b', border: '1px solid #f1f5f9' }}>
-                    <Award size={18} />
-                  </div>
-                  <div>
-                    <h4 style={{ fontWeight: '800', margin: 0, color: '#09090b', fontSize: '0.95rem' }}>
-                      {usage.plan_name}
-                    </h4>
-                  </div>
-                </div>
-                <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '1rem', fontWeight: 500 }}>
-                  Incluye: {usage.plan_services?.join(', ') || 'N/A'}
-                </p>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  <div style={{ background: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
-                    <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: '800', letterSpacing: '0.05em', margin: 0 }}>
-                      Clientes
-                    </p>
-                    <p style={{ fontSize: '1.35rem', fontWeight: '800', color: '#0f172a', margin: '0.2rem 0 0' }}>
-                      {usage.unique_clients_used}
-                    </p>
-                  </div>
-                  <div style={{ background: '#f0fdf4', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid #dcfce7' }}>
-                    <p style={{ fontSize: '0.65rem', textTransform: 'uppercase', color: '#166534', fontWeight: '800', letterSpacing: '0.05em', margin: 0 }}>
-                      Servicios (Visitas)
-                    </p>
-                    <p style={{ fontSize: '1.35rem', fontWeight: '800', color: '#14532d', margin: '0.2rem 0 0' }}>
-                      {usage.total_visits}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )) : (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#71717a', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
-                No hay clientes que hayan utilizado sus planes este mes.
-              </div>
-            )}
-          </div>
-        </div>
+        {/* Visitas por Localidad Donut & Ranking */}
+        <VisitasPorLocalidadChart data={visitsByLocation} onRefresh={fetchVisitsByLocation} />
 
         {/* Recent Traffic */}
         <div className="surface-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

@@ -17,6 +17,19 @@ const CajaInvoicesModal = ({
 }) => {
   if (!isOpen) return null;
 
+  const activeInvoices = cajaInvoices.filter(inv => inv.status !== 'Anulado');
+  const totals = activeInvoices.reduce((acc, inv) => {
+    const amt = Number(inv.total || 0);
+    const m = (inv.metodo_pago || 'Efectivo').toLowerCase();
+    acc.total += amt;
+    if (m.includes('efectivo')) acc.efectivo += amt;
+    else if (m.includes('tarjeta')) acc.tarjeta += amt;
+    else if (m.includes('transferencia')) acc.transferencia += amt;
+    else if (m.includes('plan')) acc.planBeauty += amt;
+    else acc.otros += amt;
+    return acc;
+  }, { total: 0, efectivo: 0, tarjeta: 0, transferencia: 0, planBeauty: 0, otros: 0 });
+
   return (
     <div style={{
       position: 'fixed',
@@ -34,7 +47,7 @@ const CajaInvoicesModal = ({
       <div style={{
         background: '#ffffff',
         width: '100%',
-        maxWidth: '900px',
+        maxWidth: '920px',
         maxHeight: '88vh',
         borderRadius: '20px',
         display: 'flex',
@@ -75,6 +88,45 @@ const CajaInvoicesModal = ({
             <X size={22} />
           </button>
         </div>
+
+        {/* Resumen rápido de totales desglosados */}
+        {cajaInvoices.length > 0 && !loadingCajaInvoices && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gap: '0.5rem',
+            padding: '0.75rem 1.25rem',
+            background: '#f8fafc',
+            borderBottom: '1px solid #e2e8f0'
+          }}>
+            <div style={{ background: '#ecfdf5', padding: '0.5rem 0.75rem', borderRadius: '10px', border: '1px solid #a7f3d0' }}>
+              <span style={{ fontSize: '0.65rem', color: '#047857', fontWeight: 800, textTransform: 'uppercase' }}>💵 Efectivo</span>
+              <p style={{ margin: '0.1rem 0 0', fontSize: '0.95rem', fontWeight: 900, color: '#065f46' }}>
+                RD$ {totals.efectivo.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+            <div style={{ background: '#eff6ff', padding: '0.5rem 0.75rem', borderRadius: '10px', border: '1px solid #bfdbfe' }}>
+              <span style={{ fontSize: '0.65rem', color: '#1d4ed8', fontWeight: 800, textTransform: 'uppercase' }}>💳 Tarjeta</span>
+              <p style={{ margin: '0.1rem 0 0', fontSize: '0.95rem', fontWeight: 900, color: '#1e40af' }}>
+                RD$ {totals.tarjeta.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+            {totals.transferencia > 0 && (
+              <div style={{ background: '#faf5ff', padding: '0.5rem 0.75rem', borderRadius: '10px', border: '1px solid #e9d5ff' }}>
+                <span style={{ fontSize: '0.65rem', color: '#7e22ce', fontWeight: 800, textTransform: 'uppercase' }}>🏦 Transferencia</span>
+                <p style={{ margin: '0.1rem 0 0', fontSize: '0.95rem', fontWeight: 900, color: '#6b21a8' }}>
+                  RD$ {totals.transferencia.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+            )}
+            <div style={{ background: '#0f172a', padding: '0.5rem 0.75rem', borderRadius: '10px' }}>
+              <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase' }}>🧾 Total Facturado</span>
+              <p style={{ margin: '0.1rem 0 0', fontSize: '0.95rem', fontWeight: 900, color: '#ffffff' }}>
+                RD$ {totals.total.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Invoices Table Body */}
         <div style={{ padding: '1.25rem', overflowY: 'auto', flex: 1 }}>

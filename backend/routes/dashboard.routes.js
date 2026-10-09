@@ -371,6 +371,80 @@ function createDashboardRouter(pool) {
     }
   });
 
+  // === VISITAS POR LOCALIDAD (Acumulado del mes en curso) ===
+  router.get('/visits-by-location', async (req, res) => {
+    try {
+      const now = new Date();
+      const year = req.query.year ? parseInt(req.query.year) : now.getFullYear();
+      const month = req.query.month ? parseInt(req.query.month) : (now.getMonth() + 1);
+
+      // Salons
+      const [salons] = await pool.query('SELECT id, name FROM salons ORDER BY id ASC');
+      
+      // Query visits for the month grouped by salon_id
+      const [visitRows] = await pool.query(`
+        SELECT 
+          COALESCE(v.salon_id, cl.salon_id, 1) as salon_id,
+          COUNT(v.id) as visit_count
+        FROM visits v
+        LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
+        WHERE (MONTH(v.visited_at) = ? AND YEAR(v.visited_at) = ?)
+           OR (MONTH(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = ? AND YEAR(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = ?)
+        GROUP BY COALESCE(v.salon_id, cl.salon_id, 1)
+      `, [month, year, month, year]);
+
+      const visitMap = {};
+      let totalVisits = 0;
+      visitRows.forEach(r => {
+        const count = Number(r.visit_count) || 0;
+        visitMap[r.salon_id] = (visitMap[r.salon_id] || 0) + count;
+        totalVisits += count;
+      });
+
+      const monthNamesLong = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+      ];
+      const monthLabel = `${monthNamesLong[month - 1]} ${year}`;
+
+      const salonsData = salons.length > 0 ? salons : [{ id: 1, name: 'Sede Principal' }];
+      let results = salonsData.map(s => {
+        const count = visitMap[s.id] || 0;
+        return {
+          salon_id: s.id,
+          salon_name: s.name,
+          visits: count
+        };
+      });
+
+      // Sort descending (De mayor a menor)
+      results.sort((a, b) => b.visits - a.visits);
+
+      // Calculate percentages
+      const colors = ['#0066ff', '#3b82f6', '#93c5fd', '#60a5fa', '#38bdf8', '#0284c7'];
+      let remainingPct = 100;
+
+      results = results.map((item, idx) => {
+        const pct = totalVisits > 0 ? Math.round((item.visits / totalVisits) * 100) : 0;
+        return {
+          ...item,
+          rank: String(idx + 1).padStart(2, '0'),
+          percentage: pct,
+          color: colors[idx % colors.length]
+        };
+      });
+
+      res.json({
+        monthLabel,
+        totalVisits,
+        locations: results
+      });
+    } catch (err) {
+      console.error('Error in /api/dashboard/visits-by-location:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // === PLAN USAGES ===
   router.get('/plan-usage', async (req, res) => {
     try {

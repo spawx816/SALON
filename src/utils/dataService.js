@@ -1023,6 +1023,20 @@ export const dataService = {
     } catch { return null; }
   },
 
+  getVisitsByLocation: async (month = null, year = null) => {
+    try {
+      let url = `${API_URL}/dashboard/visits-by-location`;
+      const params = new URLSearchParams();
+      if (month) params.append('month', month);
+      if (year) params.append('year', year);
+      if (params.toString()) url += `?${params.toString()}`;
+      
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch { return null; }
+  },
+
   getAnalyticsReports: async (salonId = 'all', startDate = null, endDate = null) => {
     try {
       let url = `${API_URL}/reports/analytics?salon_id=${salonId}`;
@@ -2180,6 +2194,139 @@ export const dataService = {
     }
   },
 
+  // DGII Reporte 606 (Compras y Gastos)
+  getReporte606: async (periodo, extraParams = {}) => {
+    try {
+      const params = new URLSearchParams({
+        periodo: periodo || '',
+        ...extraParams
+      });
+      const res = await fetch(`${API_URL}/dgii/report-606?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          success: true,
+          header: data.header || {
+            empresa: 'ETEREAS SRL',
+            rnc: '131917038',
+            periodo: periodo || '',
+            cantidad_registros: data.records ? data.records.length : 0,
+            facturas_por_revisar: 0,
+            fecha_impresion: new Date().toLocaleDateString('es-DO')
+          },
+          records: Array.isArray(data.records) ? data.records : [],
+          totals: data.totals || {}
+        };
+      }
+      return {
+        success: false,
+        error: 'Error al consultar Reporte 606',
+        header: {
+          empresa: 'ETEREAS SRL',
+          rnc: '131917038',
+          periodo: periodo || '',
+          cantidad_registros: 0,
+          facturas_por_revisar: 0,
+          fecha_impresion: new Date().toLocaleDateString('es-DO')
+        },
+        records: [],
+        totals: {}
+      };
+    } catch (e) {
+      console.error('Error fetching Reporte 606:', e);
+      return {
+        success: false,
+        error: e.message,
+        header: {
+          empresa: 'ETEREAS SRL',
+          rnc: '131917038',
+          periodo: periodo || '',
+          cantidad_registros: 0,
+          facturas_por_revisar: 0,
+          fecha_impresion: new Date().toLocaleDateString('es-DO')
+        },
+        records: [],
+        totals: {}
+      };
+    }
+  },
+
+  createReporte606Record: async (recordData) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recordData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar factura 606');
+      return data;
+    } catch (e) {
+      console.error('Error creating 606 record:', e);
+      throw e;
+    }
+  },
+
+  updateReporte606Record: async (id, recordData) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recordData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar factura 606');
+      return data;
+    } catch (e) {
+      console.error('Error updating 606 record:', e);
+      throw e;
+    }
+  },
+
+  deleteReporte606Record: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al eliminar factura 606');
+      return data;
+    } catch (e) {
+      console.error('Error deleting 606 record:', e);
+      throw e;
+    }
+  },
+
+  validateReporte606Period: async (periodo) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606/validate-period`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periodo })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al validar período 606');
+      return data;
+    } catch (e) {
+      console.error('Error validating 606 period:', e);
+      throw e;
+    }
+  },
+
+  searchReporte606Supplier: async (rnc) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606/search-supplier/${encodeURIComponent(rnc)}`);
+      if (res.ok) return await res.json();
+      return { found: false };
+    } catch {
+      return { found: false };
+    }
+  },
+
+  getReporte606TxtUrl: (periodo) => {
+    return `${API_URL}/dgii/report-606/export-txt?periodo=${periodo || ''}`;
+  },
+
   // === NÓMINA Y REGALÍAS (PAYROLL) ===
   getPayrollPeriods: async () => {
     try {
@@ -2595,6 +2742,103 @@ export const dataService = {
       console.error('Error deleting payroll period:', e);
       throw e;
     }
+  },
+
+  // DGII 606 Compras y Gastos
+  getReporte606: async (periodo, params = {}) => {
+    try {
+      const query = new URLSearchParams({
+        periodo: periodo || '',
+        search: params.search || ''
+      }).toString();
+      const res = await fetch(`${API_URL}/dgii/report-606?${query}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Error ${res.status}`);
+      }
+      return await res.json();
+    } catch (e) {
+      console.error('Error in getReporte606:', e);
+      throw e;
+    }
+  },
+
+  searchReporte606Supplier: async (rnc) => {
+    try {
+      const clean = encodeURIComponent(String(rnc).trim());
+      const res = await fetch(`${API_URL}/dgii/report-606/search-supplier/${clean}`);
+      if (!res.ok) return { found: false };
+      return await res.json();
+    } catch (e) {
+      console.error('Error searching 606 supplier:', e);
+      return { found: false };
+    }
+  },
+
+  createReporte606Record: async (payload) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error registrando factura en 606');
+      return data;
+    } catch (e) {
+      console.error('Error in createReporte606Record:', e);
+      throw e;
+    }
+  },
+
+  updateReporte606Record: async (id, payload) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error actualizando factura en 606');
+      return data;
+    } catch (e) {
+      console.error('Error in updateReporte606Record:', e);
+      throw e;
+    }
+  },
+
+  deleteReporte606Record: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error eliminando factura de 606');
+      return data;
+    } catch (e) {
+      console.error('Error in deleteReporte606Record:', e);
+      throw e;
+    }
+  },
+
+  validateReporte606Period: async (periodo) => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/report-606/validate-period`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periodo })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error validando período 606');
+      return data;
+    } catch (e) {
+      console.error('Error in validateReporte606Period:', e);
+      throw e;
+    }
+  },
+
+  getReporte606TxtUrl: (periodo) => {
+    return `${API_URL}/dgii/report-606/export-txt?periodo=${encodeURIComponent(periodo || '')}`;
   }
 };
 

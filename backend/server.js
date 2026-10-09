@@ -23,6 +23,7 @@ const { createCommissionsRouter } = require('./routes/commissions.routes');
 const { createMarketingRouter } = require('./routes/marketing.routes');
 const { createAttendanceRouter } = require('./routes/attendance.routes');
 const { createDgiiRouter } = require('./routes/dgii.routes');
+const { createDgii606Router } = require('./routes/dgii_606.routes');
 const { createEmployeeSecurityRouter } = require('./routes/employee_security.routes');
 const { createGiftsSurveysRouter, sendSurveyEmail: sendSurveyEmailHelper } = require('./routes/gifts_surveys.routes');
 const { createCardnetRouter } = require('./routes/cardnet.routes');
@@ -760,6 +761,10 @@ const dgiiRouterInstance = createDgiiRouter(pool, {
 });
 app.use('/api', dgiiRouterInstance);
 app.use('/api/dgii', dgiiRouterInstance);
+
+const dgii606Router = createDgii606Router(pool);
+app.use('/api/dgii/report-606', dgii606Router);
+app.use('/api/dgii-606', dgii606Router);
 
 const { router: invoicesRouter } = createInvoicesRouter(pool);
 app.use('/api/invoices', invoicesRouter);

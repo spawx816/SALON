@@ -3004,13 +3004,20 @@ const VisitRecorder = () => {
       const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
       const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
 
+      const sanitizedAppliedPayments = activePayments.map(p => {
+        if (activePayments.length === 1 && p.method === 'Efectivo') {
+          return { ...p, amount: finalTotalAmount };
+        }
+        return p;
+      });
+
       const checkoutRes = await dataService.checkoutTicket(ticketIdToUse, {
         total: finalTotalAmount,
         monto_recibido: finalMontoRecibido,
         devuelta: finalDevuelta,
         metodo_pago: finalMetodoPago,
         items_detail: lineItems,
-        applied_payments: activePayments,
+        applied_payments: sanitizedAppliedPayments,
         client_id: finalClientId,
         client_name: finalClientName,
         salon_id: salonId,
