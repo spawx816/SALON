@@ -10,58 +10,29 @@ const express = require('express');
 function createCommissionsRouter(pool, processVisitCommissions) {
   const router = express.Router();
 
-  // --- Listado general y métricas de comisiones ---
-  router.get('/', async (req, res) => {
+  // --- Sincronización manual / background de comisiones ---
+  router.post('/sync', async (req, res) => {
     try {
-      // Auto-sync missing commissions from Facturado visits
-      try {
-        // Auto-clean any commissions for employees who currently do not have a commission scheme assigned, or legacy fallback records
-        await pool.query(`
-          DELETE c FROM employee_commissions_log c
-          LEFT JOIN staff_records s ON (c.employee_id = s.id OR c.employee_name = s.nombre)
-          WHERE (s.commission_scheme_id IS NULL OR s.commission_scheme_id = 0 OR c.rule_applied_description = 'Categoría Base')
-        `);
-
+      if (typeof processVisitCommissions === 'function') {
         const [visitsToProcess] = await pool.query(`
           SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
           FROM visits v 
-          WHERE v.status = 'Facturado' 
-            AND v.items_detail IS NOT NULL 
-          ORDER BY v.visited_at DESC 
-          LIMIT 200
+          WHERE v.status = 'Facturado' AND v.items_detail IS NOT NULL 
+          ORDER BY v.visited_at DESC LIMIT 200
         `);
-        if (typeof processVisitCommissions === 'function') {
-          for (const uv of visitsToProcess) {
-            await processVisitCommissions(uv.id, uv.items_detail, uv.ticket_number, uv.visited_at);
-          }
+        for (const uv of visitsToProcess) {
+          await processVisitCommissions(uv.id, uv.items_detail, uv.ticket_number, uv.visited_at);
         }
-      } catch(syncErr) {
-        console.warn('[COMMISSIONS SYNC WARN]:', syncErr.message);
       }
+      res.json({ success: true, message: 'Comisiones sincronizadas correctamente' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-      // Quick repair for any legacy generic 'Servicio' labels
-      try {
-        const [genericCheck] = await pool.query("SELECT id, visit_id, ticket_number, employee_id FROM employee_commissions_log WHERE service_name = 'Servicio' OR service_name IS NULL LIMIT 50");
-        for (const row of genericCheck) {
-          const [vr] = await pool.query("SELECT items_detail, servicios FROM visits WHERE id = ? OR ticket_number = ?", [row.visit_id, row.ticket_number]);
-          if (vr.length > 0) {
-            let matchedName = null;
-            if (vr[0].items_detail) {
-              try {
-                const items = typeof vr[0].items_detail === 'string' ? JSON.parse(vr[0].items_detail) : vr[0].items_detail;
-                if (Array.isArray(items)) {
-                  const match = items.find(i => (i.empleado_id && String(i.empleado_id) === String(row.employee_id)) || (i.employee_id && String(i.employee_id) === String(row.employee_id))) || items[0];
-                  if (match) matchedName = match.nombre || match.servicio || match.name || match.service_name;
-                }
-              } catch (e) {}
-            }
-            if (matchedName && matchedName !== 'Servicio') {
-              await pool.query("UPDATE employee_commissions_log SET service_name = ? WHERE id = ?", [matchedName, row.id]);
-            }
-          }
-        }
-      } catch(e) {}
-
+  // --- Listado general y métricas de comisiones (Ultra-rápido) ---
+  router.get('/', async (req, res) => {
+    try {
       const { start_date, end_date, employee_id, status, service_name, localidad } = req.query;
 
       let query = `
