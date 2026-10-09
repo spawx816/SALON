@@ -138,6 +138,7 @@ function createVisitsRouter(pool, deps = {}) {
         let commissionType = 'Porcentaje';
         let commissionVal = 0.00;
         let ruleDesc = '';
+        let earnedCommission = 0.00;
 
         // Fetch service details (category)
         const [srvRows] = await pool.query(
