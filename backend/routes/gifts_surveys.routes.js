@@ -7,21 +7,36 @@ const fs = require('fs');
 /**
  * Utility function to send satisfaction survey email to client
  */
+/**
+ * Utility function to send satisfaction survey email to client
+ */
 async function sendSurveyEmail(pool, clientId, clientName, clientEmail) {
   console.log(`[Survey Email] Preparing to send to ${clientEmail} (Client: ${clientId})`);
   try {
-    const [settings] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+    const [settings] = await pool.query('SELECT * FROM email_settings ORDER BY id ASC LIMIT 1');
     if (settings.length === 0 || !settings[0].smtp_host) {
       console.warn("[Survey Email] No SMTP settings found.");
       return;
     }
 
     const s = settings[0];
-    const [clients] = await pool.query('SELECT cedula FROM clients WHERE id = ?', [clientId]);
-    const clientCedula = clients.length > 0 ? clients[0].cedula : clientId;
+    const [clients] = await pool.query('SELECT id, cedula, nombre, email FROM clients WHERE id = ? OR cedula = ? LIMIT 1', [clientId, clientId]);
+    const foundClient = clients.length > 0 ? clients[0] : null;
+    const clientCedula = foundClient?.cedula || clientId;
+    const finalName = clientName || foundClient?.nombre || 'Estimada clienta';
+    const finalEmail = clientEmail || foundClient?.email;
 
-    const pendingId = Math.floor(Date.now() / 1000);
-    await pool.query('INSERT INTO pending_surveys (id, client_id) VALUES (?, ?)', [pendingId, clientId]);
+    if (!finalEmail) {
+      console.warn(`[Survey Email] No email available for client ${clientId}. Skipped.`);
+      return;
+    }
+
+    const pendingId = Date.now().toString();
+    // Insert new pending survey record or ensure it exists with Pending status
+    await pool.query(
+      'INSERT INTO pending_surveys (id, client_id, status, created_at) VALUES (?, ?, "Pending", NOW()) ON DUPLICATE KEY UPDATE status = "Pending", created_at = NOW()',
+      [pendingId, clientId]
+    );
 
     const transporter = nodemailer.createTransport({
       host: s.smtp_host,
@@ -32,35 +47,36 @@ async function sendSurveyEmail(pool, clientId, clientName, clientEmail) {
       family: 4
     });
 
-    const portalLink = `https://planbeautyrd.com/encuesta?cedula=${clientCedula}`;
+    const portalLink = `https://planbeautyrd.com/encuesta?cedula=${encodeURIComponent(clientCedula)}`;
 
     await transporter.sendMail({
-      from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
-      to: clientEmail,
-      subject: '✨ Cuéntanos tu experiencia en PLAN BEAUTY',
+      from: `"${s.smtp_from || 'ABATTE PELUQUERÍA / PLAN BEAUTY'}" <${s.smtp_user}>`,
+      to: finalEmail,
+      subject: '✨ Cuéntanos tu experiencia en ABATTE PELUQUERÍA / PLAN BEAUTY',
       html: `
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background-color: #ffffff;">
           <div style="background-color: #000000; padding: 40px 30px; text-align: center;">
-            <h1 style="margin: 0; font-size: 26px; color: #ffffff !important;">¡Gracias por visitarnos!</h1>
+            <p style="color: #ffffff; text-transform: uppercase; font-size: 11px; letter-spacing: 2px; margin: 0 0 8px 0; font-weight: 700;">ABATTE PELUQUERÍA & PLAN BEAUTY</p>
+            <h1 style="margin: 0; font-size: 24px; color: #ffffff !important; font-weight: 900;">¡Gracias por visitarnos!</h1>
           </div>
           <div style="padding: 30px; color: #1e293b; line-height: 1.6;">
-            <p style="color: #1e293b;">Hola <strong>${clientName}</strong>,</p>
-            <p style="color: #1e293b;">Gracias por confiar en <strong>PLAN BEAUTY</strong>. Fue un placer atenderte y ser parte de tu experiencia de belleza ✨</p>
-            <p style="color: #1e293b;">Tu opinión es muy importante para nosotros, ya que nos ayuda a seguir mejorando cada detalle de nuestro servicio.</p>
-            <p style="color: #1e293b;">Te invitamos a completar nuestra breve encuesta en el siguiente enlace:</p>
+            <p style="color: #1e293b; font-size: 16px;">Hola <strong>${finalName}</strong>,</p>
+            <p style="color: #1e293b;">Gracias por confiar en <strong>ABATTE PELUQUERÍA</strong>. Fue un verdadero placer atenderte y brindarte la mejor experiencia de belleza ✨</p>
+            <p style="color: #1e293b;">Tu opinión es sumamente importante para nosotros y nos ayuda a perfeccionar cada detalle de nuestro servicio.</p>
+            <p style="color: #1e293b;">Por favor, tómate un minuto para completar nuestra breve encuesta de satisfacción:</p>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${portalLink}" style="background-color: #000000; color: #ffffff !important; padding: 14px 28px; border-radius: 12px; text-decoration: none; font-weight: bold; display: inline-block;">Completar Encuesta</a>
+              <a href="${portalLink}" style="background-color: #000000; color: #ffffff !important; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 800; display: inline-block; font-size: 15px; letter-spacing: 0.5px;">Completar Encuesta</a>
             </div>
-            <p style="color: #64748b; font-size: 0.9rem;">Si el botón no funciona, copia y pega este enlace: ${portalLink}</p>
+            <p style="color: #64748b; font-size: 0.85rem; word-break: break-all;">Si el botón no funciona, copia y pega este enlace en tu navegador:<br><a href="${portalLink}" style="color: #000000;">${portalLink}</a></p>
             <p style="margin-top: 40px; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 0.9rem; color: #64748b;">
               Atentamente,<br>
-              <strong>Equipo ABATTE PELUQUERÍA</strong>
+              <strong>Equipo ABATTE PELUQUERÍA / PLAN BEAUTY</strong>
             </p>
           </div>
         </div>
       `
     });
-    console.log(`[SURVEY] Email sent and record created for ${clientEmail}`);
+    console.log(`[SURVEY] Email sent and record created for ${finalEmail}`);
   } catch (err) {
     console.error('[SURVEY ERROR]', err.message);
   }
@@ -219,12 +235,56 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
   router.get('/surveys/pending/:clientId', async (req, res) => {
     try {
       const { clientId } = req.params;
+      const cleanCedula = String(clientId).replace(/\D/g, '');
       const [rows] = await pool.query(
-        'SELECT id FROM pending_surveys WHERE client_id = ? AND status = "Pending" LIMIT 1',
-        [clientId]
+        `SELECT ps.id 
+         FROM pending_surveys ps
+         LEFT JOIN clients c ON ps.client_id = c.id
+         WHERE (ps.client_id = ? OR ps.client_id = ? OR c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?)
+           AND ps.status = "Pending" 
+         ORDER BY ps.created_at DESC LIMIT 1`,
+        [clientId, cleanCedula, clientId, cleanCedula]
       );
       res.json({ hasPending: rows.length > 0 });
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Manual dispatch or resend survey endpoint
+  router.post('/surveys/send', async (req, res) => {
+    try {
+      const { clientId, clientName, clientEmail } = req.body;
+      if (!clientId && !clientEmail) {
+        return res.status(400).json({ error: 'Se requiere especificar clientId o clientEmail' });
+      }
+
+      let targetEmail = clientEmail;
+      let targetName = clientName;
+      let targetId = clientId;
+
+      if (!targetEmail && clientId) {
+        const cleanCedula = String(clientId).replace(/\D/g, '');
+        const [c] = await pool.query(
+          `SELECT id, nombre, email, cedula FROM clients 
+           WHERE id = ? OR cedula = ? OR REPLACE(cedula, '-', '') = ? LIMIT 1`,
+          [clientId, clientId, cleanCedula]
+        );
+        if (c.length > 0) {
+          targetEmail = c[0].email;
+          targetName = targetName || c[0].nombre;
+          targetId = c[0].id;
+        }
+      }
+
+      if (!targetEmail || !targetEmail.trim()) {
+        return res.status(400).json({ error: 'La clienta no tiene un correo electrónico registrado válido' });
+      }
+
+      await sendSurveyEmail(pool, targetId || 'INVITADO', targetName || 'Estimada clienta', targetEmail.trim());
+      res.json({ success: true, message: `Encuesta de satisfacción enviada con éxito a ${targetEmail.trim()}` });
+    } catch (err) {
+      console.error('[API RESEND SURVEY ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
   });
@@ -233,10 +293,11 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
     try {
       const id = Date.now().toString();
       const { clientId, responses } = req.body;
+      const cleanCedula = clientId ? String(clientId).replace(/\D/g, '') : '';
 
       const [visits] = await pool.query(
-        'SELECT salon_id, empleado_peluquera, empleado_lava_pelo, empleado_manicurista FROM visits WHERE client_id = ? ORDER BY visited_at DESC LIMIT 1',
-        [clientId]
+        'SELECT salon_id, empleado_peluquera, empleado_lava_pelo, empleado_manicurista FROM visits WHERE client_id = ? OR client_id = ? ORDER BY visited_at DESC LIMIT 1',
+        [clientId, cleanCedula]
       );
       
       const v = visits[0] || {};
@@ -251,7 +312,13 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
         ]
       );
 
-      await pool.query('UPDATE pending_surveys SET status = "Completed" WHERE client_id = ? AND status = "Pending"', [clientId]);
+      await pool.query(
+        `UPDATE pending_surveys ps
+         LEFT JOIN clients c ON ps.client_id = c.id
+         SET ps.status = "Completed" 
+         WHERE (ps.client_id = ? OR ps.client_id = ? OR c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?) AND ps.status = "Pending"`,
+        [clientId, cleanCedula, clientId, cleanCedula]
+      );
 
       res.json({ id, success: true });
     } catch (err) {

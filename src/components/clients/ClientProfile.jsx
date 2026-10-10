@@ -585,6 +585,22 @@ const ClientProfile = () => {
     }
   };
 
+  const handleSendSurveyEmail = async () => {
+    if (!client?.email) {
+      showNotification('La clienta no tiene un correo electrónico registrado.', 'error');
+      return;
+    }
+    try {
+      showNotification('Enviando encuesta de satisfacción por correo...', 'info');
+      await dataService.sendSurvey(client.id, client.nombre, client.email);
+      showNotification(`¡Encuesta enviada exitosamente a ${client.email}!`, 'success');
+      const pending = await dataService.checkPendingSurvey(client.id);
+      setPendingSurvey({ hasPending: pending });
+    } catch (err) {
+      showNotification('Error al enviar la encuesta: ' + err.message, 'error');
+    }
+  };
+
   const confirmAndStartOTP = async () => {
     if (!pendingCharge) return;
     const { amount } = pendingCharge;
@@ -1289,6 +1305,34 @@ const ClientProfile = () => {
                         <p className="stat-value" style={{ fontSize: '0.875rem', wordBreak: 'break-all', lineHeight: 1.2 }} title={client.email}>{client.email}</p>
                       </div>
                     </div>
+
+                    {client.email && (
+                      <div style={{ marginTop: '0.5rem', textAlign: 'left' }}>
+                        <button
+                          type="button"
+                          onClick={handleSendSurveyEmail}
+                          style={{
+                            width: '100%',
+                            background: '#09090b',
+                            color: 'white',
+                            border: '1px solid #27272a',
+                            borderRadius: '10px',
+                            padding: '0.5rem 0.8rem',
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.4rem',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.06)'
+                          }}
+                        >
+                          <Mail size={13} /> {pendingSurvey?.hasPending ? 'Reenviar Encuesta por Correo' : 'Enviar Encuesta de Satisfacción'}
+                        </button>
+                      </div>
+                    )}
 
                     <div className="grid-2" style={{ marginTop: '1rem' }}>
                       <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)', textAlign: 'left' }}>

@@ -722,6 +722,22 @@ export const dataService = {
     } catch { return false; }
   },
 
+  sendSurvey: async (clientId, clientName, clientEmail) => {
+    try {
+      const res = await fetch(`${API_URL}/surveys/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, clientName, clientEmail })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al enviar encuesta');
+      return data;
+    } catch (e) {
+      console.error('Error in sendSurvey:', e);
+      throw e;
+    }
+  },
+
   // OTP & Service Deduction
   generateOTP: async (clientId, clientEmail) => {
     try {

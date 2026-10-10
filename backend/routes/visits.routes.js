@@ -706,6 +706,54 @@ function createVisitsRouter(pool, deps = {}) {
       const [finalVisitRows] = await pool.query('SELECT ncf, ncf_type, ncf_name, codigo_seguridad_ecf, qr_code_url FROM visits WHERE id = ?', [id]);
       const fv = finalVisitRows[0] || {};
 
+      // Auto-dispatch satisfaction survey email if client has a registered email
+      (async () => {
+        try {
+          if (typeof sendSurveyEmail !== 'function') return;
+
+          const effectiveClientId = client_id || existing[0]?.client_id || null;
+          const effectiveClientName = client_name || existing[0]?.client_name || null;
+
+          let targetEmail = req.body.client_email || req.body.email || null;
+          let targetClientId = effectiveClientId;
+          let targetClientName = effectiveClientName;
+
+          if (!targetEmail && effectiveClientId && effectiveClientId !== 'INVITADO') {
+            const cleanId = String(effectiveClientId).replace(/\D/g, '');
+            const [cRows] = await pool.query(
+              `SELECT id, nombre, email, cedula FROM clients 
+               WHERE id = ? OR cedula = ? OR REPLACE(cedula, '-', '') = ? LIMIT 1`,
+              [effectiveClientId, effectiveClientId, cleanId]
+            );
+            if (cRows.length > 0 && cRows[0].email) {
+              targetEmail = cRows[0].email.trim();
+              targetClientId = cRows[0].id;
+              targetClientName = targetClientName || cRows[0].nombre;
+            }
+          }
+
+          if (!targetEmail && effectiveClientName && effectiveClientName !== 'Cliente General') {
+            const [cByName] = await pool.query(
+              `SELECT id, nombre, email, cedula FROM clients 
+               WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?)) AND email IS NOT NULL AND email != '' LIMIT 1`,
+              [effectiveClientName]
+            );
+            if (cByName.length > 0 && cByName[0].email) {
+              targetEmail = cByName[0].email.trim();
+              targetClientId = targetClientId || cByName[0].id;
+              targetClientName = targetClientName || cByName[0].nombre;
+            }
+          }
+
+          if (targetEmail && targetEmail.includes('@')) {
+            console.log(`[CHECKOUT SURVEY] Dispatching survey email to ${targetEmail} for ticket ${ticketNum || id}`);
+            await sendSurveyEmail(targetClientId || 'INVITADO', targetClientName || 'Estimada clienta', targetEmail);
+          }
+        } catch (surveyErr) {
+          console.error('[CHECKOUT SURVEY DISPATCH ERROR]:', surveyErr.message);
+        }
+      })().catch(e => console.error('[UNHANDLED CHECKOUT SURVEY ERROR]:', e));
+
       res.json({ 
         success: true, 
         ticketNumber: ticketNum || id,
@@ -1016,9 +1064,15 @@ function createVisitsRouter(pool, deps = {}) {
         [id, ticketNumber, clientId, clientName, JSON.stringify(servicios || []), empleadoPeluquera, empleadoManicurista, proximaFecha || null, autoReminder ? 1 : 0, salon_id || 1]
       );
 
-      const [clientData] = await pool.query('SELECT email FROM clients WHERE id = ?', [clientId]);
-      if (clientData[0]?.email && typeof sendSurveyEmail === 'function') {
-        sendSurveyEmail(clientId, clientName, clientData[0].email);
+      try {
+        const cleanId = clientId ? String(clientId).replace(/\D/g, '') : '';
+        const [clientData] = await pool.query('SELECT id, nombre, email FROM clients WHERE id = ? OR cedula = ? OR REPLACE(cedula, "-", "") = ? LIMIT 1', [clientId, clientId, cleanId]);
+        const targetEmail = req.body.client_email || clientData[0]?.email;
+        if (targetEmail && typeof sendSurveyEmail === 'function') {
+          sendSurveyEmail(clientId, clientName || clientData[0]?.nombre, targetEmail);
+        }
+      } catch (sErr) {
+        console.error('[POST /visits SURVEY DISPATCH ERROR]:', sErr.message);
       }
 
       res.json({ id, ticketNumber, success: true });

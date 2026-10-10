@@ -196,7 +196,19 @@ function createClientsRouter(pool, options = {}) {
   // GET /api/clients/cedula/:cedula
   router.get('/cedula/:cedula', async (req, res) => {
     try {
-      const [rows] = await pool.query('SELECT * FROM clients WHERE cedula = ?', [req.params.cedula]);
+      const raw = req.params.cedula;
+      const cleanCedula = String(raw).replace(/\D/g, '');
+      const [rows] = await pool.query(
+        `SELECT * FROM clients 
+         WHERE cedula = ? 
+            OR REPLACE(cedula, '-', '') = ? 
+            OR REPLACE(cedula, '-', '') = ? 
+            OR id = ? 
+            OR id = ? 
+            OR email = ?
+         LIMIT 1`,
+        [raw, raw, cleanCedula, raw, cleanCedula, raw]
+      );
       if (rows.length > 0) {
         const client = rows[0];
         if (client.fecha_nacimiento) {

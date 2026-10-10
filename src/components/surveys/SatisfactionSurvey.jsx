@@ -83,25 +83,24 @@ const SatisfactionSurvey = () => {
 
       if (cedulaToUse) {
         setIsLoading(true);
-        const cleanCedula = String(cedulaToUse).replace(/\D/g, '');
-        setSearchCedula(cleanCedula);
+        const cleanVal = String(cedulaToUse).trim();
+        setSearchCedula(cleanVal);
         try {
-          let found = await dataService.findClientByCedula(cleanCedula);
-          if (!found && cedulaToUse.includes('-')) {
-            found = await dataService.findClientByCedula(cedulaToUse);
+          let found = await dataService.findClientByCedula(cleanVal);
+          if (!found && cleanVal.replace(/\D/g, '')) {
+            found = await dataService.findClientByCedula(cleanVal.replace(/\D/g, ''));
           }
 
-            if (found) {
-              setClient(found);
-              // Check if has pending survey
-              const pending = await dataService.checkPendingSurvey(found.id);
-              setHasPending(pending);
-              
-              const visits = await dataService.getVisitsByClient(found.id);
-              if (visits.length > 0) {
-                setLastVisit(visits[visits.length - 1]);
-              }
+          if (found) {
+            setClient(found);
+            const pending = await dataService.checkPendingSurvey(found.id);
+            setHasPending(pending);
+            
+            const visits = await dataService.getVisitsByClient(found.id);
+            if (visits.length > 0) {
+              setLastVisit(visits[visits.length - 1]);
             }
+          }
         } catch (e) {
           console.error("Auto-identification failed:", e);
         } finally {
@@ -114,18 +113,30 @@ const SatisfactionSurvey = () => {
 
   const handleSearch = async (e) => {
     e.preventDefault();
+    if (!searchCedula.trim()) return;
     setIsLoading(true);
-    const found = await dataService.findClientByCedula(searchCedula);
-    if (found) {
-      setClient(found);
-      const visits = await dataService.getVisitsByClient(found.id);
-      if (visits.length > 0) {
-        setLastVisit(visits[visits.length - 1]);
+    try {
+      const cleanVal = searchCedula.trim();
+      let found = await dataService.findClientByCedula(cleanVal);
+      if (!found && cleanVal.replace(/\D/g, '')) {
+        found = await dataService.findClientByCedula(cleanVal.replace(/\D/g, ''));
       }
-    } else {
-      alert('Cliente no encontrado');
+      if (found) {
+        setClient(found);
+        const pending = await dataService.checkPendingSurvey(found.id);
+        setHasPending(pending);
+        const visits = await dataService.getVisitsByClient(found.id);
+        if (visits.length > 0) {
+          setLastVisit(visits[visits.length - 1]);
+        }
+      } else {
+        alert('Cliente no encontrado');
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const peluqueraName = lastVisit?.empleado_peluquera || lastVisit?.empleadoPeluquera || 'N/A';
