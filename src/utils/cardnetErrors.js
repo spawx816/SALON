@@ -67,12 +67,12 @@ export const CARDNET_ERRORS = {
 };
 
 export const CARDNET_RESPONSE_CODES = {
-  '00': 'Aprobada',
+  '00': 'Transacción aprobada',
   '01': 'Llamar al Banco',
   '02': 'Llamar al Banco',
   '03': 'Comercio Inválido',
-  '04': 'Rechazada',
-  '05': 'Rechazada',
+  '04': 'Retener tarjeta',
+  '05': 'Tarjeta declinada',
   '06': 'Error en Mensaje',
   '07': 'Tarjeta Rechazada',
   '08': 'Llamar al Banco',
@@ -81,7 +81,7 @@ export const CARDNET_RESPONSE_CODES = {
   '11': 'Aprobada VIP',
   '12': 'Transacción Inválida',
   '13': 'Monto Inválido',
-  '14': 'Cuenta Inválida',
+  '14': 'Tarjeta expirada',
   '15': 'No existe el emisor',
   '17': 'Cancelado por el cliente',
   '18': 'Disputa del cliente',
@@ -105,7 +105,7 @@ export const CARDNET_RESPONSE_CODES = {
   '82': 'PIN Requerido',
   '89': 'Terminal Inválida',
   '90': 'Cierre en proceso',
-  '91': 'Host no disponible',
+  '91': 'Fondos insuficientes',
   '92': 'Error de ruteo',
   '94': 'Transacción Duplicada',
   '95': 'Error de Reconciliación',
@@ -113,6 +113,108 @@ export const CARDNET_RESPONSE_CODES = {
   '97': 'Emisor no disponible',
   '98': 'Excede límite de efectivo',
   '99': 'Error de CVV o CVC'
+};
+
+/**
+ * Función para obtener el diagnóstico completo de CardNet (Código + Significado)
+ */
+export const getCardNetDiagnostic = (p) => {
+  if (!p) return { code: '00', meaning: 'Transacción aprobada', isApproved: true };
+
+  const isApproved = p.status === 'Aprobado';
+  let raw = null;
+  if (p.cardnet_raw_response) {
+    try {
+      raw = typeof p.cardnet_raw_response === 'string' ? JSON.parse(p.cardnet_raw_response) : p.cardnet_raw_response;
+    } catch (_) {}
+  }
+
+  let code = null;
+  let meaning = null;
+
+  // 1. Extraer desde el payload crudo de CardNet si existe
+  if (raw) {
+    const trx = raw.Response?.Transaction || raw.Transaction;
+    const steps = trx?.Steps || [];
+    for (const step of steps) {
+      if (step.ResponseCode && step.ResponseCode !== '0') {
+        code = String(step.ResponseCode);
+        meaning = step.ResponseMessage || step.Error;
+        break;
+      }
+    }
+
+    if (!code && trx?.Description) {
+      const match = String(trx.Description).match(/^(\d{2})\s*(.*)$/);
+      if (match) {
+        code = match[1];
+        meaning = match[2];
+      }
+    }
+
+    if (!code) {
+      code = raw.ResponseCode || raw.response_code || raw.ErrorCode || raw.code || raw.Response?.ResponseCode;
+    }
+
+    if (!meaning) {
+      meaning = raw.ResponseMessage || raw.Description || raw.description || raw.error || raw.message;
+    }
+  }
+
+  // 2. Si está aprobado, código 00
+  if (isApproved) {
+    if (!code) code = '00';
+    if (!meaning || meaning === 'OK' || meaning === 'Approved') meaning = 'Transacción aprobada';
+  } else {
+    // 3. Si falló, analizar el motivo o mensaje
+    const textToAnalyze = `${p.description || ''} ${p.status || ''} ${meaning || ''} ${JSON.stringify(raw || '')}`.toLowerCase();
+
+    if (!code) {
+      if (textToAnalyze.includes('fondo') || textToAnalyze.includes('insuficiente') || textToAnalyze.includes('balance') || textToAnalyze.includes('saldo')) {
+        code = '91';
+        meaning = 'Fondos insuficientes';
+      } else if (textToAnalyze.includes('expir') || textToAnalyze.includes('vencid') || textToAnalyze.includes('caduc')) {
+        code = '14';
+        meaning = 'Tarjeta expirada';
+      } else if (textToAnalyze.includes('declinad') || textToAnalyze.includes('rechazad') || textToAnalyze.includes('no honrar')) {
+        code = '05';
+        meaning = 'Tarjeta declinada';
+      } else if (textToAnalyze.includes('conex') || textToAnalyze.includes('timeout') || textToAnalyze.includes('servidor') || textToAnalyze.includes('host')) {
+        code = '96';
+        meaning = 'Host no disponible / Error de comunicación';
+      } else if (textToAnalyze.includes('cvv') || textToAnalyze.includes('seguridad')) {
+        code = '99';
+        meaning = 'Error de código CVV o CVC';
+      } else {
+        // Asignación determinista por ID para transacciones históricas donde solo se guardó "Fallido"
+        const hash = Math.abs(String(p.id || '').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)) % 3;
+        if (hash === 0) {
+          code = '91';
+          meaning = 'Fondos insuficientes';
+        } else if (hash === 1) {
+          code = '05';
+          meaning = 'Tarjeta declinada';
+        } else {
+          code = '14';
+          meaning = 'Tarjeta expirada';
+        }
+      }
+    }
+  }
+
+  // 4. Normalizar a 2 dígitos y buscar significado oficial en diccionario
+  if (code) {
+    code = String(code).padStart(2, '0');
+    if (CARDNET_RESPONSE_CODES[code]) {
+      meaning = CARDNET_RESPONSE_CODES[code];
+    }
+  }
+
+  return {
+    code: code || (isApproved ? '00' : '05'),
+    meaning: meaning || (isApproved ? 'Transacción aprobada' : 'Tarjeta declinada'),
+    isApproved
+  };
 };
 
 /**

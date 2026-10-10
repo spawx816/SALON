@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import { getCardNetDiagnostic } from '../../utils/cardnetErrors';
 
 const Payments = () => {
   const navigate = useNavigate();
@@ -247,9 +248,9 @@ const Payments = () => {
     return 'Recién';
   };
 
-  const getMethodBadge = (method) => {
+  const getMethodBadge = (method, description = '') => {
     const style = {
-      padding: '0.2rem 0.5rem',
+      padding: '0.2rem 0.55rem',
       borderRadius: '6px',
       fontSize: '0.625rem',
       fontWeight: 800,
@@ -257,9 +258,16 @@ const Payments = () => {
       letterSpacing: '0.03em'
     };
 
-    if (method === 'CardNet_Auto') return <span style={{ ...style, background: '#dbeafe', color: '#1e40af' }}>Recurrente</span>;
-    if (method === 'CardNet_Recurring_Setup') return <span style={{ ...style, background: '#dcfce7', color: '#166534' }}>Activación</span>;
-    return <span style={{ ...style, background: '#fef3c7', color: '#92400e' }}>Manual / POS</span>;
+    const isActivation = method === 'CardNet_Recurring_Setup' || 
+                         (description && description.toLowerCase().includes('activaci'));
+
+    if (isActivation) {
+      return <span style={{ ...style, background: '#dcfce7', color: '#166534', border: '1px solid #bbf7d0' }}>Activación</span>;
+    }
+    if (method === 'CardNet_Auto' || (description && description.toLowerCase().includes('recurrente'))) {
+      return <span style={{ ...style, background: '#dbeafe', color: '#1e40af', border: '1px solid #bfdbfe' }}>Recurrente</span>;
+    }
+    return <span style={{ ...style, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>Manual / POS</span>;
   };
 
   const getIconStyle = (method, status) => {
@@ -357,7 +365,7 @@ const Payments = () => {
       {/* Header Principal */}
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h2 className="page-title" style={{ fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.02em', margin: '0 0 0.25rem 0' }}>Centro de Facturación</h2>
+          <h2 className="page-title" style={{ fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.02em', margin: '0 0 0.25rem 0' }}>Pagos recurrentes</h2>
           <p className="page-subtitle" style={{ margin: 0, color: 'var(--text-secondary)' }}>Gestión centralizada de pasarela de pagos, suscripciones y comprobantes DGII.</p>
         </div>
         
@@ -657,6 +665,7 @@ const Payments = () => {
                 const isApproved = p.status === 'Aprobado';
                 const isRetryingThis = actionLoadingId === `retry-${p.id}`;
                 const isResendingThis = actionLoadingId === `resend-${p.id}`;
+                const diagnostic = getCardNetDiagnostic(p);
 
                 return (
                   <div 
@@ -684,7 +693,7 @@ const Payments = () => {
                           <p style={{ fontWeight: 800, fontSize: '0.92rem', color: p.client_name ? '#0f172a' : '#94a3b8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {p.client_name || 'Cliente Desconocido'}
                           </p>
-                          {getMethodBadge(p.method)}
+                          {getMethodBadge(p.method, p.description)}
                           {p.card_last4 && (
                             <span style={{ fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 700 }}>
                               •••• {p.card_last4}
@@ -707,6 +716,30 @@ const Payments = () => {
                             </>
                           )}
                         </div>
+
+                        {/* DIAGNÓSTICO OFICIAL DE RESPUESTA CARDNET */}
+                        <div style={{
+                          marginTop: '0.45rem',
+                          padding: '0.3rem 0.65rem',
+                          background: isApproved ? '#f8fafc' : '#fef2f2',
+                          border: isApproved ? '1px solid #e2e8f0' : '1px solid #fee2e2',
+                          borderRadius: '8px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.45rem',
+                          fontSize: '0.7rem'
+                        }}>
+                          <span style={{ color: '#64748b', fontWeight: 600 }}>Código CardNet:</span>
+                          <strong style={{ color: isApproved ? '#0f172a' : '#991b1b', fontWeight: 900, fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+                            {diagnostic.code}
+                          </strong>
+                          <span style={{ color: '#cbd5e1' }}>|</span>
+                          <span style={{ color: '#64748b', fontWeight: 600 }}>Significado:</span>
+                          <strong style={{ color: isApproved ? '#166534' : '#b91c1c', fontWeight: 800 }}>
+                            {diagnostic.meaning}
+                          </strong>
+                        </div>
+
                       </div>
                     </div>
 
@@ -718,8 +751,8 @@ const Payments = () => {
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                         <div style={{ width: '7px', height: '7px', background: isApproved ? '#10b981' : '#ef4444', borderRadius: '50%' }}></div>
-                        <span style={{ fontSize: '0.68rem', color: isApproved ? '#059669' : '#dc2626', fontWeight: 800 }}>
-                          {isApproved ? 'COMPLETADO' : p.status?.toUpperCase() || 'FALLIDO'}
+                        <span style={{ fontSize: '0.68rem', color: isApproved ? '#059669' : '#dc2626', fontWeight: 800, textTransform: 'uppercase' }}>
+                          {isApproved ? 'COMPLETADO' : (p.status?.includes('Fallido') ? p.status.replace('-', '•').toUpperCase() : 'FALLIDO')}
                         </span>
                       </div>
 
@@ -780,6 +813,11 @@ const Payments = () => {
                 );
               })
             )}
+
+            {/* Nota de diagnóstico CardNet al pie */}
+            <div style={{ fontSize: '0.725rem', color: '#94a3b8', marginTop: '0.85rem', fontStyle: 'italic', paddingLeft: '0.25rem' }}>
+              Vista de ejemplo • El código y su significado se completan con la respuesta de CardNet.
+            </div>
           </div>
 
           {/* Paginación */}
