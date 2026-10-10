@@ -414,7 +414,12 @@ const AttendanceKiosk = () => {
           save_email: true 
         })
       });
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = {};
+      }
       if (res.ok && data.success) {
         setCommissionPinSent(true);
         employee.email = emailToSend;
@@ -524,7 +529,12 @@ const AttendanceKiosk = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employee_id: selectedEmployee.id, pin: cleanPin })
       });
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = {};
+      }
       if (res.ok && data.success) {
         // Calcular períodos de quincenas (mes anterior y actual)
         const periods = generateQuincenaPeriods();

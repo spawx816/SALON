@@ -315,7 +315,7 @@ function createEmployeeSecurityRouter(pool) {
   router.post('/employees/verify-nomina-otp', handleVerifyNominaOtp);
 
   // === ENDPOINTS DE CONSULTA DE COMISIONES EN KIOSCO ===
-  router.post('/commission-pin', async (req, res) => {
+  const handleCommissionPin = async (req, res) => {
     try {
       const { employee_id, email, save_email } = req.body;
       let targetEmail = email ? String(email).trim() : '';
@@ -336,7 +336,7 @@ function createEmployeeSecurityRouter(pool) {
       if (empRecordId && targetEmail && targetEmail.includes('@')) {
         try {
           await pool.query(
-            'UPDATE staff_records SET email = ? WHERE id = ? AND (email IS NULL OR email = "" OR ? = 1)',
+            "UPDATE staff_records SET email = ? WHERE id = ? AND (email IS NULL OR email = '' OR ? = 1)",
             [targetEmail, empRecordId, save_email ? 1 : 0]
           );
         } catch (saveErr) {
@@ -353,7 +353,8 @@ function createEmployeeSecurityRouter(pool) {
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-      const clientIdKey = `COMM-${employee_id || 'GEN'}`;
+      const cleanId = String(employee_id || '').replace('COMM-', '').replace('EMP-', '');
+      const clientIdKey = `COMM-${cleanId || 'GEN'}`;
 
       await pool.query(
         'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
@@ -407,9 +408,12 @@ function createEmployeeSecurityRouter(pool) {
       console.error('[COMMISSION PIN ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
 
-  router.post('/verify-commission-pin', async (req, res) => {
+  router.post('/commission-pin', handleCommissionPin);
+  router.post('/employees/commission-pin', handleCommissionPin);
+
+  const handleVerifyCommissionPin = async (req, res) => {
     try {
       const { employee_id, pin } = req.body;
       const cleanPin = String(pin || '').trim();
@@ -419,8 +423,8 @@ function createEmployeeSecurityRouter(pool) {
         return res.json({ success: true, message: 'PIN verificado con éxito (Bypass).' });
       }
 
-      const clientIdKey = `COMM-${employee_id || ''}`;
       const rawId = String(employee_id || '').replace('COMM-', '').replace('EMP-', '');
+      const clientIdKey = `COMM-${rawId || ''}`;
 
       // 1. Check generated OTP codes in verification_codes table
       const [rows] = await pool.query(
@@ -475,7 +479,10 @@ function createEmployeeSecurityRouter(pool) {
       console.error('[VERIFY COMMISSION PIN ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  router.post('/verify-commission-pin', handleVerifyCommissionPin);
+  router.post('/employees/verify-commission-pin', handleVerifyCommissionPin);
 
   return router;
 }

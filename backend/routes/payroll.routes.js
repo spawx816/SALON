@@ -30,6 +30,174 @@ function createPayrollRouter(pool) {
     }
   });
 
+  /**
+   * Helper para obtener o inicializar la configuración de cálculos de nómina
+   */
+  async function getCalculationSettings(pool) {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS payroll_calculation_settings (
+          id INT PRIMARY KEY DEFAULT 1,
+          salario_mensual_base DECIMAL(12,2) DEFAULT 18421.00,
+          dias_laborables_mes DECIMAL(6,2) DEFAULT 23.83,
+          horas_jornada_completa DECIMAL(4,2) DEFAULT 8.00,
+          horas_media_jornada DECIMAL(4,2) DEFAULT 4.00,
+          recargo_horas_extras DECIMAL(5,2) DEFAULT 1.35,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      const [rows] = await pool.query('SELECT * FROM payroll_calculation_settings WHERE id = 1');
+      if (rows.length === 0) {
+        await pool.query(`
+          INSERT INTO payroll_calculation_settings 
+            (id, salario_mensual_base, dias_laborables_mes, horas_jornada_completa, horas_media_jornada, recargo_horas_extras, recargo_feriado)
+          VALUES 
+            (1, 18421.00, 23.83, 8.00, 4.00, 1.35, 2.00)
+        `);
+        return {
+          salario_mensual_base: 18421.00,
+          dias_laborables_mes: 23.83,
+          horas_jornada_completa: 8.00,
+          horas_media_jornada: 4.00,
+          recargo_horas_extras: 1.35,
+          recargo_feriado: 2.00
+        };
+      }
+      return {
+        salario_mensual_base: parseFloat(rows[0].salario_mensual_base || 18421.00),
+        dias_laborables_mes: parseFloat(rows[0].dias_laborables_mes || 23.83),
+        horas_jornada_completa: parseFloat(rows[0].horas_jornada_completa || 8.00),
+        horas_media_jornada: parseFloat(rows[0].horas_media_jornada || 4.00),
+        recargo_horas_extras: parseFloat(rows[0].recargo_horas_extras || 1.35),
+        recargo_feriado: parseFloat(rows[0].recargo_feriado || 2.00)
+      };
+    } catch (e) {
+      console.warn('[GET CALCULATION SETTINGS WARN]:', e.message);
+      return {
+        salario_mensual_base: 18421.00,
+        dias_laborables_mes: 23.83,
+        horas_jornada_completa: 8.00,
+        horas_media_jornada: 4.00,
+        recargo_horas_extras: 1.35,
+        recargo_feriado: 2.00
+      };
+    }
+  }
+
+  // 1.1 Obtener configuración de parámetros salariales y tarifas calculadas
+  router.get('/settings/calculation-config', async (req, res) => {
+    try {
+      const cfg = await getCalculationSettings(pool);
+      const salarioMensual = cfg.salario_mensual_base;
+      const diasMes = cfg.dias_laborables_mes;
+      const horasCompleta = cfg.horas_jornada_completa;
+      const horasMedia = cfg.horas_media_jornada;
+      const recargoExtras = cfg.recargo_horas_extras;
+      const recargoFeriado = cfg.recargo_feriado;
+
+      const salarioDiario = Number((salarioMensual / diasMes).toFixed(2));
+      const salarioHora = Number((salarioDiario / horasCompleta).toFixed(2));
+      const salarioMinuto = Number((salarioHora / 60).toFixed(4));
+
+      const descuentoAusenciaDiaCompleto = Number((horasCompleta * salarioHora).toFixed(2));
+      const descuentoAusenciaMedioDia = Number((horasMedia * salarioHora).toFixed(2));
+
+      const tarifaHoraExtra = Number((salarioHora * recargoExtras).toFixed(2));
+      const tarifaMinutoExtra = Number((tarifaHoraExtra / 60).toFixed(4));
+      const tarifaHoraFeriado = Number((salarioHora * recargoFeriado).toFixed(2));
+      const tarifaMinutoFeriado = Number((tarifaHoraFeriado / 60).toFixed(4));
+
+      res.json({
+        ...cfg,
+        salario_diario: salarioDiario,
+        salario_hora: salarioHora,
+        salario_minuto: salarioMinuto,
+        descuento_ausencia_dia_completo: descuentoAusenciaDiaCompleto,
+        descuento_ausencia_medio_dia: descuentoAusenciaMedioDia,
+        tarifa_hora_extra: tarifaHoraExtra,
+        tarifa_minuto_extra: tarifaMinutoExtra,
+        tarifa_hora_feriado: tarifaHoraFeriado,
+        tarifa_minuto_feriado: tarifaMinutoFeriado
+      });
+    } catch (err) {
+      console.error('[GET CALCULATION CONFIG ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 1.2 Guardar o actualizar configuración de parámetros salariales
+  router.post('/settings/calculation-config', async (req, res) => {
+    try {
+      const {
+        salario_mensual_base = 18421.00,
+        dias_laborables_mes = 23.83,
+        horas_jornada_completa = 8.00,
+        horas_media_jornada = 4.00,
+        recargo_horas_extras = 1.35,
+        recargo_feriado = 2.00
+      } = req.body;
+
+      const sm = parseFloat(salario_mensual_base) || 18421.00;
+      const dm = parseFloat(dias_laborables_mes) || 23.83;
+      const hc = parseFloat(horas_jornada_completa) || 8.00;
+      const hm = parseFloat(horas_media_jornada) || 4.00;
+      const rhe = parseFloat(recargo_horas_extras) || 1.35;
+      const rf = parseFloat(recargo_feriado) || 2.00;
+
+      await pool.query(`
+        INSERT INTO payroll_calculation_settings 
+          (id, salario_mensual_base, dias_laborables_mes, horas_jornada_completa, horas_media_jornada, recargo_horas_extras, recargo_feriado)
+        VALUES 
+          (1, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          salario_mensual_base = VALUES(salario_mensual_base),
+          dias_laborables_mes = VALUES(dias_laborables_mes),
+          horas_jornada_completa = VALUES(horas_jornada_completa),
+          horas_media_jornada = VALUES(horas_media_jornada),
+          recargo_horas_extras = VALUES(recargo_horas_extras),
+          recargo_feriado = VALUES(recargo_feriado)
+      `, [sm, dm, hc, hm, rhe, rf]);
+
+      const salarioDiario = Number((sm / dm).toFixed(2));
+      const salarioHora = Number((salarioDiario / hc).toFixed(2));
+      const salarioMinuto = Number((salarioHora / 60).toFixed(4));
+
+      const descuentoAusenciaDiaCompleto = Number((hc * salarioHora).toFixed(2));
+      const descuentoAusenciaMedioDia = Number((hm * salarioHora).toFixed(2));
+
+      const tarifaHoraExtra = Number((salarioHora * rhe).toFixed(2));
+      const tarifaMinutoExtra = Number((tarifaHoraExtra / 60).toFixed(4));
+      const tarifaHoraFeriado = Number((salarioHora * rf).toFixed(2));
+      const tarifaMinutoFeriado = Number((tarifaHoraFeriado / 60).toFixed(4));
+
+      res.json({
+        success: true,
+        message: 'Configuración de tarifas salariales guardada exitosamente',
+        config: {
+          salario_mensual_base: sm,
+          dias_laborables_mes: dm,
+          horas_jornada_completa: hc,
+          horas_media_jornada: hm,
+          recargo_horas_extras: rhe,
+          recargo_feriado: rf,
+          salario_diario: salarioDiario,
+          salario_hora: salarioHora,
+          salario_minuto: salarioMinuto,
+          descuento_ausencia_dia_completo: descuentoAusenciaDiaCompleto,
+          descuento_ausencia_medio_dia: descuentoAusenciaMedioDia,
+          tarifa_hora_extra: tarifaHoraExtra,
+          tarifa_minuto_extra: tarifaMinutoExtra,
+          tarifa_hora_feriado: tarifaHoraFeriado,
+          tarifa_minuto_feriado: tarifaMinutoFeriado
+        }
+      });
+    } catch (err) {
+      console.error('[POST CALCULATION CONFIG ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Catálogo de períodos históricos predeterminados
   const historicalPeriodsCatalog = {
     'p_sep_2': { id: 'p_sep_2', period_name: '2da quincena · Septiembre 2026', start_date: '2026-09-16', end_date: '2026-09-30', total_empleados: 42, total_neto: 715875, total_ingresos: 842350, total_descuentos: 126475, approved_at: '2026-09-30 16:32:00', approved_by: 'Elvys Rodriguez', status: 'Aprobada', sucursal: 'Todas', departamento: 'Todos', is_immutable: 1 },
@@ -281,7 +449,22 @@ function createPayrollRouter(pool) {
       console.warn(`[EMPLOYEE DISCOUNTS CALC WARN for ${empName}]:`, e.message);
     }
 
-    // 3. ASISTENCIA: Ausencias y Tardanzas automáticas (si no estaban ya en employee_discounts)
+    // 3. ASISTENCIA: Ausencias y Tardanzas automáticas basadas en la configuración de tarifa base y minutos
+    const cfg = await getCalculationSettings(pool);
+    const salarioBaseGarantizado = parseFloat(cfg.salario_mensual_base || 18421.00);
+    const diasLaboralesMes = parseFloat(cfg.dias_laborables_mes || 23.83);
+    const horasDiaCompleto = parseFloat(cfg.horas_jornada_completa || 8.00);
+    const horasMediaJornada = parseFloat(cfg.horas_media_jornada || 4.00);
+    const recargoHorasExtras = parseFloat(cfg.recargo_horas_extras || 1.35);
+    const recargoFeriado = parseFloat(cfg.recargo_feriado || 2.00);
+
+    // Unidades de cálculo: mensual -> diario (23.83) -> hora (8h) -> minutos (/ 60)
+    const salarioDiarioGarantizado = salarioBaseGarantizado / diasLaboralesMes;
+    const salarioHoraGarantizado = salarioDiarioGarantizado / horasDiaCompleto;
+    const salarioMinutoGarantizado = salarioHoraGarantizado / 60;
+
+    let ausenciasHorasDetalle = [];
+
     if (ausenciasMonto === 0 && tardanzasMonto === 0) {
       try {
         const [attPunches] = await pool.query(`
@@ -300,7 +483,7 @@ function createPayrollRouter(pool) {
 
         let totalNetLatenessMins = 0;
         let totalOvertimeMins = 0;
-        let ausenciasCount = 0;
+        let totalCalculatedAusencias = 0;
 
         Object.keys(punchesByDay).forEach(dateStr => {
           const dayPunches = punchesByDay[dateStr];
@@ -309,7 +492,48 @@ function createPayrollRouter(pool) {
           const abs = dayPunches.find(p => p.type === 'Ausencia');
 
           if (abs && ins.length === 0) {
-            ausenciasCount++;
+            // Ausencia: Determinar si el turno programado era completo (8h) o medio día (4h)
+            let isHalfDay = false;
+            let scheduledHrs = horasDiaCompleto;
+
+            if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
+              try {
+                const parsed = JSON.parse(emp.dias_laborables);
+                const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+                const d = new Date(dateStr + 'T12:00:00');
+                const dName = dayNames[d.getDay()];
+                const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === dName.toLowerCase().slice(0, 3));
+                const dayInfo = matchKey ? parsed[matchKey] : null;
+                if (dayInfo && dayInfo.entrada && dayInfo.salida) {
+                  const [h1, m1] = dayInfo.entrada.split(':').map(Number);
+                  const [h2, m2] = dayInfo.salida.split(':').map(Number);
+                  const dur = (h2 * 60 + m2 - (h1 * 60 + m1)) / 60;
+                  if (dur <= 5) {
+                    isHalfDay = true;
+                    scheduledHrs = horasMediaJornada;
+                  }
+                }
+              } catch(e) {}
+            } else if (emp.hora_entrada && emp.hora_salida) {
+              try {
+                const [h1, m1] = emp.hora_entrada.split(':').map(Number);
+                const [h2, m2] = emp.hora_salida.split(':').map(Number);
+                const dur = (h2 * 60 + m2 - (h1 * 60 + m1)) / 60;
+                if (dur <= 5) {
+                  isHalfDay = true;
+                  scheduledHrs = horasMediaJornada;
+                }
+              } catch(e) {}
+            }
+
+            const descuentoDia = scheduledHrs * salarioHoraGarantizado;
+            totalCalculatedAusencias += descuentoDia;
+            ausenciasHorasDetalle.push({
+              fecha: dateStr,
+              tipo: isHalfDay ? 'Medio Día (4 hrs)' : 'Día Completo (8 hrs)',
+              horas: scheduledHrs,
+              monto: Number(descuentoDia.toFixed(2))
+            });
           } else if (ins.length > 0) {
             const checkIn = ins[0];
             const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
@@ -320,7 +544,7 @@ function createPayrollRouter(pool) {
               const outTime = new Date(checkOut.timestamp).getTime();
               if (outTime > inTime) {
                 const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
-                const scheduledSecs = 9 * 3600; // 9 hrs standard
+                const scheduledSecs = horasDiaCompleto * 3600; // Jornada legal estándar
                 if (workedSecs >= scheduledSecs) {
                   const surplusSecs = workedSecs - scheduledSecs;
                   totalOvertimeMins += Math.round(surplusSecs / 60);
@@ -335,18 +559,14 @@ function createPayrollRouter(pool) {
           }
         });
 
-        if (ausenciasCount > 0) {
-          ausenciasMonto = Number((ausenciasCount * (salarioFijo / 15)).toFixed(2));
+        if (totalCalculatedAusencias > 0) {
+          ausenciasMonto = Number(totalCalculatedAusencias.toFixed(2));
         }
         if (totalNetLatenessMins > 0) {
-          const effectiveMonthlySalary = baseMensual > 0 ? baseMensual : 20000;
-          const minRate = (effectiveMonthlySalary / 23.83 / 8 / 60);
-          tardanzasMonto = Number((totalNetLatenessMins * minRate).toFixed(2));
+          tardanzasMonto = Number((totalNetLatenessMins * salarioMinutoGarantizado).toFixed(2));
         }
         if (totalOvertimeMins > 0 && horasExtras === 0) {
-          const effectiveMonthlySalary = baseMensual > 0 ? baseMensual : 20000;
-          const minRate = (effectiveMonthlySalary / 23.83 / 8 / 60);
-          horasExtras = Number((totalOvertimeMins * minRate * 1.35).toFixed(2)); // 35% recargo legal horas extras
+          horasExtras = Number((totalOvertimeMins * salarioMinutoGarantizado * recargoHorasExtras).toFixed(2));
         }
       } catch(e) {
         console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
@@ -379,9 +599,6 @@ function createPayrollRouter(pool) {
           punchesByDate[p.punch_date].push(p);
         });
 
-        const effectiveMonthlySalary = baseMensual > 0 ? baseMensual : 20000;
-        const hourlyRate = effectiveMonthlySalary / 23.83 / 8;
-
         periodHolidays.forEach(h => {
           const dayPunches = punchesByDate[h.holiday_date] || [];
           const ins = dayPunches.filter(p => p.type === 'Check-In');
@@ -394,11 +611,11 @@ function createPayrollRouter(pool) {
               const mins = Math.floor((outTime - inTime) / 60000);
               workedHours = Number((mins / 60).toFixed(2));
             } else {
-              workedHours = 8;
+              workedHours = horasDiaCompleto;
             }
 
-            const multiplier = parseFloat(h.rate_multiplier || 2.00);
-            const holidayPay = Number((workedHours * hourlyRate * multiplier).toFixed(2));
+            const multiplier = parseFloat(h.rate_multiplier || recargoFeriado);
+            const holidayPay = Number((workedHours * salarioHoraGarantizado * multiplier).toFixed(2));
             feriados += holidayPay;
           }
         });

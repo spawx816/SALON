@@ -13,6 +13,7 @@ import { dataService } from '../../utils/dataService';
 import { formatDateDisplay } from '../../utils/formatters';
 import { useNotification } from '../../context/NotificationContext';
 import PayrollHistoryView from './PayrollHistoryView';
+import PayrollCalculationSettingsModal from './PayrollCalculationSettingsModal';
 
 export default function PayrollModule({ initialTab }) {
   const { showNotification } = useNotification();
@@ -194,6 +195,36 @@ export default function PayrollModule({ initialTab }) {
   const [selectedRegaliaEmployee, setSelectedRegaliaEmployee] = useState(null);
   const [showRegaliaDetailModal, setShowRegaliaDetailModal] = useState(false);
 
+  // Configuración de Parámetros Salariales y Unidad por Minuto
+  const [showCalculationSettingsModal, setShowCalculationSettingsModal] = useState(false);
+  const [calcConfig, setCalcConfig] = useState({
+    salario_mensual_base: 18421.00,
+    dias_laborables_mes: 23.83,
+    horas_jornada_completa: 8.00,
+    horas_media_jornada: 4.00,
+    recargo_horas_extras: 1.35,
+    recargo_feriado: 2.00,
+    salario_diario: 773.02,
+    salario_hora: 96.63,
+    salario_minuto: 1.6105,
+    descuento_ausencia_dia_completo: 773.02,
+    descuento_ausencia_medio_dia: 386.51,
+    tarifa_hora_extra: 130.45,
+    tarifa_minuto_extra: 2.1741,
+    tarifa_hora_feriado: 193.25,
+    tarifa_minuto_feriado: 3.2209
+  });
+  const [calcForm, setCalcForm] = useState({
+    salario_mensual_base: 18421.00,
+    dias_laborables_mes: 23.83,
+    horas_jornada_completa: 8.00,
+    horas_media_jornada: 4.00,
+    recargo_horas_extras: 1.35,
+    recargo_feriado: 2.00
+  });
+  const [savingCalcConfig, setSavingCalcConfig] = useState(false);
+  const [quickCalcHelper, setQuickCalcHelper] = useState({ show: false, field: '', value: '' });
+
   // Cargar datos al montar
   useEffect(() => {
     loadInitialData();
@@ -202,15 +233,27 @@ export default function PayrollModule({ initialTab }) {
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [periodsRes, conceptsRes, salonsRes] = await Promise.all([
+      const [periodsRes, conceptsRes, salonsRes, calcCfgRes] = await Promise.all([
         dataService.getPayrollPeriods(),
         dataService.getPayrollConcepts(),
-        dataService.getSalons ? dataService.getSalons() : Promise.resolve([])
+        dataService.getSalons ? dataService.getSalons() : Promise.resolve([]),
+        dataService.getPayrollCalculationConfig ? dataService.getPayrollCalculationConfig() : Promise.resolve(null)
       ]);
 
       setPeriods(periodsRes || []);
       setConcepts(conceptsRes || []);
       if (salonsRes && Array.isArray(salonsRes)) setSalonsList(salonsRes);
+      if (calcCfgRes) {
+        setCalcConfig(calcCfgRes);
+        setCalcForm({
+          salario_mensual_base: calcCfgRes.salario_mensual_base || 18421.00,
+          dias_laborables_mes: calcCfgRes.dias_laborables_mes || 23.83,
+          horas_jornada_completa: calcCfgRes.horas_jornada_completa || 8.00,
+          horas_media_jornada: calcCfgRes.horas_media_jornada || 4.00,
+          recargo_horas_extras: calcCfgRes.recargo_horas_extras || 1.35,
+          recargo_feriado: calcCfgRes.recargo_feriado || 2.00
+        });
+      }
 
       if (periodsRes && periodsRes.length > 0) {
         // Cargar el último período activo o el primero de la lista
@@ -223,6 +266,31 @@ export default function PayrollModule({ initialTab }) {
       console.error('Error cargando nómina inicial:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveCalculationConfig = async (andRecalculate = false) => {
+    setSavingCalcConfig(true);
+    try {
+      const res = await dataService.savePayrollCalculationConfig(calcForm);
+      if (res && res.config) {
+        setCalcConfig(res.config);
+      }
+      showNotification('Configuración de salario base y tarifas por minuto guardada correctamente', 'success');
+      setShowCalculationSettingsModal(false);
+
+      if (andRecalculate && currentPeriod) {
+        if (currentPeriod.status === 'Aprobada') {
+          showNotification('Esta nómina está aprobada y es inmutable', 'warning');
+        } else {
+          showNotification('Recalculando período con las nuevas tarifas...', 'info');
+          await handleSyncRealData();
+        }
+      }
+    } catch (err) {
+      showNotification('Error al guardar configuración: ' + err.message, 'error');
+    } finally {
+      setSavingCalcConfig(false);
     }
   };
 
@@ -1227,6 +1295,50 @@ export default function PayrollModule({ initialTab }) {
               >
                 <PieIcon size={18} /> Resumen de nómina
               </button>
+
+              <button 
+                onClick={() => {
+                  setCalcForm({
+                    salario_mensual_base: calcConfig.salario_mensual_base || 18421.00,
+                    dias_laborables_mes: calcConfig.dias_laborables_mes || 23.83,
+                    horas_jornada_completa: calcConfig.horas_jornada_completa || 8.00,
+                    horas_media_jornada: calcConfig.horas_media_jornada || 4.00,
+                    recargo_horas_extras: calcConfig.recargo_horas_extras || 1.35,
+                    recargo_feriado: calcConfig.recargo_feriado || 2.00
+                  });
+                  setShowCalculationSettingsModal(true);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #ffffff 0%, #faf5ff 100%)',
+                  border: '2px solid #8b5cf6',
+                  color: '#6d28d9',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.55rem',
+                  padding: '0.65rem 1.3rem',
+                  borderRadius: '12px',
+                  fontWeight: 800,
+                  fontSize: '0.875rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 8px rgba(139, 92, 246, 0.12)'
+                }}
+                title="Configuración de salario garantizado ($18,421), factor 23.83 días, valor por minuto y reglas de descuento"
+              >
+                <Sliders size={18} color="#7c3aed" /> 
+                <span>Configuración de Tarifas</span>
+                <span style={{
+                  background: '#7c3aed',
+                  color: '#ffffff',
+                  fontSize: '0.72rem',
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  borderRadius: '999px',
+                  letterSpacing: '0.2px'
+                }}>
+                  RD$ {(calcConfig.salario_minuto || 1.6105).toFixed(2)}/min
+                </span>
+              </button>
             </div>
           </div>
 
@@ -2218,28 +2330,68 @@ export default function PayrollModule({ initialTab }) {
                       { label: 'Horas Extras', key: 'horas_extras' },
                       { label: 'Otros Ingresos / Bonos', key: 'otros_ingresos' }
                     ].map(field => (
-                      <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
-                          <input 
-                            type="number"
-                            step="0.01"
-                            disabled={currentPeriod?.status === 'Aprobada'}
-                            value={editingItem[field.key] || 0}
-                            onChange={(e) => handleUpdateConceptValue('ingreso', field.key, e.target.value)}
-                            style={{
-                              width: '110px',
-                              textAlign: 'right',
-                              padding: '0.4rem 0.6rem',
-                              borderRadius: '8px',
-                              border: '1px solid #d8e2dc',
-                              background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
-                              fontWeight: 700,
-                              fontSize: '0.85rem'
-                            }}
-                          />
+                      <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
+                            <input 
+                              type="number"
+                              step="0.01"
+                              disabled={currentPeriod?.status === 'Aprobada'}
+                              value={editingItem[field.key] || 0}
+                              onChange={(e) => handleUpdateConceptValue('ingreso', field.key, e.target.value)}
+                              style={{
+                                width: '110px',
+                                textAlign: 'right',
+                                padding: '0.4rem 0.6rem',
+                                borderRadius: '8px',
+                                border: '1px solid #d8e2dc',
+                                background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
+                                fontWeight: 700,
+                                fontSize: '0.85rem'
+                              }}
+                            />
+                          </div>
                         </div>
+                        {field.key === 'horas_extras' && currentPeriod?.status !== 'Aprobada' && (
+                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 700 }}>+35% (RD$ {(calcConfig.tarifa_hora_extra || 130.45).toFixed(2)}/h):</span>
+                            {[1, 2, 4].map(h => (
+                              <button
+                                key={h}
+                                type="button"
+                                onClick={() => {
+                                  const rate = parseFloat(calcConfig.tarifa_hora_extra || 130.45);
+                                  const curr = parseFloat(editingItem.horas_extras || 0);
+                                  handleUpdateConceptValue('ingreso', 'horas_extras', (curr + h * rate).toFixed(2));
+                                }}
+                                style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                +{h}h
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {field.key === 'feriados' && currentPeriod?.status !== 'Aprobada' && (
+                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>+100% (RD$ {(calcConfig.tarifa_hora_feriado || 193.25).toFixed(2)}/h):</span>
+                            {[4, 8].map(h => (
+                              <button
+                                key={h}
+                                type="button"
+                                onClick={() => {
+                                  const rate = parseFloat(calcConfig.tarifa_hora_feriado || 193.25);
+                                  const curr = parseFloat(editingItem.feriados || 0);
+                                  handleUpdateConceptValue('ingreso', 'feriados', (curr + h * rate).toFixed(2));
+                                }}
+                                style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                +{h}h
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2278,28 +2430,77 @@ export default function PayrollModule({ initialTab }) {
                       { label: 'Tardanzas', key: 'tardanzas' },
                       { label: 'Otros descuentos', key: 'otros_descuentos' }
                     ].map(field => (
-                      <div key={field.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
-                          <input 
-                            type="number"
-                            step="0.01"
-                            disabled={currentPeriod?.status === 'Aprobada'}
-                            value={editingItem[field.key] || 0}
-                            onChange={(e) => handleUpdateConceptValue('descuento', field.key, e.target.value)}
-                            style={{
-                              width: '110px',
-                              textAlign: 'right',
-                              padding: '0.4rem 0.6rem',
-                              borderRadius: '8px',
-                              border: '1px solid #f0ded9',
-                              background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
-                              fontWeight: 700,
-                              fontSize: '0.85rem'
-                            }}
-                          />
+                      <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
+                            <input 
+                              type="number"
+                              step="0.01"
+                              disabled={currentPeriod?.status === 'Aprobada'}
+                              value={editingItem[field.key] || 0}
+                              onChange={(e) => handleUpdateConceptValue('descuento', field.key, e.target.value)}
+                              style={{
+                                width: '110px',
+                                textAlign: 'right',
+                                padding: '0.4rem 0.6rem',
+                                borderRadius: '8px',
+                                border: '1px solid #f0ded9',
+                                background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
+                                fontWeight: 700,
+                                fontSize: '0.85rem'
+                              }}
+                            />
+                          </div>
                         </div>
+                        {field.key === 'ausencias' && currentPeriod?.status !== 'Aprobada' && (
+                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const rate8 = parseFloat(calcConfig.descuento_ausencia_dia_completo || 773.02);
+                                const curr = parseFloat(editingItem.ausencias || 0);
+                                handleUpdateConceptValue('descuento', 'ausencias', (curr + rate8).toFixed(2));
+                              }}
+                              title="Sumar ausencia de día completo (8 horas estándar)"
+                              style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                            >
+                              + Día Completo 8h (RD$ {(calcConfig.descuento_ausencia_dia_completo || 773.02).toFixed(2)})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const rate4 = parseFloat(calcConfig.descuento_ausencia_medio_dia || 386.51);
+                                const curr = parseFloat(editingItem.ausencias || 0);
+                                handleUpdateConceptValue('descuento', 'ausencias', (curr + rate4).toFixed(2));
+                              }}
+                              title="Sumar ausencia de medio día / turno parcial (4 horas)"
+                              style={{ background: '#fef3c7', border: '1px solid #fde047', color: '#b45309', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                            >
+                              + Medio Día 4h (RD$ {(calcConfig.descuento_ausencia_medio_dia || 386.51).toFixed(2)})
+                            </button>
+                          </div>
+                        )}
+                        {field.key === 'tardanzas' && currentPeriod?.status !== 'Aprobada' && (
+                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>Minutos (RD$ {(calcConfig.salario_minuto || 1.6105).toFixed(2)}/min):</span>
+                            {[15, 30, 60].map(m => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => {
+                                  const rateMin = parseFloat(calcConfig.salario_minuto || 1.6105);
+                                  const curr = parseFloat(editingItem.tardanzas || 0);
+                                  handleUpdateConceptValue('descuento', 'tardanzas', (curr + m * rateMin).toFixed(2));
+                                }}
+                                style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                +{m}m
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -3614,6 +3815,18 @@ export default function PayrollModule({ initialTab }) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* ========================================================================= */}
+      {/* MODAL 8: CONFIGURACIÓN SALARIAL & TARIFAS POR MINUTO */}
+      {/* ========================================================================= */}
+      <PayrollCalculationSettingsModal 
+        isOpen={showCalculationSettingsModal}
+        onClose={() => setShowCalculationSettingsModal(false)}
+        initialConfig={calcConfig}
+        onSave={handleSaveCalculationConfig}
+        loading={savingCalcConfig}
+        hasActivePeriod={Boolean(currentPeriod && currentPeriod.status !== 'Aprobada')}
+      />
 
     </div>
   );

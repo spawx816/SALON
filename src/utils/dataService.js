@@ -2700,6 +2700,49 @@ export const dataService = {
     }
   },
 
+  getPayrollCalculationConfig: async () => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/settings/calculation-config`);
+      if (!res.ok) throw new Error('Error al obtener configuración de cálculos');
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching payroll calculation config:', e);
+      return {
+        salario_mensual_base: 18421.00,
+        dias_laborables_mes: 23.83,
+        horas_jornada_completa: 8.00,
+        horas_media_jornada: 4.00,
+        recargo_horas_extras: 1.35,
+        recargo_feriado: 2.00,
+        salario_diario: 773.02,
+        salario_hora: 96.63,
+        salario_minuto: 1.6105,
+        descuento_ausencia_dia_completo: 773.02,
+        descuento_ausencia_medio_dia: 386.51,
+        tarifa_hora_extra: 130.45,
+        tarifa_minuto_extra: 2.1741,
+        tarifa_hora_feriado: 193.25,
+        tarifa_minuto_feriado: 3.2209
+      };
+    }
+  },
+
+  savePayrollCalculationConfig: async (config) => {
+    try {
+      const res = await fetch(`${API_URL}/payroll/settings/calculation-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error guardando configuración de cálculos');
+      return data;
+    } catch (e) {
+      console.error('Error saving payroll calculation config:', e);
+      throw e;
+    }
+  },
+
   getPayrollAuditLogs: async (payrollId) => {
     try {
       const res = await fetch(`${API_URL}/payroll/audit-logs/${payrollId}`);

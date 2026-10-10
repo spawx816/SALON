@@ -513,7 +513,6 @@ function createDashboardRouter(pool) {
         FROM payments p
         LEFT JOIN clients c ON (p.client_id = c.id OR p.client_id = c.cedula)
         ORDER BY p.created_at DESC
-        LIMIT 300
       `);
 
       const [approvedRow] = await pool.query("SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE status = 'Aprobado'");

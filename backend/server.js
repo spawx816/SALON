@@ -131,6 +131,13 @@ app.use(['/fe', '/api/fe'], (req, res, next) => {
 });
 
 app.use(express.json({ limit: '50mb' }));
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    console.warn(`[BAD JSON BODY] Ignorado de ${req.ip} en ${req.method} ${req.url}: ${err.message}`);
+    return res.status(400).json({ error: 'Cuerpo de solicitud JSON malformado o inválido.' });
+  }
+  next(err);
+});
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Health & Status check endpoints
@@ -906,6 +913,21 @@ app.get(/.*/, (req, res) => {
       res.send(html);
     }
   });
+});
+
+app.use((err, req, res, next) => {
+  console.error('[UNHANDLED EXPRESS ERROR]:', err);
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({ error: err.message || 'Error interno del servidor.' });
+  }
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL UNCAUGHT EXCEPTION]:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL UNHANDLED REJECTION]:', reason);
 });
 
 const PORT = process.env.PORT || 5005;
