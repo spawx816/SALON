@@ -26,7 +26,7 @@ export default function PayrollCalculationSettingsModal({
     horas_jornada_completa: 8.00,
     horas_media_jornada: 4.00,
     recargo_horas_extras: 1.35,
-    recargo_feriado: 2.00
+    recargo_feriado: 1.00
   });
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function PayrollCalculationSettingsModal({
         horas_jornada_completa: parseFloat(initialConfig.horas_jornada_completa || 8.00),
         horas_media_jornada: parseFloat(initialConfig.horas_media_jornada || 4.00),
         recargo_horas_extras: parseFloat(initialConfig.recargo_horas_extras || 1.35),
-        recargo_feriado: parseFloat(initialConfig.recargo_feriado || 2.00)
+        recargo_feriado: parseFloat(initialConfig.recargo_feriado || 1.00)
       });
     }
   }, [initialConfig, isOpen]);
@@ -48,7 +48,7 @@ export default function PayrollCalculationSettingsModal({
   const hc = Math.max(1, parseFloat(form.horas_jornada_completa) || 8.00);
   const hm = Math.max(1, parseFloat(form.horas_media_jornada) || 4.00);
   const rhe = Math.max(1, parseFloat(form.recargo_horas_extras) || 1.35);
-  const rf = Math.max(1, parseFloat(form.recargo_feriado) || 2.00);
+  const rf = Math.max(1, parseFloat(form.recargo_feriado) || 1.00);
 
   const liveDiario = sm / dm;
   const liveHora = liveDiario / hc;
@@ -70,7 +70,7 @@ export default function PayrollCalculationSettingsModal({
       horas_jornada_completa: 8.00,
       horas_media_jornada: 4.00,
       recargo_horas_extras: 1.35,
-      recargo_feriado: 2.00
+      recargo_feriado: 1.00
     });
   };
 
@@ -363,6 +363,48 @@ export default function PayrollCalculationSettingsModal({
                   Turno parcial: <strong>4 hrs</strong> (240 mins)
                 </div>
               </div>
+
+              {/* CAMPO 5: MULTIPLICADOR FERIADO */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '1.1rem'
+              }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontSize: '0.82rem',
+                  fontWeight: 800,
+                  color: '#334155',
+                  marginBottom: '0.5rem'
+                }}>
+                  🎈 Factor de Día Feriado
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={form.recargo_feriado}
+                    onChange={(e) => setForm(prev => ({ ...prev, recargo_feriado: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '0.55rem 0.75rem',
+                      borderRadius: '10px',
+                      border: '1.5px solid #cbd5e1',
+                      fontSize: '1.1rem',
+                      fontWeight: 900,
+                      color: '#0f172a',
+                      outline: 'none'
+                    }}
+                  />
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>x</span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.4rem' }}>
+                  <strong>1.00x</strong>: Se paga al mismo monto de la hora regular
+                </div>
+              </div>
             </div>
 
             {/* SECCIÓN VISUAL EN VIVO: LA CALCULADORA DE TARIFAS Y MINUTOS */}
@@ -500,7 +542,7 @@ export default function PayrollCalculationSettingsModal({
                   </div>
                 </div>
 
-                {/* TARJETA: DÍA FERIADO (+100%) */}
+                {/* TARJETA: DÍA FERIADO (TARIFA REGULAR) */}
                 <div style={{
                   background: 'rgba(59, 130, 246, 0.12)',
                   borderRadius: '16px',
@@ -508,13 +550,13 @@ export default function PayrollCalculationSettingsModal({
                   border: '1px solid rgba(59, 130, 246, 0.3)'
                 }}>
                   <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#93c5fd', marginBottom: '0.25rem' }}>
-                    🎈 HORA FERIADO (+100% LEY)
+                    🎈 HORA FERIADO ({rf.toFixed(2)}x REGULAR)
                   </div>
                   <div style={{ fontSize: '1.35rem', fontWeight: 900, color: '#60a5fa' }}>
                     + RD$ {liveHoraFeriado.toFixed(2)} / h
                   </div>
                   <div style={{ fontSize: '0.7rem', color: '#bfdbfe', marginTop: '0.2rem' }}>
-                    RD$ {liveMinutoFeriado.toFixed(4)} / min feriado
+                    Mismo monto hora regular (RD$ {liveHora.toFixed(2)}/h)
                   </div>
                 </div>
               </div>

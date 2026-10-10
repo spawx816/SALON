@@ -203,7 +203,7 @@ export default function PayrollModule({ initialTab }) {
     horas_jornada_completa: 8.00,
     horas_media_jornada: 4.00,
     recargo_horas_extras: 1.35,
-    recargo_feriado: 2.00,
+    recargo_feriado: 1.00,
     salario_diario: 773.02,
     salario_hora: 96.63,
     salario_minuto: 1.6105,
@@ -211,8 +211,8 @@ export default function PayrollModule({ initialTab }) {
     descuento_ausencia_medio_dia: 386.51,
     tarifa_hora_extra: 130.45,
     tarifa_minuto_extra: 2.1741,
-    tarifa_hora_feriado: 193.25,
-    tarifa_minuto_feriado: 3.2209
+    tarifa_hora_feriado: 96.63,
+    tarifa_minuto_feriado: 1.6105
   });
   const [calcForm, setCalcForm] = useState({
     salario_mensual_base: 18421.00,
@@ -220,7 +220,7 @@ export default function PayrollModule({ initialTab }) {
     horas_jornada_completa: 8.00,
     horas_media_jornada: 4.00,
     recargo_horas_extras: 1.35,
-    recargo_feriado: 2.00
+    recargo_feriado: 1.00
   });
   const [savingCalcConfig, setSavingCalcConfig] = useState(false);
   const [quickCalcHelper, setQuickCalcHelper] = useState({ show: false, field: '', value: '' });
@@ -251,7 +251,7 @@ export default function PayrollModule({ initialTab }) {
           horas_jornada_completa: calcCfgRes.horas_jornada_completa || 8.00,
           horas_media_jornada: calcCfgRes.horas_media_jornada || 4.00,
           recargo_horas_extras: calcCfgRes.recargo_horas_extras || 1.35,
-          recargo_feriado: calcCfgRes.recargo_feriado || 2.00
+          recargo_feriado: calcCfgRes.recargo_feriado || 1.00
         });
       }
 
@@ -1304,7 +1304,7 @@ export default function PayrollModule({ initialTab }) {
                     horas_jornada_completa: calcConfig.horas_jornada_completa || 8.00,
                     horas_media_jornada: calcConfig.horas_media_jornada || 4.00,
                     recargo_horas_extras: calcConfig.recargo_horas_extras || 1.35,
-                    recargo_feriado: calcConfig.recargo_feriado || 2.00
+                    recargo_feriado: calcConfig.recargo_feriado || 1.00
                   });
                   setShowCalculationSettingsModal(true);
                 }}
@@ -2375,13 +2375,13 @@ export default function PayrollModule({ initialTab }) {
                         )}
                         {field.key === 'feriados' && currentPeriod?.status !== 'Aprobada' && (
                           <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>+100% (RD$ {(calcConfig.tarifa_hora_feriado || 193.25).toFixed(2)}/h):</span>
+                            <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>Hora Regular (RD$ {(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63).toFixed(2)}/h):</span>
                             {[4, 8].map(h => (
                               <button
                                 key={h}
                                 type="button"
                                 onClick={() => {
-                                  const rate = parseFloat(calcConfig.tarifa_hora_feriado || 193.25);
+                                  const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
                                   const curr = parseFloat(editingItem.feriados || 0);
                                   handleUpdateConceptValue('ingreso', 'feriados', (curr + h * rate).toFixed(2));
                                 }}

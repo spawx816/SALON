@@ -2713,7 +2713,7 @@ export const dataService = {
         horas_jornada_completa: 8.00,
         horas_media_jornada: 4.00,
         recargo_horas_extras: 1.35,
-        recargo_feriado: 2.00,
+        recargo_feriado: 1.00,
         salario_diario: 773.02,
         salario_hora: 96.63,
         salario_minuto: 1.6105,
@@ -2721,8 +2721,8 @@ export const dataService = {
         descuento_ausencia_medio_dia: 386.51,
         tarifa_hora_extra: 130.45,
         tarifa_minuto_extra: 2.1741,
-        tarifa_hora_feriado: 193.25,
-        tarifa_minuto_feriado: 3.2209
+        tarifa_hora_feriado: 96.63,
+        tarifa_minuto_feriado: 1.6105
       };
     }
   },

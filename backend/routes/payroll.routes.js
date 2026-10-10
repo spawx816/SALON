@@ -53,7 +53,7 @@ function createPayrollRouter(pool) {
           INSERT INTO payroll_calculation_settings 
             (id, salario_mensual_base, dias_laborables_mes, horas_jornada_completa, horas_media_jornada, recargo_horas_extras, recargo_feriado)
           VALUES 
-            (1, 18421.00, 23.83, 8.00, 4.00, 1.35, 2.00)
+            (1, 18421.00, 23.83, 8.00, 4.00, 1.35, 1.00)
         `);
         return {
           salario_mensual_base: 18421.00,
@@ -61,7 +61,7 @@ function createPayrollRouter(pool) {
           horas_jornada_completa: 8.00,
           horas_media_jornada: 4.00,
           recargo_horas_extras: 1.35,
-          recargo_feriado: 2.00
+          recargo_feriado: 1.00
         };
       }
       return {
@@ -70,7 +70,7 @@ function createPayrollRouter(pool) {
         horas_jornada_completa: parseFloat(rows[0].horas_jornada_completa || 8.00),
         horas_media_jornada: parseFloat(rows[0].horas_media_jornada || 4.00),
         recargo_horas_extras: parseFloat(rows[0].recargo_horas_extras || 1.35),
-        recargo_feriado: parseFloat(rows[0].recargo_feriado || 2.00)
+        recargo_feriado: parseFloat(rows[0].recargo_feriado || 1.00)
       };
     } catch (e) {
       console.warn('[GET CALCULATION SETTINGS WARN]:', e.message);
@@ -80,7 +80,7 @@ function createPayrollRouter(pool) {
         horas_jornada_completa: 8.00,
         horas_media_jornada: 4.00,
         recargo_horas_extras: 1.35,
-        recargo_feriado: 2.00
+        recargo_feriado: 1.00
       };
     }
   }
@@ -135,7 +135,7 @@ function createPayrollRouter(pool) {
         horas_jornada_completa = 8.00,
         horas_media_jornada = 4.00,
         recargo_horas_extras = 1.35,
-        recargo_feriado = 2.00
+        recargo_feriado = 1.00
       } = req.body;
 
       const sm = parseFloat(salario_mensual_base) || 18421.00;
@@ -143,7 +143,7 @@ function createPayrollRouter(pool) {
       const hc = parseFloat(horas_jornada_completa) || 8.00;
       const hm = parseFloat(horas_media_jornada) || 4.00;
       const rhe = parseFloat(recargo_horas_extras) || 1.35;
-      const rf = parseFloat(recargo_feriado) || 2.00;
+      const rf = parseFloat(recargo_feriado) || 1.00;
 
       await pool.query(`
         INSERT INTO payroll_calculation_settings 
@@ -456,7 +456,7 @@ function createPayrollRouter(pool) {
     const horasDiaCompleto = parseFloat(cfg.horas_jornada_completa || 8.00);
     const horasMediaJornada = parseFloat(cfg.horas_media_jornada || 4.00);
     const recargoHorasExtras = parseFloat(cfg.recargo_horas_extras || 1.35);
-    const recargoFeriado = parseFloat(cfg.recargo_feriado || 2.00);
+    const recargoFeriado = parseFloat(cfg.recargo_feriado || 1.00);
 
     // Unidades de cálculo: mensual -> diario (23.83) -> hora (8h) -> minutos (/ 60)
     const salarioDiarioGarantizado = salarioBaseGarantizado / diasLaboralesMes;
@@ -614,7 +614,7 @@ function createPayrollRouter(pool) {
               workedHours = horasDiaCompleto;
             }
 
-            const multiplier = parseFloat(h.rate_multiplier || recargoFeriado);
+            const multiplier = parseFloat(recargoFeriado !== undefined ? recargoFeriado : (h.rate_multiplier || 1.00));
             const holidayPay = Number((workedHours * salarioHoraGarantizado * multiplier).toFixed(2));
             feriados += holidayPay;
           }

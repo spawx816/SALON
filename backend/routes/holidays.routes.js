@@ -52,7 +52,7 @@ function createHolidaysRouter(pool) {
         date, 
         name, 
         type || 'Oficial', 
-        rate_multiplier !== undefined ? rate_multiplier : 2.00, 
+        rate_multiplier !== undefined ? rate_multiplier : 1.00, 
         is_active !== undefined ? is_active : 1, 
         notes || null
       ]);
