@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { 
   Lock, Unlock, DollarSign, Calendar, RefreshCw, Search, Eye, Filter,
   FileSpreadsheet, ArrowUpRight, ArrowDownRight, CreditCard, Banknote, Landmark,
-  Gift, Receipt, AlertTriangle, CheckCircle2, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, X, Clock, MapPin, User, FileText
+  Gift, Receipt, AlertTriangle, CheckCircle2, ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight, X, Clock, MapPin, User, FileText, Printer
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { motion, AnimatePresence } from 'framer-motion';
+import CashRegisterClosePrintModal from '../visits/CashRegisterClosePrintModal';
 
 const CashRegistersModule = () => {
   const [registers, setRegisters] = useState([]);
@@ -28,6 +29,29 @@ const CashRegistersModule = () => {
   const [modalTab, setModalTab] = useState('resumen'); // 'resumen' | 'facturas' | 'movimientos'
   const [loadingModalData, setLoadingModalData] = useState(false);
   const [movementFilter, setMovementFilter] = useState('gastos'); // 'gastos' | 'todos'
+
+  // Print close report state
+  const [showClosePrintModal, setShowClosePrintModal] = useState(false);
+  const [closeReportData, setCloseReportData] = useState(null);
+  const [loadingPrintReport, setLoadingPrintReport] = useState(false);
+
+  const handlePrintCloseReport = async (registerId) => {
+    if (!registerId) return;
+    setLoadingPrintReport(true);
+    try {
+      const data = await dataService.getCashRegisterCloseReport(registerId);
+      if (data && data.report) {
+        setCloseReportData(data.report);
+        setShowClosePrintModal(true);
+      } else {
+        alert('No se pudo obtener el reporte de arqueo para esta caja.');
+      }
+    } catch (err) {
+      alert('Error cargando reporte de cierre: ' + err.message);
+    } finally {
+      setLoadingPrintReport(false);
+    }
+  };
 
   useEffect(() => {
     loadSalonsAndRegisters();
@@ -447,6 +471,17 @@ const CashRegistersModule = () => {
                             <Receipt size={13} />
                             <span>Facturas</span>
                           </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handlePrintCloseReport(reg.id)}
+                            disabled={loadingPrintReport}
+                            style={{ background: '#0f172a', border: '1px solid #0f172a', padding: '0.35rem 0.6rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 800, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '3px' }}
+                            title="Imprimir reporte oficial de arqueo y cierre (80mm)"
+                          >
+                            <Printer size={13} />
+                            <span>Imprimir</span>
+                          </button>
                         </div>
                       </td>
 
@@ -647,9 +682,33 @@ const CashRegistersModule = () => {
                 </p>
               </div>
 
-              <button onClick={() => setSelectedRegister(null)} style={{ background: 'transparent', border: 'none', color: '#ffffff', cursor: 'pointer' }}>
-                <X size={22} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <button
+                  type="button"
+                  onClick={() => handlePrintCloseReport(selectedRegister.id)}
+                  disabled={loadingPrintReport}
+                  style={{
+                    background: '#ffffff',
+                    color: '#0f172a',
+                    border: 'none',
+                    padding: '0.45rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.775rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.35rem'
+                  }}
+                  title="Imprimir arqueo de cierre oficial"
+                >
+                  <Printer size={14} />
+                  <span>🖨️ Imprimir Cierre</span>
+                </button>
+                <button onClick={() => setSelectedRegister(null)} style={{ background: 'transparent', border: 'none', color: '#ffffff', cursor: 'pointer' }}>
+                  <X size={22} />
+                </button>
+              </div>
             </div>
 
             {/* Modal Navigation Tabs */}
@@ -982,7 +1041,16 @@ const CashRegistersModule = () => {
             </div>
 
             {/* Modal Footer */}
-            <div style={{ padding: '0.85rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+            <div style={{ padding: '0.85rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => handlePrintCloseReport(selectedRegister.id)}
+                disabled={loadingPrintReport}
+                style={{ background: '#be185d', color: 'white', border: 'none', padding: '0.5rem 1.25rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <Printer size={15} />
+                <span>🖨️ Imprimir Reporte de Cierre</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setSelectedRegister(null)}
@@ -995,6 +1063,16 @@ const CashRegistersModule = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL DE IMPRESIÓN OFICIAL DE CIERRE Y ARQUEO */}
+      <CashRegisterClosePrintModal
+        isOpen={showClosePrintModal}
+        onClose={() => {
+          setShowClosePrintModal(false);
+          setCloseReportData(null);
+        }}
+        reportData={closeReportData}
+      />
 
     </div>
   );

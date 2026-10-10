@@ -350,6 +350,17 @@ export const dataService = {
     }
   },
 
+  getCashRegisterCloseReport: async (registerId) => {
+    try {
+      const res = await fetch(`${API_URL}/cash-registers/${registerId}/close-report`);
+      if (!res.ok) throw new Error('Error al obtener reporte de cierre de caja');
+      return await res.json();
+    } catch (e) {
+      console.error('Error fetching cash register close report:', e);
+      throw e;
+    }
+  },
+
   getCashRegisterMovements: async (registerId) => {
     try {
       const res = await fetch(`${API_URL}/cash-registers/${registerId}/movements`);

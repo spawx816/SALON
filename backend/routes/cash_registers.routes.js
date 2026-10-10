@@ -319,9 +319,9 @@ function createCashRegistersRouter(pool) {
         </head>
         <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 20px; color: #1e293b;">
           <div style="max-width: 650px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
-            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #ffffff; padding: 30px 24px; text-align: center;">
-              <h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px; color: #f472b6;">ABATTE PELUQUERÍA</h1>
-              <h2 style="margin: 6px 0 0 0; font-size: 15px; font-weight: 400; color: #cbd5e1;">Reporte Oficial de Cierre y Arqueo de Caja</h2>
+            <div style="background: #ffffff; padding: 26px 20px 18px 20px; text-align: center; border-bottom: 2px solid #0f172a;">
+              <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 1.5px; color: #000000 !important; text-transform: uppercase;">ABATTE PELUQUERÍA</h1>
+              <h2 style="margin: 6px 0 0 0; font-size: 13px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.8px;">Reporte Oficial de Cierre y Arqueo de Caja</h2>
             </div>
             <div style="padding: 24px;">
               <div style="background: #f1f5f9; border-radius: 12px; padding: 16px; margin-bottom: 20px; font-size: 13px; line-height: 1.6;">
@@ -665,6 +665,16 @@ function createCashRegistersRouter(pool) {
         console.error('[BACKGROUND CLOSE CASH EMAIL ERROR]:', emailErr);
       });
 
+      let closeSalonName = 'Abatte Peluquería';
+      if (reg.salon_id) {
+        try {
+          const [sRows] = await pool.query('SELECT name FROM salons WHERE id = ? LIMIT 1', [reg.salon_id]);
+          if (sRows && sRows.length > 0 && sRows[0].name) {
+            closeSalonName = `Abatte Peluquería - ${sRows[0].name}`;
+          }
+        } catch (sErr) {}
+      }
+
       res.json({
         success: true,
         message: 'Caja cerrada y arqueada exitosamente',
@@ -674,6 +684,72 @@ function createCashRegistersRouter(pool) {
           diferencia: diff,
           gastosTotal: stats.gastosTotal,
           prestamosRegistrados
+        },
+        report: {
+          registerId: reg.id,
+          registerNumber: reg.register_number || `CAJA-#${id}`,
+          employeeName: reg.employee_name || 'Recepción',
+          salonName: closeSalonName,
+          openedAt: reg.opened_at || reg.created_at,
+          closedAt: new Date().toISOString(),
+          status: 'Cerrada',
+          initialAmt,
+          finalAmt,
+          montoEsperado,
+          diferencia: diff,
+          observaciones: observaciones || reg.observaciones || '',
+          stats
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/:id/close-report', async (req, res) => {
+    try {
+      const { id } = req.params;
+      await syncRegisterInvoicesAndMovements(id);
+      const [regs] = await pool.query('SELECT * FROM cash_registers WHERE id = ?', [id]);
+      if (!regs || regs.length === 0) {
+        return res.status(404).json({ error: 'Caja no encontrada' });
+      }
+      const reg = regs[0];
+      let salonName = 'Abatte Peluquería';
+      if (reg.salon_id) {
+        try {
+          const [salons] = await pool.query('SELECT name FROM salons WHERE id = ? LIMIT 1', [reg.salon_id]);
+          if (salons && salons.length > 0 && salons[0].name) {
+            salonName = `Abatte Peluquería - ${salons[0].name}`;
+          }
+        } catch (e) {}
+      }
+
+      const [movements] = await pool.query(
+        'SELECT * FROM cash_register_movements WHERE cash_register_id = ? ORDER BY created_at ASC',
+        [id]
+      );
+      const initialAmt = parseFloat(reg.monto_inicial) || 0;
+      const stats = calculateRegisterFinancials(movements, initialAmt);
+      const finalAmt = parseFloat(reg.monto_final) || 0;
+      const diff = parseFloat(reg.diferencia) || (finalAmt - stats.montoEsperado);
+
+      res.json({
+        success: true,
+        report: {
+          registerId: reg.id,
+          registerNumber: reg.register_number || `CAJA-#${reg.id}`,
+          employeeName: reg.employee_name || 'Recepción',
+          salonName,
+          openedAt: reg.opened_at || reg.created_at,
+          closedAt: reg.closed_at || new Date().toISOString(),
+          status: reg.status || 'Cerrada',
+          initialAmt,
+          finalAmt,
+          montoEsperado: stats.montoEsperado,
+          diferencia: diff,
+          observaciones: reg.observaciones || '',
+          stats
         }
       });
     } catch (err) {

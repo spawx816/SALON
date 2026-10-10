@@ -15,6 +15,7 @@ import ReceptionMotivationalModal from '../common/ReceptionMotivationalModal';
 import ElectronicInvoicePrintModal from '../common/ElectronicInvoicePrintModal';
 import ThermalTicketModal from './ThermalTicketModal';
 import CajaInvoicesModal from './CajaInvoicesModal';
+import CashRegisterClosePrintModal from './CashRegisterClosePrintModal';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
 
 const DEFAULT_TOP_SERVICES = [
@@ -202,6 +203,8 @@ const VisitRecorder = () => {
   const [printableTicketData, setPrintableTicketData] = useState(null);
   const [showInvoicePrintModal, setShowInvoicePrintModal] = useState(false);
   const [printableInvoiceData, setPrintableInvoiceData] = useState(null);
+  const [showCloseRegisterPrintModal, setShowCloseRegisterPrintModal] = useState(false);
+  const [closeRegisterPrintData, setCloseRegisterPrintData] = useState(null);
   const [isCreditoFiscal, setIsCreditoFiscal] = useState(false);
   const [clientRncInput, setClientRncInput] = useState('');
   const [clientRazonSocialInput, setClientRazonSocialInput] = useState('');
@@ -2732,12 +2735,31 @@ const VisitRecorder = () => {
       const prestamosCount = res.summary?.prestamosRegistrados || 0;
       const diffText = diffVal === 0 ? '🟢 Cuadre Perfecto (Sin diferencia)' : diffVal > 0 ? `🔷 Sobrante: + RD$ ${diffVal.toFixed(2)}` : `🔴 Faltante: - RD$ ${Math.abs(diffVal).toFixed(2)}`;
       const prestamosText = prestamosCount > 0 ? `\n\n🤝 Se registraron ${prestamosCount} préstamo(s) a empleadas automáticamente como Descuento / Deducción en nómina.` : '';
-      alert(`🔒 Arqueo y Cierre de Caja Finalizado Exitosamente.\n\n${diffText}${prestamosText}`);
+      
+      const closedRegId = activeRegister.id;
       setActiveRegister(null);
       setShowConfirmCloseModal(false);
       setShowRegisterDetailsModal(false);
       setCloseRegisterAmount('');
       setCloseRegisterNotes('');
+
+      // Desplegar reporte oficial de arqueo y cierre de caja para impresión
+      if (res?.report) {
+        setCloseRegisterPrintData(res.report);
+        setShowCloseRegisterPrintModal(true);
+      } else {
+        try {
+          const reportRes = await dataService.getCashRegisterCloseReport(closedRegId);
+          if (reportRes?.report) {
+            setCloseRegisterPrintData(reportRes.report);
+            setShowCloseRegisterPrintModal(true);
+          } else {
+            alert(`🔒 Arqueo y Cierre de Caja Finalizado Exitosamente.\n\n${diffText}${prestamosText}`);
+          }
+        } catch (_) {
+          alert(`🔒 Arqueo y Cierre de Caja Finalizado Exitosamente.\n\n${diffText}${prestamosText}`);
+        }
+      }
     } catch (e) {
       alert('Error cerrando caja: ' + e.message);
     } finally {
@@ -6176,13 +6198,50 @@ const VisitRecorder = () => {
 
             {/* FOOTER ACTIONS */}
             <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-              <div style={{ display: 'flex', gap: '1rem' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={() => setShowRegisterDetailsModal(false)}
-                  style={{ width: '180px', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#334155', cursor: 'pointer', fontSize: '0.875rem' }}
+                  style={{ width: '130px', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: 700, color: '#334155', cursor: 'pointer', fontSize: '0.875rem' }}
                 >
-                  Cerrar ventana
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      setLoading(true);
+                      const rep = await dataService.getCashRegisterCloseReport(activeRegister.id);
+                      if (rep?.report) {
+                        setCloseRegisterPrintData(rep.report);
+                        setShowCloseRegisterPrintModal(true);
+                      } else {
+                        alert('No se pudo cargar el arqueo.');
+                      }
+                    } catch (e) {
+                      alert('Error: ' + e.message);
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                  style={{
+                    padding: '0.85rem 1.1rem',
+                    borderRadius: '12px',
+                    border: '1.5px solid #cbd5e1',
+                    background: '#f8fafc',
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}
+                  title="Imprimir arqueo actual antes de cerrar"
+                >
+                  <Printer size={16} />
+                  <span>Imprimir Arqueo</span>
                 </button>
                 <button
                   type="button"
@@ -6190,6 +6249,7 @@ const VisitRecorder = () => {
                   disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01}
                   style={{
                     flex: 1,
+                    minWidth: '220px',
                     padding: '0.85rem 1.25rem',
                     borderRadius: '12px',
                     border: 'none',
@@ -7085,6 +7145,16 @@ const VisitRecorder = () => {
         onClose={() => setShowMotivationalModal(false)}
         userName={currentUser?.nombre || currentUser?.name || 'Recepción'}
         salonName={salonsList.find(s => String(s.id) === String(salonId))?.name || 'Sistema de Gestión'}
+      />
+
+      {/* MODAL DE IMPRESIÓN OFICIAL DE CIERRE Y ARQUEO DE CAJA */}
+      <CashRegisterClosePrintModal
+        isOpen={showCloseRegisterPrintModal}
+        onClose={() => {
+          setShowCloseRegisterPrintModal(false);
+          setCloseRegisterPrintData(null);
+        }}
+        reportData={closeRegisterPrintData}
       />
 
     </div>
