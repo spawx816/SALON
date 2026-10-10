@@ -10,6 +10,14 @@ const crypto = require('crypto');
 let QRCode = null;
 try { QRCode = require('qrcode'); } catch(e) { console.warn('qrcode optional require notice in server:', e.message); }
 
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[UNHANDLED REJECTION]:', reason);
+});
+
+
 // Modular Routers & Services
 const { dgiiReceptionRouter } = require('./dgii_reception_router');
 const { createDgiiService } = require('./services/dgii.service');
