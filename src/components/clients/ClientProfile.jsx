@@ -8,7 +8,7 @@ import {
   Calendar, TrendingUp, Scissors, Trash2, Edit2, Plus, ArrowLeft, RefreshCw, AlertTriangle, 
   User, Award, Mail, Phone, Settings, Users, DollarSign, MapPin, Banknote, Store, Star, 
   Sparkles, MessageCircle, LayoutGrid, List, ChevronLeft, ChevronRight, Cake, ArrowUpDown, 
-  Filter, Eye, CheckCircle2, Building2, X as CloseIcon
+  Filter, Eye, CheckCircle2, Building2, X as CloseIcon, FilePlus
 } from 'lucide-react';
 import { useTranslation } from '../../context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
