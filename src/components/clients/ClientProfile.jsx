@@ -186,6 +186,7 @@ const ClientProfile = () => {
 
   const [contracts, setContracts] = useState([]);
   const [activePlans, setActivePlans] = useState([]);
+  const [allPlansList, setAllPlansList] = useState([]);
   const [pendingCharge, setPendingCharge] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [cardInfo, setCardInfo] = useState(null);
@@ -276,6 +277,7 @@ const ClientProfile = () => {
       setVisits(visitsData || []);
       setPayments(paymentsData || []);
       setGiftCards(giftsData || []);
+      setAllPlansList(allPlans || []);
 
       const cardList = Array.isArray(cardsData) ? cardsData : [];
       setAllCards(cardList);
@@ -307,13 +309,23 @@ const ClientProfile = () => {
   };
 
   const handleManualPayment = async (targetContract, targetPlan) => {
-    if (!targetContract || !targetPlan) return;
+    const c = targetContract || contract || (contracts && contracts[0]);
+    if (!c) {
+      showNotification('No se encontró ningún contrato para este cliente.', 'error');
+      return;
+    }
+
+    const p = targetPlan 
+      || (allPlansList || []).find(pl => pl.id === c.plan_id) 
+      || (activePlans || []).find(pl => pl.id === c.plan_id) 
+      || { price: c.contract_price || '1950.00', title: c.planTitle || 'Plan Beauty' };
     
-    if (window.confirm(`¿Estás seguro de registrar un pago manual de RD$ ${targetPlan.price} en Efectivo/POS para reactivar el plan ${targetPlan.title} de ${client.nombre}?`)) {
+    const clientName = client?.nombre || 'la clienta';
+    if (window.confirm(`¿Estás seguro de registrar un cobro en Efectivo/POS de RD$ ${parseFloat(p.price).toLocaleString()} para reactivar la membresía "${p.title}" de ${clientName}?`)) {
       try {
-        await dataService.renewManualContract(client?.id, targetPlan?.price);
-        showNotification('Pago registrado exitosamente. Plan reactivado.');
-        // Reload data
+        await dataService.renewManualContract(client?.id, p.price);
+        showNotification('¡Pago registrado exitosamente! La membresía fue reactivada.', 'success');
+        // Reload fresh data
         await selectClient(client);
       } catch (e) {
         showNotification('Error: ' + e.message, 'error');
@@ -1636,9 +1648,50 @@ const ClientProfile = () => {
                           ✕ CANCELADO
                         </span>
                       </div>
-                      <p style={{ fontSize: '0.75rem', color: '#b91c1c', margin: 0, lineHeight: 1.4 }}>
+                      <p style={{ fontSize: '0.75rem', color: '#b91c1c', margin: '0 0 1rem 0', lineHeight: 1.4 }}>
                         El cliente canceló voluntariamente su membresía mediante código de seguridad OTP. La tarjeta fue desvinculada y no se generarán más cobros automáticos.
                       </p>
+                      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleManualPayment(contracts.find(c => c.status === 'Cancelled'), null)}
+                          style={{
+                            background: '#059669',
+                            color: 'white',
+                            border: 'none',
+                            padding: '0.5rem 0.85rem',
+                            borderRadius: '8px',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            boxShadow: '0 2px 4px rgba(5, 150, 105, 0.2)'
+                          }}
+                        >
+                          💵 Reactivar en Efectivo/POS
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate('/contratos', { state: { clientCedula: client.cedula } })}
+                          style={{
+                            background: '#09090b',
+                            color: 'white',
+                            border: 'none',
+                            padding: '0.5rem 0.85rem',
+                            borderRadius: '8px',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem'
+                          }}
+                        >
+                          <FilePlus size={14} /> Nueva Suscripción Tarjeta
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div style={{ background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', padding: '1rem', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
@@ -2130,7 +2183,7 @@ const ClientProfile = () => {
                           Cobrar Tarjeta
                         </button>
                         <button 
-                          onClick={() => handleManualPayment(contract, activePlans.find(p => p.id === contract?.plan_id))} 
+                          onClick={() => handleManualPayment(contract, null)} 
                           className="btn-secondary" 
                           style={{ padding: '0.5rem 1rem', fontSize: '0.75rem', borderRadius: '8px' }}
                         >

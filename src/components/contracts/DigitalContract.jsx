@@ -310,8 +310,11 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
   const completeContractWithToken = async (tokenId) => {
     try {
         if (!selectedPlanId) return showNotification('Debes seleccionar un plan.', 'error');
+        if (!client || !client.id) {
+          return showNotification('Error: No se ha detectado el cliente a afiliar. Por favor vuelve al paso 0 para seleccionarlo.', 'error');
+        }
         
-        console.log("[CONTRACT] Guardando contrato final en el backend...");
+        console.log("[CONTRACT] Guardando contrato final en el backend para cliente:", client.id);
         showNotification("Procesando activación y cobro inicial...", "info");
         
         // Pequeño delay estratégico para propagación de token en CardNet
@@ -1039,7 +1042,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                 <ClientRegistration 
                   initialClient={client} 
                   onClientSaved={(savedClient) => { 
-                    setClient(savedClient); 
+                    setClient(prev => ({ ...(prev || {}), ...(savedClient || {}), id: savedClient?.id || prev?.id })); 
                     setStep(1); 
                   }} 
                   submitButtonText="Guardar Datos y Continuar al Plan Beauty" 
@@ -1249,7 +1252,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                 <div><span style={{ color: 'var(--text-secondary)' }}>IP:</span> <strong>{metadata.ip}</strong></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Token CardNet:</span> <strong style={{ color: '#059669' }}>{savedToken ? 'Vinculado ✓' : 'No detectado'}</strong></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Dispositivo:</span> <strong title={metadata.device}>{parseUA(metadata.device)}</strong></div>
-                <div><span style={{ color: 'var(--text-secondary)' }}>Cliente:</span> <strong>{client?.nombre}</strong></div>
+                <div><span style={{ color: 'var(--text-secondary)' }}>Cliente:</span> <strong style={{ color: client?.nombre ? 'var(--text-primary)' : '#dc2626' }}>{client?.nombre || '⚠️ No seleccionado'}</strong></div>
                 <div><span style={{ color: 'var(--text-secondary)' }}>Fecha:</span> <strong>{new Date().toLocaleDateString()}</strong></div>
               </div>
             </div>
@@ -1258,6 +1261,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
               <button onClick={() => setStep(3)} className="btn-secondary">{t('contract.btn.back')}</button>
               <button 
                 onClick={() => {
+                  if (!client || !client.id) return showNotification("No se ha seleccionado el cliente. Regresa al paso inicial.", "error");
                   if (!signature) return showNotification("Por favor escriba su nombre para firmar el contrato.", "error");
                   completeContractWithToken(savedToken);
                 }} 

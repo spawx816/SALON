@@ -275,7 +275,9 @@ function createClientsRouter(pool, options = {}) {
       if (salon_id) {
         await pool.query('UPDATE contracts SET salon_id = ? WHERE client_id = ? OR client_id = (SELECT id FROM clients WHERE cedula = ? LIMIT 1)', [salon_id, id, cedula || id]);
       }
-      res.json({ success: true, fecha_nacimiento: cleanBday, affectedRows: result.affectedRows });
+      const [updatedRows] = await pool.query('SELECT * FROM clients WHERE id = ? OR cedula = ? LIMIT 1', [id, cedula || id]);
+      const clientObj = (updatedRows && updatedRows[0]) ? updatedRows[0] : { id, cedula, nombre, telefono, email, salon_id };
+      res.json({ success: true, fecha_nacimiento: cleanBday, affectedRows: result.affectedRows, id: clientObj.id, client: clientObj, ...clientObj });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

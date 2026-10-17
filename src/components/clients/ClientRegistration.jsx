@@ -61,7 +61,12 @@ const ClientRegistration = ({ initialClient = null, onClientSaved = null, submit
         saved = await dataService.saveClient({ ...data, registration_source: source });
       }
 
-      const finalClient = saved || { ...(initialClient || {}), ...data };
+      const finalClient = {
+        ...(initialClient || {}),
+        ...data,
+        ...(saved && typeof saved === 'object' && saved.id ? saved : {}),
+        id: initialClient?.id || saved?.id || saved?.insertId || data?.id
+      };
       showNotification(t('reg.alert.success'));
 
       if (onClientSaved) {
