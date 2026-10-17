@@ -1654,42 +1654,23 @@ const ClientProfile = () => {
                       <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          onClick={() => handleManualPayment(contracts.find(c => c.status === 'Cancelled'), null)}
-                          style={{
-                            background: '#059669',
-                            color: 'white',
-                            border: 'none',
-                            padding: '0.5rem 0.85rem',
-                            borderRadius: '8px',
-                            fontSize: '0.75rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.35rem',
-                            boxShadow: '0 2px 4px rgba(5, 150, 105, 0.2)'
-                          }}
-                        >
-                          💵 Reactivar en Efectivo/POS
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => navigate('/contratos', { state: { clientCedula: client.cedula } })}
                           style={{
                             background: '#09090b',
                             color: 'white',
                             border: 'none',
-                            padding: '0.5rem 0.85rem',
+                            padding: '0.6rem 1.2rem',
                             borderRadius: '8px',
                             fontSize: '0.75rem',
                             fontWeight: 800,
                             cursor: 'pointer',
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '0.35rem'
+                            gap: '0.4rem',
+                            boxShadow: '0 2px 5px rgba(0,0,0,0.1)'
                           }}
                         >
-                          <FilePlus size={14} /> Nueva Suscripción Tarjeta
+                          <FilePlus size={14} /> Nueva Suscripción / Reactivar
                         </button>
                       </div>
                     </div>
