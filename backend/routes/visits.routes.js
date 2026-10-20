@@ -630,13 +630,33 @@ function createVisitsRouter(pool, deps = {}) {
 
         if (Array.isArray(applied_payments) && applied_payments.length > 0) {
           const devueltaVal = parseFloat(devuelta) || 0;
+          const invoiceTotal = parseFloat(total) || 0;
+
+          // Calcular total no-efectivo para conocer el remanente neto exacto que le corresponde a efectivo
+          const nonCashTotal = applied_payments
+            .filter(p => !(p.method || '').toLowerCase().includes('efectivo'))
+            .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+          const maxCashNet = Math.max(0, invoiceTotal - nonCashTotal);
+
           for (const p of applied_payments) {
             let pAmt = parseFloat(p.amount) || 0;
             const pMethod = p.method || 'Efectivo';
-            // Si es efectivo y se dio devuelta en pago único o supera el total de la factura, registrar el valor neto real que queda en caja
-            if (pMethod.toLowerCase().includes('efectivo') && devueltaVal > 0 && applied_payments.length === 1) {
-              pAmt = Math.max(0, pAmt - devueltaVal);
+
+            if (pMethod.toLowerCase().includes('efectivo')) {
+              // Si el monto de efectivo enviado supera el neto que le corresponde (ej: enviaron el monto recibido bruto con devuelta)
+              if (devueltaVal > 0 && pAmt > maxCashNet) {
+                pAmt = Math.max(0, pAmt - devueltaVal);
+              }
+              // En cualquier circunstancia, el efectivo neto ingresado a caja nunca puede superar el remanente de la factura
+              if (maxCashNet > 0 && pAmt > maxCashNet) {
+                pAmt = maxCashNet;
+              } else if (maxCashNet === 0 && invoiceTotal > 0) {
+                pAmt = 0;
+              }
+            } else if (applied_payments.length === 1 && pAmt > invoiceTotal && invoiceTotal > 0) {
+              pAmt = invoiceTotal;
             }
+
             if (pAmt > 0 || pMethod.toLowerCase().includes('plan')) {
               await pool.query(
                 `INSERT INTO cash_register_movements (cash_register_id, type, payment_method, amount, concept, visit_id, created_at)

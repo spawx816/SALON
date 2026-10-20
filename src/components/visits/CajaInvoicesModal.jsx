@@ -20,13 +20,39 @@ const CajaInvoicesModal = ({
   const activeInvoices = cajaInvoices.filter(inv => inv.status !== 'Anulado');
   const totals = activeInvoices.reduce((acc, inv) => {
     const amt = Number(inv.total || 0);
-    const m = (inv.metodo_pago || 'Efectivo').toLowerCase();
+    const rawMethod = (inv.metodo_pago || 'Efectivo').toString();
+    const m = rawMethod.toLowerCase();
     acc.total += amt;
-    if (m.includes('efectivo')) acc.efectivo += amt;
-    else if (m.includes('tarjeta')) acc.tarjeta += amt;
-    else if (m.includes('transferencia')) acc.transferencia += amt;
-    else if (m.includes('plan')) acc.planBeauty += amt;
-    else acc.otros += amt;
+
+    if (m.includes('mixto')) {
+      let ef = 0, tj = 0, tr = 0, gc = 0;
+      const efMatch = rawMethod.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+      const tjMatch = rawMethod.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+      const trMatch = rawMethod.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+      const gcMatch = rawMethod.match(/Gift Card:\s*RD\$\s*([\d,.]+)/i);
+      if (efMatch) ef = parseFloat(efMatch[1].replace(/,/g, '')) || 0;
+      if (tjMatch) tj = parseFloat(tjMatch[1].replace(/,/g, '')) || 0;
+      if (trMatch) tr = parseFloat(trMatch[1].replace(/,/g, '')) || 0;
+      if (gcMatch) gc = parseFloat(gcMatch[1].replace(/,/g, '')) || 0;
+      if (ef === 0 && tj === 0 && tr === 0 && gc === 0) {
+        ef = amt / 2;
+        tj = amt / 2;
+      }
+      acc.efectivo += ef;
+      acc.tarjeta += tj;
+      acc.transferencia += tr;
+      acc.otros += gc;
+    } else if (m.includes('efectivo')) {
+      acc.efectivo += amt;
+    } else if (m.includes('tarjeta')) {
+      acc.tarjeta += amt;
+    } else if (m.includes('transferencia')) {
+      acc.transferencia += amt;
+    } else if (m.includes('plan')) {
+      acc.planBeauty += amt;
+    } else {
+      acc.otros += amt;
+    }
     return acc;
   }, { total: 0, efectivo: 0, tarjeta: 0, transferencia: 0, planBeauty: 0, otros: 0 });
 

@@ -460,10 +460,10 @@ function createCashRegistersRouter(pool) {
                     <td style="padding: 5px 0;">(+) Entradas Adicionales:</td>
                     <td style="padding: 5px 0; text-align: right; font-weight: 600; color: #16a34a;">+${fmtRD(entradasTotal)}</td>
                   </tr>` : ''}
-                  ${(gastosTotal + prestamosTotal) > 0 ? `
+                  ${gastosTotal > 0 ? `
                   <tr>
                     <td style="padding: 5px 0;">(-) Gastos y Préstamos:</td>
-                    <td style="padding: 5px 0; text-align: right; font-weight: 600; color: #e11d48;">-${fmtRD(gastosTotal + prestamosTotal)}</td>
+                    <td style="padding: 5px 0; text-align: right; font-weight: 600; color: #e11d48;">-${fmtRD(gastosTotal)}</td>
                   </tr>` : ''}
                   ${retirosTotal > 0 ? `
                   <tr>

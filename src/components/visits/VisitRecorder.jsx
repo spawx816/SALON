@@ -2992,6 +2992,16 @@ const VisitRecorder = () => {
       }
 
       const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+      const sanitizedAppliedPayments = activePayments.map(p => {
+        if (p.method === 'Efectivo') {
+          const netCash = activePayments.length === 1 ? finalTotalAmount : effectiveCashCovered;
+          return { ...p, amount: netCash };
+        } else if (activePayments.length === 1) {
+          return { ...p, amount: finalTotalAmount };
+        }
+        return p;
+      });
+
       let finalMetodoPago = 'Efectivo';
       let finalMontoRecibido = finalTotalAmount;
       let finalDevuelta = cambioAmount;
@@ -3003,11 +3013,11 @@ const VisitRecorder = () => {
       } else if (activePayments.some(p => p.method === 'Nomina')) {
         finalMetodoPago = 'Nomina';
         finalMontoRecibido = finalTotalAmount;
-      } else if (activePayments.length === 1) {
-        finalMetodoPago = activePayments[0].method;
+      } else if (sanitizedAppliedPayments.length === 1) {
+        finalMetodoPago = sanitizedAppliedPayments[0].method;
         finalMontoRecibido = parseFloat(activePayments[0].amount) || finalTotalAmount;
-      } else if (activePayments.length > 1) {
-        finalMetodoPago = 'Mixto (' + activePayments.map(p => `${p.method}: RD$ ${(parseFloat(p.amount) || 0).toFixed(2)}`).join(' + ') + ')';
+      } else if (sanitizedAppliedPayments.length > 1) {
+        finalMetodoPago = 'Mixto (' + sanitizedAppliedPayments.map(p => `${p.method}: RD$ ${(parseFloat(p.amount) || 0).toFixed(2)}`).join(' + ') + ')';
         finalMontoRecibido = totalAppliedSum;
       }
 
@@ -3025,13 +3035,6 @@ const VisitRecorder = () => {
       const ncfTypeToSend = isPlanRedemptionCheck ? 'NONE' : (chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : (isCreditoFiscal ? 'E31' : 'E32'));
       const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
       const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
-
-      const sanitizedAppliedPayments = activePayments.map(p => {
-        if (activePayments.length === 1 && p.method === 'Efectivo') {
-          return { ...p, amount: finalTotalAmount };
-        }
-        return p;
-      });
 
       const checkoutRes = await dataService.checkoutTicket(ticketIdToUse, {
         total: finalTotalAmount,
