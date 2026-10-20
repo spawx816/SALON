@@ -45,6 +45,32 @@ router.get('/users/:id/profile-photo', async (req, res) => {
   }
 });
 
+// GET /api/attendance/:id/photo - Stream verification photo on-demand with 7-day browser cache
+router.get('/:id/photo', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.query('SELECT photo FROM attendance WHERE id = ?', [id]);
+    if (rows.length === 0 || !rows[0].photo) {
+      return res.status(404).send('Photo not found');
+    }
+    const photoStr = rows[0].photo;
+    if (photoStr.startsWith('data:image')) {
+      const parts = photoStr.split(',');
+      const mime = parts[0].split(':')[1].split(';')[0];
+      const imgBuffer = Buffer.from(parts[1], 'base64');
+      res.setHeader('Content-Type', mime);
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+      return res.send(imgBuffer);
+    }
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    res.send(Buffer.from(photoStr, 'base64'));
+  } catch (err) {
+    console.error('[ATTENDANCE PHOTO STREAM ERROR]:', err.message);
+    res.status(500).send('Error');
+  }
+});
+
 // GET /api/attendance/today/:employeeId - Get today's attendance logs for an employee
 router.get('/today/:employeeId', async (req, res) => {
   try {
@@ -752,7 +778,9 @@ router.get('/history', async (req, res) => {
 
     // 4. Query combined history
     let sql = `
-      SELECT a.id, a.employee_id, a.timestamp, a.type, a.photo, a.geolocation, a.device_info, a.status, a.lateness_minutes, a.extra_minutes,
+      SELECT a.id, a.employee_id, a.timestamp, a.type, 
+             (CASE WHEN a.photo IS NOT NULL AND a.photo != '' THEN CONCAT('/api/attendance/', a.id, '/photo') ELSE NULL END) as photo,
+             a.geolocation, a.device_info, a.status, a.lateness_minutes, a.extra_minutes,
              COALESCE(s.nombre, u.nombre) as employeeName,
              sal.name as salonName,
              COALESCE(s.dias_laborables, u.dias_laborables) as dias_laborables,

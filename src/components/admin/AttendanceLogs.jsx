@@ -2715,7 +2715,7 @@ const AttendanceLogs = () => {
                                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: '#09090b', fontWeight: 650 }}
                               >
                                 <div style={{ width: '42px', height: '42px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc', flexShrink: 0 }}>
-                                  <img src={log.photo} alt="Validación" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  <img src={log.photo} alt="Validación" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 </div>
                                 <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Ver foto</span>
                               </div>

@@ -463,10 +463,68 @@ function createPayrollRouter(pool) {
     const salarioHoraGarantizado = salarioDiarioGarantizado / horasDiaCompleto;
     const salarioMinutoGarantizado = salarioHoraGarantizado / 60;
 
+    // Variables de horas extras, feriados y ausencias
+    let feriados = 0.00;
+    let horasExtras = 0.00;
     let ausenciasHorasDetalle = [];
 
     if (ausenciasMonto === 0 && tardanzasMonto === 0) {
       try {
+        // Cargar sobreescrituras de horario para el colaborador en el período
+        const [overrides] = await pool.query(
+          "SELECT DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE (employee_id = ? OR employee_id = ?) AND date BETWEEN ? AND ? AND status = 'Activo'",
+          [empId, empName, start_date, end_date]
+        );
+        const overrideMap = new Map();
+        overrides.forEach(o => overrideMap.set(o.dateStr, o));
+
+        // Helper para determinar la duración y jornada programada de un día específico
+        const getScheduledDurationSecs = (dateStr) => {
+          const override = overrideMap.get(dateStr);
+          if (override && override.new_hora_entrada && override.new_hora_salida) {
+            const [h1, m1] = override.new_hora_entrada.split(':').map(Number);
+            const [h2, m2] = override.new_hora_salida.split(':').map(Number);
+            let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
+            if (secs <= 0) secs += 86400;
+            return { secs, hrs: secs / 3600, isWorking: true };
+          }
+
+          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+          const d = new Date(dateStr + 'T12:00:00');
+          const dName = dayNames[d.getDay()];
+
+          if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(emp.dias_laborables);
+              const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === dName.toLowerCase().slice(0, 3));
+              const dayInfo = matchKey ? parsed[matchKey] : null;
+              if (dayInfo && dayInfo.entrada && dayInfo.salida) {
+                const [h1, m1] = dayInfo.entrada.split(':').map(Number);
+                const [h2, m2] = dayInfo.salida.split(':').map(Number);
+                let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
+                if (secs <= 0) secs += 86400;
+                return { secs, hrs: secs / 3600, isWorking: true };
+              } else {
+                return { secs: 0, hrs: 0, isWorking: false };
+              }
+            } catch(e) {}
+          } else if (emp.hora_entrada && emp.hora_salida) {
+            const workingDays = (emp.dias_laborables || '').split(',').map(s => s.trim().toLowerCase());
+            const isWorking = workingDays.length === 0 || workingDays.some(w => w.slice(0, 3) === dName.toLowerCase().slice(0, 3)) || (!emp.dias_laborables && dName !== 'Domingo');
+            if (isWorking) {
+              const [h1, m1] = emp.hora_entrada.split(':').map(Number);
+              const [h2, m2] = emp.hora_salida.split(':').map(Number);
+              let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
+              if (secs <= 0) secs += 86400;
+              return { secs, hrs: secs / 3600, isWorking: true };
+            } else {
+              return { secs: 0, hrs: 0, isWorking: false };
+            }
+          }
+
+          return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: dName !== 'Domingo' };
+        };
+
         const [attPunches] = await pool.query(`
           SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
           FROM attendance
@@ -485,70 +543,30 @@ function createPayrollRouter(pool) {
         let totalOvertimeMins = 0;
         let totalCalculatedAusencias = 0;
 
+        // 3.1 Procesar ponches reales por día (entradas, salidas, compensación neta)
         Object.keys(punchesByDay).forEach(dateStr => {
           const dayPunches = punchesByDay[dateStr];
           const ins = dayPunches.filter(p => p.type === 'Check-In');
           const outs = dayPunches.filter(p => p.type === 'Check-Out');
-          const abs = dayPunches.find(p => p.type === 'Ausencia');
 
-          if (abs && ins.length === 0) {
-            // Ausencia: Determinar si el turno programado era completo (8h) o medio día (4h)
-            let isHalfDay = false;
-            let scheduledHrs = horasDiaCompleto;
-
-            if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-              try {
-                const parsed = JSON.parse(emp.dias_laborables);
-                const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-                const d = new Date(dateStr + 'T12:00:00');
-                const dName = dayNames[d.getDay()];
-                const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === dName.toLowerCase().slice(0, 3));
-                const dayInfo = matchKey ? parsed[matchKey] : null;
-                if (dayInfo && dayInfo.entrada && dayInfo.salida) {
-                  const [h1, m1] = dayInfo.entrada.split(':').map(Number);
-                  const [h2, m2] = dayInfo.salida.split(':').map(Number);
-                  const dur = (h2 * 60 + m2 - (h1 * 60 + m1)) / 60;
-                  if (dur <= 5) {
-                    isHalfDay = true;
-                    scheduledHrs = horasMediaJornada;
-                  }
-                }
-              } catch(e) {}
-            } else if (emp.hora_entrada && emp.hora_salida) {
-              try {
-                const [h1, m1] = emp.hora_entrada.split(':').map(Number);
-                const [h2, m2] = emp.hora_salida.split(':').map(Number);
-                const dur = (h2 * 60 + m2 - (h1 * 60 + m1)) / 60;
-                if (dur <= 5) {
-                  isHalfDay = true;
-                  scheduledHrs = horasMediaJornada;
-                }
-              } catch(e) {}
-            }
-
-            const descuentoDia = scheduledHrs * salarioHoraGarantizado;
-            totalCalculatedAusencias += descuentoDia;
-            ausenciasHorasDetalle.push({
-              fecha: dateStr,
-              tipo: isHalfDay ? 'Medio Día (4 hrs)' : 'Día Completo (8 hrs)',
-              horas: scheduledHrs,
-              monto: Number(descuentoDia.toFixed(2))
-            });
-          } else if (ins.length > 0) {
+          if (ins.length > 0) {
             const checkIn = ins[0];
             const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
             const morningLate = Number(checkIn.lateness_minutes) || 0;
+            const daySched = getScheduledDurationSecs(dateStr);
+            const scheduledSecs = daySched.secs > 0 ? daySched.secs : (horasDiaCompleto * 3600);
 
             if (checkOut) {
               const inTime = new Date(checkIn.timestamp).getTime();
               const outTime = new Date(checkOut.timestamp).getTime();
               if (outTime > inTime) {
                 const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
-                const scheduledSecs = horasDiaCompleto * 3600; // Jornada legal estándar
                 if (workedSecs >= scheduledSecs) {
+                  // Jornada cumplida: compensación 100% de tardanza matutina
                   const surplusSecs = workedSecs - scheduledSecs;
                   totalOvertimeMins += Math.round(surplusSecs / 60);
                 } else {
+                  // Trabajó menos del horario programado para ese día específico
                   const missingSecs = scheduledSecs - workedSecs;
                   totalNetLatenessMins += Math.round(missingSecs / 60);
                 }
@@ -559,13 +577,45 @@ function createPayrollRouter(pool) {
           }
         });
 
+        // 3.2 Determinar Ausencias en días laborables programados sin ponche de entrada
+        const curDateObj = new Date(start_date + 'T12:00:00');
+        const endDateObj = new Date(end_date + 'T12:00:00');
+        const todayDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' });
+        const hireDateStr = emp.fecha_entrada ? new Date(emp.fecha_entrada).toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' }) : null;
+
+        while (curDateObj <= endDateObj) {
+          const dateStr = curDateObj.toISOString().slice(0, 10);
+          if (dateStr <= todayDateStr && (!hireDateStr || dateStr >= hireDateStr)) {
+            const daySched = getScheduledDurationSecs(dateStr);
+            const dayPunches = punchesByDay[dateStr] || [];
+            const ins = dayPunches.filter(p => p.type === 'Check-In');
+            const abs = dayPunches.find(p => p.type === 'Ausencia');
+
+            if (daySched.isWorking && (abs || ins.length === 0)) {
+              if (abs || dateStr < todayDateStr) {
+                const isHalfDay = daySched.hrs <= 5;
+                const scheduledHrs = isHalfDay ? horasMediaJornada : horasDiaCompleto;
+                const descuentoDia = scheduledHrs * salarioHoraGarantizado;
+                totalCalculatedAusencias += descuentoDia;
+                ausenciasHorasDetalle.push({
+                  fecha: dateStr,
+                  tipo: isHalfDay ? 'Medio Día (4 hrs)' : 'Día Completo (8 hrs)',
+                  horas: scheduledHrs,
+                  monto: Number(descuentoDia.toFixed(2))
+                });
+              }
+            }
+          }
+          curDateObj.setDate(curDateObj.getDate() + 1);
+        }
+
         if (totalCalculatedAusencias > 0) {
           ausenciasMonto = Number(totalCalculatedAusencias.toFixed(2));
         }
         if (totalNetLatenessMins > 0) {
           tardanzasMonto = Number((totalNetLatenessMins * salarioMinutoGarantizado).toFixed(2));
         }
-        if (totalOvertimeMins > 0 && horasExtras === 0) {
+        if (totalOvertimeMins > 0) {
           horasExtras = Number((totalOvertimeMins * salarioMinutoGarantizado * recargoHorasExtras).toFixed(2));
         }
       } catch(e) {
@@ -573,9 +623,7 @@ function createPayrollRouter(pool) {
       }
     }
 
-    // 4. FERIADOS & HORAS EXTRAS desde asistencia y calendario oficial
-    let feriados = 0.00;
-    let horasExtras = 0.00;
+    // 4. FERIADOS desde asistencia y calendario oficial
     try {
       const [periodHolidays] = await pool.query(`
         SELECT DATE_FORMAT(date, '%Y-%m-%d') as holiday_date, name, rate_multiplier 
@@ -1297,10 +1345,15 @@ function createPayrollRouter(pool) {
     }
   });
 
-  // 8. Eliminar Período de Nómina
+  // 8. Eliminar Período de Nómina (Protegido contra borrado de períodos aprobados)
   router.delete('/periods/:id', async (req, res) => {
     try {
       const { id } = req.params;
+      const [periods] = await pool.query('SELECT id, period_name, status, is_immutable FROM payroll_periods WHERE id = ?', [id]);
+      if (periods.length > 0 && (periods[0].status === 'Aprobada' || periods[0].is_immutable === 1)) {
+        return res.status(403).json({ error: 'Esta nómina ya ha sido aprobada y es inmutable. No se puede eliminar para proteger el historial contable.' });
+      }
+
       await pool.query('DELETE FROM payroll_items WHERE payroll_id = ?', [id]);
       await pool.query('DELETE FROM payroll_periods WHERE id = ?', [id]);
       res.json({ success: true, message: 'Período de nómina eliminado correctamente' });
