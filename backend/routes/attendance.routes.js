@@ -544,57 +544,61 @@ router.post('/punch', async (req, res) => {
         }
       }
 
-      if (isScheduledUntil9PM) {
-        // Special logic for 9:00 PM closing shift
-        const eightPM = new Date(nowDRString);
-        eightPM.setHours(20, 0, 0, 0); // 8:00 PM
+      // Calculate actual worked duration in minutes
+      const workedDurationMinutes = actualCheckinDate
+        ? Math.max(0, Math.floor((now - actualCheckinDate) / (1000 * 60)))
+        : 0;
 
-        if (now >= eightPM && now < expDate) {
-          // Checked out between 8:00 PM and 9:00 PM: normal status, no overtime
-          status = 'Normal';
-          extraMinutes = 0;
-        } else if (now < eightPM) {
-          // Checked out before 8:00 PM: early checkout
-          status = 'Salida Temprana';
-          extraMinutes = 0;
+      // Salon closing threshold according to day of the week (hora República Dominicana):
+      // - Sábados: salida a partir de las 6:00 PM (18:00) es cierre sin descuento.
+      // - Domingos: salida a partir de las 5:00 PM (17:00) es cierre sin descuento.
+      // - Lunes a Viernes: salida a partir de las 8:00 PM (20:00) para turnos hasta las 9:00 PM.
+      const dayOfWeek = now.getDay(); // 0: Sunday, 6: Saturday
+      const closingDate = new Date(nowDRString);
+      let hasClosingCutoff = false;
+
+      if (dayOfWeek === 6) { // Sábado
+        closingDate.setHours(18, 0, 0, 0); // 6:00 PM
+        hasClosingCutoff = true;
+      } else if (dayOfWeek === 0) { // Domingo
+        closingDate.setHours(17, 0, 0, 0); // 5:00 PM
+        hasClosingCutoff = true;
+      } else if (isScheduledUntil9PM || expH >= 20) { // Lunes a Viernes
+        closingDate.setHours(20, 0, 0, 0); // 8:00 PM
+        hasClosingCutoff = true;
+      }
+
+      if (scheduledDurationMinutes > 0 && workedDurationMinutes >= scheduledDurationMinutes) {
+        // Jornada programada cumplida o excedida: NUNCA salida temprana!
+        status = 'Normal';
+        extraMinutes = Math.max(0, workedDurationMinutes - scheduledDurationMinutes);
+      } else if (hasClosingCutoff && now >= closingDate) {
+        // Ponchó a la hora de cierre del salón o después (ej. sábado >= 6pm, domingo >= 5pm, semana >= 8pm)
+        status = 'Normal';
+        extraMinutes = scheduledDurationMinutes > 0 ? Math.max(0, workedDurationMinutes - scheduledDurationMinutes) : 0;
+      } else if (now >= expDate) {
+        // Hora de salida programada alcanzada o superada
+        status = 'Normal';
+        if (actualCheckinDate && scheduledDurationMinutes > 0) {
+          extraMinutes = Math.max(0, workedDurationMinutes - scheduledDurationMinutes);
         } else {
-          // Checked out after 9:00 PM: overtime starts after completing scheduled hours
-          status = 'Normal';
-          if (actualCheckinDate && scheduledDurationMinutes > 0) {
-            const workedDurationMinutes = Math.max(0, Math.floor((now - actualCheckinDate) / (1000 * 60)));
-            extraMinutes = Math.max(0, workedDurationMinutes - scheduledDurationMinutes);
-          } else {
-            const diffMs = now - expDate;
-            extraMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
-          }
+          const diffMs = now - expDate;
+          extraMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
         }
       } else {
-        // Standard shift logic
-        if (now < expDate) {
-          status = 'Salida Temprana';
-          extraMinutes = 0;
-        } else {
-          status = 'Normal';
-          if (actualCheckinDate && scheduledDurationMinutes > 0) {
-            const workedDurationMinutes = Math.max(0, Math.floor((now - actualCheckinDate) / (1000 * 60)));
-            extraMinutes = Math.max(0, workedDurationMinutes - scheduledDurationMinutes);
-          } else {
-            const diffMs = now - expDate;
-            extraMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
-          }
-        }
+        // Salió antes de la hora programada y antes del cierre oficial del salón
+        status = 'Salida Temprana';
+        extraMinutes = 0;
       }
     }
     
     const punchId = `PUNCH-${Date.now()}-${employeeId}`;
     
-    // Si es Check-In, eliminar cualquier registro previo de 'Ausencia' autogenerado hoy para este empleado
-    if (type === 'Check-In') {
-      await pool.query(
-        "DELETE FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Ausencia'",
-        [employeeId, todayDateStr]
-      );
-    }
+    // Si se registra cualquier ponche (Entrada o Salida), purgar cualquier registro previo de 'Ausencia' autogenerado hoy
+    await pool.query(
+      "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
+      [employeeId, String(employeeId), todayDateStr, todayDateStr]
+    );
 
     await pool.query(
       `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes) 
@@ -676,16 +680,71 @@ router.get('/history', async (req, res) => {
       overrideMap.set(`${o.employee_id}:${o.dateStr}`, o);
     });
 
-    // 3. Fetch all existing attendance records in this range
+    // 3. Purge any orphan/phantom absences and repair historical false early exits
+    try {
+      await pool.query(`
+        DELETE a1 FROM attendance a1
+        JOIN attendance a2 ON a1.employee_id = a2.employee_id 
+          AND (
+            DATE(a1.timestamp) = DATE(a2.timestamp)
+            OR DATE(CONVERT_TZ(a1.timestamp, '+00:00', '-04:00')) = DATE(CONVERT_TZ(a2.timestamp, '+00:00', '-04:00'))
+          )
+          AND a1.type = 'Ausencia'
+          AND a2.type IN ('Check-In', 'Check-Out')
+      `);
+      await pool.query(`
+        UPDATE attendance a_out
+        JOIN attendance a_in ON a_out.employee_id = a_in.employee_id 
+          AND (
+            DATE(a_out.timestamp) = DATE(a_in.timestamp)
+            OR DATE(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) = DATE(CONVERT_TZ(a_in.timestamp, '+00:00', '-04:00'))
+          )
+          AND a_in.type = 'Check-In'
+        SET a_out.status = 'Normal',
+            a_out.extra_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, a_in.timestamp, a_out.timestamp) - 540)
+        WHERE a_out.type = 'Check-Out' 
+          AND a_out.status = 'Salida Temprana'
+          AND (
+            TIMESTAMPDIFF(MINUTE, a_in.timestamp, a_out.timestamp) >= 540
+            OR (DAYOFWEEK(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) = 7 AND TIME(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) >= '18:00:00')
+            OR (DAYOFWEEK(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) = 1 AND TIME(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) >= '17:00:00')
+            OR (DAYOFWEEK(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) NOT IN (1, 7) AND TIME(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) >= '20:00:00')
+          )
+      `);
+    } catch (e) {
+      console.warn('[ATTENDANCE AUTO-FIX WARN]:', e.message);
+    }
+
+    // 4. Fetch all existing attendance records in this range
     const [existingPunches] = await pool.query(
-      "SELECT employee_id, DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, type FROM attendance WHERE timestamp >= ? AND timestamp <= ?",
-      [`${start} 00:00:00`, `${end} 23:59:59`]
+      `SELECT employee_id, 
+              DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, 
+              DATE_FORMAT(CONVERT_TZ(timestamp, '+00:00', '-04:00'), '%Y-%m-%d') as drDateStr,
+              type 
+       FROM attendance 
+       WHERE (timestamp >= ? AND timestamp <= ?)
+          OR (CONVERT_TZ(timestamp, '+00:00', '-04:00') >= ? AND CONVERT_TZ(timestamp, '+00:00', '-04:00') <= ?)`,
+      [`${start} 00:00:00`, `${end} 23:59:59`, `${start} 00:00:00`, `${end} 23:59:59`]
     );
 
-    const punchSet = new Set(existingPunches.map(p => `${p.employee_id}:${p.dateStr}`));
-    const absentSet = new Set(existingPunches.filter(p => p.type === 'Ausencia').map(p => `${p.employee_id}:${p.dateStr}`));
-    // Track employees who actually checked in — never generate Ausencia for these
-    const checkinSet = new Set(existingPunches.filter(p => p.type === 'Check-In').map(p => `${p.employee_id}:${p.dateStr}`));
+    const punchSet = new Set();
+    const absentSet = new Set();
+    const realPunchSet = new Set();
+    const checkinSet = new Set();
+
+    existingPunches.forEach(p => {
+      const keys = [
+        `${p.employee_id}:${p.dateStr}`,
+        p.drDateStr ? `${p.employee_id}:${p.drDateStr}` : null
+      ].filter(Boolean);
+
+      keys.forEach(k => {
+        punchSet.add(k);
+        if (p.type === 'Ausencia') absentSet.add(k);
+        if (p.type === 'Check-In' || p.type === 'Check-Out') realPunchSet.add(k);
+        if (p.type === 'Check-In') checkinSet.add(k);
+      });
+    });
 
     // 4. Generate missing Ausente records for scheduled work days in range (excluding future days)
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -738,7 +797,7 @@ router.get('/history', async (req, res) => {
 
           const lookupKey = `${emp.id}:${dateStr}`;
           
-          if (!punchSet.has(lookupKey)) {
+          if (!punchSet.has(lookupKey) && !realPunchSet.has(lookupKey) && !checkinSet.has(lookupKey)) {
             let shouldMarkAbsent = true;
             const override = overrideMap.get(lookupKey);
             const effectiveHoraEntrada = override ? override.new_hora_entrada : empDailyHoraEntrada;
@@ -759,7 +818,7 @@ router.get('/history', async (req, res) => {
               }
             }
 
-            if (shouldMarkAbsent && !absentSet.has(lookupKey) && !checkinSet.has(lookupKey)) {
+            if (shouldMarkAbsent && !absentSet.has(lookupKey) && !checkinSet.has(lookupKey) && !realPunchSet.has(lookupKey)) {
               const punchId = `ABSENT-${Date.now()}-${emp.id}-${dateStr}`;
               const entryTime = effectiveHoraEntrada || '09:00:00';
               await pool.query(

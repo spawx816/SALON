@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, User, Calendar, MapPin, Smartphone, Image as ImageIcon, Search, Check, RefreshCw, Printer } from 'lucide-react';
+import { 
+  Clock, User, Calendar, MapPin, Smartphone, Image as ImageIcon, Search, Check, RefreshCw, Printer,
+  TrendingUp, AlertTriangle, AlertOctagon, CheckCircle2, Palmtree, CalendarClock, Calculator, Users, Filter, ArrowLeft, Sparkles, ChevronRight, Info
+} from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useAuth } from '../../context/AuthContext';
 
@@ -56,6 +59,25 @@ const getDRHour = (timestamp) => {
     return parseInt(formatter.format(new Date(timestamp)), 10);
   } catch (e) {
     return new Date(timestamp).getHours();
+  }
+};
+
+const getDRMinute = (timestamp) => {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' });
+    return parseInt(formatter.format(new Date(timestamp)), 10);
+  } catch (e) {
+    return new Date(timestamp).getMinutes();
+  }
+};
+
+const getDRDayOfWeek = (timestamp) => {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', weekday: 'short' });
+    return formatter.format(new Date(timestamp)); // 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'
+  } catch (e) {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return days[new Date(timestamp).getDay()];
   }
 };
 
@@ -123,6 +145,7 @@ const AttendanceLogs = () => {
   const [payrollFilter, setPayrollFilter] = useState('all'); // 'all', 'tardy', 'overtime', 'absent'
   const [selectedEmployeeDetailId, setSelectedEmployeeDetailId] = useState(null);
   const [detailFilterTab, setDetailFilterTab] = useState('all'); // 'all', 'tardy', 'overtime', 'absent', 'incidents'
+  const [syncingPayroll, setSyncingPayroll] = useState(false);
 
   // Holidays states
   const [holidays, setHolidays] = useState([]);
@@ -627,9 +650,7 @@ const AttendanceLogs = () => {
   useEffect(() => {
     setHistoryPage(1);
     loadLogs();
-    if (activeTab === 'pending') {
-      loadPendingLogs();
-    }
+    loadPendingLogs();
     if (activeTab === 'today') {
       loadTodayLogs();
     }
@@ -641,6 +662,71 @@ const AttendanceLogs = () => {
       return;
     }
     setFilters(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSelectPeriodPreset = (presetKey) => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    
+    let start = '';
+    let end = '';
+
+    if (presetKey === 'q1') {
+      start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      end = `${y}-${String(m + 1).padStart(2, '0')}-15`;
+    } else if (presetKey === 'q2') {
+      const lastDay = new Date(y, m + 1, 0).getDate();
+      start = `${y}-${String(m + 1).padStart(2, '0')}-16`;
+      end = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    } else if (presetKey === 'prev_q2') {
+      const prevDate = new Date(y, m, 0);
+      const py = prevDate.getFullYear();
+      const pm = prevDate.getMonth();
+      const lastDay = prevDate.getDate();
+      start = `${py}-${String(pm + 1).padStart(2, '0')}-16`;
+      end = `${py}-${String(pm + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    } else if (presetKey === 'month') {
+      const lastDay = new Date(y, m + 1, 0).getDate();
+      start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+      end = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    } else if (presetKey === '7days') {
+      const past = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      start = past.toLocaleDateString('sv-SE');
+      end = now.toLocaleDateString('sv-SE');
+    }
+
+    if (start && end) {
+      setFilters(prev => ({ ...prev, startDate: start, endDate: end }));
+      setPayrollPage(1);
+      setHistoryPage(1);
+    }
+  };
+
+  const getActivePeriodPreset = () => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const q1Start = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const q1End = `${y}-${String(m + 1).padStart(2, '0')}-15`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const q2Start = `${y}-${String(m + 1).padStart(2, '0')}-16`;
+    const q2End = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const monthStart = q1Start;
+    const monthEnd = q2End;
+
+    const prevDate = new Date(y, m, 0);
+    const py = prevDate.getFullYear();
+    const pm = prevDate.getMonth();
+    const prevLastDay = prevDate.getDate();
+    const prevQ2Start = `${py}-${String(pm + 1).padStart(2, '0')}-16`;
+    const prevQ2End = `${py}-${String(pm + 1).padStart(2, '0')}-${String(prevLastDay).padStart(2, '0')}`;
+
+    if (filters.startDate === q1Start && filters.endDate === q1End) return 'q1';
+    if (filters.startDate === q2Start && filters.endDate === q2End) return 'q2';
+    if (filters.startDate === prevQ2Start && filters.endDate === prevQ2End) return 'prev_q2';
+    if (filters.startDate === monthStart && filters.endDate === monthEnd) return 'month';
+    return 'custom';
   };
 
   const handleRefresh = async () => {
@@ -832,10 +918,10 @@ const AttendanceLogs = () => {
         });
       }
 
-      if (isDayOff && !checkIn) {
+      if (isDayOff && !checkIn && !checkOut) {
         dayStatus = 'Día libre';
         dayStatusType = 'dayoff';
-      } else if (!checkIn) {
+      } else if (!checkIn && !checkOut) {
         if (absentLog || dateStr < todayDRStr) {
           dayStatus = 'Ausencia';
           dayStatusType = 'absent';
@@ -844,6 +930,11 @@ const AttendanceLogs = () => {
           dayStatus = 'Programado';
           dayStatusType = 'scheduled';
         }
+      } else if (!checkIn && checkOut) {
+        // Ponchó salida pero olvidó entrada
+        daysWorked += 1;
+        dayStatus = 'Falta Entrada';
+        dayStatusType = 'incomplete';
       } else {
         daysWorked += 1;
         totalCheckins += 1;
@@ -878,7 +969,19 @@ const AttendanceLogs = () => {
           dayWorkedMins = Math.round(workedSecs / 60);
 
           const outHour = getDRHour(checkOut.timestamp);
-          const isClosingExit = isScheduledUntil9PM && outHour >= 20;
+          const outMinute = getDRMinute(checkOut.timestamp);
+          const outDay = getDRDayOfWeek(checkOut.timestamp);
+          const outDayMins = outHour * 60 + outMinute;
+
+          // Cierre oficial sin penalidad según día de la semana (hora República Dominicana)
+          let isClosingExit = false;
+          if (outDay === 'Sat' && outDayMins >= (18 * 60)) { // Sábados a partir de las 6:00 PM
+            isClosingExit = true;
+          } else if (outDay === 'Sun' && outDayMins >= (17 * 60)) { // Domingos a partir de las 5:00 PM
+            isClosingExit = true;
+          } else if (outDay !== 'Sat' && outDay !== 'Sun' && (isScheduledUntil9PM || outHour >= 20)) { // Lunes a Viernes a partir de las 8:00 PM
+            isClosingExit = true;
+          }
 
           if (workedSecs >= scheduledSecs) {
             // Full shift completed! Tardiness is 100% COMPENSATED (0 min net tardiness)
@@ -902,26 +1005,42 @@ const AttendanceLogs = () => {
               dayStatusType = 'complete';
             }
           } else {
-            // Worked less than scheduled hours -> Partial compensation or net tardiness
+            // Worked less than scheduled hours -> Apply tolerance and weekend closing rules
             const missingSecs = scheduledSecs - workedSecs;
-            let netMissingMins = Math.round(missingSecs / 60);
+            const netMissingMins = Math.round(missingSecs / 60);
 
+            let deductibleMins = 0;
             if (isClosingExit) {
-              // Salon early closing exception
-              netMissingMins = Math.min(morningLatenessMins, netMissingMins);
+              // Cierre de salón oficial: no hay descuento de salida
+              // Solo se descuenta tardanza de entrada que supere la tolerancia de 15 minutos:
+              if (morningLatenessMins > 15) {
+                deductibleMins = Math.min(morningLatenessMins - 15, netMissingMins);
+              } else {
+                deductibleMins = 0;
+              }
+            } else {
+              // Salida anticipada: la tolerancia de 15 min solo exonera entrada matutina, NUNCA salida anticipada
+              const morningToleranceWaived = Math.min(15, Math.max(0, morningLatenessMins));
+              deductibleMins = Math.max(0, netMissingMins - morningToleranceWaived);
             }
 
-            dayLatenessMins = Math.max(0, netMissingMins);
+            dayLatenessMins = Math.max(0, deductibleMins);
             dayOvertimeMins = 0;
             totalLateness += dayLatenessMins;
 
-            if (morningLatenessMins > 0) {
-              if (dayLatenessMins < morningLatenessMins) {
-                // Partial compensation: Stayed late after exit time to reduce morning tardiness!
-                dayStatus = `Tardanza (comp. parcial)`;
+            if (isClosingExit) {
+              if (dayLatenessMins > 0) {
+                dayStatus = 'Tardanza matutina (cierre)';
+                dayStatusType = 'tardy';
               } else {
-                dayStatus = 'Tardanza';
+                dayStatus = outDay === 'Sat' ? 'Cierre Sábado (6pm)' : (outDay === 'Sun' ? 'Cierre Domingo (5pm)' : 'Cierre Salón (8pm)');
+                dayStatusType = 'complete';
               }
+            } else if (dayLatenessMins === 0) {
+              dayStatus = 'Tolerancia matutina';
+              dayStatusType = 'complete';
+            } else if (morningLatenessMins > 15 && dayLatenessMins <= morningLatenessMins) {
+              dayStatus = 'Tardanza';
               dayStatusType = 'tardy';
             } else {
               dayStatus = 'Salida Temprana';
@@ -929,15 +1048,17 @@ const AttendanceLogs = () => {
             }
           }
         } else {
-          // Check-in only (ongoing or missed checkout)
-          if (checkIn.status === 'Tardanza') {
-            dayLatenessMins = morningLatenessMins;
+          // Check-in only (ongoing or missed checkout - NEVER marked as Ausente)
+          if (morningLatenessMins > 15) {
+            dayLatenessMins = (morningLatenessMins - 15);
             totalLateness += dayLatenessMins;
-            dayStatus = 'Tardanza';
-            dayStatusType = 'tardy';
+          }
+          if (dateStr === todayDRStr) {
+            dayStatus = isTardyCheckIn ? 'Tardanza (en turno)' : 'En turno';
+            dayStatusType = isTardyCheckIn ? 'tardy' : 'complete';
           } else {
-            dayStatus = 'En turno';
-            dayStatusType = 'complete';
+            dayStatus = isTardyCheckIn ? 'Tardanza (falta salida)' : 'Falta Salida';
+            dayStatusType = 'incomplete';
           }
         }
       }
@@ -1395,6 +1516,52 @@ const AttendanceLogs = () => {
     }, 1000);
   };
 
+  const handleSyncToPayroll = async () => {
+    try {
+      setSyncingPayroll(true);
+      const periods = await dataService.getPayrollPeriods();
+      if (!periods || periods.length === 0) {
+        alert("No se encontraron períodos de nómina registrados. Por favor cree o active un período en el módulo de Nómina.");
+        return;
+      }
+
+      // Buscar períodos editables (no aprobados/cerrados)
+      const activePeriods = periods.filter(p => p.status !== 'Aprobada' && p.is_immutable !== 1);
+      if (activePeriods.length === 0) {
+        alert("Todas las nóminas registradas están aprobadas y cerradas. Debe crear un nuevo período o abrir un borrador para sincronizar asistencia.");
+        return;
+      }
+
+      // Buscar período que coincida con el rango de fechas actual o tomar el más reciente activo
+      let targetPeriod = activePeriods.find(p => {
+        const pStart = p.start_date ? p.start_date.slice(0, 10) : '';
+        const pEnd = p.end_date ? p.end_date.slice(0, 10) : '';
+        return (filters.startDate >= pStart && filters.startDate <= pEnd) || (filters.endDate >= pStart && filters.endDate <= pEnd);
+      });
+
+      if (!targetPeriod) {
+        targetPeriod = activePeriods[0];
+      }
+
+      const confirmMsg = `¿Deseas alimentar la plantilla de nómina para el período "${targetPeriod.period_name || 'Nómina'}" (${targetPeriod.start_date?.slice(0, 10)} al ${targetPeriod.end_date?.slice(0, 10)}) con las Horas Extras, Tardanzas y Asistencias reales calculadas?`;
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+
+      const res = await dataService.syncPayrollRealData(targetPeriod.id);
+      if (res && res.success) {
+        alert(`¡Plantilla de nómina alimentada exitosamente! Se cargaron las Horas Extras, Tardanzas netas y Asistencias de ${res.items?.length || ''} colaboradores en "${targetPeriod.period_name}".`);
+      } else {
+        alert("Resultado de sincronización: " + (res?.message || res?.error || 'Datos sincronizados exitosamente.'));
+      }
+    } catch (err) {
+      console.error("Error syncing attendance to payroll:", err);
+      alert("Error al alimentar la plantilla de nómina: " + err.message);
+    } finally {
+      setSyncingPayroll(false);
+    }
+  };
+
   const getTodayStatus = (emp) => {
     // Determine the current weekday name in America/Santo_Domingo timezone
     const dayFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', weekday: 'long' });
@@ -1663,11 +1830,24 @@ const AttendanceLogs = () => {
   const offCount = todayStatuses.filter(s => s.result.status === 'No Laborable').length;
   const pendingCount = todayStatuses.filter(s => s.result.status === 'Pendiente').length;
 
+  // Filter out any phantom absences that might exist on days where the employee has a real punch
+  const realPunchKeys = new Set(
+    logs.filter(l => l.type === 'Check-In' || l.type === 'Check-Out')
+        .map(l => `${l.employee_id}:${getDRDateKey(l.timestamp)}`)
+  );
+  const sanitizedLogs = logs.filter(l => {
+    if (l.type === 'Ausencia') {
+      const key = `${l.employee_id}:${getDRDateKey(l.timestamp)}`;
+      return !realPunchKeys.has(key);
+    }
+    return true;
+  });
+
   const itemsPerPage = 15;
   const indexOfLastLog = historyPage * itemsPerPage;
   const indexOfFirstLog = indexOfLastLog - itemsPerPage;
-  const currentLogs = logs.slice(indexOfFirstLog, indexOfLastLog);
-  const totalPages = Math.ceil(logs.length / itemsPerPage);
+  const currentLogs = sanitizedLogs.slice(indexOfFirstLog, indexOfLastLog);
+  const totalPages = Math.ceil(sanitizedLogs.length / itemsPerPage);
 
   const isAnyLoading = loading || todayLoading || pendingLoading;
 
@@ -1712,137 +1892,88 @@ const AttendanceLogs = () => {
         </button>
       </div>
 
-      {/* Tab Navigation */}
+      {/* Segmented SaaS Tab Navigation */}
       <div 
         style={{ 
           display: 'flex', 
-          gap: '0.6rem', 
-          borderBottom: '2px solid #e2e8f0', 
+          background: '#f1f5f9', 
+          padding: '0.35rem', 
+          borderRadius: '14px', 
+          border: '1px solid #e2e8f0', 
           marginBottom: '1.75rem', 
-          paddingBottom: '0.75rem',
           flexWrap: 'wrap',
-          alignItems: 'center'
+          gap: '0.25rem',
+          alignItems: 'center',
+          boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)'
         }}
       >
-        <button
-          onClick={() => setActiveTab('history')}
-          style={{
-            background: activeTab === 'history' ? '#09090b' : 'white',
-            border: activeTab === 'history' ? '1px solid #09090b' : '1px solid #e2e8f0',
-            color: activeTab === 'history' ? '#ffffff' : '#64748b',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          Historial de Ponches
-        </button>
-
-        <button
-          onClick={() => setActiveTab('today')}
-          style={{
-            background: activeTab === 'today' ? '#09090b' : 'white',
-            border: activeTab === 'today' ? '1px solid #09090b' : '1px solid #e2e8f0',
-            color: activeTab === 'today' ? '#ffffff' : '#64748b',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          Estatus de Hoy
-        </button>
-
-        <button
-          onClick={() => setActiveTab('pending')}
-          style={{
-            background: activeTab === 'pending' ? '#ef4444' : 'white',
-            border: activeTab === 'pending' ? '1px solid #ef4444' : '1px solid #fee2e2',
-            color: activeTab === 'pending' ? '#ffffff' : '#dc2626',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          ⚠️ Pendientes
-        </button>
-
-        <button
-          onClick={() => setActiveTab('weekly')}
-          style={{
-            background: activeTab === 'weekly' ? '#09090b' : 'white',
-            border: activeTab === 'weekly' ? '1px solid #09090b' : '1px solid #e2e8f0',
-            color: activeTab === 'weekly' ? '#ffffff' : '#64748b',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          📅 Horario Semanal
-        </button>
-
-        <button
-          onClick={() => setActiveTab('holidays')}
-          style={{
-            background: activeTab === 'holidays' ? '#047857' : '#ecfdf5',
-            border: activeTab === 'holidays' ? '1px solid #047857' : '1px solid #a7f3d0',
-            color: activeTab === 'holidays' ? '#ffffff' : '#047857',
-            fontWeight: 850,
-            fontSize: '0.85rem',
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            boxShadow: activeTab === 'holidays' ? '0 4px 10px rgba(4, 120, 87, 0.25)' : 'none'
-          }}
-        >
-          🌴 Calendario de Días Feriados
-        </button>
-
-        <button
-          onClick={() => setActiveTab('overrides')}
-          style={{
-            background: activeTab === 'overrides' ? '#09090b' : 'white',
-            border: activeTab === 'overrides' ? '1px solid #09090b' : '1px solid #e2e8f0',
-            color: activeTab === 'overrides' ? '#ffffff' : '#64748b',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          Cambios de Horario (Excepciones)
-        </button>
-
-        <button
-          onClick={() => setActiveTab('payroll')}
-          style={{
-            background: activeTab === 'payroll' ? '#09090b' : 'white',
-            border: activeTab === 'payroll' ? '1px solid #09090b' : '1px solid #e2e8f0',
-            color: activeTab === 'payroll' ? '#ffffff' : '#64748b',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          📊 Resumen de Nómina / Totales
-        </button>
+        {[
+          { id: 'payroll', label: 'Resumen Nómina & Totales', icon: Calculator, isImportant: true },
+          { id: 'today', label: 'Estatus de Hoy', icon: CheckCircle2 },
+          { id: 'history', label: 'Historial de Ponches', icon: Clock },
+          { id: 'pending', label: 'Pendientes', icon: AlertTriangle, badge: pendingLogs.length },
+          { id: 'weekly', label: 'Horario Semanal', icon: CalendarClock },
+          { id: 'holidays', label: 'Días Feriados', icon: Palmtree },
+          { id: 'overrides', label: 'Cambios Temporales', icon: Calendar }
+        ].map((tab) => {
+          const isActive = activeTab === tab.id;
+          const IconComponent = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                background: isActive ? '#ffffff' : 'transparent',
+                border: isActive ? '1px solid rgba(0,0,0,0.08)' : '1px solid transparent',
+                color: isActive ? '#0f172a' : '#64748b',
+                fontWeight: isActive ? 800 : 650,
+                fontSize: '0.84rem',
+                padding: '0.55rem 1.05rem',
+                borderRadius: '10px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.03)' : 'none',
+                fontFamily: '"Plus Jakarta Sans", sans-serif'
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.color = '#0f172a';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.6)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  e.currentTarget.style.color = '#64748b';
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
+            >
+              <IconComponent 
+                size={16} 
+                color={isActive ? (tab.id === 'holidays' ? '#059669' : (tab.id === 'pending' ? '#dc2626' : '#2563eb')) : '#94a3b8'} 
+              />
+              <span>{tab.label}</span>
+              {Boolean(tab.badge && tab.badge > 0) && (
+                <span 
+                  style={{ 
+                    background: isActive ? '#fee2e2' : '#fecaca', 
+                    color: '#dc2626', 
+                    padding: '0.1rem 0.45rem', 
+                    borderRadius: '999px', 
+                    fontSize: '0.72rem', 
+                    fontWeight: 900,
+                    lineHeight: '1.2'
+                  }}
+                >
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {activeTab === 'today' && (
@@ -2421,6 +2552,55 @@ const AttendanceLogs = () => {
 
       {activeTab === 'history' && (
         <>
+          {/* Quick Period Presets Bar */}
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '16px',
+            padding: '0.85rem 1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            flexWrap: 'wrap',
+            marginBottom: '1rem',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+          }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.4rem', marginRight: '0.25rem' }}>
+              <CalendarClock size={16} color="#3b82f6" />
+              PERÍODO RÁPIDO:
+            </span>
+            
+            {[
+              { key: 'q1', label: '1ra Quincena (1-15)' },
+              { key: 'q2', label: '2da Quincena (16-Fin)' },
+              { key: 'prev_q2', label: 'Quincena Anterior' },
+              { key: 'month', label: 'Mes Completo' },
+              { key: '7days', label: 'Últimos 7 días' }
+            ].map((preset) => {
+              const isCurrent = getActivePeriodPreset() === preset.key;
+              return (
+                <button
+                  key={preset.key}
+                  type="button"
+                  onClick={() => handleSelectPeriodPreset(preset.key)}
+                  style={{
+                    padding: '0.4rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: isCurrent ? 800 : 650,
+                    border: isCurrent ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                    background: isCurrent ? '#eff6ff' : '#ffffff',
+                    color: isCurrent ? '#1d4ed8' : '#475569',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Filters Box */}
           <div style={{ background: 'white', border: '1px solid #e2e8f0', padding: '1.5rem', borderRadius: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem', marginBottom: '2.5rem', boxShadow: '0 4px 10px rgba(0,0,0,0.01)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -2647,10 +2827,14 @@ const AttendanceLogs = () => {
                                 }
                               }
 
+                              const logDateStr = getDRDateKey(log.timestamp);
                               let isCompensatedTardiness = false;
+                              let isPartialCompensation = false;
+                              let netMissingMinutes = 0;
+                              let isCompletedShiftExit = false;
+
                               if (log.type === 'Check-In' && (log.status === 'Tardanza' || (log.lateness_minutes || 0) > 0)) {
                                 try {
-                                  const logDateStr = getDRDateKey(log.timestamp);
                                   const dayCheckOuts = logs.filter(l => 
                                     String(l.employee_id) === String(log.employee_id) && 
                                     l.type === 'Check-Out' && 
@@ -2671,13 +2855,105 @@ const AttendanceLogs = () => {
                                     }
                                     if (workedMins >= scheduledMins) {
                                       isCompensatedTardiness = true;
+                                    } else {
+                                      netMissingMinutes = Math.max(0, scheduledMins - workedMins);
+                                      if (netMissingMinutes < (log.lateness_minutes || 0)) {
+                                        isPartialCompensation = true;
+                                      }
                                     }
                                   }
                                 } catch (e) {}
                               }
 
-                              const isTardy = log.status === 'Tardanza' || log.status === 'Ausente';
-                              const isEarlyCheckout = log.status === 'Salida Temprana';
+                              if (log.type === 'Check-Out') {
+                                try {
+                                  const dayCheckIns = logs.filter(l => 
+                                    String(l.employee_id) === String(log.employee_id) && 
+                                    l.type === 'Check-In' && 
+                                    getDRDateKey(l.timestamp) === logDateStr
+                                  ).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                                  
+                                  const sameDayCheckin = dayCheckIns[0] || null;
+                                  if (sameDayCheckin) {
+                                    const inTime = new Date(sameDayCheckin.timestamp).getTime();
+                                    const outTime = new Date(log.timestamp).getTime();
+                                    const workedMins = Math.max(0, Math.floor((outTime - inTime) / 60000));
+                                    let scheduledMins = 540;
+                                    if (log.hora_entrada && log.hora_salida) {
+                                      const [entH, entM] = log.hora_entrada.split(':').map(Number);
+                                      const [salH, salM] = log.hora_salida.split(':').map(Number);
+                                      scheduledMins = (salH * 60 + salM) - (entH * 60 + entM);
+                                      if (scheduledMins <= 0) scheduledMins += 1440;
+                                    }
+                                    if (workedMins >= scheduledMins) {
+                                      isCompletedShiftExit = true;
+                                    }
+                                  }
+
+                                  const outHour = getDRHour(log.timestamp);
+                                  const outMinute = getDRMinute(log.timestamp);
+                                  const outDay = getDRDayOfWeek(log.timestamp);
+                                  const outDayMins = outHour * 60 + outMinute;
+                                  if (outDay === 'Sat' && outDayMins >= (18 * 60)) { // Sábados a partir de 6:00 PM
+                                    isCompletedShiftExit = true;
+                                  } else if (outDay === 'Sun' && outDayMins >= (17 * 60)) { // Domingos a partir de 5:00 PM
+                                    isCompletedShiftExit = true;
+                                  } else if (outDay !== 'Sat' && outDay !== 'Sun' && outDayMins >= (20 * 60)) { // Lunes a Viernes a partir de 8:00 PM
+                                    isCompletedShiftExit = true;
+                                  }
+                                } catch (e) {}
+                              }
+
+                              const isTardy = log.status === 'Tardanza' || (log.type === 'Ausencia' && log.status === 'Ausente');
+                              const isEarlyCheckout = log.status === 'Salida Temprana' && !isCompletedShiftExit;
+                              const isWithinMorningGrace = log.type === 'Check-In' && (log.lateness_minutes || 0) > 0 && (log.lateness_minutes || 0) <= 15;
+
+                              let badgeBg = '#f0fdf4';
+                              let badgeColor = '#15803d';
+                              let badgeBorder = '1px solid #bbf7d0';
+                              let badgeText = log.type === 'Ausencia' ? 'Ausente' : (log.status || 'Normal');
+
+                              if (isCompensatedTardiness) {
+                                badgeBg = '#eff6ff';
+                                badgeColor = '#1d4ed8';
+                                badgeBorder = '1px solid #bfdbfe';
+                                badgeText = `Tardanza (+${log.lateness_minutes}m) • Compensada`;
+                              } else if (isPartialCompensation) {
+                                badgeBg = '#fefce8';
+                                badgeColor = '#a16207';
+                                badgeBorder = '1px solid #fef08a';
+                                badgeText = `Tardanza (+${log.lateness_minutes}m) • Parcial (-${netMissingMinutes}m netos)`;
+                              } else if (isWithinMorningGrace) {
+                                badgeBg = '#f0fdf4';
+                                badgeColor = '#15803d';
+                                badgeBorder = '1px solid #bbf7d0';
+                                badgeText = `Normal • Tolerancia (+${log.lateness_minutes}m)`;
+                              } else if (isCompletedShiftExit) {
+                                badgeBg = '#f0fdf4';
+                                badgeColor = '#15803d';
+                                badgeBorder = '1px solid #bbf7d0';
+                                badgeText = log.extra_minutes > 0 ? `Normal (+${log.extra_minutes}m Extra)` : 'Normal • Jornada Completa';
+                              } else if (isTardy) {
+                                badgeBg = '#fef2f2';
+                                badgeColor = '#b91c1c';
+                                badgeBorder = '1px solid #fee2e2';
+                                badgeText = log.status === 'Tardanza' && log.lateness_minutes > 0 
+                                  ? `Tardanza (+${log.lateness_minutes} min)`
+                                  : (log.type === 'Ausencia' ? 'Ausente' : 'Normal');
+                              } else if (isEarlyCheckout) {
+                                badgeBg = '#fffbeb';
+                                badgeColor = '#b45309';
+                                badgeBorder = '1px solid #fef3c7';
+                                badgeText = 'Salida Temprana';
+                              } else {
+                                if (log.type === 'Check-In' && checkInExtraMinutes > 0) {
+                                  badgeText = `${log.status || 'Normal'} (+${checkInExtraMinutes}m Extra)`;
+                                } else if (log.type === 'Check-Out' && log.extra_minutes > 0) {
+                                  badgeText = `${log.status || 'Normal'} (+${log.extra_minutes}m Extra)`;
+                                } else {
+                                  badgeText = log.type === 'Ausencia' ? 'Ausente' : (log.status || 'Normal');
+                                }
+                              }
 
                               return (
                                 <span style={{
@@ -2685,23 +2961,11 @@ const AttendanceLogs = () => {
                                   borderRadius: '99px',
                                   fontSize: '0.75rem',
                                   fontWeight: 800,
-                                  background: isCompensatedTardiness 
-                                    ? '#eff6ff' 
-                                    : (isTardy ? '#fef2f2' : isEarlyCheckout ? '#fffbeb' : '#f0fdf4'),
-                                  color: isCompensatedTardiness 
-                                    ? '#1d4ed8' 
-                                    : (isTardy ? '#b91c1c' : isEarlyCheckout ? '#b45309' : '#15803d'),
-                                  border: isCompensatedTardiness 
-                                    ? '1px solid #bfdbfe' 
-                                    : (isTardy ? '1px solid #fee2e2' : isEarlyCheckout ? '1px solid #fef3c7' : '1px solid #bbf7d0')
+                                  background: badgeBg,
+                                  color: badgeColor,
+                                  border: badgeBorder
                                 }}>
-                                  {log.status === 'Tardanza' && log.lateness_minutes > 0
-                                    ? (isCompensatedTardiness ? `Tardanza (+${log.lateness_minutes}m) • Compensada` : `Tardanza (+${log.lateness_minutes} min)`)
-                                    : (log.type === 'Check-In' && checkInExtraMinutes > 0
-                                      ? `${log.status || 'Normal'} (+${checkInExtraMinutes}m Extra)`
-                                      : (log.type === 'Check-Out' && log.extra_minutes > 0
-                                        ? `${log.status || 'Normal'} (+${log.extra_minutes}m Extra)`
-                                        : (log.status || 'Normal')))}
+                                  {badgeText}
                                 </span>
                               );
                             })()}
@@ -3304,6 +3568,14 @@ const AttendanceLogs = () => {
                           statusBg = '#eff6ff';
                           statusColor = '#1d4ed8';
                           dotColor = '#2563eb';
+                        } else if (day.status.includes('Falta')) {
+                          statusBg = '#fff7ed';
+                          statusColor = '#c2410c';
+                          dotColor = '#ea580c';
+                        } else if (day.status.includes('En turno')) {
+                          statusBg = '#f0fdf4';
+                          statusColor = '#15803d';
+                          dotColor = '#16a34a';
                         } else if (day.status === 'Día libre') {
                           statusBg = '#f8fafc';
                           statusColor = '#64748b';
@@ -3432,9 +3704,327 @@ const AttendanceLogs = () => {
           currentPagePayroll * itemsPerPage
         );
 
+        // Calculate Totals for Executive KPI Cards
+        const totalEmployeesCount = filteredPayroll.length;
+        const totalOvertimeMinsAll = filteredPayroll.reduce((acc, curr) => acc + (curr.totalOvertime || 0), 0);
+        const totalOvertimeHoursDecimal = (totalOvertimeMinsAll / 60).toFixed(1);
+        const totalOvertimeFormatted = formatMins(totalOvertimeMinsAll);
+
+        const totalLatenessMinsAll = filteredPayroll.reduce((acc, curr) => acc + (curr.totalLateness || 0), 0);
+        const totalLatenessFormatted = formatMins(totalLatenessMinsAll);
+
+        const totalHolidayHoursAll = Math.round(filteredPayroll.reduce((acc, curr) => acc + (curr.holidayHoursWorked || 0), 0) * 10) / 10;
+        const totalHolidayPayAll = Math.round(filteredPayroll.reduce((acc, curr) => acc + (curr.holidayPayAmount || 0), 0) * 100) / 100;
+
+        const totalAbsencesAll = filteredPayroll.reduce((acc, curr) => acc + (curr.absencesCount || 0), 0);
+        const activePreset = getActivePeriodPreset();
+
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             
+            {/* Quick Period & Date Presets Bar */}
+            <div style={{
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '16px',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.4rem', marginRight: '0.25rem' }}>
+                  <CalendarClock size={16} color="#3b82f6" />
+                  PERÍODO QUINCENAL:
+                </span>
+                
+                {[
+                  { key: 'q1', label: '1ra Quincena (1-15)' },
+                  { key: 'q2', label: '2da Quincena (16-Fin)' },
+                  { key: 'prev_q2', label: 'Quincena Anterior' },
+                  { key: 'month', label: 'Mes Completo' },
+                  { key: '7days', label: 'Últimos 7 días' }
+                ].map((preset) => {
+                  const isCurrent = activePreset === preset.key;
+                  return (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      onClick={() => handleSelectPeriodPreset(preset.key)}
+                      style={{
+                        padding: '0.45rem 0.85rem',
+                        borderRadius: '9px',
+                        fontSize: '0.8rem',
+                        fontWeight: isCurrent ? 800 : 650,
+                        border: isCurrent ? '1px solid #2563eb' : '1px solid #e2e8f0',
+                        background: isCurrent ? '#eff6ff' : '#ffffff',
+                        color: isCurrent ? '#1d4ed8' : '#475569',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isCurrent ? '0 1px 2px rgba(37,99,235,0.1)' : 'none'
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Direct Date Range Inputs */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>Desde:</span>
+                  <input
+                    type="date"
+                    name="startDate"
+                    value={filters.startDate}
+                    onChange={handleFilterChange}
+                    style={{
+                      padding: '0.4rem 0.65rem',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      fontSize: '0.8rem',
+                      fontWeight: 650,
+                      color: '#0f172a',
+                      background: '#f8fafc',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>Hasta:</span>
+                  <input
+                    type="date"
+                    name="endDate"
+                    value={filters.endDate}
+                    onChange={handleFilterChange}
+                    style={{
+                      padding: '0.4rem 0.65rem',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      fontSize: '0.8rem',
+                      fontWeight: 650,
+                      color: '#0f172a',
+                      background: '#f8fafc',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 5 Executive KPI Metric Cards */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+              gap: '1rem'
+            }}>
+              {/* Card 1: Colaboradores */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '1.2rem 1.3rem',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                borderTop: '3px solid #6366f1'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                      COLABORADORES
+                    </span>
+                    <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#0f172a', marginTop: '0.25rem', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
+                      {totalEmployeesCount}
+                    </div>
+                  </div>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Users size={20} color="#6366f1" />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#64748b', fontWeight: 650 }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#6366f1' }}></span>
+                  <span>{filteredPayroll.length < computedPayroll.length ? 'Plantilla filtrada' : 'Total en nómina activa'}</span>
+                </div>
+              </div>
+
+              {/* Card 2: Horas Extras Totales */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '1.2rem 1.3rem',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                borderTop: '3px solid #2563eb'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                      HORAS EXTRAS TOTALES
+                    </span>
+                    <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#2563eb', marginTop: '0.25rem', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
+                      {totalOvertimeFormatted}
+                    </div>
+                  </div>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <TrendingUp size={20} color="#2563eb" />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#1e40af', fontWeight: 700 }}>
+                  <span style={{ background: '#dbeafe', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 800 }}>
+                    ~{totalOvertimeHoursDecimal} hrs
+                  </span>
+                  <span>adicionales acumuladas</span>
+                </div>
+              </div>
+
+              {/* Card 3: Tardanzas Netas */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '1.2rem 1.3rem',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                borderTop: '3px solid #f59e0b'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                      TARDANZAS NETAS
+                    </span>
+                    <div style={{ fontSize: '1.85rem', fontWeight: 900, color: totalLatenessMinsAll > 0 ? '#d97706' : '#10b981', marginTop: '0.25rem', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
+                      {totalLatenessFormatted}
+                    </div>
+                  </div>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <AlertTriangle size={20} color="#d97706" />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#b45309', fontWeight: 700 }}>
+                  <span style={{ background: '#fef3c7', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 800 }}>
+                    {totalLatenessMinsAll} min
+                  </span>
+                  <span>netos tras 15m tolerancia</span>
+                </div>
+              </div>
+
+              {/* Card 4: Feriados Oficiales */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '1.2rem 1.3rem',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                borderTop: '3px solid #10b981'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                      FERIADOS OFICIALES
+                    </span>
+                    <div style={{ fontSize: '1.85rem', fontWeight: 900, color: '#047857', marginTop: '0.25rem', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
+                      {totalHolidayHoursAll} hrs
+                    </div>
+                  </div>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Palmtree size={20} color="#059669" />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: '#047857', fontWeight: 700 }}>
+                  <span style={{ background: '#d1fae5', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 800 }}>
+                    RD$ {totalHolidayPayAll.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                  </span>
+                  <span>recargo legal 2.00x</span>
+                </div>
+              </div>
+
+              {/* Card 5: Ausencias Injustificadas */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '1.2rem 1.3rem',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                borderTop: totalAbsencesAll > 0 ? '3px solid #ef4444' : '3px solid #10b981'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                      AUSENCIAS TOTALES
+                    </span>
+                    <div style={{ fontSize: '1.85rem', fontWeight: 900, color: totalAbsencesAll > 0 ? '#dc2626' : '#10b981', marginTop: '0.25rem', letterSpacing: '-0.03em', fontVariantNumeric: 'tabular-nums' }}>
+                      {totalAbsencesAll}
+                    </div>
+                  </div>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: totalAbsencesAll > 0 ? '#fef2f2' : '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <AlertOctagon size={20} color={totalAbsencesAll > 0 ? '#ef4444' : '#10b981'} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: totalAbsencesAll > 0 ? '#b91c1c' : '#059669', fontWeight: 700 }}>
+                  <span style={{ background: totalAbsencesAll > 0 ? '#fee2e2' : '#d1fae5', padding: '0.15rem 0.5rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 800 }}>
+                    {totalAbsencesAll > 0 ? `${totalAbsencesAll} faltas` : '100% Asistencia'}
+                  </span>
+                  <span>{totalAbsencesAll > 0 ? 'Deducibles de nómina' : 'Sin inasistencias'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Smart Calculation Guidance Banner */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '14px',
+              padding: '0.85rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1, minWidth: '280px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Info size={17} color="#4338ca" />
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#475569', lineHeight: 1.45 }}>
+                  <strong style={{ color: '#0f172a' }}>Reglas de Cómputo Automático:</strong> Tolerancia matutina de 15 min exonerada • Cierres oficiales L-V (20:00), Sáb (18:00) y Dom (17:00) exoneran salida anticipada • Feriados con recargo 2.00x legal.
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, color: '#334155' }}>
+                  🌅 15m Tolerancia
+                </span>
+                <span style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, color: '#334155' }}>
+                  🏪 Cierres Tienda
+                </span>
+                <span style={{ background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700, color: '#047857' }}>
+                  🌴 Ley 2.00x
+                </span>
+              </div>
+            </div>
+
             {/* Payroll Sub-Header Filter Bar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', background: '#f8fafc', padding: '1rem', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', gap: '1rem', flex: 1, flexWrap: 'wrap' }}>
@@ -3490,25 +4080,54 @@ const AttendanceLogs = () => {
 
               </div>
 
-              {/* PDF Print Button */}
-              <button
-                onClick={handlePrintPayroll}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.6rem 1.25rem',
-                  borderRadius: '10px',
-                  fontSize: '0.85rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  background: 'white',
-                  border: '1px solid #cbd5e1',
-                  fontFamily: '"Plus Jakarta Sans", sans-serif'
-                }}
-              >
-                📥 Imprimir / Guardar PDF
-              </button>
+              {/* Action Buttons: Sync to Payroll & PDF Print */}
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleSyncToPayroll}
+                  disabled={syncingPayroll}
+                  title="Alimentar la plantilla de nómina activa con las horas extras y asistencias calculadas"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.6rem 1.25rem',
+                    borderRadius: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: 800,
+                    cursor: syncingPayroll ? 'not-allowed' : 'pointer',
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)',
+                    color: 'white',
+                    border: 'none',
+                    boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)',
+                    fontFamily: '"Plus Jakarta Sans", sans-serif',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <RefreshCw size={15} className={syncingPayroll ? 'animate-spin' : ''} />
+                  {syncingPayroll ? 'Alimentando Nómina...' : '⚡ Alimentar Plantilla de Nómina'}
+                </button>
+
+                <button
+                  onClick={handlePrintPayroll}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.6rem 1.25rem',
+                    borderRadius: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    background: 'white',
+                    color: '#334155',
+                    border: '1px solid #cbd5e1',
+                    fontFamily: '"Plus Jakarta Sans", sans-serif'
+                  }}
+                >
+                  <Printer size={15} />
+                  <span>Imprimir / Guardar PDF</span>
+                </button>
+              </div>
             </div>
 
             {/* Summary Table */}
@@ -3619,7 +4238,14 @@ const AttendanceLogs = () => {
                     {filteredPayroll.length === 0 && (
                       <tr>
                         <td colSpan="9" style={{ textAlign: 'center', padding: '3rem 0', color: '#94a3b8', fontWeight: 600 }}>
-                          No se encontraron empleados que coincidan con los filtros.
+                          {loading ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem', color: '#4f46e5' }}>
+                              <RefreshCw size={18} className="animate-spin" />
+                              <span>Calculando nómina y horas de asistencia...</span>
+                            </div>
+                          ) : (
+                            'No se encontraron empleados que coincidan con los filtros.'
+                          )}
                         </td>
                       </tr>
                     )}

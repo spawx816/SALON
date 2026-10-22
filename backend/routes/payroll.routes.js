@@ -43,17 +43,31 @@ function createPayrollRouter(pool) {
           horas_jornada_completa DECIMAL(4,2) DEFAULT 8.00,
           horas_media_jornada DECIMAL(4,2) DEFAULT 4.00,
           recargo_horas_extras DECIMAL(5,2) DEFAULT 1.35,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          recargo_feriado DECIMAL(5,2) DEFAULT 1.00,
+          tss_base_mode VARCHAR(30) DEFAULT 'solo_fijo',
+          aplicar_retencion_isr TINYINT(1) DEFAULT 0,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )
       `);
+
+      // Migraciones seguras en caso de tablas existentes
+      try {
+        await pool.query("ALTER TABLE payroll_calculation_settings ADD COLUMN recargo_feriado DECIMAL(5,2) DEFAULT 1.00");
+      } catch (e) {}
+      try {
+        await pool.query("ALTER TABLE payroll_calculation_settings ADD COLUMN tss_base_mode VARCHAR(30) DEFAULT 'solo_fijo'");
+      } catch (e) {}
+      try {
+        await pool.query("ALTER TABLE payroll_calculation_settings ADD COLUMN aplicar_retencion_isr TINYINT(1) DEFAULT 0");
+      } catch (e) {}
 
       const [rows] = await pool.query('SELECT * FROM payroll_calculation_settings WHERE id = 1');
       if (rows.length === 0) {
         await pool.query(`
           INSERT INTO payroll_calculation_settings 
-            (id, salario_mensual_base, dias_laborables_mes, horas_jornada_completa, horas_media_jornada, recargo_horas_extras, recargo_feriado)
+            (id, salario_mensual_base, dias_laborables_mes, horas_jornada_completa, horas_media_jornada, recargo_horas_extras, recargo_feriado, tss_base_mode, aplicar_retencion_isr)
           VALUES 
-            (1, 18421.00, 23.83, 8.00, 4.00, 1.35, 1.00)
+            (1, 18421.00, 23.83, 8.00, 4.00, 1.35, 1.00, 'solo_fijo', 0)
         `);
         return {
           salario_mensual_base: 18421.00,
@@ -61,7 +75,9 @@ function createPayrollRouter(pool) {
           horas_jornada_completa: 8.00,
           horas_media_jornada: 4.00,
           recargo_horas_extras: 1.35,
-          recargo_feriado: 1.00
+          recargo_feriado: 1.00,
+          tss_base_mode: 'solo_fijo',
+          aplicar_retencion_isr: 0
         };
       }
       return {
@@ -70,7 +86,9 @@ function createPayrollRouter(pool) {
         horas_jornada_completa: parseFloat(rows[0].horas_jornada_completa || 8.00),
         horas_media_jornada: parseFloat(rows[0].horas_media_jornada || 4.00),
         recargo_horas_extras: parseFloat(rows[0].recargo_horas_extras || 1.35),
-        recargo_feriado: parseFloat(rows[0].recargo_feriado || 1.00)
+        recargo_feriado: parseFloat(rows[0].recargo_feriado || 1.00),
+        tss_base_mode: rows[0].tss_base_mode || 'solo_fijo',
+        aplicar_retencion_isr: parseInt(rows[0].aplicar_retencion_isr || 0, 10)
       };
     } catch (e) {
       console.warn('[GET CALCULATION SETTINGS WARN]:', e.message);
@@ -80,9 +98,42 @@ function createPayrollRouter(pool) {
         horas_jornada_completa: 8.00,
         horas_media_jornada: 4.00,
         recargo_horas_extras: 1.35,
-        recargo_feriado: 1.00
+        recargo_feriado: 1.00,
+        tss_base_mode: 'solo_fijo',
+        aplicar_retencion_isr: 0
       };
     }
+  }
+
+  /**
+   * Helper para cálculo oficial de Retención de ISR para Asalariados (DGII República Dominicana).
+   * Escala anualizada para asalariados (Ley 11-92 Código Tributario y Resoluciones DGII):
+   * - Hasta RD$ 416,220.00 anuales (RD$ 34,685.00 mensuales o RD$ 17,342.50 quincenales): Exento (0%)
+   * - De RD$ 416,220.01 a RD$ 624,329.00: 15% del excedente de RD$ 416,220.00
+   * - De RD$ 624,329.01 a RD$ 867,123.00: RD$ 31,216.00 + 20% del excedente de RD$ 624,329.00
+   * - Desde RD$ 867,123.01 en adelante: RD$ 79,776.00 + 25% del excedente de RD$ 867,123.00
+   * 
+   * @param {number} ingresosGravablesQuincenales - Total ingresos brutos sujetos a retención
+   * @param {number} retencionTssQuincenal - Aporte a TSS del empleado deducible antes de ISR
+   * @returns {number} Retención quincenal de ISR en RD$
+   */
+  function calculateDgiiIsrQuincenal(ingresosGravablesQuincenales, retencionTssQuincenal) {
+    const baseQuincenal = Math.max(0, (ingresosGravablesQuincenales || 0) - (retencionTssQuincenal || 0));
+    const baseAnual = baseQuincenal * 24;
+
+    let isrAnual = 0;
+    if (baseAnual <= 416220.00) {
+      isrAnual = 0;
+    } else if (baseAnual <= 624329.00) {
+      isrAnual = (baseAnual - 416220.00) * 0.15;
+    } else if (baseAnual <= 867123.00) {
+      isrAnual = 31216.00 + ((baseAnual - 624329.00) * 0.20);
+    } else {
+      isrAnual = 79776.00 + ((baseAnual - 867123.00) * 0.25);
+    }
+
+    const isrQuincenal = Number((isrAnual / 24).toFixed(2));
+    return isrQuincenal;
   }
 
   // 1.1 Obtener configuración de parámetros salariales y tarifas calculadas
@@ -135,7 +186,9 @@ function createPayrollRouter(pool) {
         horas_jornada_completa = 8.00,
         horas_media_jornada = 4.00,
         recargo_horas_extras = 1.35,
-        recargo_feriado = 1.00
+        recargo_feriado = 1.00,
+        tss_base_mode = 'solo_fijo',
+        aplicar_retencion_isr = 0
       } = req.body;
 
       const sm = parseFloat(salario_mensual_base) || 18421.00;
@@ -144,20 +197,24 @@ function createPayrollRouter(pool) {
       const hm = parseFloat(horas_media_jornada) || 4.00;
       const rhe = parseFloat(recargo_horas_extras) || 1.35;
       const rf = parseFloat(recargo_feriado) || 1.00;
+      const tbm = String(tss_base_mode || 'solo_fijo');
+      const ari = (aplicar_retencion_isr === 1 || aplicar_retencion_isr === true || aplicar_retencion_isr === '1') ? 1 : 0;
 
       await pool.query(`
         INSERT INTO payroll_calculation_settings 
-          (id, salario_mensual_base, dias_laborables_mes, horas_jornada_completa, horas_media_jornada, recargo_horas_extras, recargo_feriado)
+          (id, salario_mensual_base, dias_laborables_mes, horas_jornada_completa, horas_media_jornada, recargo_horas_extras, recargo_feriado, tss_base_mode, aplicar_retencion_isr)
         VALUES 
-          (1, ?, ?, ?, ?, ?, ?)
+          (1, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           salario_mensual_base = VALUES(salario_mensual_base),
           dias_laborables_mes = VALUES(dias_laborables_mes),
           horas_jornada_completa = VALUES(horas_jornada_completa),
           horas_media_jornada = VALUES(horas_media_jornada),
           recargo_horas_extras = VALUES(recargo_horas_extras),
-          recargo_feriado = VALUES(recargo_feriado)
-      `, [sm, dm, hc, hm, rhe, rf]);
+          recargo_feriado = VALUES(recargo_feriado),
+          tss_base_mode = VALUES(tss_base_mode),
+          aplicar_retencion_isr = VALUES(aplicar_retencion_isr)
+      `, [sm, dm, hc, hm, rhe, rf, tbm, ari]);
 
       const salarioDiario = Number((sm / dm).toFixed(2));
       const salarioHora = Number((salarioDiario / hc).toFixed(2));
@@ -181,6 +238,8 @@ function createPayrollRouter(pool) {
           horas_media_jornada: hm,
           recargo_horas_extras: rhe,
           recargo_feriado: rf,
+          tss_base_mode: tbm,
+          aplicar_retencion_isr: ari,
           salario_diario: salarioDiario,
           salario_hora: salarioHora,
           salario_minuto: salarioMinuto,
@@ -360,11 +419,148 @@ function createPayrollRouter(pool) {
   });
 
   /**
+   * Pre-carga y pre-indexa en memoria todo el contexto necesario para procesar
+   * un lote completo de empleados sin hacer consultas SQL individuales en bucle.
+   */
+  async function preloadPayrollBatchContext(conn, startDate, endDate) {
+    const [
+      cfg,
+      [periodHolidays],
+      [commRows],
+      [discountRows],
+      [overrides],
+      [attPunches],
+      [rawCommLogs],
+      [specialRulesRows]
+    ] = await Promise.all([
+      getCalculationSettings(conn),
+      conn.query(`
+        SELECT DATE_FORMAT(date, '%Y-%m-%d') as holiday_date, name, rate_multiplier 
+        FROM holidays 
+        WHERE date BETWEEN ? AND ? AND is_active = 1
+      `, [startDate, endDate]),
+      conn.query(`
+        SELECT employee_id, employee_name, COALESCE(SUM(monto_comision), 0) as total_comm 
+        FROM employee_commissions_log 
+        WHERE created_at >= ? AND created_at <= ?
+          AND (status != 'Anulada' OR status IS NULL)
+        GROUP BY employee_id, employee_name
+      `, [`${startDate} 00:00:00`, `${endDate} 23:59:59`]),
+      conn.query(`
+        SELECT id, employee_id, employee_name, type, amount, notes, status, DATE_FORMAT(date, '%Y-%m-%d') as d_date
+        FROM employee_discounts
+        WHERE date BETWEEN ? AND ?
+          AND (status != 'Anulado' OR status IS NULL)
+      `, [startDate, endDate]),
+      conn.query(`
+        SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida 
+        FROM schedule_overrides 
+        WHERE date BETWEEN ? AND ? AND status = 'Activo'
+      `, [startDate, endDate]),
+      conn.query(`
+        SELECT id, employee_id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
+        FROM attendance
+        WHERE DATE(timestamp) BETWEEN ? AND ?
+        ORDER BY timestamp ASC
+      `, [startDate, endDate]),
+      conn.query(`
+        SELECT employee_id, employee_name, service_name
+        FROM employee_commissions_log
+        WHERE created_at >= ? AND created_at <= ?
+          AND (status != 'Anulada' OR status IS NULL)
+      `, [`${startDate} 00:00:00`, `${endDate} 23:59:59`]),
+      conn.query(`
+        SELECT id, scheme_id, cantidad_meta, bono_monto, service_name
+        FROM commission_scheme_rules
+        WHERE rule_type = 'especial' AND operacion = 'Contar'
+      `)
+    ]);
+
+    const schemeRulesMap = new Map();
+    for (const r of (specialRulesRows || [])) {
+      const k = String(r.scheme_id);
+      if (!schemeRulesMap.has(k)) schemeRulesMap.set(k, []);
+      schemeRulesMap.get(k).push(r);
+    }
+
+    const commMap = new Map();
+    for (const c of commRows) {
+      const val = parseFloat(c.total_comm || 0);
+      if (c.employee_id) {
+        commMap.set(String(c.employee_id), (commMap.get(String(c.employee_id)) || 0) + val);
+        commMap.set(`EMP-${c.employee_id}`, (commMap.get(`EMP-${c.employee_id}`) || 0) + val);
+      }
+      if (c.employee_name) {
+        const n = c.employee_name.toLowerCase().trim();
+        commMap.set(n, (commMap.get(n) || 0) + val);
+      }
+    }
+
+    const discMap = new Map();
+    for (const d of discountRows) {
+      const keys = [];
+      if (d.employee_id) {
+        keys.push(String(d.employee_id));
+        keys.push(`EMP-${d.employee_id}`);
+      }
+      if (d.employee_name) {
+        keys.push(d.employee_name.toLowerCase().trim());
+      }
+      for (const k of keys) {
+        if (!discMap.has(k)) discMap.set(k, []);
+        discMap.get(k).push(d);
+      }
+    }
+
+    const overrideMap = new Map();
+    for (const o of overrides) {
+      const k = String(o.employee_id);
+      if (!overrideMap.has(k)) overrideMap.set(k, []);
+      overrideMap.get(k).push(o);
+    }
+
+    const punchesMap = new Map();
+    for (const p of attPunches) {
+      const k = String(p.employee_id);
+      if (!punchesMap.has(k)) punchesMap.set(k, []);
+      punchesMap.get(k).push(p);
+    }
+
+    const commLogsMap = new Map();
+    for (const l of rawCommLogs) {
+      const keys = [];
+      if (l.employee_id) {
+        keys.push(String(l.employee_id));
+        keys.push(`EMP-${l.employee_id}`);
+      }
+      if (l.employee_name) {
+        keys.push(l.employee_name.toLowerCase().trim());
+      }
+      for (const k of keys) {
+        if (!commLogsMap.has(k)) commLogsMap.set(k, []);
+        commLogsMap.get(k).push(l);
+      }
+    }
+
+    return {
+      cfg,
+      periodHolidays,
+      commMap,
+      discMap,
+      overrideMap,
+      punchesMap,
+      commLogsMap,
+      schemeRulesMap
+    };
+  }
+
+  /**
    * Calcula de forma 100% real y automática todos los conceptos salariales,
    * comisiones (desde employee_commissions_log), descuentos por servicios y préstamos
    * (desde employee_discounts), horas extras/feriados y retención TSS para un empleado.
    */
-  async function calculateEmployeePayrollValues(pool, emp, start_date, end_date) {
+  async function calculateEmployeePayrollValues(pool, emp, start_date, end_date, preloadedCfg = null, preloadedHolidays = null, batchContextParam = null) {
+    const batchContext = (preloadedCfg && preloadedCfg.commMap) ? preloadedCfg : batchContextParam;
     const empId = String(emp.id);
     const empName = emp.nombre || 'Colaborador';
     const posicion = emp.posicion || 'Estilista';
@@ -393,14 +589,21 @@ function createPayrollRouter(pool) {
     let comisiones = 0.00;
     if (tipoSalario !== 'fijo_puro' && tipoSalario !== 'solo_fijo') {
       try {
-        const [commRows] = await pool.query(`
-          SELECT COALESCE(SUM(monto_comision), 0) as total_comm 
-          FROM employee_commissions_log 
-          WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
-            AND created_at >= ? AND created_at <= ?
-            AND (status != 'Anulada' OR status IS NULL)
-        `, [empId, `EMP-${empId}`, empName, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
-        comisiones = Number(parseFloat(commRows[0]?.total_comm || 0).toFixed(2));
+        if (batchContext && batchContext.commMap) {
+          const byId = batchContext.commMap.get(String(empId)) || 0;
+          const byCode = batchContext.commMap.get(`EMP-${empId}`) || 0;
+          const byName = batchContext.commMap.get(empName.toLowerCase().trim()) || 0;
+          comisiones = Number(Math.max(byId, byCode, byName).toFixed(2));
+        } else {
+          const [commRows] = await pool.query(`
+            SELECT COALESCE(SUM(monto_comision), 0) as total_comm 
+            FROM employee_commissions_log 
+            WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
+              AND created_at >= ? AND created_at <= ?
+              AND (status != 'Anulada' OR status IS NULL)
+          `, [empId, `EMP-${empId}`, empName, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
+          comisiones = Number(parseFloat(commRows[0]?.total_comm || 0).toFixed(2));
+        }
       } catch(e) {
         console.warn(`[COMMISSIONS CALC WARN for ${empName}]:`, e.message);
       }
@@ -415,13 +618,22 @@ function createPayrollRouter(pool) {
     const descuentosItemsList = [];
 
     try {
-      const [discountRows] = await pool.query(`
-        SELECT id, type, amount, notes, status, DATE_FORMAT(date, '%Y-%m-%d') as d_date
-        FROM employee_discounts
-        WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
-          AND date BETWEEN ? AND ?
-          AND (status != 'Anulado' OR status IS NULL)
-      `, [empId, `EMP-${empId}`, empName, start_date, end_date]);
+      let discountRows = [];
+      if (batchContext && batchContext.discMap) {
+        discountRows = batchContext.discMap.get(String(empId)) 
+          || batchContext.discMap.get(`EMP-${empId}`) 
+          || batchContext.discMap.get(empName.toLowerCase().trim()) 
+          || [];
+      } else {
+        const [rows] = await pool.query(`
+          SELECT id, type, amount, notes, status, DATE_FORMAT(date, '%Y-%m-%d') as d_date
+          FROM employee_discounts
+          WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
+            AND date BETWEEN ? AND ?
+            AND (status != 'Anulado' OR status IS NULL)
+        `, [empId, `EMP-${empId}`, empName, start_date, end_date]);
+        discountRows = rows;
+      }
 
       for (const d of discountRows) {
         const amt = Number(parseFloat(d.amount || 0).toFixed(2));
@@ -450,7 +662,7 @@ function createPayrollRouter(pool) {
     }
 
     // 3. ASISTENCIA: Ausencias y Tardanzas automáticas basadas en la configuración de tarifa base y minutos
-    const cfg = await getCalculationSettings(pool);
+    const cfg = (batchContext && batchContext.cfg) || (preloadedCfg && preloadedCfg.salario_mensual_base ? preloadedCfg : await getCalculationSettings(pool));
     const salarioBaseGarantizado = parseFloat(cfg.salario_mensual_base || 18421.00);
     const diasLaboralesMes = parseFloat(cfg.dias_laborables_mes || 23.83);
     const horasDiaCompleto = parseFloat(cfg.horas_jornada_completa || 8.00);
@@ -459,6 +671,11 @@ function createPayrollRouter(pool) {
     const recargoFeriado = parseFloat(cfg.recargo_feriado || 1.00);
 
     // Unidades de cálculo: mensual -> diario (23.83) -> hora (8h) -> minutos (/ 60)
+    const effectiveBaseSalary = Math.max(baseMensual, salarioBaseGarantizado);
+    const empSalarioDiario = effectiveBaseSalary / diasLaboralesMes;
+    const empSalarioHora = empSalarioDiario / horasDiaCompleto;
+    const empSalarioMinuto = empSalarioHora / 60;
+
     const salarioDiarioGarantizado = salarioBaseGarantizado / diasLaboralesMes;
     const salarioHoraGarantizado = salarioDiarioGarantizado / horasDiaCompleto;
     const salarioMinutoGarantizado = salarioHoraGarantizado / 60;
@@ -466,185 +683,255 @@ function createPayrollRouter(pool) {
     // Variables de horas extras, feriados y ausencias
     let feriados = 0.00;
     let horasExtras = 0.00;
+    let totalOvertimeMins = 0;
+    let totalNetLatenessMins = 0;
     let ausenciasHorasDetalle = [];
 
-    if (ausenciasMonto === 0 && tardanzasMonto === 0) {
-      try {
-        // Cargar sobreescrituras de horario para el colaborador en el período
+    try {
+      // Cargar sobreescrituras de horario para el colaborador en el período
+      const overrideMap = new Map();
+      if (batchContext && batchContext.overrideMap) {
+        const oList = batchContext.overrideMap.get(String(empId)) || batchContext.overrideMap.get(empName) || [];
+        oList.forEach(o => overrideMap.set(o.dateStr, o));
+      } else {
         const [overrides] = await pool.query(
           "SELECT DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE (employee_id = ? OR employee_id = ?) AND date BETWEEN ? AND ? AND status = 'Activo'",
           [empId, empName, start_date, end_date]
         );
-        const overrideMap = new Map();
         overrides.forEach(o => overrideMap.set(o.dateStr, o));
+      }
 
-        // Helper para determinar la duración y jornada programada de un día específico
-        const getScheduledDurationSecs = (dateStr) => {
-          const override = overrideMap.get(dateStr);
-          if (override && override.new_hora_entrada && override.new_hora_salida) {
-            const [h1, m1] = override.new_hora_entrada.split(':').map(Number);
-            const [h2, m2] = override.new_hora_salida.split(':').map(Number);
-            let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
-            if (secs <= 0) secs += 86400;
-            return { secs, hrs: secs / 3600, isWorking: true };
-          }
+      // Helper para determinar la duración y jornada programada de un día específico
+      const getScheduledDurationSecs = (dateStr) => {
+        const override = overrideMap.get(dateStr);
+        if (override && override.new_hora_entrada && override.new_hora_salida) {
+          const [h1, m1] = override.new_hora_entrada.split(':').map(Number);
+          const [h2, m2] = override.new_hora_salida.split(':').map(Number);
+          let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
+          if (secs <= 0) secs += 86400;
+          return { secs, hrs: secs / 3600, isWorking: true };
+        }
 
-          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-          const d = new Date(dateStr + 'T12:00:00');
-          const dName = dayNames[d.getDay()];
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const d = new Date(dateStr + 'T12:00:00');
+        const dName = dayNames[d.getDay()];
 
-          if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-            try {
-              const parsed = JSON.parse(emp.dias_laborables);
-              const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === dName.toLowerCase().slice(0, 3));
-              const dayInfo = matchKey ? parsed[matchKey] : null;
-              if (dayInfo && dayInfo.entrada && dayInfo.salida) {
-                const [h1, m1] = dayInfo.entrada.split(':').map(Number);
-                const [h2, m2] = dayInfo.salida.split(':').map(Number);
-                let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
-                if (secs <= 0) secs += 86400;
-                return { secs, hrs: secs / 3600, isWorking: true };
-              } else {
-                return { secs: 0, hrs: 0, isWorking: false };
-              }
-            } catch(e) {}
-          } else if (emp.hora_entrada && emp.hora_salida) {
-            const workingDays = (emp.dias_laborables || '').split(',').map(s => s.trim().toLowerCase());
-            const isWorking = workingDays.length === 0 || workingDays.some(w => w.slice(0, 3) === dName.toLowerCase().slice(0, 3)) || (!emp.dias_laborables && dName !== 'Domingo');
-            if (isWorking) {
-              const [h1, m1] = emp.hora_entrada.split(':').map(Number);
-              const [h2, m2] = emp.hora_salida.split(':').map(Number);
+        if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(emp.dias_laborables);
+            const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === dName.toLowerCase().slice(0, 3));
+            const dayInfo = matchKey ? parsed[matchKey] : null;
+            if (dayInfo && dayInfo.entrada && dayInfo.salida) {
+              const [h1, m1] = dayInfo.entrada.split(':').map(Number);
+              const [h2, m2] = dayInfo.salida.split(':').map(Number);
               let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
               if (secs <= 0) secs += 86400;
               return { secs, hrs: secs / 3600, isWorking: true };
             } else {
               return { secs: 0, hrs: 0, isWorking: false };
             }
+          } catch(e) {}
+        } else if (emp.hora_entrada && emp.hora_salida) {
+          const workingDays = (emp.dias_laborables || '').split(',').map(s => s.trim().toLowerCase());
+          const isWorking = workingDays.length === 0 || workingDays.some(w => w.slice(0, 3) === dName.toLowerCase().slice(0, 3)) || (!emp.dias_laborables && dName !== 'Domingo');
+          if (isWorking) {
+            const [h1, m1] = emp.hora_entrada.split(':').map(Number);
+            const [h2, m2] = emp.hora_salida.split(':').map(Number);
+            let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
+            if (secs <= 0) secs += 86400;
+            return { secs, hrs: secs / 3600, isWorking: true };
+          } else {
+            return { secs: 0, hrs: 0, isWorking: false };
           }
+        }
 
-          return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: dName !== 'Domingo' };
-        };
+        return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: dName !== 'Domingo' };
+      };
 
-        const [attPunches] = await pool.query(`
+      let attPunches = [];
+      if (batchContext && batchContext.punchesMap) {
+        attPunches = batchContext.punchesMap.get(String(empId)) || batchContext.punchesMap.get(empName) || [];
+      } else {
+        const [rows] = await pool.query(`
           SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
           FROM attendance
           WHERE (employee_id = ? OR employee_id = ?) 
             AND DATE(timestamp) BETWEEN ? AND ?
           ORDER BY timestamp ASC
         `, [empId, empName, start_date, end_date]);
+        attPunches = rows;
+      }
 
-        const punchesByDay = {};
-        attPunches.forEach(p => {
-          if (!punchesByDay[p.p_date]) punchesByDay[p.p_date] = [];
-          punchesByDay[p.p_date].push(p);
-        });
+      const punchesByDay = {};
+      attPunches.forEach(p => {
+        if (!punchesByDay[p.p_date]) punchesByDay[p.p_date] = [];
+        punchesByDay[p.p_date].push(p);
+      });
 
-        let totalNetLatenessMins = 0;
-        let totalOvertimeMins = 0;
-        let totalCalculatedAusencias = 0;
+      let totalCalculatedAusencias = 0;
 
-        // 3.1 Procesar ponches reales por día (entradas, salidas, compensación neta)
-        Object.keys(punchesByDay).forEach(dateStr => {
-          const dayPunches = punchesByDay[dateStr];
+      // 3.1 Procesar ponches reales por día (entradas, salidas, compensación neta, fin de semana y tolerancia)
+      Object.keys(punchesByDay).forEach(dateStr => {
+        const dayPunches = punchesByDay[dateStr];
+        const ins = dayPunches.filter(p => p.type === 'Check-In');
+        const outs = dayPunches.filter(p => p.type === 'Check-Out');
+
+        if (ins.length > 0) {
+          const checkIn = ins[0];
+          const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
+          const morningLate = Number(checkIn.lateness_minutes) || 0;
+          const daySched = getScheduledDurationSecs(dateStr);
+          const scheduledSecs = daySched.secs > 0 ? daySched.secs : (horasDiaCompleto * 3600);
+
+          if (checkOut) {
+            const inTime = new Date(checkIn.timestamp).getTime();
+            const outTime = new Date(checkOut.timestamp).getTime();
+            if (outTime > inTime) {
+              const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
+              const workedMins = Math.round(workedSecs / 60);
+              const scheduledMins = Math.round(scheduledSecs / 60);
+
+              if (workedMins >= scheduledMins) {
+                // Jornada cumplida o excedida: 0 descuento, horas extras = tiempo excedente
+                const surplusMins = workedMins - scheduledMins;
+                totalOvertimeMins += surplusMins;
+              } else {
+                // Trabajó menos del horario programado: determinar diferencia faltante
+                const netMissingMins = scheduledMins - workedMins;
+
+                // Evaluar salida por cierre del salón según día de la semana (hora República Dominicana)
+                const outDate = new Date(checkOut.timestamp);
+                const outDay = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', weekday: 'short' }).format(outDate);
+                const outHour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hour12: false }).format(outDate), 10);
+                const outMinute = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(outDate), 10);
+                const outTimeOfDayMins = outHour * 60 + outMinute;
+
+                let isClosingExit = false;
+                if (outDay === 'Sat' && outTimeOfDayMins >= (18 * 60)) { // Sábados a partir de las 6:00 PM
+                  isClosingExit = true;
+                } else if (outDay === 'Sun' && outTimeOfDayMins >= (17 * 60)) { // Domingos a partir de las 5:00 PM
+                  isClosingExit = true;
+                } else if (outDay !== 'Sat' && outDay !== 'Sun' && outTimeOfDayMins >= (20 * 60)) { // Lunes a Viernes a partir de las 8:00 PM
+                  isClosingExit = true;
+                }
+
+                let deductibleMins = 0;
+                if (isClosingExit) {
+                  // Si la salida fue por hora oficial de cierre, la salida no se descuenta.
+                  // Solo se descuenta tardanza de entrada que supere la tolerancia de 15 minutos:
+                  if (morningLate > 15) {
+                    deductibleMins = Math.min(morningLate - 15, netMissingMins);
+                  } else {
+                    deductibleMins = 0;
+                  }
+                } else {
+                  // Salida antes del cierre oficial:
+                  // La tolerancia de 15 minutos solo exonera la llegada tardía matutina, NUNCA la salida anticipada.
+                  const morningToleranceWaived = Math.min(15, Math.max(0, morningLate));
+                  deductibleMins = Math.max(0, netMissingMins - morningToleranceWaived);
+                }
+
+                totalNetLatenessMins += deductibleMins;
+              }
+            }
+          } else if (morningLate > 15) {
+            // Si olvidó ponchar salida, solo se considera la tardanza matutina que supere la tolerancia (NUNCA ausencia)
+            totalNetLatenessMins += (morningLate - 15);
+          }
+        }
+      });
+
+      // 3.2 Determinar Ausencias en días laborables programados sin NINGÚN ponche (ni Entrada ni Salida)
+      const curDateObj = new Date(start_date + 'T12:00:00');
+      const endDateObj = new Date(end_date + 'T12:00:00');
+      const todayDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' });
+      const hireDateStr = emp.fecha_entrada ? new Date(emp.fecha_entrada).toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' }) : null;
+
+      while (curDateObj <= endDateObj) {
+        const dateStr = curDateObj.toISOString().slice(0, 10);
+        if (dateStr <= todayDateStr && (!hireDateStr || dateStr >= hireDateStr)) {
+          const daySched = getScheduledDurationSecs(dateStr);
+          const dayPunches = punchesByDay[dateStr] || [];
           const ins = dayPunches.filter(p => p.type === 'Check-In');
           const outs = dayPunches.filter(p => p.type === 'Check-Out');
+          const abs = dayPunches.find(p => p.type === 'Ausencia');
 
-          if (ins.length > 0) {
-            const checkIn = ins[0];
-            const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
-            const morningLate = Number(checkIn.lateness_minutes) || 0;
-            const daySched = getScheduledDurationSecs(dateStr);
-            const scheduledSecs = daySched.secs > 0 ? daySched.secs : (horasDiaCompleto * 3600);
+          // CRÍTICO: SOLO computar ausencia si NO existe NINGÚN ponche real (ni entrada ni salida)
+          // Si la colaboradora ponchó entrada pero olvidó salida, o ponchó salida pero olvidó entrada:
+          // ESTUVO PRESENTE, por lo que NUNCA se descuenta como Ausencia.
+          const hasRealPunch = ins.length > 0 || outs.length > 0;
 
-            if (checkOut) {
-              const inTime = new Date(checkIn.timestamp).getTime();
-              const outTime = new Date(checkOut.timestamp).getTime();
-              if (outTime > inTime) {
-                const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
-                if (workedSecs >= scheduledSecs) {
-                  // Jornada cumplida: compensación 100% de tardanza matutina
-                  const surplusSecs = workedSecs - scheduledSecs;
-                  totalOvertimeMins += Math.round(surplusSecs / 60);
-                } else {
-                  // Trabajó menos del horario programado para ese día específico
-                  const missingSecs = scheduledSecs - workedSecs;
-                  totalNetLatenessMins += Math.round(missingSecs / 60);
-                }
-              }
-            } else if (morningLate > 0) {
-              totalNetLatenessMins += morningLate;
+          if (daySched.isWorking && !hasRealPunch) {
+            if (abs || dateStr < todayDateStr) {
+              const isHalfDay = daySched.hrs <= 5;
+              const scheduledHrs = isHalfDay ? horasMediaJornada : horasDiaCompleto;
+              const descuentoDia = scheduledHrs * empSalarioHora;
+              totalCalculatedAusencias += descuentoDia;
+              ausenciasHorasDetalle.push({
+                fecha: dateStr,
+                tipo: isHalfDay ? 'Medio Día (4 hrs)' : 'Día Completo (8 hrs)',
+                horas: scheduledHrs,
+                monto: Number(descuentoDia.toFixed(2))
+              });
             }
           }
-        });
-
-        // 3.2 Determinar Ausencias en días laborables programados sin ponche de entrada
-        const curDateObj = new Date(start_date + 'T12:00:00');
-        const endDateObj = new Date(end_date + 'T12:00:00');
-        const todayDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' });
-        const hireDateStr = emp.fecha_entrada ? new Date(emp.fecha_entrada).toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' }) : null;
-
-        while (curDateObj <= endDateObj) {
-          const dateStr = curDateObj.toISOString().slice(0, 10);
-          if (dateStr <= todayDateStr && (!hireDateStr || dateStr >= hireDateStr)) {
-            const daySched = getScheduledDurationSecs(dateStr);
-            const dayPunches = punchesByDay[dateStr] || [];
-            const ins = dayPunches.filter(p => p.type === 'Check-In');
-            const abs = dayPunches.find(p => p.type === 'Ausencia');
-
-            if (daySched.isWorking && (abs || ins.length === 0)) {
-              if (abs || dateStr < todayDateStr) {
-                const isHalfDay = daySched.hrs <= 5;
-                const scheduledHrs = isHalfDay ? horasMediaJornada : horasDiaCompleto;
-                const descuentoDia = scheduledHrs * salarioHoraGarantizado;
-                totalCalculatedAusencias += descuentoDia;
-                ausenciasHorasDetalle.push({
-                  fecha: dateStr,
-                  tipo: isHalfDay ? 'Medio Día (4 hrs)' : 'Día Completo (8 hrs)',
-                  horas: scheduledHrs,
-                  monto: Number(descuentoDia.toFixed(2))
-                });
-              }
-            }
-          }
-          curDateObj.setDate(curDateObj.getDate() + 1);
         }
+        curDateObj.setDate(curDateObj.getDate() + 1);
+      }
 
-        if (totalCalculatedAusencias > 0) {
+      // Para colaboradores a comisión pura (sin salario fijo), no se descuentan ausencias ni tardanzas de un salario fijo inexistente
+      const isComisionPura = tipoSalario === 'comision_pura' || tipoSalario === 'solo_comisiones' || salarioFijo === 0;
+
+      if (!isComisionPura) {
+        if (totalCalculatedAusencias > 0 && ausenciasMonto === 0) {
           ausenciasMonto = Number(totalCalculatedAusencias.toFixed(2));
         }
-        if (totalNetLatenessMins > 0) {
-          tardanzasMonto = Number((totalNetLatenessMins * salarioMinutoGarantizado).toFixed(2));
+        if (totalNetLatenessMins > 0 && tardanzasMonto === 0) {
+          tardanzasMonto = Number((totalNetLatenessMins * empSalarioMinuto).toFixed(2));
         }
-        if (totalOvertimeMins > 0) {
-          horasExtras = Number((totalOvertimeMins * salarioMinutoGarantizado * recargoHorasExtras).toFixed(2));
-        }
-      } catch(e) {
-        console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
       }
+      if (totalOvertimeMins > 0) {
+        horasExtras = Number((totalOvertimeMins * empSalarioMinuto * recargoHorasExtras).toFixed(2));
+      }
+    } catch(e) {
+      console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
     }
 
     // 4. FERIADOS desde asistencia y calendario oficial
     try {
-      const [periodHolidays] = await pool.query(`
-        SELECT DATE_FORMAT(date, '%Y-%m-%d') as holiday_date, name, rate_multiplier 
-        FROM holidays 
-        WHERE date BETWEEN ? AND ? AND is_active = 1
-      `, [start_date, end_date]);
+      const periodHolidays = (batchContext && batchContext.periodHolidays)
+        ? batchContext.periodHolidays
+        : (preloadedHolidays !== null 
+            ? preloadedHolidays 
+            : (await pool.query(`
+                SELECT DATE_FORMAT(date, '%Y-%m-%d') as holiday_date, name, rate_multiplier 
+                FROM holidays 
+                WHERE date BETWEEN ? AND ? AND is_active = 1
+              `, [start_date, end_date]))[0]);
 
       if (periodHolidays.length > 0) {
-        const holidayDates = periodHolidays.map(h => h.holiday_date);
-        const [holidayPunches] = await pool.query(`
-          SELECT id, type, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as punch_date
-          FROM attendance
-          WHERE (employee_id = ? OR employee_id = ?)
-            AND DATE(timestamp) IN (?)
-          ORDER BY timestamp ASC
-        `, [empId, empName, holidayDates]);
+        const holidayDates = new Set(periodHolidays.map(h => h.holiday_date));
+        
+        let holidayPunches = [];
+        if (batchContext && batchContext.punchesMap) {
+          const allEmpPunches = batchContext.punchesMap.get(String(empId)) || batchContext.punchesMap.get(empName) || [];
+          holidayPunches = allEmpPunches.filter(p => holidayDates.has(p.p_date));
+        } else {
+          const [rows] = await pool.query(`
+            SELECT id, type, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as punch_date
+            FROM attendance
+            WHERE (employee_id = ? OR employee_id = ?)
+              AND DATE(timestamp) IN (?)
+            ORDER BY timestamp ASC
+          `, [empId, empName, Array.from(holidayDates)]);
+          holidayPunches = rows;
+        }
 
         const punchesByDate = {};
         holidayPunches.forEach(p => {
-          if (!punchesByDate[p.punch_date]) punchesByDate[p.punch_date] = [];
-          punchesByDate[p.punch_date].push(p);
+          const dt = p.punch_date || p.p_date;
+          if (!punchesByDate[dt]) punchesByDate[dt] = [];
+          punchesByDate[dt].push(p);
         });
 
         periodHolidays.forEach(h => {
@@ -677,24 +964,40 @@ function createPayrollRouter(pool) {
     // 4.1. EVALUAR REGLAS ESPECIALES POR VOLUMEN / META (operacion = 'Contar')
     if (emp.commission_scheme_id) {
       try {
-        const [countRules] = await pool.query(
-          "SELECT * FROM commission_scheme_rules WHERE scheme_id = ? AND rule_type = 'especial' AND operacion = 'Contar'",
-          [emp.commission_scheme_id]
-        );
+        let countRules = [];
+        if (batchContext && batchContext.schemeRulesMap) {
+          countRules = batchContext.schemeRulesMap.get(String(emp.commission_scheme_id)) || [];
+        } else {
+          const [rows] = await pool.query(
+            "SELECT * FROM commission_scheme_rules WHERE scheme_id = ? AND rule_type = 'especial' AND operacion = 'Contar'",
+            [emp.commission_scheme_id]
+          );
+          countRules = rows;
+        }
         for (const cr of countRules) {
           const targetCount = parseInt(cr.cantidad_meta) || 0;
           const bonusAmt = parseFloat(cr.bono_monto) || 0;
           if (targetCount > 0 && bonusAmt > 0 && cr.service_name) {
-            const [performed] = await pool.query(`
-              SELECT COUNT(*) as count 
-              FROM employee_commissions_log 
-              WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
-                AND service_name LIKE ?
-                AND created_at >= ? AND created_at <= ?
-                AND (status != 'Anulada' OR status IS NULL)
-            `, [empId, `EMP-${empId}`, empName, `%${cr.service_name}%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
+            let totalPerformed = 0;
+            if (batchContext && batchContext.commLogsMap) {
+              const logs = batchContext.commLogsMap.get(String(empId))
+                || batchContext.commLogsMap.get(`EMP-${empId}`)
+                || batchContext.commLogsMap.get(empName.toLowerCase().trim())
+                || [];
+              const sTarget = cr.service_name.toLowerCase();
+              totalPerformed = logs.filter(l => l.service_name && l.service_name.toLowerCase().includes(sTarget)).length;
+            } else {
+              const [performed] = await pool.query(`
+                SELECT COUNT(*) as count 
+                FROM employee_commissions_log 
+                WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
+                  AND service_name LIKE ?
+                  AND created_at >= ? AND created_at <= ?
+                  AND (status != 'Anulada' OR status IS NULL)
+              `, [empId, `EMP-${empId}`, empName, `%${cr.service_name}%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
+              totalPerformed = performed[0]?.count || 0;
+            }
 
-            const totalPerformed = performed[0]?.count || 0;
             if (totalPerformed >= targetCount) {
               otrosIngresos += bonusAmt;
               ingresosItemsList.push({
@@ -712,7 +1015,29 @@ function createPayrollRouter(pool) {
     otrosIngresos = Number(otrosIngresos.toFixed(2));
 
     // 5. TSS: Seguro Familiar de Salud (SFS 3.04%) + Pensión (AFP 2.87%) = 5.91% de ley
-    const tss = salarioFijo > 0 ? Number((salarioFijo * 0.0591).toFixed(2)) : 0.00;
+    let baseTss = salarioFijo;
+    if (cfg.tss_base_mode === 'fijo_mas_comisiones') {
+      baseTss = salarioFijo + comisiones;
+    } else if (salarioFijo === 0 && (tipoSalario === 'comision_pura' || tipoSalario === 'solo_comisiones') && comisiones > 0) {
+      // Si el colaborador está bajo comisión pura pero la empresa cotiza comisiones
+      baseTss = cfg.tss_base_mode === 'fijo_mas_comisiones' ? comisiones : 0.00;
+    }
+    const tss = baseTss > 0 ? Number((baseTss * 0.0591).toFixed(2)) : 0.00;
+
+    // 5.1 RETENCIÓN ISR DGII (Si está habilitada en configuración de nómina)
+    let isrRetencion = 0.00;
+    if (cfg.aplicar_retencion_isr === 1 || cfg.aplicar_retencion_isr === true) {
+      const ingresosGravables = salarioFijo + comisiones + horasExtras;
+      isrRetencion = calculateDgiiIsrQuincenal(ingresosGravables, tss);
+      if (isrRetencion > 0) {
+        descuentosItemsList.push({
+          id: 'd_isr_dgii',
+          label: 'Retención ISR (DGII Asalariados)',
+          monto: isrRetencion
+        });
+        otrosDescuentos = Number((otrosDescuentos + isrRetencion).toFixed(2));
+      }
+    }
 
     // Redondear a 2 decimales
     serviciosConsumo = Number(serviciosConsumo.toFixed(2));
@@ -724,7 +1049,7 @@ function createPayrollRouter(pool) {
     // Totales
     const totalIngresos = Number((salarioFijo + comisiones + feriados + horasExtras + otrosIngresos).toFixed(2));
     const totalDescuentos = Number((tss + serviciosConsumo + prestamosMonto + ausenciasMonto + tardanzasMonto + otrosDescuentos).toFixed(2));
-    const netoPagar = Number((totalIngresos - totalDescuentos).toFixed(2));
+    const netoPagar = Number(Math.max(0, totalIngresos - totalDescuentos).toFixed(2));
 
     return {
       employee_id: empId,
@@ -751,25 +1076,27 @@ function createPayrollRouter(pool) {
           { id: 'c1', label: 'Salario fijo', monto: salarioFijo },
           { id: 'c2', label: 'Comisiones', monto: comisiones },
           { id: 'c3', label: 'Feriados', monto: feriados },
-          { id: 'c4', label: 'Horas extras', monto: horasExtras },
+          { id: 'c4', label: totalOvertimeMins > 0 ? `Horas extras (${Math.round(totalOvertimeMins / 60 * 10) / 10}h / ${totalOvertimeMins}m)` : 'Horas extras', monto: horasExtras },
           { id: 'c5', label: 'Otros ingresos / Bonos', monto: otrosIngresos },
           ...ingresosItemsList
         ],
         conceptos_descuentos: [
-          { id: 'd1', label: 'TSS (Ley 5.91%)', monto: tss },
+          { id: 'd1', label: cfg.tss_base_mode === 'fijo_mas_comisiones' ? 'TSS (Ley 5.91% Sueldo+Comisión)' : 'TSS (Ley 5.91%)', monto: tss },
+          ...(isrRetencion > 0 ? [{ id: 'd_isr', label: 'Retención ISR (DGII)', monto: isrRetencion }] : []),
           { id: 'd2', label: 'Servicios de Salón', monto: serviciosConsumo },
           { id: 'd3', label: 'Préstamos / Adelantos', monto: prestamosMonto },
           { id: 'd4', label: 'Ausencias', monto: ausenciasMonto },
-          { id: 'd5', label: 'Tardanzas', monto: tardanzasMonto },
+          { id: 'd5', label: totalNetLatenessMins > 0 ? `Tardanzas netas (${totalNetLatenessMins}m)` : 'Tardanzas', monto: tardanzasMonto },
           { id: 'd6', label: 'Otros descuentos', monto: otrosDescuentos },
-          ...descuentosItemsList
+          ...descuentosItemsList.filter(d => d.id !== 'd_isr_dgii')
         ]
       }
     };
   }
 
-  // 3. Generar / Procesar Nómina Automática con Datos Reales
+  // 3. Generar / Procesar Nómina Automática con Datos Reales (Con Transacción ACID)
   router.post('/generate', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const {
         period_name,
@@ -780,8 +1107,11 @@ function createPayrollRouter(pool) {
       } = req.body;
 
       if (!period_name || !start_date || !end_date) {
+        conn.release();
         return res.status(400).json({ error: 'El nombre del período y las fechas de inicio y fin son obligatorios' });
       }
+
+      await conn.beginTransaction();
 
       // 1. Obtener empleados activos
       let staffQuery = "SELECT * FROM staff_records WHERE (status = 'Activo' OR status = 'Active' OR status IS NULL)";
@@ -803,7 +1133,7 @@ function createPayrollRouter(pool) {
         staffQuery += " AND (posicion LIKE ?)";
         staffParams.push(`%${departamento}%`);
       }
-      let [staffList] = await pool.query(staffQuery, staffParams);
+      let [staffList] = await conn.query(staffQuery, staffParams);
 
       if (staffList.length === 0) {
         const seedStaff = [
@@ -822,7 +1152,7 @@ function createPayrollRouter(pool) {
       }
 
       // 2. Crear registro del período
-      const [periodRes] = await pool.query(`
+      const [periodRes] = await conn.query(`
         INSERT INTO payroll_periods (period_name, start_date, end_date, sucursal, departamento, status)
         VALUES (?, ?, ?, ?, ?, 'En preparación')
       `, [period_name, start_date, end_date, sucursal, departamento]);
@@ -833,26 +1163,14 @@ function createPayrollRouter(pool) {
       let sumTotalNeto = 0;
       const generatedItems = [];
 
+      // Pre-cargar configuración salarial, feriados, comisiones, descuentos, horario y ponches una sola vez para todo el lote
+      const batchContext = await preloadPayrollBatchContext(conn, start_date, end_date);
+
       // 3. Procesar y calcular cada empleado de forma 100% real
+      // 3. Procesar y calcular cada empleado de forma 100% real en memoria
       for (const emp of staffList) {
-        const itemData = await calculateEmployeePayrollValues(pool, emp, start_date, end_date);
+        const itemData = await calculateEmployeePayrollValues(pool, emp, start_date, end_date, batchContext);
         itemData.payroll_id = payrollId;
-
-        const [resItem] = await pool.query(`
-          INSERT INTO payroll_items (
-            payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
-            salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
-            tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
-            neto_pagar, detalles_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          itemData.payroll_id, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
-          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, itemData.otros_ingresos, itemData.total_ingresos,
-          itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
-          itemData.neto_pagar, JSON.stringify(itemData.detalles_json)
-        ]);
-
-        itemData.id = resItem.insertId;
         generatedItems.push(itemData);
 
         sumTotalIngresos += itemData.total_ingresos;
@@ -860,12 +1178,39 @@ function createPayrollRouter(pool) {
         sumTotalNeto += itemData.neto_pagar;
       }
 
+      if (generatedItems.length > 0) {
+        const insertValues = generatedItems.map(itemData => [
+          itemData.payroll_id, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
+          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, itemData.otros_ingresos, itemData.total_ingresos,
+          itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
+          itemData.neto_pagar, JSON.stringify(itemData.detalles_json)
+        ]);
+
+        await conn.query(`
+          INSERT INTO payroll_items (
+            payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
+            salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
+            tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
+            neto_pagar, detalles_json
+          ) VALUES ?
+        `, [insertValues]);
+
+        const [insertedRows] = await conn.query('SELECT * FROM payroll_items WHERE payroll_id = ? ORDER BY id ASC', [payrollId]);
+        generatedItems.length = 0;
+        insertedRows.forEach(r => generatedItems.push({
+          ...r,
+          detalles_json: typeof r.detalles_json === 'string' ? JSON.parse(r.detalles_json || '{}') : (r.detalles_json || {})
+        }));
+      }
+
       // 4. Actualizar totales del período
-      await pool.query(`
+      await conn.query(`
         UPDATE payroll_periods 
         SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ?
         WHERE id = ?
       `, [sumTotalIngresos, sumTotalDescuentos, sumTotalNeto, generatedItems.length, payrollId]);
+
+      await conn.commit();
 
       res.json({
         success: true,
@@ -886,30 +1231,41 @@ function createPayrollRouter(pool) {
         items: generatedItems
       });
     } catch (err) {
+      await conn.rollback();
       console.error('[PAYROLL GENERATE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
-  // 4. Guardar borrador / Actualizar items de nómina con Auditoría e Inmutabilidad
+  // 4. Guardar borrador / Actualizar items de nómina con Auditoría e Inmutabilidad (Con Transacción ACID)
   router.post('/save-draft', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const { payroll_id, items, status = 'En preparación', reason = 'Ajuste de borrador', user_name = 'Administrador' } = req.body;
       if (!payroll_id || !Array.isArray(items)) {
+        conn.release();
         return res.status(400).json({ error: 'payroll_id e items son requeridos' });
       }
 
+      await conn.beginTransaction();
+
       // Validar inmutabilidad si la nómina ya fue aprobada
-      const [periodRows] = await pool.query('SELECT status, is_immutable FROM payroll_periods WHERE id = ?', [payroll_id]);
+      const [periodRows] = await conn.query('SELECT status, is_immutable FROM payroll_periods WHERE id = ?', [payroll_id]);
       if (periodRows.length === 0) {
+        await conn.rollback();
+        conn.release();
         return res.status(404).json({ error: 'Período no encontrado' });
       }
       if (periodRows[0].status === 'Aprobada' || periodRows[0].is_immutable === 1) {
+        await conn.rollback();
+        conn.release();
         return res.status(403).json({ error: 'Esta nómina ya ha sido aprobada y es inmutable. No se pueden realizar modificaciones.' });
       }
 
       // Obtener items actuales para registrar cambios en auditoría
-      const [currentDbItems] = await pool.query('SELECT * FROM payroll_items WHERE payroll_id = ?', [payroll_id]);
+      const [currentDbItems] = await conn.query('SELECT * FROM payroll_items WHERE payroll_id = ?', [payroll_id]);
       const currentMap = {};
       currentDbItems.forEach(it => { currentMap[it.id] = it; });
 
@@ -953,7 +1309,7 @@ function createPayrollRouter(pool) {
             const oldVal = parseFloat(prev[f] || 0);
             const newVal = parseFloat(it[f] || 0);
             if (Math.abs(oldVal - newVal) > 0.009) {
-              await pool.query(`
+              await conn.query(`
                 INSERT INTO payroll_audit_logs (payroll_id, employee_id, employee_name, field_name, old_value, new_value, action_type, reason, user_name)
                 VALUES (?, ?, ?, ?, ?, ?, 'Edición Manual', ?, ?)
               `, [payroll_id, it.employee_id, it.employee_name, f, oldVal.toFixed(2), newVal.toFixed(2), reason, user_name]);
@@ -961,7 +1317,7 @@ function createPayrollRouter(pool) {
           }
         }
 
-        await pool.query(`
+        await conn.query(`
           UPDATE payroll_items
           SET 
             salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, otros_ingresos = ?, total_ingresos = ?,
@@ -976,11 +1332,13 @@ function createPayrollRouter(pool) {
         ]);
       }
 
-      await pool.query(`
+      await conn.query(`
         UPDATE payroll_periods
         SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ?, status = ?
         WHERE id = ?
       `, [sumTotalIngresos, sumTotalDescuentos, sumTotalNeto, items.length, status, payroll_id]);
+
+      await conn.commit();
 
       res.json({
         success: true,
@@ -993,13 +1351,17 @@ function createPayrollRouter(pool) {
         }
       });
     } catch (err) {
+      await conn.rollback();
       console.error('[PAYROLL SAVE DRAFT ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
-  // 5. Aplicar Concepto Masivo con Auditoría
+  // 5. Aplicar Concepto Masivo con Auditoría (Con Transacción ACID)
   router.post('/bulk-apply', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const {
         payroll_id,
@@ -1014,19 +1376,28 @@ function createPayrollRouter(pool) {
       } = req.body;
 
       if (!payroll_id || !Array.isArray(item_ids) || item_ids.length === 0) {
+        conn.release();
         return res.status(400).json({ error: 'payroll_id e item_ids requeridos' });
       }
 
-      const [periodRows] = await pool.query('SELECT status, is_immutable FROM payroll_periods WHERE id = ?', [payroll_id]);
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado' });
+      await conn.beginTransaction();
+
+      const [periodRows] = await conn.query('SELECT status, is_immutable FROM payroll_periods WHERE id = ?', [payroll_id]);
+      if (periodRows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        return res.status(404).json({ error: 'Período no encontrado' });
+      }
       if (periodRows[0].status === 'Aprobada' || periodRows[0].is_immutable === 1) {
+        await conn.rollback();
+        conn.release();
         return res.status(403).json({ error: 'La nómina está aprobada y es inmutable' });
       }
 
       const valToAdd = parseFloat(amount) || 0;
 
       for (const itemId of item_ids) {
-        const [itRows] = await pool.query('SELECT * FROM payroll_items WHERE id = ? AND payroll_id = ?', [itemId, payroll_id]);
+        const [itRows] = await conn.query('SELECT * FROM payroll_items WHERE id = ? AND payroll_id = ?', [itemId, payroll_id]);
         if (itRows.length > 0) {
           const item = itRows[0];
           let details = typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {});
@@ -1079,7 +1450,7 @@ function createPayrollRouter(pool) {
 
           const netoPagar = Number((totalIng - totalDesc).toFixed(2));
 
-          await pool.query(`
+          await conn.query(`
             UPDATE payroll_items
             SET 
               salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, otros_ingresos = ?, total_ingresos = ?,
@@ -1093,7 +1464,7 @@ function createPayrollRouter(pool) {
           ]);
 
           // Registrar en auditoría
-          await pool.query(`
+          await conn.query(`
             INSERT INTO payroll_audit_logs (payroll_id, employee_id, employee_name, field_name, old_value, new_value, action_type, reason, user_name)
             VALUES (?, ?, ?, ?, ?, ?, 'Cambio Masivo', ?, ?)
           `, [payroll_id, item.employee_id, item.employee_name, concept_label || concept_key, oldVal.toFixed(2), newVal.toFixed(2), reason, user_name]);
@@ -1101,7 +1472,7 @@ function createPayrollRouter(pool) {
       }
 
       // Recalcular totales generales del período
-      const [allIt] = await pool.query('SELECT total_ingresos, total_descuentos, neto_pagar FROM payroll_items WHERE payroll_id = ?', [payroll_id]);
+      const [allIt] = await conn.query('SELECT total_ingresos, total_descuentos, neto_pagar FROM payroll_items WHERE payroll_id = ?', [payroll_id]);
       let totIng = 0, totDesc = 0, totNet = 0;
       allIt.forEach(r => {
         totIng += parseFloat(r.total_ingresos || 0);
@@ -1109,38 +1480,57 @@ function createPayrollRouter(pool) {
         totNet += parseFloat(r.neto_pagar || 0);
       });
 
-      await pool.query(`
+      await conn.query(`
         UPDATE payroll_periods
         SET total_ingresos = ?, total_descuentos = ?, total_neto = ?
         WHERE id = ?
       `, [totIng, totDesc, totNet, payroll_id]);
 
+      await conn.commit();
+
       res.json({ success: true, message: `Concepto aplicado exitosamente a ${item_ids.length} colaboradores` });
     } catch (err) {
+      await conn.rollback();
       console.error('[PAYROLL BULK APPLY ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
-  // 6. Aprobar Nómina con Inmutabilidad, Snapshot Congelado y Liquidación de Descuentos/Comisiones
+  // 6. Aprobar Nómina con Inmutabilidad, Snapshot Congelado y Liquidación de Descuentos/Comisiones (Con Transacción ACID)
   router.post('/approve', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       let { payroll_id, approved_by = 'Administrador' } = req.body;
       if (!payroll_id && req.body && typeof req.body === 'object') {
         if (req.body.id) payroll_id = req.body.id;
       }
       if (!payroll_id) {
+        conn.release();
         return res.status(400).json({ error: 'payroll_id es requerido' });
       }
 
-      const [periodRows] = await pool.query('SELECT * FROM payroll_periods WHERE id = ?', [payroll_id]);
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado' });
+      await conn.beginTransaction();
+
+      const [periodRows] = await conn.query('SELECT * FROM payroll_periods WHERE id = ?', [payroll_id]);
+      if (periodRows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        return res.status(404).json({ error: 'Período no encontrado' });
+      }
 
       const period = periodRows[0];
+      if (period.status === 'Aprobada' || period.is_immutable === 1) {
+        await conn.rollback();
+        conn.release();
+        return res.status(400).json({ error: 'Esta nómina ya ha sido aprobada previamente' });
+      }
+
       const startDate = period.start_date ? String(period.start_date).split('T')[0] : '';
       const endDate = period.end_date ? String(period.end_date).split('T')[0] : '';
 
-      const [items] = await pool.query('SELECT * FROM payroll_items WHERE payroll_id = ? ORDER BY id ASC', [payroll_id]);
+      const [items] = await conn.query('SELECT * FROM payroll_items WHERE payroll_id = ? ORDER BY id ASC', [payroll_id]);
 
       const snapshot = {
         period: period,
@@ -1153,7 +1543,7 @@ function createPayrollRouter(pool) {
       };
 
       // A. Congelar período como Aprobado e Inmutable
-      await pool.query(`
+      await conn.query(`
         UPDATE payroll_periods 
         SET status = 'Aprobada', approved_at = NOW(), approved_by = ?, is_immutable = 1, snapshot_json = ?
         WHERE id = ?
@@ -1161,57 +1551,58 @@ function createPayrollRouter(pool) {
 
       // B. Saldar automáticamente todos los descuentos aplicados en este período (Servicios, Préstamos, etc.)
       if (startDate && endDate) {
-        try {
-          await pool.query(`
-            UPDATE employee_discounts 
-            SET status = 'Saldado', 
-                notes = CASE 
-                  WHEN notes IS NULL OR notes = '' THEN CONCAT('Liquidado en Nómina ID #', ?) 
-                  ELSE CONCAT(notes, ' [Liquidado en Nómina ID #', ?, ']') 
-                END
-            WHERE date BETWEEN ? AND ? 
-              AND (status != 'Anulado' OR status IS NULL) 
-              AND status != 'Saldado'
-          `, [payroll_id, payroll_id, startDate, endDate]);
-        } catch (discErr) {
-          console.warn('[AUTO SETTLE DISCOUNTS WARN]:', discErr.message);
-        }
+        await conn.query(`
+          UPDATE employee_discounts 
+          SET status = 'Saldado', 
+              notes = CASE 
+                WHEN notes IS NULL OR notes = '' THEN CONCAT('Liquidado en Nómina ID #', ?) 
+                ELSE CONCAT(notes, ' [Liquidado en Nómina ID #', ?, ']') 
+              END
+          WHERE date BETWEEN ? AND ? 
+            AND (status != 'Anulado' OR status IS NULL) 
+            AND status != 'Saldado'
+        `, [payroll_id, payroll_id, startDate, endDate]);
 
         // C. Marcar comisiones del período como Pagadas
-        try {
-          await pool.query(`
-            UPDATE employee_commissions_log 
-            SET status = 'Pagada'
-            WHERE created_at >= ? AND created_at <= ? 
-              AND (status != 'Anulada' OR status IS NULL) 
-              AND status != 'Pagada'
-          `, [`${startDate} 00:00:00`, `${endDate} 23:59:59`]);
-        } catch (commErr) {
-          console.warn('[AUTO SETTLE COMMISSIONS WARN]:', commErr.message);
-        }
+        await conn.query(`
+          UPDATE employee_commissions_log 
+          SET status = 'Pagada'
+          WHERE created_at >= ? AND created_at <= ? 
+            AND (status != 'Anulada' OR status IS NULL) 
+            AND status != 'Pagada'
+        `, [`${startDate} 00:00:00`, `${endDate} 23:59:59`]);
       }
 
       // D. Registrar en auditoría
-      await pool.query(`
+      await conn.query(`
         INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name)
         VALUES (?, 'ESTADO_NOMINA', 'En preparación', 'Aprobada', 'Aprobación Definitiva', 'Nómina aprobada e inmutable. Descuentos saldados y comisiones liquidadas.', ?)
       `, [payroll_id, approved_by]);
+
+      await conn.commit();
 
       res.json({ 
         success: true, 
         message: 'Nómina aprobada exitosamente. Se han saldado los descuentos y liquidado las comisiones de los colaboradores para este período.' 
       });
     } catch (err) {
+      await conn.rollback();
       console.error('[PAYROLL APPROVE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
-  // 6.1 Sincronizar datos reales de comisiones y descuentos en tiempo real para un borrador
+  // 6.1 Sincronizar datos reales de comisiones y descuentos en tiempo real para un borrador (Con Transacción ACID)
   router.post('/periods/:id/sync-real-data', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const { id } = req.params;
-      const [periodRows] = await pool.query(`
+
+      await conn.beginTransaction();
+
+      const [periodRows] = await conn.query(`
         SELECT id, period_name, 
                DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
                DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
@@ -1222,10 +1613,16 @@ function createPayrollRouter(pool) {
                approved_by
         FROM payroll_periods WHERE id = ?
       `, [id]);
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado' });
+      if (periodRows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        return res.status(404).json({ error: 'Período no encontrado' });
+      }
       
       const period = periodRows[0];
       if (period.status === 'Aprobada' || period.is_immutable === 1) {
+        await conn.rollback();
+        conn.release();
         return res.status(403).json({ error: 'Esta nómina ya está aprobada y es inmutable' });
       }
 
@@ -1252,11 +1649,11 @@ function createPayrollRouter(pool) {
         staffQuery += " AND (posicion LIKE ?)";
         staffParams.push(`%${period.departamento}%`);
       }
-      let [staffList] = await pool.query(staffQuery, staffParams);
+      let [staffList] = await conn.query(staffQuery, staffParams);
 
       if (staffList.length === 0) {
         // Fallback a los items existentes en payroll_items
-        const [existingItems] = await pool.query('SELECT * FROM payroll_items WHERE payroll_id = ?', [id]);
+        const [existingItems] = await conn.query('SELECT * FROM payroll_items WHERE payroll_id = ?', [id]);
         staffList = existingItems.map(it => ({
           id: it.employee_id,
           nombre: it.employee_name,
@@ -1267,32 +1664,18 @@ function createPayrollRouter(pool) {
       }
 
       // Eliminar items previos y recalcular de forma 100% real
-      await pool.query('DELETE FROM payroll_items WHERE payroll_id = ?', [id]);
+      await conn.query('DELETE FROM payroll_items WHERE payroll_id = ?', [id]);
 
       let sumTotalIngresos = 0;
       let sumTotalDescuentos = 0;
       let sumTotalNeto = 0;
       const generatedItems = [];
+      // Pre-cargar configuración salarial, feriados, comisiones, descuentos, horario y ponches una sola vez para todo el lote
+      const batchContext = await preloadPayrollBatchContext(conn, startDate, endDate);
 
       for (const emp of staffList) {
-        const itemData = await calculateEmployeePayrollValues(pool, emp, startDate, endDate);
+        const itemData = await calculateEmployeePayrollValues(pool, emp, startDate, endDate, batchContext);
         itemData.payroll_id = parseInt(id);
-
-        const [resItem] = await pool.query(`
-          INSERT INTO payroll_items (
-            payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
-            salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
-            tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
-            neto_pagar, detalles_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          itemData.payroll_id, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
-          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, itemData.otros_ingresos, itemData.total_ingresos,
-          itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
-          itemData.neto_pagar, JSON.stringify(itemData.detalles_json)
-        ]);
-
-        itemData.id = resItem.insertId;
         generatedItems.push(itemData);
 
         sumTotalIngresos += itemData.total_ingresos;
@@ -1300,16 +1683,43 @@ function createPayrollRouter(pool) {
         sumTotalNeto += itemData.neto_pagar;
       }
 
-      await pool.query(`
+      if (generatedItems.length > 0) {
+        const insertValues = generatedItems.map(itemData => [
+          itemData.payroll_id, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
+          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, itemData.otros_ingresos, itemData.total_ingresos,
+          itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
+          itemData.neto_pagar, JSON.stringify(itemData.detalles_json)
+        ]);
+
+        await conn.query(`
+          INSERT INTO payroll_items (
+            payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
+            salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
+            tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
+            neto_pagar, detalles_json
+          ) VALUES ?
+        `, [insertValues]);
+
+        const [insertedRows] = await conn.query('SELECT * FROM payroll_items WHERE payroll_id = ? ORDER BY id ASC', [id]);
+        generatedItems.length = 0;
+        insertedRows.forEach(r => generatedItems.push({
+          ...r,
+          detalles_json: typeof r.detalles_json === 'string' ? JSON.parse(r.detalles_json || '{}') : (r.detalles_json || {})
+        }));
+      }
+
+      await conn.query(`
         UPDATE payroll_periods 
         SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ?
         WHERE id = ?
       `, [sumTotalIngresos, sumTotalDescuentos, sumTotalNeto, generatedItems.length, id]);
 
-      await pool.query(`
+      await conn.query(`
         INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name)
         VALUES (?, 'SINCRONIZACION_DATOS', 'Anterior', 'Datos Reales', 'Sincronización', 'Sincronización automática de comisiones y descuentos en tiempo real', 'Administrador')
       `, [id]);
+
+      await conn.commit();
 
       res.json({
         success: true,
@@ -1324,8 +1734,11 @@ function createPayrollRouter(pool) {
         items: generatedItems
       });
     } catch (err) {
+      await conn.rollback();
       console.error('[PAYROLL SYNC REAL DATA ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
@@ -1345,25 +1758,37 @@ function createPayrollRouter(pool) {
     }
   });
 
-  // 8. Eliminar Período de Nómina (Protegido contra borrado de períodos aprobados)
+  // 8. Eliminar Período de Nómina (Protegido contra borrado de períodos aprobados con Transacción ACID)
   router.delete('/periods/:id', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const { id } = req.params;
-      const [periods] = await pool.query('SELECT id, period_name, status, is_immutable FROM payroll_periods WHERE id = ?', [id]);
+
+      await conn.beginTransaction();
+
+      const [periods] = await conn.query('SELECT id, period_name, status, is_immutable FROM payroll_periods WHERE id = ?', [id]);
       if (periods.length > 0 && (periods[0].status === 'Aprobada' || periods[0].is_immutable === 1)) {
+        await conn.rollback();
+        conn.release();
         return res.status(403).json({ error: 'Esta nómina ya ha sido aprobada y es inmutable. No se puede eliminar para proteger el historial contable.' });
       }
 
-      await pool.query('DELETE FROM payroll_items WHERE payroll_id = ?', [id]);
-      await pool.query('DELETE FROM payroll_periods WHERE id = ?', [id]);
+      await conn.query('DELETE FROM payroll_items WHERE payroll_id = ?', [id]);
+      await conn.query('DELETE FROM payroll_periods WHERE id = ?', [id]);
+
+      await conn.commit();
+
       res.json({ success: true, message: 'Período de nómina eliminado correctamente' });
     } catch (err) {
+      await conn.rollback();
       console.error('[PAYROLL DELETE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
-  // 9. Cálculo y Reporte de Regalías del Año (Salario de Navidad Ley 16-92 RD)
+  // 9. Cálculo y Reporte de Regalías del Año (Salario de Navidad Ley 16-92 RD con Datos Históricos Reales)
   router.get('/regalias/:year', async (req, res) => {
     try {
       const year = parseInt(req.params.year) || new Date().getFullYear();
@@ -1384,6 +1809,37 @@ function createPayrollRouter(pool) {
         ];
       }
 
+      // Consultar historial real de nóminas aprobadas del año agrupadas por colaborador y mes
+      let approvedYearItems = [];
+      try {
+        const [rows] = await pool.query(`
+          SELECT 
+            i.employee_id,
+            i.employee_name,
+            MONTH(p.start_date) as mes_num,
+            COALESCE(SUM(i.salario_fijo), 0) as total_fijo,
+            COALESCE(SUM(i.comisiones), 0) as total_comisiones,
+            COALESCE(SUM(i.horas_extras), 0) as total_horas_extras,
+            COALESCE(SUM(i.feriados), 0) as total_feriados,
+            COALESCE(SUM(i.otros_ingresos), 0) as total_otros_ingresos,
+            COALESCE(SUM(i.total_ingresos), 0) as total_mes
+          FROM payroll_items i
+          JOIN payroll_periods p ON p.id = i.payroll_id
+          WHERE (p.status = 'Aprobada' OR p.is_immutable = 1)
+            AND YEAR(p.start_date) = ?
+          GROUP BY i.employee_id, i.employee_name, MONTH(p.start_date)
+        `, [year]);
+        approvedYearItems = rows;
+      } catch (dbErr) {
+        console.warn('[REGALIAS APPROVED QUERY WARN]:', dbErr.message);
+      }
+
+      const itemsMap = new Map();
+      approvedYearItems.forEach(r => {
+        itemsMap.set(`${r.employee_id}_${r.mes_num}`, r);
+        itemsMap.set(`${r.employee_name}_${r.mes_num}`, r);
+      });
+
       const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
       const regaliasList = [];
       let granTotalAcumulado = 0;
@@ -1391,6 +1847,7 @@ function createPayrollRouter(pool) {
 
       for (const emp of staffList) {
         const empId = String(emp.id);
+        const empName = emp.nombre || 'Colaborador';
         const baseMensual = parseFloat(emp.salario_base || 20000.00);
 
         const desglose = [];
@@ -1398,17 +1855,41 @@ function createPayrollRouter(pool) {
         let mesesTrabajados = 0;
 
         for (let m = 0; m < 12; m++) {
-          const comisionMes = Math.floor((baseMensual * 0.4) + (Math.sin(m + parseInt(empId)) * 2000));
-          const salarioMes = baseMensual + Math.max(0, comisionMes);
-          desglose.push({
-            mes: meses[m],
-            mes_numero: m + 1,
-            salario_ordinario: baseMensual,
-            comisiones: Math.max(0, comisionMes),
-            total_mes: salarioMes
-          });
-          totalAcumulado += salarioMes;
-          mesesTrabajados++;
+          const mesNum = m + 1;
+          const matchReal = itemsMap.get(`${empId}_${mesNum}`) || itemsMap.get(`${empName}_${mesNum}`);
+
+          if (matchReal) {
+            const totFijo = parseFloat(matchReal.total_fijo || 0);
+            const totComm = parseFloat(matchReal.total_comisiones || 0);
+            const totExtras = parseFloat(matchReal.total_horas_extras || 0) + parseFloat(matchReal.total_feriados || 0);
+            const totMes = parseFloat(matchReal.total_mes || (totFijo + totComm + totExtras));
+            desglose.push({
+              mes: meses[m],
+              mes_numero: mesNum,
+              salario_ordinario: totFijo,
+              comisiones: totComm,
+              horas_extras_feriados: totExtras,
+              total_mes: totMes,
+              origen: 'Real (Nómina Aprobada)'
+            });
+            totalAcumulado += totMes;
+            mesesTrabajados++;
+          } else {
+            // Proyección realista con salario ordinario base para meses no liquidados aún
+            const comisionEstimada = Math.round(baseMensual * 0.25);
+            const salarioMes = baseMensual + comisionEstimada;
+            desglose.push({
+              mes: meses[m],
+              mes_numero: mesNum,
+              salario_ordinario: baseMensual,
+              comisiones: comisionEstimada,
+              horas_extras_feriados: 0,
+              total_mes: salarioMes,
+              origen: 'Proyección Salario Base'
+            });
+            totalAcumulado += salarioMes;
+            mesesTrabajados++;
+          }
         }
 
         const montoRegalia = Number((totalAcumulado / 12).toFixed(2));
@@ -1418,7 +1899,7 @@ function createPayrollRouter(pool) {
         regaliasList.push({
           year,
           employee_id: empId,
-          employee_name: emp.nombre || 'Colaborador',
+          employee_name: empName,
           posicion: emp.posicion || 'Estilista',
           sucursal: emp.localidad || (emp.salon_id == 2 ? 'Villa Mella' : 'San Vicente'),
           salario_base_mensual: baseMensual,

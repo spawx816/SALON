@@ -26,7 +26,9 @@ export default function PayrollCalculationSettingsModal({
     horas_jornada_completa: 8.00,
     horas_media_jornada: 4.00,
     recargo_horas_extras: 1.35,
-    recargo_feriado: 1.00
+    recargo_feriado: 1.00,
+    tss_base_mode: 'solo_fijo',
+    aplicar_retencion_isr: 0
   });
 
   useEffect(() => {
@@ -37,7 +39,9 @@ export default function PayrollCalculationSettingsModal({
         horas_jornada_completa: parseFloat(initialConfig.horas_jornada_completa || 8.00),
         horas_media_jornada: parseFloat(initialConfig.horas_media_jornada || 4.00),
         recargo_horas_extras: parseFloat(initialConfig.recargo_horas_extras || 1.35),
-        recargo_feriado: parseFloat(initialConfig.recargo_feriado || 1.00)
+        recargo_feriado: parseFloat(initialConfig.recargo_feriado || 1.00),
+        tss_base_mode: initialConfig.tss_base_mode || 'solo_fijo',
+        aplicar_retencion_isr: (initialConfig.aplicar_retencion_isr === 1 || initialConfig.aplicar_retencion_isr === true) ? 1 : 0
       });
     }
   }, [initialConfig, isOpen]);
@@ -70,7 +74,9 @@ export default function PayrollCalculationSettingsModal({
       horas_jornada_completa: 8.00,
       horas_media_jornada: 4.00,
       recargo_horas_extras: 1.35,
-      recargo_feriado: 1.00
+      recargo_feriado: 1.00,
+      tss_base_mode: 'solo_fijo',
+      aplicar_retencion_isr: 0
     });
   };
 
@@ -403,6 +409,104 @@ export default function PayrollCalculationSettingsModal({
                 </div>
                 <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.4rem' }}>
                   <strong>1.00x</strong>: Se paga al mismo monto de la hora regular
+                </div>
+              </div>
+            </div>
+
+            {/* RÉGIMEN DE RETENCIONES DE LEY: TSS & ISR DGII */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1.5px solid #e2e8f0',
+              borderRadius: '16px',
+              padding: '1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <ShieldCheck size={18} color="#0066ff" />
+                  <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>
+                    Régimen de Retenciones de Ley (TSS & DGII)
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0066ff', background: '#eff6ff', padding: '3px 8px', borderRadius: '12px' }}>
+                  Normativa Dominicana
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {/* CONTROL 1: MODO BASE COTIZABLE TSS */}
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '12px',
+                  padding: '1rem'
+                }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.4rem' }}>
+                    Base Cotizable de TSS (5.91% Empleado)
+                  </label>
+                  <select
+                    value={form.tss_base_mode || 'solo_fijo'}
+                    onChange={(e) => setForm(prev => ({ ...prev, tss_base_mode: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '0.55rem 0.75rem',
+                      borderRadius: '8px',
+                      border: '1.5px solid #cbd5e1',
+                      fontSize: '0.88rem',
+                      fontWeight: 700,
+                      color: '#0f172a',
+                      background: '#ffffff',
+                      outline: 'none'
+                    }}
+                  >
+                    <option value="solo_fijo">Solo Salario Fijo Ordinario (Práctica común)</option>
+                    <option value="fijo_mas_comisiones">Salario Fijo + Comisiones por Servicios (Ley 87-01)</option>
+                  </select>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.4rem' }}>
+                    {form.tss_base_mode === 'fijo_mas_comisiones'
+                      ? '✓ Incluye comisiones variables en la base para estilistas y barberos.'
+                      : '✓ Solo descuenta el 5.91% sobre la porción del sueldo básico ordinario.'}
+                  </div>
+                </div>
+
+                {/* CONTROL 2: TOGGLE DE RETENCIÓN AUTOMÁTICA ISR DGII */}
+                <div style={{
+                  background: form.aplicar_retencion_isr ? '#f0fdf4' : '#ffffff',
+                  border: form.aplicar_retencion_isr ? '1.5px solid #86efac' : '1px solid #cbd5e1',
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.2s'
+                }}>
+                  <div>
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      fontSize: '0.82rem',
+                      fontWeight: 800,
+                      color: '#0f172a',
+                      cursor: 'pointer'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(form.aplicar_retencion_isr)}
+                        onChange={(e) => setForm(prev => ({ ...prev, aplicar_retencion_isr: e.target.checked ? 1 : 0 }))}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#16a34a' }}
+                      />
+                      Retención Automática ISR (DGII)
+                    </label>
+                    <p style={{ fontSize: '0.73rem', color: '#64748b', margin: '0.4rem 0 0 1.7rem' }}>
+                      Aplica la escala progresiva oficial del Código Tributario (Exento hasta RD$ 34,685/mes o RD$ 17,342.50/quincena).
+                    </p>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: form.aplicar_retencion_isr ? '#166534' : '#94a3b8', marginTop: '0.4rem', marginLeft: '1.7rem' }}>
+                    {form.aplicar_retencion_isr ? '● Activo: Deducirá 15%, 20% o 25% si excede umbral' : '○ Inactivo: No aplica retención automática de ISR'}
+                  </div>
                 </div>
               </div>
             </div>

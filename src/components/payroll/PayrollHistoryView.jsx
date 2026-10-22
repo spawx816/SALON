@@ -368,27 +368,28 @@ export default function PayrollHistoryView({
 
     // Mapear períodos de la base de datos que estén aprobados
     const dbApproved = periods.filter(p => p.status === 'Aprobada').map(p => {
-      const matchMonth = p.period_name.match(/Septiembre|Agosto|Julio|Junio|Mayo|Abril|Marzo|Febrero|Enero|Octubre|Noviembre|Diciembre/i);
-      const mName = matchMonth ? matchMonth[0] : 'Septiembre';
-      const mGroup = `${mName.toUpperCase()} 2026`;
-      const is2da = p.period_name.toLowerCase().includes('2da');
+      const pName = p.period_name || '';
+      const matchMonth = pName.match(/Septiembre|Agosto|Julio|Junio|Mayo|Abril|Marzo|Febrero|Enero|Octubre|Noviembre|Diciembre/i);
+      const mName = matchMonth ? matchMonth[0] : (p.start_date ? new Date(p.start_date).toLocaleDateString('es-DO', { month: 'long' }) : 'Septiembre');
+      const pYear = p.start_date ? String(new Date(p.start_date).getFullYear()) : '2026';
+      const mGroup = `${mName.toUpperCase()} ${pYear}`;
+      const is2da = pName.toLowerCase().includes('2da') || (p.start_date && parseInt(String(p.start_date).slice(8, 10), 10) > 15);
       return {
         ...p,
         display_quincena: is2da ? '2da quincena' : '1ra quincena',
         date_range_display: `${formatDateDisplay(p.start_date)} al ${formatDateDisplay(p.end_date)}`,
         month_group: mGroup,
         month_name: mName,
-        year: '2026',
-        approved_at_display: p.approved_at ? new Date(p.approved_at).toLocaleString('es-DO', { dateStyle: 'medium', timeStyle: 'short' }) : '30 Sep 2026 · 4:32 p. m.',
+        year: pYear,
+        approved_at_display: p.approved_at ? new Date(p.approved_at).toLocaleString('es-DO', { dateStyle: 'medium', timeStyle: 'short' }) : 'Aprobada',
         approved_by: p.approved_by || 'Elvys Rodriguez'
       };
     });
 
-    if (dbApproved.length >= 6) {
-      return dbApproved;
-    }
-
-    return default2026;
+    // Combinar períodos aprobados de la base de datos con el catálogo histórico
+    const dbIds = new Set(dbApproved.map(p => String(p.id)));
+    const merged = [...dbApproved, ...default2026.filter(d => !dbIds.has(String(d.id)))];
+    return merged;
   }, [periods]);
 
   // Filtrado según búsqueda, sucursal y año
