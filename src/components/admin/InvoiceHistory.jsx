@@ -3,7 +3,8 @@ import * as XLSX from 'xlsx';
 import { 
   Receipt, Search, Calendar, Filter, Download, Printer, XCircle, 
   CheckCircle, AlertTriangle, ChevronDown, ChevronUp, User, DollarSign, 
-  CreditCard, Wallet, FileText, RefreshCw, Clock, Landmark, Layers, Sparkles, FileSpreadsheet, Mail
+  CreditCard, Wallet, FileText, RefreshCw, Clock, Landmark, Layers, Sparkles, FileSpreadsheet, Mail,
+  Pencil, UserCheck, Lock, ShieldCheck, History, ArrowRight
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useAuth } from '../../context/AuthContext';
@@ -13,6 +14,7 @@ export default function InvoiceHistory() {
   const { user } = useAuth();
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const canVoid = isAdmin || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.manage_staff);
+  const canEditCommission = isAdmin || Boolean(user?.permissions?.manage_staff) || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.edit_invoices) || Boolean(user?.permissions?.manage_commissions);
 
   const [visits, setVisits] = useState([]);
   const [salons, setSalons] = useState([]);
@@ -85,12 +87,150 @@ export default function InvoiceHistory() {
   });
   const [isSubmittingVoid, setIsSubmittingVoid] = useState(false);
 
+  // Staff records for assigning commission
+  const [staffList, setStaffList] = useState([]);
+
+  // Commission Edit Modal State
+  const [showEditCommissionModal, setShowEditCommissionModal] = useState(false);
+  const [targetVisitForCommission, setTargetVisitForCommission] = useState(null);
+  const [commissionItemsEdit, setCommissionItemsEdit] = useState([]);
+  const [commissionReasonCategory, setCommissionReasonCategory] = useState('Error al seleccionar colaboradora en caja');
+  const [commissionCustomReason, setCommissionCustomReason] = useState('');
+  const [isSubmittingCommission, setIsSubmittingCommission] = useState(false);
+  const [commissionModalTab, setCommissionModalTab] = useState('edit'); // 'edit' | 'audit'
+  const [invoiceAuditLogs, setInvoiceAuditLogs] = useState([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+
   const handleOpenVoidModal = (visit) => {
     setTargetVisitToVoid(visit);
     setVoidReasonCategory('Error de cobro / método de pago');
     setVoidCustomReason('');
     setVoidUser(getLoggedUserName());
     setShowVoidModal(true);
+  };
+
+  const handleOpenEditCommissionModal = async (visit) => {
+    setTargetVisitForCommission(visit);
+    setCommissionModalTab('edit');
+    setCommissionReasonCategory('Error al seleccionar colaboradora en caja');
+    setCommissionCustomReason('');
+
+    // Parse items_detail
+    let items = [];
+    try {
+      if (visit.items_detail) {
+        items = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+      }
+    } catch (e) {
+      items = [];
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      let servs = [];
+      if (Array.isArray(visit.servicios)) servs = visit.servicios;
+      else if (typeof visit.servicios === 'string' && visit.servicios.startsWith('[')) {
+        try { servs = JSON.parse(visit.servicios); } catch(e) { servs = [visit.servicios]; }
+      } else if (visit.servicios) {
+        servs = [visit.servicios];
+      }
+      items = servs.map((s, idx) => ({
+        index: idx,
+        nombre: typeof s === 'object' ? (s.nombre || s.name || 'Servicio') : String(s),
+        precio: Number(visit.total || 0) / Math.max(1, servs.length),
+        precioAplicado: Number(visit.total || 0) / Math.max(1, servs.length),
+        cantidad: 1,
+        empleado_id: null,
+        empleado_nombre: visit.empleado_peluquera || visit.empleado_manicurista || 'Sin Asignar'
+      }));
+    } else {
+      items = items.map((it, idx) => ({
+        ...it,
+        index: idx,
+        nombre: it.nombre || it.service_name || it.servicio || `Servicio #${idx + 1}`,
+        precio: it.precioAplicado !== undefined ? it.precioAplicado : (it.precio || 0),
+        cantidad: it.cantidad || 1,
+        empleado_id: it.empleado_id || it.employee_id || null,
+        empleado_nombre: it.empleado_nombre || it.employee_name || it.empleado || 'Sin Asignar'
+      }));
+    }
+
+    setCommissionItemsEdit(items);
+    setShowEditCommissionModal(true);
+
+    // Fetch invoice audit logs
+    setLoadingAuditLogs(true);
+    try {
+      const logs = await dataService.getInvoiceAuditLogs(visit.id);
+      setInvoiceAuditLogs(Array.isArray(logs) ? logs : []);
+    } catch (e) {
+      setInvoiceAuditLogs([]);
+    } finally {
+      setLoadingAuditLogs(false);
+    }
+  };
+
+  const handleItemEmployeeChange = (itemIndex, selectedStaffId) => {
+    setCommissionItemsEdit(prev => prev.map((item, idx) => {
+      if (idx !== itemIndex) return item;
+      if (!selectedStaffId || selectedStaffId === 'none' || selectedStaffId === 'Sin Asignar') {
+        return {
+          ...item,
+          empleado_id: null,
+          empleado_nombre: 'Sin Asignar',
+          employee_id: null,
+          employee_name: 'Sin Asignar',
+          empleado: 'Sin Asignar'
+        };
+      }
+      const foundStaff = staffList.find(s => String(s.id) === String(selectedStaffId));
+      return {
+        ...item,
+        empleado_id: foundStaff ? foundStaff.id : selectedStaffId,
+        empleado_nombre: foundStaff ? foundStaff.nombre : 'Colaborador',
+        employee_id: foundStaff ? foundStaff.id : selectedStaffId,
+        employee_name: foundStaff ? foundStaff.nombre : 'Colaborador',
+        empleado: foundStaff ? foundStaff.nombre : 'Colaborador'
+      };
+    }));
+  };
+
+  const handleSaveCommissionRecipient = async () => {
+    if (!targetVisitForCommission) return;
+
+    const finalReason = commissionCustomReason.trim()
+      ? `${commissionReasonCategory}: ${commissionCustomReason.trim()}`
+      : commissionReasonCategory;
+
+    if (!finalReason.trim()) {
+      alert('Debes indicar un motivo para la edición del comisionista.');
+      return;
+    }
+
+    setIsSubmittingCommission(true);
+    try {
+      const res = await dataService.updateInvoiceCommission(targetVisitForCommission.id, {
+        updatedItems: commissionItemsEdit,
+        reason: finalReason,
+        user_name: getLoggedUserName()
+      });
+
+      if (res.success) {
+        if (res.noChanges) {
+          alert('ℹ️ No se detectaron modificaciones en los comisionistas asignados.');
+        } else {
+          alert('✅ Comisionista(s) actualizados y comisiones recalculadas correctamente con trazabilidad de auditoría.');
+        }
+        setShowEditCommissionModal(false);
+        setTargetVisitForCommission(null);
+        await fetchAllData();
+      } else {
+        alert('❌ Error al actualizar: ' + (res.error || 'Desconocido'));
+      }
+    } catch (err) {
+      alert('❌ Error: ' + err.message);
+    } finally {
+      setIsSubmittingCommission(false);
+    }
   };
 
   useEffect(() => {
@@ -103,14 +243,16 @@ export default function InvoiceHistory() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const [vData, sData, pData] = await Promise.all([
+      const [vData, sData, pData, stData] = await Promise.all([
         dataService.getVisits(),
         dataService.getSalons(),
-        dataService.getPayments()
+        dataService.getPayments(),
+        dataService.getStaffRecords(true).catch(() => [])
       ]);
       setVisits(Array.isArray(vData) ? vData : []);
       setSalons(Array.isArray(sData) ? sData : []);
       setPayments(Array.isArray(pData) ? pData : []);
+      setStaffList(Array.isArray(stData) ? stData : []);
     } catch (err) {
       console.error('Error cargando historial general de facturas:', err);
     } finally {
@@ -1255,6 +1397,18 @@ export default function InvoiceHistory() {
                             <span>{emailSendingId === visit.id ? '...' : 'Email'}</span>
                           </button>
 
+                          {!isVoided && canEditCommission && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditCommissionModal(visit)}
+                              style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '3px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                              title="Editar comisionista asignado a esta factura"
+                            >
+                              <Pencil size={10} />
+                              <span>Editar</span>
+                            </button>
+                          )}
+
                           {!isVoided && canVoid && (
                             <button
                               type="button"
@@ -1275,9 +1429,22 @@ export default function InvoiceHistory() {
                       <tr className="no-print" style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                         <td colSpan={13} style={{ padding: '0.75rem 1.5rem 1rem' }}>
                           <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.9rem', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
-                            <h5 style={{ margin: '0 0 0.5rem', fontSize: '0.775rem', fontWeight: 800, color: '#334155' }}>
-                              Desglose de Servicios & Colaboradores Asignados
-                            </h5>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                              <h5 style={{ margin: 0, fontSize: '0.775rem', fontWeight: 800, color: '#334155' }}>
+                                Desglose de Servicios & Colaboradores Asignados
+                              </h5>
+                              {!isVoided && canEditCommission && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditCommissionModal(visit)}
+                                  style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '3px 8px', borderRadius: '5px', fontSize: '0.675rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                  title="Modificar comisionistas asignados a los servicios"
+                                >
+                                  <Pencil size={11} />
+                                  <span>Editar Comisionistas</span>
+                                </button>
+                              )}
+                            </div>
                             {itemsList.length > 0 ? (
                               <table style={{ width: '100%', fontSize: '0.725rem', borderCollapse: 'collapse', textAlign: 'left' }}>
                                 <thead>
@@ -1749,6 +1916,334 @@ export default function InvoiceHistory() {
         </div>
       )}
 
+      {/* MODAL: EDICIÓN EXCLUSIVA DE COMISIONISTA DE FACTURA */}
+      {showEditCommissionModal && targetVisitForCommission && (
+        <div className="no-print" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '1rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '640px', maxHeight: '92vh', borderRadius: '20px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            
+            {/* MODAL HEADER */}
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ background: '#dcfce7', border: '1px solid #bbf7d0', padding: '0.5rem', borderRadius: '12px', color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <UserCheck size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a' }}>
+                    Editar Comisionista - Factura #{targetVisitForCommission.ticket_number || targetVisitForCommission.id}
+                  </h3>
+                  <span style={{ fontSize: '0.725rem', color: '#64748b', fontWeight: 600 }}>
+                    Reasignación exclusiva del empleado para comisiones • Trazabilidad con Auditoría
+                  </span>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowEditCommissionModal(false)}
+                style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '50%', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', fontSize: '0.85rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* TAB SELECTOR */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '0 1.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setCommissionModalTab('edit')}
+                style={{
+                  padding: '0.7rem 1rem',
+                  border: 'none',
+                  borderBottom: commissionModalTab === 'edit' ? '2px solid #16a34a' : '2px solid transparent',
+                  background: 'none',
+                  fontWeight: commissionModalTab === 'edit' ? 800 : 600,
+                  color: commissionModalTab === 'edit' ? '#166534' : '#64748b',
+                  fontSize: '0.775rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem'
+                }}
+              >
+                <UserCheck size={14} />
+                <span>Asignación de Comisionista</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCommissionModalTab('audit')}
+                style={{
+                  padding: '0.7rem 1rem',
+                  border: 'none',
+                  borderBottom: commissionModalTab === 'audit' ? '2px solid #16a34a' : '2px solid transparent',
+                  background: 'none',
+                  fontWeight: commissionModalTab === 'audit' ? 800 : 600,
+                  color: commissionModalTab === 'audit' ? '#166534' : '#64748b',
+                  fontSize: '0.775rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem'
+                }}
+              >
+                <History size={14} />
+                <span>Historial de Auditoría ({invoiceAuditLogs.length})</span>
+              </button>
+            </div>
+
+            {/* MODAL BODY (SCROLLABLE) */}
+            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1 }}>
+              
+              {/* LOCKED FINANCIAL OVERVIEW BANNER */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.85rem', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Ticket / Factura</span>
+                    <strong style={{ fontSize: '0.825rem', color: '#0f172a' }}>{targetVisitForCommission.ticket_number || targetVisitForCommission.id}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Cliente</span>
+                    <strong style={{ fontSize: '0.825rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+                      {targetVisitForCommission.client_name || 'Cliente General'}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Método de Pago</span>
+                    <strong style={{ fontSize: '0.825rem', color: '#0f172a' }}>{targetVisitForCommission.metodo_pago || 'Efectivo'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Total Facturado</span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', background: '#ecfdf5', border: '1px solid #a7f3d0', padding: '2px 6px', borderRadius: '6px' }}>
+                      <Lock size={10} color="#059669" />
+                      <strong style={{ fontSize: '0.85rem', fontWeight: 900, color: '#065f46' }}>
+                        RD$ {Number(targetVisitForCommission.total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.7rem', color: '#1e40af' }}>
+                  <ShieldCheck size={14} color="#2563eb" style={{ flexShrink: 0 }} />
+                  <span>
+                    <strong>Protección Contable Estricta:</strong> Los montos, totales, métodos de cobro y registros fiscales se conservan 100% intactos e inalterables.
+                  </span>
+                </div>
+              </div>
+
+              {commissionModalTab === 'edit' ? (
+                <div>
+                  <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.8rem', fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <span>💇‍♀️ Servicios & Comisionistas Asignados:</span>
+                  </h4>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.25rem' }}>
+                    {commissionItemsEdit.map((item, idx) => (
+                      <div 
+                        key={idx} 
+                        style={{ 
+                          border: '1px solid #e2e8f0', 
+                          borderRadius: '12px', 
+                          padding: '0.75rem 0.85rem', 
+                          background: '#ffffff',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.8rem', color: '#0f172a' }}>
+                            {item.nombre} {item.cantidad > 1 ? `(x${item.cantidad})` : ''}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', background: '#f8fafc', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                            <Lock size={9} color="#94a3b8" />
+                            RD$ {Number(item.precio || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                          <div style={{ flex: '1 1 180px' }}>
+                            <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 700, marginBottom: '2px' }}>
+                              Colaborador Actual:
+                            </span>
+                            <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#475569', padding: '3px 7px', borderRadius: '6px', fontSize: '0.725rem', fontWeight: 700 }}>
+                              {item.empleado_nombre || 'Sin Asignar'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                            <ArrowRight size={14} />
+                          </div>
+
+                          <div style={{ flex: '2 1 240px' }}>
+                            <span style={{ display: 'block', fontSize: '0.65rem', color: '#166534', fontWeight: 800, marginBottom: '2px' }}>
+                              Nuevo Comisionista Reasignado:
+                            </span>
+                            <select
+                              value={item.empleado_id || (item.empleado_nombre === 'Sin Asignar' ? 'none' : '')}
+                              onChange={(e) => handleItemEmployeeChange(idx, e.target.value)}
+                              style={{
+                                width: '100%',
+                                padding: '0.5rem 0.65rem',
+                                borderRadius: '8px',
+                                border: '1px solid #86efac',
+                                background: '#f0fdf4',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                color: '#14532d',
+                                outline: 'none'
+                              }}
+                            >
+                              <option value="none">— Sin Asignar (No genera comisión) —</option>
+                              {staffList.map((st) => (
+                                <option key={st.id} value={st.id}>
+                                  {st.nombre} {st.rol ? `(${st.rol})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* REASON & AUDIT SECTION */}
+                  <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
+                    <div style={{ marginBottom: '0.75rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#334155', marginBottom: '0.3rem' }}>
+                        Motivo del cambio de comisionista (Requerido para auditoría)*
+                      </label>
+                      <select
+                        value={commissionReasonCategory}
+                        onChange={(e) => setCommissionReasonCategory(e.target.value)}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.775rem', background: '#ffffff', marginBottom: '0.5rem', fontWeight: 600 }}
+                      >
+                        <option value="Error al seleccionar colaboradora en caja">Error al seleccionar colaboradora en caja</option>
+                        <option value="Servicio realizado en conjunto / reasignación">Servicio realizado en conjunto / reasignación</option>
+                        <option value="Ajuste solicitado por gerencia">Ajuste solicitado por gerencia</option>
+                        <option value="Corrección de turno o suplencia">Corrección de turno o suplencia</option>
+                        <option value="Otro motivo justificado">Otro motivo justificado</option>
+                      </select>
+
+                      <input
+                        type="text"
+                        placeholder="Detalles adicionales (opcional, ej: Ashly realizó el secado en lugar de Maria)..."
+                        value={commissionCustomReason}
+                        onChange={(e) => setCommissionCustomReason(e.target.value)}
+                        style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.775rem', boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: '#64748b', background: '#f8fafc', padding: '0.45rem 0.75rem', borderRadius: '6px' }}>
+                      <span>👤 Usuario que autoriza: <strong style={{ color: '#0f172a' }}>{getLoggedUserName()}</strong></span>
+                      <span>Fecha: <strong style={{ color: '#0f172a' }}>{new Date().toLocaleDateString('es-DO')}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* AUDIT LOG TAB */
+                <div>
+                  <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.8rem', fontWeight: 800, color: '#334155', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <History size={15} color="#2563eb" />
+                    <span>Registro Inmutable de Modificaciones de esta Factura</span>
+                  </h4>
+
+                  {loadingAuditLogs ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.8rem' }}>
+                      Cargando historial de auditoría...
+                    </div>
+                  ) : invoiceAuditLogs.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.8rem', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                      No se han registrado modificaciones de comisionistas para esta factura.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {invoiceAuditLogs.map((log, lIdx) => {
+                        let meta = {};
+                        try {
+                          meta = typeof log.metadata === 'string' ? JSON.parse(log.metadata) : (log.metadata || {});
+                        } catch (e) {}
+
+                        return (
+                          <div key={lIdx} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '2px 6px', borderRadius: '4px' }}>
+                                {log.action}
+                              </span>
+                              <span style={{ fontSize: '0.675rem', color: '#64748b' }}>
+                                {new Date(log.created_at).toLocaleString('es-DO')}
+                              </span>
+                            </div>
+
+                            <div style={{ fontSize: '0.75rem', color: '#334155', marginBottom: '0.35rem' }}>
+                              <strong>Motivo:</strong> {log.reason || 'Sin motivo especificado'}
+                            </div>
+
+                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.35rem' }}>
+                              <strong>Modificado por:</strong> {log.user_name || 'Administrador'}
+                            </div>
+
+                            {Array.isArray(meta.changes) && meta.changes.length > 0 && (
+                              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.5rem', marginTop: '0.35rem' }}>
+                                <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '0.2rem' }}>
+                                  Detalle de cambios:
+                                </span>
+                                {meta.changes.map((ch, cIdx) => (
+                                  <div key={cIdx} style={{ fontSize: '0.7rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap', padding: '2px 0' }}>
+                                    <span style={{ fontWeight: 700 }}>{ch.service_name}:</span>
+                                    <span style={{ color: '#dc2626', textDecoration: 'line-through' }}>{ch.previous_employee?.name || 'Sin Asignar'}</span>
+                                    <span>➔</span>
+                                    <span style={{ color: '#16a34a', fontWeight: 800 }}>{ch.new_employee?.name || 'Sin Asignar'}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div style={{ padding: '0.85rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setShowEditCommissionModal(false)}
+                style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', padding: '0.6rem 1.15rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}
+              >
+                Cerrar
+              </button>
+
+              {commissionModalTab === 'edit' && (
+                <button
+                  type="button"
+                  onClick={handleSaveCommissionRecipient}
+                  disabled={isSubmittingCommission}
+                  style={{
+                    background: '#166534',
+                    border: 'none',
+                    color: '#ffffff',
+                    padding: '0.6rem 1.35rem',
+                    borderRadius: '10px',
+                    fontWeight: 800,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    opacity: isSubmittingCommission ? 0.7 : 1,
+                    boxShadow: '0 2px 6px rgba(22, 101, 52, 0.25)'
+                  }}
+                >
+                  <UserCheck size={14} />
+                  <span>{isSubmittingCommission ? 'Guardando...' : 'Guardar Comisionista'}</span>
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {/* MODAL: FACTURA ELECTRÓNICA OFICIAL (REPRESENTACIÓN IMPRESA DGII) */}
       <ElectronicInvoicePrintModal
         invoice={selectedInvoiceForPrint}
@@ -1759,3 +2254,4 @@ export default function InvoiceHistory() {
     </div>
   );
 }
+

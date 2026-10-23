@@ -111,10 +111,84 @@ router.get('/schedule-overrides', async (req, res) => {
 });
 
 // POST /api/attendance/schedule-swap - Swap shifts/schedules between two employees
+// POST /api/attendance/schedule-swap - Swap shifts between employees OR self-swap dates for same employee (Cambio de Día Libre)
 router.post('/schedule-swap', async (req, res) => {
   const connection = await pool.getConnection();
   try {
-    const { employeeId1, employeeId2, date, reason, createdBy } = req.body;
+    const { 
+      employeeId1, employeeId2, 
+      date, date1, date2, 
+      dateFree, dateWork, 
+      newHoraEntrada, newHoraSalida, 
+      mode, reason, createdBy 
+    } = req.body;
+
+    const isSelfSwap = mode === 'self' || (employeeId1 && employeeId1 === employeeId2) || (dateFree && dateWork) || (date1 && date2 && employeeId1);
+
+    if (isSelfSwap) {
+      const empId = employeeId1 || req.body.employeeId;
+      const dFree = dateFree || date1;
+      const dWork = dateWork || date2;
+
+      if (!empId || !dFree || !dWork || !createdBy) {
+        return res.status(400).json({ error: 'Faltan parámetros obligatorios para el cambio de día libre (empleado, fecha libre y fecha laborable).' });
+      }
+
+      await connection.beginTransaction();
+
+      // 1. Obtener horario y nombre del empleado
+      let [empData] = await connection.query('SELECT nombre, hora_entrada, hora_salida, dias_laborables FROM staff_records WHERE id = ?', [empId]);
+      if (empData.length === 0) {
+        const [usrData] = await connection.query('SELECT nombre, hora_entrada, hora_salida FROM users WHERE id = ?', [empId]);
+        empData = usrData;
+      }
+      const empName = empData.length > 0 ? empData[0].nombre : `Empleado #${empId}`;
+      const defaultEntrada = newHoraEntrada || (empData.length > 0 && empData[0].hora_entrada ? empData[0].hora_entrada : '08:00:00');
+      const defaultSalida = newHoraSalida || (empData.length > 0 && empData[0].hora_salida ? empData[0].hora_salida : '17:00:00');
+
+      // 2. Registrar el día que pasa a ser LIBRE (dFree)
+      const reasonFree = `Día libre intercambiado por laborar el ${dWork} - ${reason || 'Acuerdo de horario'}`;
+      await connection.query(
+        `INSERT INTO schedule_overrides 
+         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
+         VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 'Activo')
+         ON DUPLICATE KEY UPDATE 
+         new_hora_entrada = NULL,
+         new_hora_salida = NULL,
+         reason = VALUES(reason),
+         created_by = VALUES(created_by),
+         status = 'Activo'`,
+        [empId, dFree, defaultEntrada, defaultSalida, reasonFree, createdBy]
+      );
+
+      // Purgar inmediatamente cualquier Ausencia autogenerada en esa fecha libre
+      await connection.query(
+        "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
+        [empId, String(empId), dFree, dFree]
+      );
+
+      // 3. Registrar el día que pasa a ser LABORABLE (dWork)
+      const reasonWork = `Día laborable por cambio de día libre del ${dFree} - ${reason || 'Acuerdo de horario'}`;
+      await connection.query(
+        `INSERT INTO schedule_overrides 
+         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
+         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, 'Activo')
+         ON DUPLICATE KEY UPDATE 
+         new_hora_entrada = VALUES(new_hora_entrada),
+         new_hora_salida = VALUES(new_hora_salida),
+         reason = VALUES(reason),
+         created_by = VALUES(created_by),
+         status = 'Activo'`,
+        [empId, dWork, defaultEntrada, defaultSalida, reasonWork, createdBy]
+      );
+
+      await connection.commit();
+      return res.json({ 
+        success: true, 
+        message: `Cambio de día libre registrado para ${empName}: ${dFree} pasa a ser Libre y ${dWork} pasa a ser Laborable (${defaultEntrada.slice(0,5)} - ${defaultSalida.slice(0,5)}).` 
+      });
+    }
+
     if (!employeeId1 || !employeeId2 || !date || !createdBy) {
       return res.status(400).json({ error: 'Faltan parámetros obligatorios para el intercambio.' });
     }
@@ -204,9 +278,9 @@ router.post('/schedule-swap', async (req, res) => {
 // POST /api/attendance/schedule-override - Create or update a schedule override
 router.post('/schedule-override', async (req, res) => {
   try {
-    const { employeeId, date, newHoraEntrada, newHoraSalida, reason, createdBy } = req.body;
+    const { employeeId, date, newHoraEntrada, newHoraSalida, isDescanso, reason, createdBy } = req.body;
     
-    if (!employeeId || !date || !newHoraEntrada || !newHoraSalida || !reason || !createdBy) {
+    if (!employeeId || !date || (!isDescanso && (!newHoraEntrada || !newHoraSalida)) || !reason || !createdBy) {
       return res.status(400).json({ error: 'Faltan parámetros obligatorios.' });
     }
 
@@ -227,12 +301,14 @@ router.post('/schedule-override', async (req, res) => {
     
     const origEntrada = employees.length > 0 ? employees[0].hora_entrada : null;
     const origSalida = employees.length > 0 ? employees[0].hora_salida : null;
+    const entradaVal = isDescanso ? null : newHoraEntrada;
+    const salidaVal = isDescanso ? null : newHoraSalida;
 
     // 2. Insert or replace schedule override
     await pool.query(
       `INSERT INTO schedule_overrides 
-       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Activo')
        ON DUPLICATE KEY UPDATE 
        original_hora_entrada = VALUES(original_hora_entrada),
        original_hora_salida = VALUES(original_hora_salida),
@@ -241,10 +317,17 @@ router.post('/schedule-override', async (req, res) => {
        reason = VALUES(reason),
        created_by = VALUES(created_by),
        status = 'Activo'`,
-      [employeeId, date, origEntrada, origSalida, newHoraEntrada, newHoraSalida, reason, createdBy]
+      [employeeId, date, origEntrada, origSalida, entradaVal, salidaVal, reason, createdBy]
     );
 
-    res.json({ success: true, message: 'Cambio de horario temporal registrado con éxito.' });
+    if (isDescanso) {
+      await pool.query(
+        "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
+        [employeeId, String(employeeId), date, date]
+      );
+    }
+
+    res.json({ success: true, message: isDescanso ? 'Día marcado como descanso/libre autorizado exitosamente.' : 'Cambio de horario temporal registrado con éxito.' });
   } catch (err) {
     console.error('[ATTENDANCE ERROR]:', err.message);
     res.status(500).json({ error: err.message });
@@ -672,7 +755,7 @@ router.get('/history', async (req, res) => {
 
     // 2. Fetch all schedule overrides within this date range
     const [rangeOverrides] = await pool.query(
-      "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE date >= ? AND date <= ? AND status = 'Activo'",
+      "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida, reason FROM schedule_overrides WHERE date >= ? AND date <= ? AND status = 'Activo'",
       [start, end]
     );
     const overrideMap = new Map();
@@ -682,6 +765,7 @@ router.get('/history', async (req, res) => {
 
     // 3. Purge any orphan/phantom absences and repair historical false early exits
     try {
+      // Purgar ausencias en días con ponches reales
       await pool.query(`
         DELETE a1 FROM attendance a1
         JOIN attendance a2 ON a1.employee_id = a2.employee_id 
@@ -692,6 +776,17 @@ router.get('/history', async (req, res) => {
           AND a1.type = 'Ausencia'
           AND a2.type IN ('Check-In', 'Check-Out')
       `);
+
+      // Purgar ausencias en días donde existe un override activo de día libre/descanso
+      await pool.query(`
+        DELETE a FROM attendance a
+        JOIN schedule_overrides o ON a.employee_id = o.employee_id 
+          AND (DATE(a.timestamp) = o.date OR DATE(CONVERT_TZ(a.timestamp, '+00:00', '-04:00')) = o.date)
+        WHERE a.type = 'Ausencia' 
+          AND o.status = 'Activo'
+          AND (o.new_hora_entrada IS NULL OR o.new_hora_entrada = '00:00:00' OR o.reason LIKE '%libre%' OR o.reason LIKE '%descanso%')
+      `);
+
       await pool.query(`
         UPDATE attendance a_out
         JOIN attendance a_in ON a_out.employee_id = a_in.employee_id 
@@ -781,6 +876,19 @@ router.get('/history', async (req, res) => {
           isWorkingDay = emp.dias_laborables && workingDays.some(d => normalizeDayName(d) === normalizedDay);
         }
 
+        const lookupKey = `${emp.id}:${dateStr}`;
+        const override = overrideMap.get(lookupKey);
+
+        if (override) {
+          if (!override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')))) {
+            isWorkingDay = false; // Marcado explícitamente como día libre / descanso autorizado
+          } else {
+            isWorkingDay = true; // Turno activo programado por override
+            empDailyHoraEntrada = override.new_hora_entrada;
+            empDailyHoraSalida = override.new_hora_salida;
+          }
+        }
+
         if (isWorkingDay) {
           // No generar ausencias para fechas anteriores a la contratación del empleado
           if (emp.fecha_entrada) {
@@ -794,12 +902,9 @@ router.get('/history', async (req, res) => {
               }
             } catch (e) {}
           }
-
-          const lookupKey = `${emp.id}:${dateStr}`;
           
           if (!punchSet.has(lookupKey) && !realPunchSet.has(lookupKey) && !checkinSet.has(lookupKey)) {
             let shouldMarkAbsent = true;
-            const override = overrideMap.get(lookupKey);
             const effectiveHoraEntrada = override ? override.new_hora_entrada : empDailyHoraEntrada;
 
             if (dateStr > todayStr) {
@@ -980,7 +1085,7 @@ router.get('/pending', async (req, res) => {
 
     // 2. Fetch all schedule overrides in the range
     const [rangeOverrides] = await pool.query(
-      "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE date >= ? AND date <= ? AND status = 'Activo'",
+      "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida, reason FROM schedule_overrides WHERE date >= ? AND date <= ? AND status = 'Activo'",
       [start, end]
     );
     const overrideMap = new Map();
@@ -1044,9 +1149,13 @@ router.get('/pending', async (req, res) => {
         const lookupKey = `${emp.id}:${dateStr}`;
         const override = overrideMap.get(lookupKey);
         if (override) {
-          isWorkingDay = true;
-          empDailyHoraEntrada = override.new_hora_entrada;
-          empDailyHoraSalida = override.new_hora_salida;
+          if (!override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')))) {
+            isWorkingDay = false; // Descanso / día libre autorizado
+          } else {
+            isWorkingDay = true;
+            empDailyHoraEntrada = override.new_hora_entrada;
+            empDailyHoraSalida = override.new_hora_salida;
+          }
         }
 
         if (isWorkingDay) {

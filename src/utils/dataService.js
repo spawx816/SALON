@@ -242,6 +242,33 @@ export const dataService = {
     }
   },
 
+  updateInvoiceCommission: async (visitId, data) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/${visitId}/commission-recipient`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      const resData = await res.json();
+      if (!res.ok) throw new Error(resData.error || 'Error al actualizar comisionista de la factura.');
+      return resData;
+    } catch (e) {
+      console.error("Error en updateInvoiceCommission:", e);
+      throw e;
+    }
+  },
+
+  getInvoiceAuditLogs: async (visitId) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/${visitId}/audit`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error("Error en getInvoiceAuditLogs:", e);
+      return [];
+    }
+  },
+
   deletePendingTicket: async (ticketId) => {
     try {
       let res = await fetch(`${API_URL}/visits/${ticketId}`, {

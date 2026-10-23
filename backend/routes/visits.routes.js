@@ -1069,6 +1069,195 @@ function createVisitsRouter(pool, deps = {}) {
     }
   });
 
+  // Reasignar comisionista / colaborador asociado a una factura existente
+  router.put('/:id/commission-recipient', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { updatedItems, reason, user_name } = req.body;
+
+      if (!reason || !reason.trim()) {
+        return res.status(400).json({ error: 'Debes proporcionar un motivo para la edición del comisionista.' });
+      }
+
+      if (!Array.isArray(updatedItems) || updatedItems.length === 0) {
+        return res.status(400).json({ error: 'Debes proporcionar el desglose de servicios y comisionistas actualizados.' });
+      }
+
+      const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+      if (visits.length === 0) {
+        return res.status(404).json({ error: 'Factura/Ticket no encontrado.' });
+      }
+
+      const visit = visits[0];
+
+      if (visit.status === 'Anulado') {
+        return res.status(400).json({ error: 'No se puede modificar una factura que se encuentra anulada.' });
+      }
+
+      // Parse existing items_detail
+      let currentItems = [];
+      try {
+        if (visit.items_detail) {
+          currentItems = typeof visit.items_detail === 'string' ? JSON.parse(visit.items_detail) : visit.items_detail;
+        }
+      } catch (e) {
+        currentItems = [];
+      }
+
+      // Check if any existing commission for this visit has already been paid
+      const [paidComms] = await pool.query(
+        "SELECT * FROM employee_commissions_log WHERE (visit_id = ? OR ticket_number = ?) AND status = 'Pagado'",
+        [id, visit.ticket_number || id]
+      );
+
+      // Verify that no modified service item belongs to an already paid commission
+      if (paidComms.length > 0) {
+        for (const item of updatedItems) {
+          const serviceName = (item.nombre || item.service_name || item.servicio || '').toLowerCase().trim();
+          const isPaid = paidComms.some(pc => (pc.service_name || '').toLowerCase().trim() === serviceName);
+          if (isPaid) {
+            return res.status(400).json({
+              error: `La comisión para el servicio "${item.nombre || item.service_name || item.servicio}" ya fue pagada en nómina y no puede ser reasignada.`
+            });
+          }
+        }
+      }
+
+      // Fetch all active staff to validate names and IDs
+      const [staffList] = await pool.query(
+        'SELECT id, nombre, localidad, commission_scheme_id FROM staff_records WHERE status = "Activo" OR status = "Active"'
+      );
+
+      // Build new items_detail array with updated employees
+      // We strictly preserve prices, quantities, discounts, totals, and ONLY modify the employee assignment!
+      const changes = [];
+      const newItemsDetail = currentItems.map((origItem, idx) => {
+        const update = updatedItems[idx] || updatedItems.find(u => u.index === idx) || {};
+        
+        let newEmpId = update.empleado_id !== undefined ? update.empleado_id : (origItem.empleado_id || origItem.employee_id);
+        let newEmpName = update.empleado_nombre !== undefined ? update.empleado_nombre : (origItem.empleado_nombre || origItem.employee_name || origItem.empleado);
+
+        // Normalize employee name from staff records if ID was provided
+        if (newEmpId && newEmpId !== 'N/A' && newEmpId !== 'Sin Asignar') {
+          const cleanId = parseInt(String(newEmpId).replace(/\D/g, ''), 10);
+          const foundStaff = staffList.find(s => s.id === cleanId || s.nombre.toLowerCase().trim() === String(newEmpName || '').toLowerCase().trim());
+          if (foundStaff) {
+            newEmpId = foundStaff.id;
+            newEmpName = foundStaff.nombre;
+          }
+        } else if (newEmpName && newEmpName !== 'N/A' && newEmpName !== 'Sin Asignar') {
+          const foundStaff = staffList.find(s => s.nombre.toLowerCase().trim() === String(newEmpName).toLowerCase().trim());
+          if (foundStaff) {
+            newEmpId = foundStaff.id;
+            newEmpName = foundStaff.nombre;
+          }
+        }
+
+        const prevEmpName = origItem.empleado_nombre || origItem.employee_name || origItem.empleado || 'Sin Asignar';
+        const prevEmpId = origItem.empleado_id || origItem.employee_id || null;
+
+        const isNameChanged = String(prevEmpName).trim().toLowerCase() !== String(newEmpName || 'Sin Asignar').trim().toLowerCase();
+        const isIdChanged = String(prevEmpId || '') !== String(newEmpId || '');
+
+        if (isNameChanged || isIdChanged) {
+          changes.push({
+            item_index: idx,
+            service_name: origItem.nombre || origItem.service_name || origItem.servicio || `Servicio #${idx + 1}`,
+            previous_employee: { id: prevEmpId, name: prevEmpName },
+            new_employee: { id: newEmpId || null, name: newEmpName || 'Sin Asignar' }
+          });
+        }
+
+        return {
+          ...origItem,
+          empleado_id: newEmpId || null,
+          empleado_nombre: newEmpName || 'Sin Asignar',
+          employee_id: newEmpId || null,
+          employee_name: newEmpName || 'Sin Asignar',
+          empleado: newEmpName || 'Sin Asignar'
+        };
+      });
+
+      if (changes.length === 0) {
+        return res.json({ success: true, message: 'No se detectaron cambios en los comisionistas asignados.', noChanges: true });
+      }
+
+      // 1. UPDATE items_detail in visits table (KEEP ALL FINANCIAL AMOUNTS, TOTALS, CLIENT AND PAYMENT DATA STRICTLY INTACT)
+      await pool.query(
+        'UPDATE visits SET items_detail = ? WHERE id = ?',
+        [JSON.stringify(newItemsDetail), id]
+      );
+
+      // 2. DELETE only 'Pendiente' commissions in employee_commissions_log for this visit
+      await pool.query(
+        "DELETE FROM employee_commissions_log WHERE (visit_id = ? OR ticket_number = ?) AND status = 'Pendiente'",
+        [id, visit.ticket_number || id]
+      );
+
+      // 3. RE-PROCESS commissions with the new employees and their commission schemes
+      await processVisitCommissions(id, newItemsDetail, visit.ticket_number, visit.visited_at);
+
+      // 4. INSERT record into audit_logs for traceability
+      const actorName = user_name || 'Administrador';
+      const reasonText = reason.trim();
+
+      await pool.query(
+        `INSERT INTO audit_logs (entity_type, entity_id, action, user_name, reason, metadata, created_at)
+         VALUES ('invoice', ?, 'REASIGNAR_COMISIONISTA', ?, ?, ?, NOW())`,
+        [
+          id,
+          actorName,
+          reasonText,
+          JSON.stringify({
+            ticket_number: visit.ticket_number || id,
+            client_name: visit.client_name,
+            total: visit.total,
+            changes
+          })
+        ]
+      );
+
+      // 5. Also log into security_audit_logs
+      try {
+        await pool.query(
+          `INSERT INTO security_audit_logs (user_name, action, details, ip_address, user_agent, created_at)
+           VALUES (?, 'REASIGNAR_COMISIONISTA', ?, ?, ?, NOW())`,
+          [
+            actorName,
+            `Reasignación de comisionista en factura #${visit.ticket_number || id}: ${reasonText} (${changes.length} cambio(s))`,
+            req.ip || '127.0.0.1',
+            req.headers['user-agent'] || 'Salon Pro Web'
+          ]
+        );
+      } catch (secErr) {}
+
+      res.json({
+        success: true,
+        message: 'Comisionista actualizado y comisiones recalculadas exitosamente.',
+        changes,
+        updatedItems: newItemsDetail
+      });
+    } catch (err) {
+      console.error('[API REASSIGN COMMISSION ERROR]:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Consultar auditoría de una factura específica
+  router.get('/:id/audit', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const [rows] = await pool.query(
+        "SELECT * FROM audit_logs WHERE entity_type = 'invoice' AND entity_id = ? ORDER BY created_at DESC",
+        [id]
+      );
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
   router.delete('/pending/all', handleClearAllPendingVisits);
   router.post('/pending/clear-all', handleClearAllPendingVisits);
   router.delete('/:id', handleDeleteVisit);

@@ -453,16 +453,17 @@ function createPayrollRouter(pool) {
           AND (status != 'Anulado' OR status IS NULL)
       `, [startDate, endDate]),
       conn.query(`
-        SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida 
+        SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida, reason 
         FROM schedule_overrides 
         WHERE date BETWEEN ? AND ? AND status = 'Activo'
       `, [startDate, endDate]),
       conn.query(`
-        SELECT id, employee_id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
+        SELECT id, employee_id, type, status, lateness_minutes, extra_minutes, timestamp, 
+               DATE_FORMAT(CONVERT_TZ(timestamp, '+00:00', '-04:00'), '%Y-%m-%d') as p_date
         FROM attendance
-        WHERE DATE(timestamp) BETWEEN ? AND ?
+        WHERE (DATE(timestamp) BETWEEN ? AND ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) BETWEEN ? AND ?)
         ORDER BY timestamp ASC
-      `, [startDate, endDate]),
+      `, [startDate, endDate, startDate, endDate]),
       conn.query(`
         SELECT employee_id, employee_name, service_name
         FROM employee_commissions_log
@@ -695,7 +696,7 @@ function createPayrollRouter(pool) {
         oList.forEach(o => overrideMap.set(o.dateStr, o));
       } else {
         const [overrides] = await pool.query(
-          "SELECT DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE (employee_id = ? OR employee_id = ?) AND date BETWEEN ? AND ? AND status = 'Activo'",
+          "SELECT DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida, reason FROM schedule_overrides WHERE (employee_id = ? OR employee_id = ?) AND date BETWEEN ? AND ? AND status = 'Activo'",
           [empId, empName, start_date, end_date]
         );
         overrides.forEach(o => overrideMap.set(o.dateStr, o));
@@ -704,12 +705,17 @@ function createPayrollRouter(pool) {
       // Helper para determinar la duración y jornada programada de un día específico
       const getScheduledDurationSecs = (dateStr) => {
         const override = overrideMap.get(dateStr);
-        if (override && override.new_hora_entrada && override.new_hora_salida) {
-          const [h1, m1] = override.new_hora_entrada.split(':').map(Number);
-          const [h2, m2] = override.new_hora_salida.split(':').map(Number);
-          let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
-          if (secs <= 0) secs += 86400;
-          return { secs, hrs: secs / 3600, isWorking: true };
+        if (override) {
+          if (!override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')))) {
+            return { secs: 0, hrs: 0, isWorking: false, entrada: null, salida: null };
+          }
+          if (override.new_hora_entrada && override.new_hora_salida) {
+            const [h1, m1] = override.new_hora_entrada.split(':').map(Number);
+            const [h2, m2] = override.new_hora_salida.split(':').map(Number);
+            let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
+            if (secs <= 0) secs += 86400;
+            return { secs, hrs: secs / 3600, isWorking: true, entrada: override.new_hora_entrada, salida: override.new_hora_salida };
+          }
         }
 
         const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -726,9 +732,9 @@ function createPayrollRouter(pool) {
               const [h2, m2] = dayInfo.salida.split(':').map(Number);
               let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
               if (secs <= 0) secs += 86400;
-              return { secs, hrs: secs / 3600, isWorking: true };
+              return { secs, hrs: secs / 3600, isWorking: true, entrada: dayInfo.entrada, salida: dayInfo.salida };
             } else {
-              return { secs: 0, hrs: 0, isWorking: false };
+              return { secs: 0, hrs: 0, isWorking: false, entrada: null, salida: null };
             }
           } catch(e) {}
         } else if (emp.hora_entrada && emp.hora_salida) {
@@ -739,13 +745,13 @@ function createPayrollRouter(pool) {
             const [h2, m2] = emp.hora_salida.split(':').map(Number);
             let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
             if (secs <= 0) secs += 86400;
-            return { secs, hrs: secs / 3600, isWorking: true };
+            return { secs, hrs: secs / 3600, isWorking: true, entrada: emp.hora_entrada, salida: emp.hora_salida };
           } else {
-            return { secs: 0, hrs: 0, isWorking: false };
+            return { secs: 0, hrs: 0, isWorking: false, entrada: null, salida: null };
           }
         }
 
-        return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: dName !== 'Domingo' };
+        return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: dName !== 'Domingo', entrada: '08:00', salida: '17:00' };
       };
 
       let attPunches = [];
@@ -753,19 +759,35 @@ function createPayrollRouter(pool) {
         attPunches = batchContext.punchesMap.get(String(empId)) || batchContext.punchesMap.get(empName) || [];
       } else {
         const [rows] = await pool.query(`
-          SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
+          SELECT id, type, status, lateness_minutes, extra_minutes, timestamp,
+                 DATE_FORMAT(CONVERT_TZ(timestamp, '+00:00', '-04:00'), '%Y-%m-%d') as p_date
           FROM attendance
           WHERE (employee_id = ? OR employee_id = ?) 
-            AND DATE(timestamp) BETWEEN ? AND ?
+            AND (DATE(timestamp) BETWEEN ? AND ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) BETWEEN ? AND ?)
           ORDER BY timestamp ASC
-        `, [empId, empName, start_date, end_date]);
+        `, [empId, empName, start_date, end_date, start_date, end_date]);
         attPunches = rows;
       }
 
+      const getDRDateStr = (timestamp) => {
+        if (!timestamp) return '';
+        if (typeof timestamp === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(timestamp.trim())) {
+          return timestamp.trim();
+        }
+        try {
+          const d = new Date(timestamp);
+          if (isNaN(d.getTime())) return String(timestamp).slice(0, 10);
+          return d.toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+        } catch (e) {
+          return String(timestamp).slice(0, 10);
+        }
+      };
+
       const punchesByDay = {};
       attPunches.forEach(p => {
-        if (!punchesByDay[p.p_date]) punchesByDay[p.p_date] = [];
-        punchesByDay[p.p_date].push(p);
+        const dKey = getDRDateStr(p.timestamp) || p.p_date;
+        if (!punchesByDay[dKey]) punchesByDay[dKey] = [];
+        punchesByDay[dKey].push(p);
       });
 
       let totalCalculatedAusencias = 0;
@@ -779,64 +801,100 @@ function createPayrollRouter(pool) {
         if (ins.length > 0) {
           const checkIn = ins[0];
           const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
-          const morningLate = Number(checkIn.lateness_minutes) || 0;
           const daySched = getScheduledDurationSecs(dateStr);
+
+          // Si trabajó en día de descanso semanal: Pago doble (factor 2.0x / 100% recargo)
+          if (!daySched.isWorking) {
+            if (checkOut) {
+              const inDate = new Date(checkIn.timestamp);
+              const outDate = new Date(checkOut.timestamp);
+              const inH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(inDate), 10);
+              const inM = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(inDate), 10);
+              const outH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(outDate), 10);
+              const outM = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(outDate), 10);
+              const workedMins = Math.max(0, (outH * 60 + outM) - (inH * 60 + inM));
+              // Tiempo doble al realizado para fines de pago
+              totalOvertimeMins += (workedMins * 2);
+            }
+            return;
+          }
+
           const scheduledSecs = daySched.secs > 0 ? daySched.secs : (horasDiaCompleto * 3600);
+          const scheduledMins = Math.round(scheduledSecs / 60);
+
+          let scheduledEntMins = 8 * 60;
+          let scheduledSalMins = 17 * 60;
+          if (daySched.entrada) {
+            const [eh, em] = daySched.entrada.split(':').map(Number);
+            scheduledEntMins = eh * 60 + em;
+          }
+          if (daySched.salida) {
+            const [sh, sm] = daySched.salida.split(':').map(Number);
+            scheduledSalMins = sh * 60 + sm;
+          }
+
+          // Regla 1: Tolerancia de entrada de 15 minutos:
+          // Se evalúa sobre la llegada original del empleado frente a la entrada programada:
+          // Si superó los 15 min (> 15 min): se considera TODO el retraso original sin restar los 15 min.
+          // Si llegó dentro de los 15 min (<= 15 min): 0 tardanza (protegido por tolerancia).
+          const inDate = new Date(checkIn.timestamp);
+          const inH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(inDate), 10);
+          const inM = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(inDate), 10);
+          const inClockMins = inH * 60 + inM;
+          const rawDelayMins = Math.max(0, inClockMins - scheduledEntMins);
+          const tardanzaEntrada = rawDelayMins > 15 ? rawDelayMins : 0;
 
           if (checkOut) {
-            const inTime = new Date(checkIn.timestamp).getTime();
-            const outTime = new Date(checkOut.timestamp).getTime();
-            if (outTime > inTime) {
-              const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
-              const workedMins = Math.round(workedSecs / 60);
-              const scheduledMins = Math.round(scheduledSecs / 60);
+            const outDate = new Date(checkOut.timestamp);
+            const outDay = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', weekday: 'short' }).format(outDate);
+            const outHour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(outDate), 10);
+            const outMinute = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(outDate), 10);
+            const outClockMins = outHour * 60 + outMinute;
+            const workedMins = Math.max(0, outClockMins - inClockMins);
 
-              if (workedMins >= scheduledMins) {
-                // Jornada cumplida o excedida: 0 descuento, horas extras = tiempo excedente
-                const surplusMins = workedMins - scheduledMins;
-                totalOvertimeMins += surplusMins;
-              } else {
-                // Trabajó menos del horario programado: determinar diferencia faltante
-                const netMissingMins = scheduledMins - workedMins;
+            // Cierre oficial de salón según día de la semana (hora República Dominicana):
+            // - Sábados: corte de cierre 6:00 PM (18:00 = 1080 min)
+            // - Domingos: corte de cierre 5:00 PM (17:00 = 1020 min)
+            // - Lunes a Viernes: corte de cierre 8:00 PM (20:00 = 1200 min)
+            const closingCutoffMins = (outDay === 'Sat') ? (18 * 60) : (outDay === 'Sun') ? (17 * 60) : (20 * 60);
+            const effectiveSalMins = Math.min(scheduledSalMins, closingCutoffMins);
 
-                // Evaluar salida por cierre del salón según día de la semana (hora República Dominicana)
-                const outDate = new Date(checkOut.timestamp);
-                const outDay = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', weekday: 'short' }).format(outDate);
-                const outHour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hour12: false }).format(outDate), 10);
-                const outMinute = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(outDate), 10);
-                const outTimeOfDayMins = outHour * 60 + outMinute;
+            let salidaAnticipada = 0;
+            let isEarlyExit = false;
+            let extraAtExit = 0;
 
-                let isClosingExit = false;
-                if (outDay === 'Sat' && outTimeOfDayMins >= (18 * 60)) { // Sábados a partir de las 6:00 PM
-                  isClosingExit = true;
-                } else if (outDay === 'Sun' && outTimeOfDayMins >= (17 * 60)) { // Domingos a partir de las 5:00 PM
-                  isClosingExit = true;
-                } else if (outDay !== 'Sat' && outDay !== 'Sun' && outTimeOfDayMins >= (20 * 60)) { // Lunes a Viernes a partir de las 8:00 PM
-                  isClosingExit = true;
-                }
+            if (outClockMins >= effectiveSalMins) {
+              salidaAnticipada = 0;
+              isEarlyExit = false;
+              extraAtExit = Math.max(0, outClockMins - scheduledSalMins);
+            } else {
+              salidaAnticipada = effectiveSalMins - outClockMins;
+              isEarlyExit = true;
+              extraAtExit = 0;
+            }
 
-                let deductibleMins = 0;
-                if (isClosingExit) {
-                  // Si la salida fue por hora oficial de cierre, la salida no se descuenta.
-                  // Solo se descuenta tardanza de entrada que supere la tolerancia de 15 minutos:
-                  if (morningLate > 15) {
-                    deductibleMins = Math.min(morningLate - 15, netMissingMins);
-                  } else {
-                    deductibleMins = 0;
-                  }
-                } else {
-                  // Salida antes del cierre oficial:
-                  // La tolerancia de 15 minutos solo exonera la llegada tardía matutina, NUNCA la salida anticipada.
-                  const morningToleranceWaived = Math.min(15, Math.max(0, morningLate));
-                  deductibleMins = Math.max(0, netMissingMins - morningToleranceWaived);
-                }
+            // Regla de compensación de tardanza:
+            // Si llegó tarde (>15 min) pero salió después de su hora (extraAtExit > 0),
+            // solo se resta el tiempo REALMENTE compensado a la salida.
+            let compensatedMins = 0;
+            let netLateness = tardanzaEntrada;
+            if (tardanzaEntrada > 0 && extraAtExit > 0) {
+              compensatedMins = Math.min(tardanzaEntrada, extraAtExit);
+              netLateness = tardanzaEntrada - compensatedMins;
+            }
 
-                totalNetLatenessMins += deductibleMins;
+            totalNetLatenessMins += (netLateness + salidaAnticipada);
+
+            // Horas extras: solo si no hubo salida anticipada, tardanza de entrada fue 0 (o totalmente compensada)
+            const remainingExtra = Math.max(0, extraAtExit - compensatedMins);
+            if (!isEarlyExit && remainingExtra > 0 && tardanzaEntrada === 0) {
+              if (workedMins > scheduledMins) {
+                totalOvertimeMins += Math.min(remainingExtra, workedMins - scheduledMins);
               }
             }
-          } else if (morningLate > 15) {
-            // Si olvidó ponchar salida, solo se considera la tardanza matutina que supere la tolerancia (NUNCA ausencia)
-            totalNetLatenessMins += (morningLate - 15);
+          } else {
+            // Solo ponche de entrada
+            totalNetLatenessMins += tardanzaEntrada;
           }
         }
       });
