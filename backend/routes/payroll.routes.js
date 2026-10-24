@@ -515,16 +515,30 @@ function createPayrollRouter(pool) {
 
     const overrideMap = new Map();
     for (const o of overrides) {
-      const k = String(o.employee_id);
-      if (!overrideMap.has(k)) overrideMap.set(k, []);
-      overrideMap.get(k).push(o);
+      const keys = [String(o.employee_id)];
+      const rawNum = String(o.employee_id).replace(/\D/g, '');
+      if (rawNum) {
+        keys.push(rawNum);
+        keys.push(`EMP-${rawNum}`);
+      }
+      for (const k of keys) {
+        if (!overrideMap.has(k)) overrideMap.set(k, []);
+        overrideMap.get(k).push(o);
+      }
     }
 
     const punchesMap = new Map();
     for (const p of attPunches) {
-      const k = String(p.employee_id);
-      if (!punchesMap.has(k)) punchesMap.set(k, []);
-      punchesMap.get(k).push(p);
+      const keys = [String(p.employee_id)];
+      const rawNum = String(p.employee_id).replace(/\D/g, '');
+      if (rawNum) {
+        keys.push(rawNum);
+        keys.push(`EMP-${rawNum}`);
+      }
+      for (const k of keys) {
+        if (!punchesMap.has(k)) punchesMap.set(k, []);
+        punchesMap.get(k).push(p);
+      }
     }
 
     const commLogsMap = new Map();
@@ -706,26 +720,31 @@ function createPayrollRouter(pool) {
       const getScheduledDurationSecs = (dateStr) => {
         const override = overrideMap.get(dateStr);
         if (override) {
-          if (!override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')))) {
+          const hasValidWorkingHours = override.new_hora_entrada && 
+            override.new_hora_entrada !== '00:00:00' && 
+            override.new_hora_salida && 
+            override.new_hora_salida !== '00:00:00';
+
+          if (!hasValidWorkingHours) {
             return { secs: 0, hrs: 0, isWorking: false, entrada: null, salida: null };
           }
-          if (override.new_hora_entrada && override.new_hora_salida) {
-            const [h1, m1] = override.new_hora_entrada.split(':').map(Number);
-            const [h2, m2] = override.new_hora_salida.split(':').map(Number);
-            let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
-            if (secs <= 0) secs += 86400;
-            return { secs, hrs: secs / 3600, isWorking: true, entrada: override.new_hora_entrada, salida: override.new_hora_salida };
-          }
+          const [h1, m1] = override.new_hora_entrada.split(':').map(Number);
+          const [h2, m2] = override.new_hora_salida.split(':').map(Number);
+          let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
+          if (secs <= 0) secs += 86400;
+          return { secs, hrs: secs / 3600, isWorking: true, entrada: override.new_hora_entrada, salida: override.new_hora_salida };
         }
 
         const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
         const d = new Date(dateStr + 'T12:00:00');
         const dName = dayNames[d.getDay()];
+        const normalizeDay = (s) => (s || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        const normDName = normalizeDay(dName);
 
         if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
           try {
             const parsed = JSON.parse(emp.dias_laborables);
-            const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === dName.toLowerCase().slice(0, 3));
+            const matchKey = Object.keys(parsed).find(k => normalizeDay(k).slice(0, 3) === normDName.slice(0, 3));
             const dayInfo = matchKey ? parsed[matchKey] : null;
             if (dayInfo && dayInfo.entrada && dayInfo.salida) {
               const [h1, m1] = dayInfo.entrada.split(':').map(Number);
@@ -738,8 +757,8 @@ function createPayrollRouter(pool) {
             }
           } catch(e) {}
         } else if (emp.hora_entrada && emp.hora_salida) {
-          const workingDays = (emp.dias_laborables || '').split(',').map(s => s.trim().toLowerCase());
-          const isWorking = workingDays.length === 0 || workingDays.some(w => w.slice(0, 3) === dName.toLowerCase().slice(0, 3)) || (!emp.dias_laborables && dName !== 'Domingo');
+          const workingDays = (emp.dias_laborables || '').split(',').map(s => normalizeDay(s));
+          const isWorking = workingDays.length === 0 || workingDays.some(w => w.slice(0, 3) === normDName.slice(0, 3)) || (!emp.dias_laborables && normDName !== 'domingo');
           if (isWorking) {
             const [h1, m1] = emp.hora_entrada.split(':').map(Number);
             const [h2, m2] = emp.hora_salida.split(':').map(Number);
@@ -751,7 +770,7 @@ function createPayrollRouter(pool) {
           }
         }
 
-        return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: dName !== 'Domingo', entrada: '08:00', salida: '17:00' };
+        return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: normDName !== 'domingo', entrada: '08:00', salida: '17:00' };
       };
 
       let attPunches = [];
@@ -857,20 +876,37 @@ function createPayrollRouter(pool) {
             // - Domingos: corte de cierre 5:00 PM (17:00 = 1020 min)
             // - Lunes a Viernes: corte de cierre 8:00 PM (20:00 = 1200 min)
             const closingCutoffMins = (outDay === 'Sat') ? (18 * 60) : (outDay === 'Sun') ? (17 * 60) : (20 * 60);
-            const effectiveSalMins = Math.min(scheduledSalMins, closingCutoffMins);
 
             let salidaAnticipada = 0;
             let isEarlyExit = false;
             let extraAtExit = 0;
 
-            if (outClockMins >= effectiveSalMins) {
-              salidaAnticipada = 0;
-              isEarlyExit = false;
-              extraAtExit = Math.max(0, outClockMins - scheduledSalMins);
+            // Excepción de cierre oficial:
+            // Si el horario asignado termina después del corte de cierre (ej. 9:00 PM vs corte 8:00 PM):
+            // - Si la empleada alcanza o supera el corte de cierre (outClockMins >= closingCutoffMins),
+            //   aplica la excepción y queda exonerada de salida anticipada.
+            // - Si NO alcanza el corte de cierre (outClockMins < closingCutoffMins), NO aplica la excepción
+            //   y la salida anticipada se calcula contra su horario asignado (scheduledSalMins).
+            if (scheduledSalMins > closingCutoffMins) {
+              if (outClockMins >= closingCutoffMins) {
+                salidaAnticipada = 0;
+                isEarlyExit = false;
+                extraAtExit = Math.max(0, outClockMins - scheduledSalMins);
+              } else {
+                salidaAnticipada = scheduledSalMins - outClockMins;
+                isEarlyExit = true;
+                extraAtExit = 0;
+              }
             } else {
-              salidaAnticipada = effectiveSalMins - outClockMins;
-              isEarlyExit = true;
-              extraAtExit = 0;
+              if (outClockMins >= scheduledSalMins) {
+                salidaAnticipada = 0;
+                isEarlyExit = false;
+                extraAtExit = outClockMins - scheduledSalMins;
+              } else {
+                salidaAnticipada = scheduledSalMins - outClockMins;
+                isEarlyExit = true;
+                extraAtExit = 0;
+              }
             }
 
             // Regla de compensación de tardanza:
@@ -885,12 +921,11 @@ function createPayrollRouter(pool) {
 
             totalNetLatenessMins += (netLateness + salidaAnticipada);
 
-            // Horas extras: solo si no hubo salida anticipada, tardanza de entrada fue 0 (o totalmente compensada)
+            // Horas extras: aplica si no hubo salida anticipada, la tardanza fue 0 o totalmente compensada (netLateness === 0),
+            // y queda tiempo excedente (remainingExtra > 0)
             const remainingExtra = Math.max(0, extraAtExit - compensatedMins);
-            if (!isEarlyExit && remainingExtra > 0 && tardanzaEntrada === 0) {
-              if (workedMins > scheduledMins) {
-                totalOvertimeMins += Math.min(remainingExtra, workedMins - scheduledMins);
-              }
+            if (!isEarlyExit && netLateness === 0 && remainingExtra > 0) {
+              totalOvertimeMins += remainingExtra;
             }
           } else {
             // Solo ponche de entrada

@@ -142,9 +142,33 @@ router.post('/schedule-swap', async (req, res) => {
         const [usrData] = await connection.query('SELECT nombre, hora_entrada, hora_salida FROM users WHERE id = ?', [empId]);
         empData = usrData;
       }
-      const empName = empData.length > 0 ? empData[0].nombre : `Empleado #${empId}`;
-      const defaultEntrada = newHoraEntrada || (empData.length > 0 && empData[0].hora_entrada ? empData[0].hora_entrada : '08:00:00');
-      const defaultSalida = newHoraSalida || (empData.length > 0 && empData[0].hora_salida ? empData[0].hora_salida : '17:00:00');
+      const emp = empData[0] || {};
+      const empName = emp.nombre || `Empleado #${empId}`;
+
+      // Determinar horario programado original del día que librará (dFree) para trasladarlo a dWork
+      let resolvedEntrada = newHoraEntrada;
+      let resolvedSalida = newHoraSalida;
+
+      if (!resolvedEntrada || !resolvedSalida || (resolvedEntrada === '08:00:00' && resolvedSalida === '17:00:00')) {
+        try {
+          const [fy, fm, fd] = dFree.split('-').map(Number);
+          const fObj = new Date(Date.UTC(fy, fm - 1, fd, 16, 0, 0));
+          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+          const fDayName = dayNames[fObj.getUTCDay()];
+
+          if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
+            const parsed = JSON.parse(emp.dias_laborables);
+            const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === fDayName.toLowerCase().slice(0, 3));
+            if (matchKey && parsed[matchKey] && parsed[matchKey].entrada && parsed[matchKey].salida) {
+              resolvedEntrada = parsed[matchKey].entrada + (parsed[matchKey].entrada.length === 5 ? ':00' : '');
+              resolvedSalida = parsed[matchKey].salida + (parsed[matchKey].salida.length === 5 ? ':00' : '');
+            }
+          }
+        } catch (e) {}
+      }
+
+      const defaultEntrada = resolvedEntrada || (emp.hora_entrada ? emp.hora_entrada : '08:00:00');
+      const defaultSalida = resolvedSalida || (emp.hora_salida ? emp.hora_salida : '17:00:00');
 
       // 2. Registrar el día que pasa a ser LIBRE (dFree)
       const reasonFree = `Día libre intercambiado por laborar el ${dWork} - ${reason || 'Acuerdo de horario'}`;
@@ -167,8 +191,8 @@ router.post('/schedule-swap', async (req, res) => {
         [empId, String(empId), dFree, dFree]
       );
 
-      // 3. Registrar el día que pasa a ser LABORABLE (dWork)
-      const reasonWork = `Día laborable por cambio de día libre del ${dFree} - ${reason || 'Acuerdo de horario'}`;
+      // 3. Registrar el día que pasa a ser LABORABLE (dWork) con el horario trasladado
+      const reasonWork = `Día laborable trasladado del ${dFree} - ${reason || 'Acuerdo de horario'}`;
       await connection.query(
         `INSERT INTO schedule_overrides 
          (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
@@ -651,10 +675,13 @@ router.post('/punch', async (req, res) => {
         hasClosingCutoff = true;
       }
 
+      const diffMs = now - expDate;
+      const extraFromSchedExit = Math.max(0, Math.floor(diffMs / (1000 * 60)));
+
       if (scheduledDurationMinutes > 0 && workedDurationMinutes >= scheduledDurationMinutes) {
         // Jornada programada cumplida o excedida: NUNCA salida temprana!
         status = 'Normal';
-        extraMinutes = Math.max(0, workedDurationMinutes - scheduledDurationMinutes);
+        extraMinutes = Math.max(workedDurationMinutes - scheduledDurationMinutes, extraFromSchedExit);
       } else if (hasClosingCutoff && now >= closingDate) {
         // Ponchó a la hora de cierre del salón o después (ej. sábado >= 6pm, domingo >= 5pm, semana >= 8pm)
         status = 'Normal';
@@ -663,10 +690,9 @@ router.post('/punch', async (req, res) => {
         // Hora de salida programada alcanzada o superada
         status = 'Normal';
         if (actualCheckinDate && scheduledDurationMinutes > 0) {
-          extraMinutes = Math.max(0, workedDurationMinutes - scheduledDurationMinutes);
+          extraMinutes = Math.max(workedDurationMinutes - scheduledDurationMinutes, extraFromSchedExit);
         } else {
-          const diffMs = now - expDate;
-          extraMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
+          extraMinutes = extraFromSchedExit;
         }
       } else {
         // Salió antes de la hora programada y antes del cierre oficial del salón

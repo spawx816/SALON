@@ -40,6 +40,34 @@ const normalizeDayName = (str) => {
     .trim();
 };
 
+const getEmployeeShiftForDate = (emp, dateStr) => {
+  if (!emp || !dateStr) return { entrada: '08:00', salida: '17:00' };
+  try {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dayObj = new Date(Date.UTC(y, m - 1, d, 16, 0, 0));
+    const rawDayName = dayObj.toLocaleDateString('es-DO', { weekday: 'long', timeZone: 'America/Santo_Domingo' });
+    const normDay = normalizeDayName(rawDayName);
+
+    if (emp.dias_laborables && typeof emp.dias_laborables === 'string' && emp.dias_laborables.trim().startsWith('{')) {
+      const parsed = JSON.parse(emp.dias_laborables);
+      const matchKey = Object.keys(parsed).find(k => normalizeDayName(k) === normDay);
+      if (matchKey && parsed[matchKey] && parsed[matchKey].entrada && parsed[matchKey].salida) {
+        return {
+          entrada: parsed[matchKey].entrada.slice(0, 5),
+          salida: parsed[matchKey].salida.slice(0, 5)
+        };
+      }
+    }
+    if (emp.hora_entrada && emp.hora_salida) {
+      return {
+        entrada: emp.hora_entrada.slice(0, 5),
+        salida: emp.hora_salida.slice(0, 5)
+      };
+    }
+  } catch (e) {}
+  return { entrada: '08:00', salida: '17:00' };
+};
+
 const getDRDateKey = (timestamp) => {
   if (!timestamp) return '';
   if (typeof timestamp === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(timestamp.trim())) {
@@ -862,16 +890,19 @@ const AttendanceLogs = () => {
       // Check temporary override
       const override = overridesList.find(o => String(o.employee_id) === String(emp.id) && getDRDateKey(o.date) === dateStr && o.status !== 'Anulado');
       if (override) {
-        const isRestOverride = !override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || 
-          (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')));
-        if (isRestOverride) {
-          isDayOff = true;
-          baseHoraEntrada = null;
-          baseHoraSalida = null;
-        } else {
+        const hasValidWorkingHours = override.new_hora_entrada && 
+          override.new_hora_entrada !== '00:00:00' && 
+          override.new_hora_salida && 
+          override.new_hora_salida !== '00:00:00';
+
+        if (hasValidWorkingHours) {
           baseHoraEntrada = override.new_hora_entrada;
           baseHoraSalida = override.new_hora_salida;
           isDayOff = false;
+        } else {
+          isDayOff = true;
+          baseHoraEntrada = null;
+          baseHoraSalida = null;
         }
       } else if (isJsonSchedule && parsedCustomSchedule) {
         const matchingKey = Object.keys(parsedCustomSchedule).find(k => normalizeDayName(k) === normDay);
@@ -959,10 +990,13 @@ const AttendanceLogs = () => {
           // TRABAJÓ EN SU DÍA DE DESCANSO: PAGO DOBLE (FACTOR 2.0x / 100% RECARGO)
           daysWorked += 1;
           totalCheckins += 1;
-          const inTime = new Date(checkIn.timestamp).getTime();
-          const outTime = new Date(checkOut.timestamp).getTime();
-          const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
-          dayWorkedMins = Math.round(workedSecs / 60);
+          const inHour = getDRHour(checkIn.timestamp);
+          const inMinute = getDRMinute(checkIn.timestamp);
+          const outHour = getDRHour(checkOut.timestamp);
+          const outMinute = getDRMinute(checkOut.timestamp);
+          const inClockMins = inHour * 60 + inMinute;
+          const outClockMins = outHour * 60 + outMinute;
+          dayWorkedMins = Math.max(0, outClockMins - inClockMins);
 
           // Código de Trabajo RD: descanso semanal laborado computa el doble para fines de pago
           dayOvertimeMins = dayWorkedMins * 2;
@@ -1031,17 +1065,14 @@ const AttendanceLogs = () => {
         const rawDelayMins = Math.max(0, inClockMins - scheduledEntMins);
         const tardanzaEntrada = rawDelayMins > 15 ? rawDelayMins : 0;
 
-        const inTime = new Date(checkIn.timestamp).getTime();
-        const outTime = checkOut ? new Date(checkOut.timestamp).getTime() : null;
-
-        if (outTime && !isNaN(outTime) && outTime > inTime) {
-          const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
-          dayWorkedMins = Math.round(workedSecs / 60);
-
+        if (checkOut) {
           const outHour = getDRHour(checkOut.timestamp);
           const outMinute = getDRMinute(checkOut.timestamp);
           const outDay = getDRDayOfWeek(checkOut.timestamp);
           const outClockMins = outHour * 60 + outMinute;
+
+          // Duración trabajada en minutos de reloj consistentes con lo visualizado en tabla
+          dayWorkedMins = Math.max(0, outClockMins - inClockMins);
 
           // Cierre oficial de salón según día de la semana (hora República Dominicana):
           // - Sábados: corte de cierre 6:00 PM (18:00 = 1080 min)
@@ -1049,25 +1080,36 @@ const AttendanceLogs = () => {
           // - Lunes a Viernes: corte de cierre 8:00 PM (20:00 = 1200 min)
           const closingCutoffMins = (outDay === 'Sat') ? (18 * 60) : (outDay === 'Sun') ? (17 * 60) : (20 * 60);
 
-          // Si el horario programado es después del cierre del salón (ej. 9:00 PM = 21:00),
-          // la hora efectiva obligatoria de salida es la hora de cierre del salón (ej. 8:00 PM = 20:00).
-          // Si el horario programado es anterior al cierre (ej. 5:00 PM = 17:00), se respeta la salida programada.
-          const effectiveSalMins = Math.min(scheduledSalMins, closingCutoffMins);
-
-          // 2. REGLA DE SALIDA Y SALIDA TEMPRANA:
-          // Si salió a la hora efectiva obligatoria o después, NUNCA es salida temprana.
           let salidaAnticipada = 0;
           let isEarlyExit = false;
           let extraAtExit = 0;
 
-          if (outClockMins >= effectiveSalMins) {
-            salidaAnticipada = 0;
-            isEarlyExit = false;
-            extraAtExit = Math.max(0, outClockMins - scheduledSalMins);
+          // Excepción de cierre oficial:
+          // Si el horario asignado termina después del corte de cierre (ej. 9:00 PM vs corte 8:00 PM):
+          // - Si la empleada alcanza o supera el corte de cierre (outClockMins >= closingCutoffMins),
+          //   aplica la excepción y queda exonerada de salida anticipada.
+          // - Si NO alcanza el corte de cierre (outClockMins < closingCutoffMins), NO aplica la excepción
+          //   y la salida anticipada se calcula contra su horario asignado (scheduledSalMins).
+          if (scheduledSalMins > closingCutoffMins) {
+            if (outClockMins >= closingCutoffMins) {
+              salidaAnticipada = 0;
+              isEarlyExit = false;
+              extraAtExit = Math.max(0, outClockMins - scheduledSalMins);
+            } else {
+              salidaAnticipada = scheduledSalMins - outClockMins;
+              isEarlyExit = true;
+              extraAtExit = 0;
+            }
           } else {
-            salidaAnticipada = effectiveSalMins - outClockMins;
-            isEarlyExit = true;
-            extraAtExit = 0;
+            if (outClockMins >= scheduledSalMins) {
+              salidaAnticipada = 0;
+              isEarlyExit = false;
+              extraAtExit = outClockMins - scheduledSalMins;
+            } else {
+              salidaAnticipada = scheduledSalMins - outClockMins;
+              isEarlyExit = true;
+              extraAtExit = 0;
+            }
           }
 
           // 3. REGLA DE COMPENSACIÓN NETA DE TARDANZA:
@@ -1086,23 +1128,21 @@ const AttendanceLogs = () => {
           totalLateness += dayLatenessMins;
 
           // 4. HORAS EXTRAS:
-          // Solo si no hubo salida anticipada, la tardanza de entrada fue 0 (o totalmente compensada)
-          // y el tiempo extra excede la jornada programada
-          const scheduledShiftMins = Math.round(scheduledSecs / 60);
+          // Aplica si no hubo salida anticipada, la tardanza fue 0 o totalmente compensada (netLateness === 0),
+          // y queda tiempo excedente (remainingExtra > 0)
           const remainingExtra = Math.max(0, extraAtExit - compensatedMins);
-          if (!isEarlyExit && remainingExtra > 0 && tardanzaEntrada === 0) {
-            if (dayWorkedMins > scheduledShiftMins) {
-              dayOvertimeMins = Math.min(remainingExtra, dayWorkedMins - scheduledShiftMins);
-              totalOvertime += dayOvertimeMins;
-            } else {
-              dayOvertimeMins = 0;
-            }
+          if (!isEarlyExit && netLateness === 0 && remainingExtra > 0) {
+            dayOvertimeMins = remainingExtra;
+            totalOvertime += dayOvertimeMins;
           } else {
             dayOvertimeMins = 0;
           }
 
           if (dayLatenessMins === 0) {
-            if (dayOvertimeMins > 0) {
+            if (dayOvertimeMins > 0 && tardanzaEntrada > 0) {
+              dayStatus = 'Compensada + Horas extras';
+              dayStatusType = 'overtime';
+            } else if (dayOvertimeMins > 0) {
               dayStatus = 'Horas extras';
               dayStatusType = 'overtime';
             } else if (rawDelayMins > 0 && rawDelayMins <= 15) {
@@ -2972,13 +3012,17 @@ const AttendanceLogs = () => {
 
                               const override = overridesList.find(o => String(o.employee_id) === String(log.employee_id) && getDRDateKey(o.date) === logDateStr && o.status !== 'Anulado');
                               if (override) {
-                                const isRestOverride = !override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || 
-                                  (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')));
-                                if (isRestOverride) {
-                                  isDayOff = true;
-                                } else {
+                                const hasValidWorkingHours = override.new_hora_entrada && 
+                                  override.new_hora_entrada !== '00:00:00' && 
+                                  override.new_hora_salida && 
+                                  override.new_hora_salida !== '00:00:00';
+
+                                if (hasValidWorkingHours) {
                                   horaEnt = override.new_hora_entrada;
                                   horaSal = override.new_hora_salida;
+                                  isDayOff = false;
+                                } else {
+                                  isDayOff = true;
                                 }
                               } else if (emp) {
                                 const dayNames = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
@@ -3066,17 +3110,36 @@ const AttendanceLogs = () => {
                                       const outDay = getDRDayOfWeek(sameDayCheckout.timestamp);
                                       const outClockMins = outHour * 60 + outMinute;
                                       const closingCutoffMins = (outDay === 'Sat') ? (18 * 60) : (outDay === 'Sun') ? (17 * 60) : (20 * 60);
-                                      const effectiveSalMins = Math.min(schedSalMins, closingCutoffMins);
 
-                                      if (outClockMins >= effectiveSalMins) {
-                                        const extraAtExit = Math.max(0, outClockMins - schedSalMins);
+                                      let extraAtExit = 0;
+                                      let isEarlyExit = false;
+
+                                      if (schedSalMins > closingCutoffMins) {
+                                        if (outClockMins >= closingCutoffMins) {
+                                          extraAtExit = Math.max(0, outClockMins - schedSalMins);
+                                        } else {
+                                          isEarlyExit = true;
+                                        }
+                                      } else {
+                                        if (outClockMins >= schedSalMins) {
+                                          extraAtExit = outClockMins - schedSalMins;
+                                        } else {
+                                          isEarlyExit = true;
+                                        }
+                                      }
+
+                                      if (!isEarlyExit && extraAtExit > 0) {
                                         const compensated = Math.min(rawDelay, extraAtExit);
                                         const remaining = rawDelay - compensated;
+                                        const surplusExtra = extraAtExit - compensated;
+
                                         if (remaining === 0) {
                                           badgeBg = '#eff6ff';
                                           badgeColor = '#1d4ed8';
                                           badgeBorder = '1px solid #bfdbfe';
-                                          badgeText = `Tardanza (+${rawDelay}m) • Compensada`;
+                                          badgeText = surplusExtra > 0 
+                                            ? `Tardanza (+${rawDelay}m) • Compensada (+${surplusExtra}m Extra)`
+                                            : `Tardanza (+${rawDelay}m) • Compensada`;
                                         } else {
                                           badgeBg = '#fefce8';
                                           badgeColor = '#a16207';
@@ -3102,20 +3165,35 @@ const AttendanceLogs = () => {
                                   const outDay = getDRDayOfWeek(log.timestamp);
                                   const outClockMins = outHour * 60 + outMinute;
                                   const closingCutoffMins = (outDay === 'Sat') ? (18 * 60) : (outDay === 'Sun') ? (17 * 60) : (20 * 60);
-                                  const effectiveSalMins = Math.min(schedSalMins, closingCutoffMins);
 
-                                  if (outClockMins >= effectiveSalMins) {
-                                    const extraAtExit = Math.max(0, outClockMins - schedSalMins);
-                                    badgeBg = '#f0fdf4';
-                                    badgeColor = '#15803d';
-                                    badgeBorder = '1px solid #bbf7d0';
-                                    badgeText = extraAtExit > 0 ? `Normal (+${extraAtExit}m Extra)` : 'Normal • Jornada Completa';
+                                  if (schedSalMins > closingCutoffMins) {
+                                    if (outClockMins >= closingCutoffMins) {
+                                      const extraAtExit = Math.max(0, outClockMins - schedSalMins);
+                                      badgeBg = '#f0fdf4';
+                                      badgeColor = '#15803d';
+                                      badgeBorder = '1px solid #bbf7d0';
+                                      badgeText = extraAtExit > 0 ? `Normal (+${extraAtExit}m Extra)` : 'Normal • Cierre Oficial';
+                                    } else {
+                                      const missingEarlyMins = schedSalMins - outClockMins;
+                                      badgeBg = '#fffbeb';
+                                      badgeColor = '#b45309';
+                                      badgeBorder = '1px solid #fef3c7';
+                                      badgeText = `Salida Temprana (-${missingEarlyMins}m)`;
+                                    }
                                   } else {
-                                    const missingEarlyMins = effectiveSalMins - outClockMins;
-                                    badgeBg = '#fffbeb';
-                                    badgeColor = '#b45309';
-                                    badgeBorder = '1px solid #fef3c7';
-                                    badgeText = `Salida Temprana (-${missingEarlyMins}m)`;
+                                    if (outClockMins >= schedSalMins) {
+                                      const extraAtExit = outClockMins - schedSalMins;
+                                      badgeBg = '#f0fdf4';
+                                      badgeColor = '#15803d';
+                                      badgeBorder = '1px solid #bbf7d0';
+                                      badgeText = extraAtExit > 0 ? `Normal (+${extraAtExit}m Extra)` : 'Normal • Jornada Completa';
+                                    } else {
+                                      const missingEarlyMins = schedSalMins - outClockMins;
+                                      badgeBg = '#fffbeb';
+                                      badgeColor = '#b45309';
+                                      badgeBorder = '1px solid #fef3c7';
+                                      badgeText = `Salida Temprana (-${missingEarlyMins}m)`;
+                                    }
                                   }
                                 }
                               }
@@ -3717,22 +3795,26 @@ const AttendanceLogs = () => {
                           statusBg = '#ecfdf5';
                           statusColor = '#15803d';
                           dotColor = '#16a34a';
-                        } else if (day.status.includes('Tardanza + extra')) {
-                          statusBg = '#fffbeb';
-                          statusColor = '#b45309';
-                          dotColor = '#d97706';
+                        } else if (day.status === 'Tolerancia matutina') {
+                          statusBg = '#f0fdfa';
+                          statusColor = '#0f766e';
+                          dotColor = '#14b8a6';
+                        } else if (day.status.includes('Descanso Trabajado')) {
+                          statusBg = '#faf5ff';
+                          statusColor = '#7e22ce';
+                          dotColor = '#9333ea';
+                        } else if (day.status === 'Horas extras' || day.status === 'Compensada + Horas extras') {
+                          statusBg = '#eff6ff';
+                          statusColor = '#1d4ed8';
+                          dotColor = '#2563eb';
                         } else if (day.status === 'Ausencia') {
                           statusBg = '#fef2f2';
                           statusColor = '#b91c1c';
                           dotColor = '#dc2626';
-                        } else if (day.status.includes('Tardanza')) {
+                        } else if (day.status === 'Salida Temprana' || day.status.includes('Tardanza') || day.status.includes('salida anticipada')) {
                           statusBg = '#fffbeb';
                           statusColor = '#b45309';
                           dotColor = '#d97706';
-                        } else if (day.status === 'Horas extras') {
-                          statusBg = '#eff6ff';
-                          statusColor = '#1d4ed8';
-                          dotColor = '#2563eb';
                         } else if (day.status.includes('Falta')) {
                           statusBg = '#fff7ed';
                           statusColor = '#c2410c';
@@ -5172,11 +5254,12 @@ const AttendanceLogs = () => {
                       onChange={(e) => {
                         const empId = e.target.value;
                         const selEmp = employees.find(emp => String(emp.id) === String(empId));
+                        const shift = getEmployeeShiftForDate(selEmp, newOverrideForm.dateFree);
                         setNewOverrideForm(prev => ({ 
                           ...prev, 
                           employeeId: empId,
-                          newHoraEntrada: selEmp?.hora_entrada ? selEmp.hora_entrada.slice(0, 5) : '08:00',
-                          newHoraSalida: selEmp?.hora_salida ? selEmp.hora_salida.slice(0, 5) : '17:00'
+                          newHoraEntrada: shift.entrada,
+                          newHoraSalida: shift.salida
                         }));
                       }}
                       style={{ padding: '0.65rem 1rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.88rem', outline: 'none', background: 'white', cursor: 'pointer' }}
@@ -5195,7 +5278,17 @@ const AttendanceLogs = () => {
                         type="date"
                         required
                         value={newOverrideForm.dateFree}
-                        onChange={(e) => setNewOverrideForm(prev => ({ ...prev, dateFree: e.target.value }))}
+                        onChange={(e) => {
+                          const newDFree = e.target.value;
+                          const selEmp = employees.find(emp => String(emp.id) === String(newOverrideForm.employeeId));
+                          const shift = getEmployeeShiftForDate(selEmp, newDFree);
+                          setNewOverrideForm(prev => ({ 
+                            ...prev, 
+                            dateFree: newDFree,
+                            newHoraEntrada: shift.entrada,
+                            newHoraSalida: shift.salida
+                          }));
+                        }}
                         style={{ padding: '0.65rem 1rem', border: '1px solid #fecdd3', background: '#fff1f2', borderRadius: '10px', fontSize: '0.88rem', outline: 'none' }}
                       />
                       <span style={{ fontSize: '0.68rem', color: '#9f1239', fontWeight: 600 }}>Día que librará (sin falta)</span>
