@@ -83,68 +83,24 @@ function createEmployeesRouter(pool) {
     }
   };
 
-  // Helper de sincronización bidireccional: Personal RRHH (staff_records) -> Usuarios de Acceso (users)
+  // Desacoplado al 100%: Los empleados y los usuarios son independientes.
+  // Solo si un usuario está vinculado explícitamente mediante staff_id y el empleado es desvinculado, se revocan sus sesiones.
   async function syncStaffToUser(staffData, oldStaffRecord = null) {
     try {
-      const { 
-        nombre, email, salon_id, profile_photo, hora_entrada, hora_salida, 
-        dias_laborables, tolerancia_minutos, status 
-      } = staffData;
+      const staffId = staffData.id || oldStaffRecord?.id;
+      if (!staffId) return;
 
-      const cleanNombre = (nombre || '').trim();
-      const cleanEmail = (email && String(email).trim()) ? String(email).trim() : null;
-      const cleanSalonId = (salon_id && !isNaN(parseInt(salon_id, 10))) ? parseInt(salon_id, 10) : null;
-      const cleanTolerancia = !isNaN(parseInt(tolerancia_minutos, 10)) ? parseInt(tolerancia_minutos, 10) : 15;
+      const { status } = staffData;
 
-      // Buscar usuario correspondiente por email o nombre
-      let userRecord = null;
-      if (cleanEmail) {
-        const [byEmail] = await pool.query('SELECT id FROM users WHERE email = ?', [cleanEmail]);
-        if (byEmail.length > 0) userRecord = byEmail[0];
-      }
-      if (!userRecord && oldStaffRecord?.email) {
-        const [byOldEmail] = await pool.query('SELECT id FROM users WHERE email = ?', [oldStaffRecord.email]);
-        if (byOldEmail.length > 0) userRecord = byOldEmail[0];
-      }
-      if (!userRecord && cleanNombre) {
-        const [byName] = await pool.query('SELECT id FROM users WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))', [cleanNombre]);
-        if (byName.length > 0) userRecord = byName[0];
-      }
-      if (!userRecord && oldStaffRecord?.nombre) {
-        const [byOldName] = await pool.query('SELECT id FROM users WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))', [oldStaffRecord.nombre]);
-        if (byOldName.length > 0) userRecord = byOldName[0];
-      }
+      // Buscar usuario ÚNICAMENTE por enlace de clave foránea staff_id (NUNCA por nombre ni por correo)
+      const [linkedUsers] = await pool.query('SELECT id FROM users WHERE staff_id = ?', [staffId]);
+      if (linkedUsers.length === 0) return;
 
-      if (userRecord) {
-        // Actualizar todos los datos del usuario en tiempo real
-        await pool.query(
-          `UPDATE users SET 
-            nombre = COALESCE(?, nombre),
-            email = COALESCE(?, email),
-            salon_id = ?,
-            profile_photo = COALESCE(?, profile_photo),
-            hora_entrada = ?,
-            hora_salida = ?,
-            dias_laborables = ?,
-            tolerancia_minutos = ?
-          WHERE id = ?`,
-          [
-            cleanNombre,
-            cleanEmail || null,
-            cleanSalonId,
-            profile_photo || null,
-            hora_entrada || null,
-            hora_salida || null,
-            dias_laborables || null,
-            cleanTolerancia,
-            userRecord.id
-          ]
-        );
-
-        // Si el estado del personal pasa a Inactivo / Cancelado, revocar de inmediato las sesiones activas
-        if (status && (status.toLowerCase().includes('inactiv') || status.toLowerCase().includes('cancel') || status.toLowerCase().includes('desvincul'))) {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [userRecord.id]);
-          console.log(`[RRHH -> USERS SYNC] Sesiones cerradas de forma forzosa para ${cleanNombre} (ID: ${userRecord.id}) por estado ${status}`);
+      // Si el estado del personal pasa a Inactivo / Cancelado / Desvinculado, revocar sesiones activas por seguridad
+      if (status && (status.toLowerCase().includes('inactiv') || status.toLowerCase().includes('cancel') || status.toLowerCase().includes('desvincul'))) {
+        for (const u of linkedUsers) {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [u.id]);
+          console.log(`[RRHH -> USERS SYNC] Sesiones cerradas de forma forzosa para usuario ID: ${u.id} vinculado al empleado ID: ${staffId}`);
         }
       }
     } catch (syncErr) {

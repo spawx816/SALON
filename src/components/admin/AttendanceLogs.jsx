@@ -283,25 +283,13 @@ const AttendanceLogs = () => {
     const loadEmployees = async () => {
       try {
         const staff = await dataService.getEmployees();
-        const users = await dataService.getUsers();
-        
-        const systemStaff = (users || []).filter(u => {
-          const role = (u.role_name || '').toLowerCase();
-          return !role.includes('admin') && !role.includes('client') && u.status !== 'Inactivo';
-        });
-
-        let combined = [...(staff || [])];
-        systemStaff.forEach(sysUser => {
-          if (!combined.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
-            combined.push(sysUser);
-          }
-        });
+        let activeStaff = [...(staff || [])];
 
         if (!isGlobalAdmin && userSalonId) {
-          combined = combined.filter(emp => String(emp.salon_id) === String(userSalonId));
+          activeStaff = activeStaff.filter(emp => String(emp.salon_id) === String(userSalonId));
         }
 
-        setEmployees(combined);
+        setEmployees(activeStaff);
 
         // Fetch overrides list on mount
         try {

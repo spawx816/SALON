@@ -87,27 +87,9 @@ const AttendanceKiosk = () => {
     const loadKioskData = async () => {
       try {
         const staff = await dataService.getEmployees();
-        const users = await dataService.getUsers();
         const sal = await dataService.getSalons();
-        
-        // Filter system users: exclude admins and clients
-        const systemStaff = (users || []).filter(u => {
-          const role = (u.role_name || '').toLowerCase();
-          return !role.includes('admin') && !role.includes('client') && u.status !== 'Inactivo';
-        }).map(u => ({
-          ...u,
-          rol: u.role_name // Align property name with staff_records positions
-        }));
 
-        // Merge both lists, avoiding duplicate names to be safe
-        const combined = [...(staff || [])];
-        systemStaff.forEach(sysUser => {
-          if (!combined.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
-            combined.push(sysUser);
-          }
-        });
-
-        setEmployees(combined);
+        setEmployees(staff || []);
         setSalons(sal || []);
 
         // Load today's real punches (lightweight endpoint — no absent generation)

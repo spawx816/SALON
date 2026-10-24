@@ -53,78 +53,10 @@ function createAuthRouter(pool, helpers = {}) {
     }
   }
 
+  // Desacoplado al 100%: Los usuarios de acceso NUNCA modifican ni crean registros en staff_records.
   async function syncUserToStaff(userData, roleId) {
-    try {
-      let positionName = 'Personal de Sistema';
-      if (roleId) {
-        const [roleRows] = await pool.query('SELECT nombre FROM roles WHERE id = ?', [roleId]);
-        if (roleRows.length > 0 && roleRows[0].nombre) {
-          positionName = roleRows[0].nombre;
-        }
-      }
-
-      const { nombre, email, salon_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = userData;
-      if (!nombre) return;
-
-      let staffRecord = null;
-      if (email) {
-        const [byEmail] = await pool.query('SELECT id FROM staff_records WHERE email = ?', [email]);
-        if (byEmail.length > 0) staffRecord = byEmail[0];
-      }
-      if (!staffRecord && nombre) {
-        const [byName] = await pool.query('SELECT id FROM staff_records WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))', [nombre]);
-        if (byName.length > 0) staffRecord = byName[0];
-      }
-
-      if (staffRecord) {
-        await pool.query(
-          `UPDATE staff_records SET 
-            nombre = COALESCE(?, nombre),
-            email = COALESCE(?, email),
-            posicion = COALESCE(?, posicion),
-            salon_id = ?,
-            profile_photo = COALESCE(?, profile_photo),
-            hora_entrada = ?,
-            hora_salida = ?,
-            dias_laborables = ?,
-            tolerancia_minutos = ?
-          WHERE id = ?`,
-          [
-            nombre,
-            email || null,
-            positionName,
-            salon_id || null,
-            profile_photo || null,
-            hora_entrada || null,
-            hora_salida || null,
-            dias_laborables || null,
-            tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-            staffRecord.id
-          ]
-        );
-      } else {
-        const today = new Date().toISOString().split('T')[0];
-        await pool.query(
-          `INSERT INTO staff_records 
-            (nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, status)
-          VALUES (?, '', '', ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, 'Activo')`,
-          [
-            nombre,
-            positionName,
-            email || null,
-            today,
-            profile_photo || null,
-            hora_entrada || null,
-            hora_salida || null,
-            dias_laborables || null,
-            tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-            salon_id || null
-          ]
-        );
-      }
-    } catch (syncErr) {
-      console.warn('[SYNC USER TO STAFF NOTICE]:', syncErr.message);
-    }
+    // No-op intencional para garantizar separación estricta entre usuarios y empleados
+    return;
   }
 
   // === ROLES ===
@@ -169,9 +101,16 @@ function createAuthRouter(pool, helpers = {}) {
   router.get('/users', async (req, res) => {
     try {
       const [rows] = await pool.query(`
-        SELECT u.id, u.nombre, u.email, u.role_id, u.salon_id, u.profile_photo, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, r.nombre as role_name, r.permisos 
+        SELECT u.id, u.nombre, u.email, u.role_id, u.salon_id, u.staff_id, u.profile_photo, 
+               u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, 
+               r.nombre as role_name, r.permisos,
+               s.name as salon_name,
+               st.nombre as staff_nombre, st.posicion as staff_posicion
         FROM users u
         LEFT JOIN roles r ON u.role_id = r.id
+        LEFT JOIN salons s ON u.salon_id = s.id
+        LEFT JOIN staff_records st ON u.staff_id = st.id
+        ORDER BY u.created_at DESC
       `);
       res.json(rows);
     } catch (err) {
@@ -181,16 +120,17 @@ function createAuthRouter(pool, helpers = {}) {
 
   router.post('/users', async (req, res) => {
     try {
-      const { nombre, email, password, role_id, tipo, salon_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
+      const { nombre, email, password, role_id, tipo, salon_id, staff_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
       
       if (!nombre || !email || !password) {
         return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos.' });
       }
 
       const id = Date.now().toString();
+      const cleanStaffId = (staff_id && !isNaN(parseInt(staff_id, 10))) ? parseInt(staff_id, 10) : null;
 
       await pool.query(
-        'INSERT INTO users (id, nombre, email, password, role_id, tipo, salon_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO users (id, nombre, email, password, role_id, tipo, salon_id, staff_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           id,
           nombre, 
@@ -199,6 +139,7 @@ function createAuthRouter(pool, helpers = {}) {
           role_id || null, 
           tipo || 'employee',
           salon_id || null,
+          cleanStaffId,
           profile_photo || null,
           hora_entrada || null,
           hora_salida || null,
@@ -207,7 +148,7 @@ function createAuthRouter(pool, helpers = {}) {
         ]
       );
 
-      await syncUserToStaff(req.body, role_id);
+      // Separación estricta: No alterar jamás la tabla staff_records al crear usuarios
       res.json({ success: true, id });
     } catch (err) {
       console.error('[USERS CREATE ERROR] Full Stack:', err);
@@ -217,25 +158,47 @@ function createAuthRouter(pool, helpers = {}) {
 
   router.put('/users/:id', async (req, res) => {
     try {
-      const { nombre, email, password, role_id, salon_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
-      await pool.query(
-        'UPDATE users SET nombre = ?, email = ?, password = ?, role_id = ?, salon_id = ?, profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ? WHERE id = ?',
-        [
-          nombre, 
-          email, 
-          password, 
-          role_id, 
-          salon_id || null,
-          profile_photo || null, 
-          hora_entrada || null, 
-          hora_salida || null, 
-          dias_laborables || null, 
-          tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-          req.params.id
-        ]
-      );
+      const { nombre, email, password, role_id, salon_id, staff_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
+      const cleanStaffId = (staff_id && !isNaN(parseInt(staff_id, 10))) ? parseInt(staff_id, 10) : null;
 
-      await syncUserToStaff(req.body, role_id);
+      if (password && String(password).trim() !== '') {
+        await pool.query(
+          'UPDATE users SET nombre = ?, email = ?, password = ?, role_id = ?, salon_id = ?, staff_id = ?, profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ? WHERE id = ?',
+          [
+            nombre, 
+            email, 
+            password, 
+            role_id || null, 
+            salon_id || null,
+            cleanStaffId,
+            profile_photo || null, 
+            hora_entrada || null, 
+            hora_salida || null, 
+            dias_laborables || null, 
+            tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
+            req.params.id
+          ]
+        );
+      } else {
+        await pool.query(
+          'UPDATE users SET nombre = ?, email = ?, role_id = ?, salon_id = ?, staff_id = ?, profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ? WHERE id = ?',
+          [
+            nombre, 
+            email, 
+            role_id || null, 
+            salon_id || null,
+            cleanStaffId,
+            profile_photo || null, 
+            hora_entrada || null, 
+            hora_salida || null, 
+            dias_laborables || null, 
+            tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
+            req.params.id
+          ]
+        );
+      }
+
+      // Separación estricta: No alterar jamás la tabla staff_records al editar usuarios
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

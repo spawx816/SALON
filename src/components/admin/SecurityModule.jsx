@@ -32,6 +32,7 @@ export default function SecurityModule() {
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [salons, setSalons] = useState([]);
+  const [staffList, setStaffList] = useState([]);
   const [userSearch, setUserSearch] = useState('');
 
   // User Form Modal State
@@ -43,6 +44,7 @@ export default function SecurityModule() {
     password: '',
     role_id: '',
     salon_id: '',
+    staff_id: '',
     profile_photo: null
   });
 
@@ -89,19 +91,21 @@ export default function SecurityModule() {
   const loadAllSecurityData = async () => {
     setLoading(true);
     try {
-      const [u, r, sal, sess, logs, attemptsData, secSet] = await Promise.all([
+      const [u, r, sal, sess, logs, attemptsData, secSet, staffRes] = await Promise.all([
         dataService.getUsers(),
         dataService.getRoles(),
         dataService.getSalons(),
         dataService.getActiveSessions(),
         dataService.getSecurityAuditLogs(100),
         dataService.getLoginAttempts(),
-        dataService.getSecuritySettings()
+        dataService.getSecuritySettings(),
+        dataService.getEmployees(true)
       ]);
 
       setUsers(u || []);
       setRoles(r || []);
       setSalons(sal || []);
+      setStaffList(staffRes || []);
       setActiveSessions(sess || []);
       setAuditLogs(logs || []);
       setLoginAttempts(attemptsData.attempts || []);
@@ -155,13 +159,14 @@ export default function SecurityModule() {
         ...userForm,
         id: editingUser ? editingUser.id : undefined,
         role_id: userForm.role_id || (roles[0]?.id || 1),
-        salon_id: userForm.salon_id ? parseInt(userForm.salon_id) : null
+        salon_id: userForm.salon_id ? parseInt(userForm.salon_id) : null,
+        staff_id: userForm.staff_id ? parseInt(userForm.staff_id, 10) : null
       };
 
       await dataService.saveUser(payload);
       setShowUserModal(false);
       setEditingUser(null);
-      setUserForm({ nombre: '', email: '', password: '', role_id: '', salon_id: '', profile_photo: null });
+      setUserForm({ nombre: '', email: '', password: '', role_id: '', salon_id: '', staff_id: '', profile_photo: null });
       await loadAllSecurityData();
       alert(editingUser ? 'Usuario actualizado exitosamente' : 'Usuario creado exitosamente');
     } catch (err) {
@@ -195,6 +200,7 @@ export default function SecurityModule() {
       password: '', // En blanco para no sobreescribir si no se desea
       role_id: u.role_id || '',
       salon_id: u.salon_id || '',
+      staff_id: u.staff_id ? String(u.staff_id) : '',
       profile_photo: u.profile_photo || null
     });
     setShowUserModal(true);
@@ -543,7 +549,7 @@ export default function SecurityModule() {
             <button
               onClick={() => {
                 setEditingUser(null);
-                setUserForm({ nombre: '', email: '', password: '', role_id: roles[0]?.id || '', salon_id: '', profile_photo: null });
+                setUserForm({ nombre: '', email: '', password: '', role_id: roles[0]?.id || '', salon_id: '', staff_id: '', profile_photo: null });
                 setShowUserModal(true);
               }}
               style={{
@@ -594,7 +600,34 @@ export default function SecurityModule() {
                           </div>
                           <div>
                             <div style={{ fontWeight: 700, color: '#0f172a' }}>{u.nombre}</div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>ID: {u.id}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>ID: {u.id}</span>
+                              {u.staff_nombre ? (
+                                <span style={{
+                                  fontSize: '0.7rem',
+                                  padding: '0.15rem 0.45rem',
+                                  borderRadius: '6px',
+                                  background: '#ecfdf5',
+                                  color: '#047857',
+                                  fontWeight: 600,
+                                  border: '1px solid #a7f3d0'
+                                }}>
+                                  👤 {u.staff_nombre} ({u.staff_posicion || 'Empleado'})
+                                </span>
+                              ) : (
+                                <span style={{
+                                  fontSize: '0.7rem',
+                                  padding: '0.15rem 0.45rem',
+                                  borderRadius: '6px',
+                                  background: '#f1f5f9',
+                                  color: '#64748b',
+                                  fontWeight: 500,
+                                  border: '1px solid #e2e8f0'
+                                }}>
+                                  🖥️ Cuenta de Sistema
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -1402,6 +1435,56 @@ export default function SecurityModule() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Selector de vinculación opcional a Empleado / Colaborador */}
+              <div style={{ marginBottom: '1.5rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <label style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <Users size={16} color="#475569" />
+                    Vincular a Colaborador / Empleado
+                  </label>
+                  <span style={{ fontSize: '0.72rem', background: '#e2e8f0', color: '#475569', padding: '0.1rem 0.45rem', borderRadius: '6px', fontWeight: 600 }}>
+                    Opcional
+                  </span>
+                </div>
+                
+                <select
+                  value={userForm.staff_id || ''}
+                  onChange={(e) => {
+                    const selId = e.target.value;
+                    const matchedStaff = staffList.find(st => String(st.id) === String(selId));
+                    setUserForm(prev => ({
+                      ...prev,
+                      staff_id: selId,
+                      nombre: (!prev.nombre.trim() && matchedStaff) ? matchedStaff.nombre : prev.nombre
+                    }));
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#0f172a',
+                    fontWeight: 600,
+                    fontSize: '0.9rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="">-- Ninguno (Usuario independiente de sistema) --</option>
+                  {staffList
+                    .filter(st => st.estado !== 'inactivo')
+                    .map(st => (
+                      <option key={st.id} value={st.id}>
+                        👤 {st.nombre} — {st.posicion || 'Colaborador'} {st.cedula ? `(Cédula: ${st.cedula})` : ''}
+                      </option>
+                    ))}
+                </select>
+
+                <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: '#64748b', lineHeight: 1.4 }}>
+                  🔒 <strong>Separación estricta de cuentas:</strong> Las credenciales de login y roles pertenecen exclusivamente al sistema de acceso. Vincular o editar este usuario <strong>NUNCA</strong> altera la nómina, el expediente de Recursos Humanos ni duplica registros de colaboradores.
+                </p>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
