@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign, Key, Calendar } from 'lucide-react';
+import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign, Key, Calendar, FileText, Printer } from 'lucide-react';
 import { dataService } from '../utils/dataService';
 import { useTranslation } from '../context/LanguageContext';
 
@@ -40,6 +40,13 @@ const AttendanceKiosk = () => {
   const [selectedQuincenaKey, setSelectedQuincenaKey] = useState('');
   const [quincenaPeriods, setQuincenaPeriods] = useState([]);
   const [commissionRemainingSeconds, setCommissionRemainingSeconds] = useState(600); // 10 minutos (600s)
+  
+  // Payslip mode states
+  const [kioskViewTab, setKioskViewTab] = useState('commissions'); // 'commissions' | 'slip'
+  const [employeeSlip, setEmployeeSlip] = useState(null);
+  const [slipLoading, setSlipLoading] = useState(false);
+  const [slipError, setSlipError] = useState('');
+
   const [punchType, setPunchType] = useState('Check-In'); // 'Check-In' o 'Check-Out'
   const [todayPunches, setTodayPunches] = useState([]);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -350,8 +357,9 @@ const AttendanceKiosk = () => {
     setSelectedEmployee(null);
     setMatchingStatus('idle');
     setStep(1);
-    // Reset commission mode
+    // Reset commission & payslip mode
     setCommissionMode(false);
+    setKioskViewTab('commissions');
     setCommissionPin('');
     setCommissionPinSent(false);
     setCommissionPinSending(false);
@@ -360,12 +368,16 @@ const AttendanceKiosk = () => {
     setCustomCommissionEmail('');
     setDirectPinMode(false);
     setEmployeeCommissions([]);
+    setEmployeeSlip(null);
+    setSlipLoading(false);
+    setSlipError('');
   };
 
-  // --- Commission Flow Handlers ---
-  const handleStartCommissionMode = (emp) => {
+  // --- Commission & Payslip Flow Handlers ---
+  const handleStartCommissionMode = (emp, initialTab = 'commissions') => {
     setSelectedEmployee(emp);
     setCommissionMode(true);
+    setKioskViewTab(initialTab);
     setCommissionPin('');
     setCommissionPinSent(false);
     setCommissionPinSending(false);
@@ -374,6 +386,9 @@ const AttendanceKiosk = () => {
     setCustomCommissionEmail('');
     setDirectPinMode(false);
     setEmployeeCommissions([]);
+    setEmployeeSlip(null);
+    setSlipLoading(false);
+    setSlipError('');
   };
 
   const handleSendCommissionPin = async (emp, overrideEmail) => {
@@ -492,11 +507,34 @@ const AttendanceKiosk = () => {
     }
   };
 
+  const fetchEmployeeSlipForPeriod = async (empId, startDate, endDate) => {
+    if (!empId) return;
+    setSlipLoading(true);
+    setSlipError('');
+    try {
+      const url = `/api/payroll/employee-slip?employee_id=${empId}&start_date=${startDate}&end_date=${endDate}`;
+      const res = await fetch(url);
+      const data = res.ok ? await res.json() : null;
+      if (data && data.success && data.item) {
+        setEmployeeSlip(data);
+      } else {
+        setEmployeeSlip(null);
+        setSlipError(data?.error || 'No hay volante registrado para este período.');
+      }
+    } catch (err) {
+      setEmployeeSlip(null);
+      setSlipError('Error al consultar volante de pago.');
+    } finally {
+      setSlipLoading(false);
+    }
+  };
+
   const handleSelectQuincena = (periodKey) => {
     setSelectedQuincenaKey(periodKey);
     const found = quincenaPeriods.find(p => p.key === periodKey);
     if (found && selectedEmployee) {
       fetchCommissionsForPeriod(selectedEmployee.id, found.startDate, found.endDate);
+      fetchEmployeeSlipForPeriod(selectedEmployee.id, found.startDate, found.endDate);
     }
   };
 
@@ -529,9 +567,12 @@ const AttendanceKiosk = () => {
         // Iniciar temporizador de 10 minutos (600 segundos)
         setCommissionRemainingSeconds(600);
 
-        // Cargar comisiones de la quincena seleccionada
+        // Cargar comisiones y volante de la quincena seleccionada
         if (defaultPeriod) {
-          await fetchCommissionsForPeriod(selectedEmployee.id, defaultPeriod.startDate, defaultPeriod.endDate);
+          await Promise.all([
+            fetchCommissionsForPeriod(selectedEmployee.id, defaultPeriod.startDate, defaultPeriod.endDate),
+            fetchEmployeeSlipForPeriod(selectedEmployee.id, defaultPeriod.startDate, defaultPeriod.endDate)
+          ]);
         }
 
         setStep(5);
@@ -543,6 +584,114 @@ const AttendanceKiosk = () => {
     } finally {
       setCommissionPinVerifying(false);
     }
+  };
+
+  // Imprimir volante oficial desde el quiosco
+  const handlePrintKioskSlip = () => {
+    if (!employeeSlip || !employeeSlip.item) return;
+    const item = employeeSlip.item;
+    const period = employeeSlip.period;
+    const printWin = window.open('', '_blank');
+    const content = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Volante de Pago - ${item.employee_name}</title>
+        <style>
+          body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 25px; color: #1e293b; max-width: 700px; margin: 0 auto; }
+          .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 18px; }
+          .title { font-size: 19px; font-weight: 900; margin: 0; color: #0f172a; }
+          .subtitle { font-size: 12px; color: #64748b; margin-top: 4px; text-transform: uppercase; font-weight: 700; }
+          .meta-box { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 18px; }
+          .tables-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th { background: #f1f5f9; text-align: left; padding: 6px 8px; border-bottom: 2px solid #cbd5e1; font-weight: 800; font-size: 11px; }
+          td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; }
+          .total-box { background: #eff6ff; border: 2px solid #3b82f6; border-radius: 10px; padding: 12px; text-align: center; margin-bottom: 25px; }
+          .total-title { font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+          .total-val { font-size: 22px; font-weight: 900; color: #1d4ed8; margin-top: 4px; }
+          .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; text-align: center; font-size: 11px; }
+          .sig-line { border-top: 1px solid #000; margin-top: 35px; padding-top: 5px; font-weight: 700; }
+          .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 800; margin-top: 6px; }
+          .badge-approved { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+          .badge-draft { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+          @media print { body { padding: 0; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 class="title">ABATTE PELUQUERÍA / PLAN BEAUTY RD</h1>
+          <p class="subtitle">VOLANTE OFICIAL DE PAGO DE NÓMINA · ${period?.period_name || 'Octubre 2026'}</p>
+          <div class="badge ${employeeSlip.isDraft ? 'badge-draft' : 'badge-approved'}">
+            ${employeeSlip.isDraft ? '● EN PREPARACIÓN / BORRADOR' : '✓ NÓMINA APROBADA E INMUTABLE'}
+          </div>
+        </div>
+
+        <div class="meta-box">
+          <div><strong>Colaborador:</strong> ${item.employee_name}</div>
+          <div><strong>Posición:</strong> ${item.posicion || 'Colaborador'}</div>
+          <div><strong>ID / Ficha:</strong> #${item.employee_id}</div>
+          <div><strong>Sucursal:</strong> ${item.sucursal || 'Principal'}</div>
+          <div><strong>Período:</strong> ${period?.start_date || ''} al ${period?.end_date || ''}</div>
+          <div><strong>Fecha Emisión:</strong> ${new Date().toLocaleDateString('es-DO')}</div>
+        </div>
+
+        <div class="tables-grid">
+          <div>
+            <table>
+              <thead><tr><th>INGRESOS</th><th style="text-align: right;">RD$</th></tr></thead>
+              <tbody>
+                <tr><td>Salario Fijo Quincenal</td><td style="text-align: right;">${Number(item.salario_fijo || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Comisiones por Servicios</td><td style="text-align: right;">${Number(item.comisiones || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Horas Extras</td><td style="text-align: right;">${Number(item.horas_extras || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Día de Descanso Laborado</td><td style="text-align: right;">${Number(item.descanso || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Feriados Trabajados</td><td style="text-align: right;">${Number(item.feriados || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Otros Ingresos / Bonos</td><td style="text-align: right;">${Number(item.otros_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr style="font-weight: bold; background: #f0fdf4;"><td>TOTAL INGRESOS</td><td style="text-align: right; color: #16a34a;">RD$ ${Number(item.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div>
+            <table>
+              <thead><tr><th>DESCUENTOS</th><th style="text-align: right;">RD$</th></tr></thead>
+              <tbody>
+                <tr><td>TSS (Seguro / AFP 5.91%)</td><td style="text-align: right;">${Number(item.tss || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Servicios / Consumos Salón</td><td style="text-align: right;">${Number(item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Préstamos y Anticipos</td><td style="text-align: right;">${Number(item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Ausencias</td><td style="text-align: right;">${Number(item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Tardanzas</td><td style="text-align: right;">${Number(item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Otros Descuentos</td><td style="text-align: right;">${Number(item.otros_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr style="font-weight: bold; background: #fef2f2;"><td>TOTAL DESCUENTOS</td><td style="text-align: right; color: #dc2626;">RD$ ${Number(item.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="total-box">
+          <div class="total-title">MONTO NETO A DESEMBOLSAR</div>
+          <div class="total-val">RD$ ${Number(item.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+        </div>
+
+        <div class="signatures">
+          <div>
+            <div class="sig-line">Firma del Colaborador</div>
+            <div>${item.employee_name}</div>
+          </div>
+          <div>
+            <div class="sig-line">Por la Administración</div>
+            <div>ABATTE PELUQUERÍA / RRHH</div>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+    printWin.document.write(content);
+    printWin.document.close();
   };
 
   // Temporizador de 10 minutos para la pantalla de comisiones
@@ -739,8 +888,8 @@ const AttendanceKiosk = () => {
                     {emp.rol || 'Empleado'}
                   </span>
 
-                  {/* Two action buttons */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', width: '100%' }}>
+                  {/* Three action buttons: Asistencia + Comisiones + Volante */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem', width: '100%' }}>
                     {/* Asistencia Button */}
                     <button
                       onClick={async () => {
@@ -756,14 +905,14 @@ const AttendanceKiosk = () => {
                         startCamera();
                       }}
                       style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem',
-                        padding: '0.6rem 0.4rem',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem',
+                        padding: '0.55rem 0.35rem',
                         background: 'rgba(16,185,129,0.12)',
                         border: '1px solid rgba(16,185,129,0.35)',
                         borderRadius: '10px',
                         cursor: 'pointer',
                         color: '#10b981',
-                        fontSize: '0.65rem',
+                        fontSize: '0.62rem',
                         fontWeight: 800,
                         transition: 'all 0.15s ease',
                         textTransform: 'uppercase'
@@ -771,22 +920,22 @@ const AttendanceKiosk = () => {
                       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.25)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.12)'; }}
                     >
-                      <Clock size={16} />
-                      Asistencia
+                      <Clock size={15} />
+                      Asistir
                     </button>
 
                     {/* Comisiones Button */}
                     <button
-                      onClick={() => handleStartCommissionMode(emp)}
+                      onClick={() => handleStartCommissionMode(emp, 'commissions')}
                       style={{
-                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem',
-                        padding: '0.6rem 0.4rem',
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem',
+                        padding: '0.55rem 0.35rem',
                         background: 'rgba(139,92,246,0.12)',
                         border: '1px solid rgba(139,92,246,0.35)',
                         borderRadius: '10px',
                         cursor: 'pointer',
                         color: '#a78bfa',
-                        fontSize: '0.65rem',
+                        fontSize: '0.62rem',
                         fontWeight: 800,
                         transition: 'all 0.15s ease',
                         textTransform: 'uppercase'
@@ -794,8 +943,31 @@ const AttendanceKiosk = () => {
                       onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.25)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139,92,246,0.12)'; }}
                     >
-                      <TrendingUp size={16} />
-                      Comisiones
+                      <TrendingUp size={15} />
+                      Comisión
+                    </button>
+
+                    {/* Volante de Pago Button */}
+                    <button
+                      onClick={() => handleStartCommissionMode(emp, 'slip')}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem',
+                        padding: '0.55rem 0.35rem',
+                        background: 'rgba(59,130,246,0.12)',
+                        border: '1px solid rgba(59,130,246,0.35)',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        color: '#60a5fa',
+                        fontSize: '0.62rem',
+                        fontWeight: 800,
+                        transition: 'all 0.15s ease',
+                        textTransform: 'uppercase'
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.25)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.12)'; }}
+                    >
+                      <FileText size={15} />
+                      Volante
                     </button>
                   </div>
                 </div>
@@ -1162,7 +1334,9 @@ const AttendanceKiosk = () => {
                 : <User size={30} color="#71717a" />}
             </div>
             <h4 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>{selectedEmployee.nombre}</h4>
-            <p style={{ fontSize: '0.8rem', color: '#a1a1aa', margin: '0.35rem 0 0 0' }}>Consulta de Comisiones</p>
+            <p style={{ fontSize: '0.8rem', color: '#a1a1aa', margin: '0.35rem 0 0 0' }}>
+              {kioskViewTab === 'slip' ? 'Consulta de Volante de Pago' : 'Consulta de Comisiones'}
+            </p>
           </div>
 
           {commissionPinSent || directPinMode ? (
@@ -1201,9 +1375,9 @@ const AttendanceKiosk = () => {
                 <button
                   onClick={handleVerifyCommissionPin}
                   disabled={commissionPinVerifying || commissionPin.length < 4}
-                  style={{ height: '46px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 800, cursor: commissionPin.length < 4 ? 'not-allowed' : 'pointer', opacity: commissionPin.length < 4 ? 0.5 : 1 }}
+                  style={{ height: '46px', background: kioskViewTab === 'slip' ? '#3b82f6' : '#8b5cf6', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 800, cursor: commissionPin.length < 4 ? 'not-allowed' : 'pointer', opacity: commissionPin.length < 4 ? 0.5 : 1 }}
                 >
-                  {commissionPinVerifying ? '⏳ Verificando...' : 'Ver Mis Comisiones'}
+                  {commissionPinVerifying ? '⏳ Verificando...' : (kioskViewTab === 'slip' ? 'Ver Mi Volante' : 'Ver Mis Comisiones')}
                 </button>
               </div>
 
@@ -1312,9 +1486,9 @@ const AttendanceKiosk = () => {
         </div>
       )}
 
-      {/* Step 5: Commission Results */}
+      {/* Step 5: Commission & Payslip Results */}
       {step === 5 && selectedEmployee && (
-        <div style={{ maxWidth: '640px', width: '100%', margin: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <div style={{ maxWidth: '680px', width: '100%', margin: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Header with 10-minute safety countdown */}
           <div style={{ background: '#18181b', border: '1px solid #3f3f46', padding: '1.25rem 1.5rem', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <div style={{ width: '52px', height: '52px', borderRadius: '50%', overflow: 'hidden', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #8b5cf6', flexShrink: 0 }}>
@@ -1324,8 +1498,8 @@ const AttendanceKiosk = () => {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <p style={{ fontSize: '0.65rem', color: '#a78bfa', fontWeight: 800, textTransform: 'uppercase', margin: 0 }}>
-                  Consulta de Comisiones
+                <p style={{ fontSize: '0.65rem', color: kioskViewTab === 'slip' ? '#60a5fa' : '#a78bfa', fontWeight: 800, textTransform: 'uppercase', margin: 0 }}>
+                  {kioskViewTab === 'slip' ? 'Volante Oficial de Pago' : 'Consulta de Comisiones'}
                 </p>
                 <span style={{ 
                   background: commissionRemainingSeconds < 60 ? 'rgba(239,68,68,0.2)' : 'rgba(139,92,246,0.15)', 
@@ -1344,9 +1518,49 @@ const AttendanceKiosk = () => {
               </div>
               <h4 style={{ fontSize: '1.15rem', fontWeight: 900, color: '#ffffff', margin: '0.2rem 0 0 0' }}>{selectedEmployee.nombre}</h4>
             </div>
-            <div style={{ background: 'rgba(139,92,246,0.15)', padding: '0.6rem', borderRadius: '12px' }}>
-              <TrendingUp size={22} color="#a78bfa" />
+            <div style={{ background: kioskViewTab === 'slip' ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', padding: '0.6rem', borderRadius: '12px' }}>
+              {kioskViewTab === 'slip' ? <FileText size={22} color="#60a5fa" /> : <TrendingUp size={22} color="#a78bfa" />}
             </div>
+          </div>
+
+          {/* Segmented Switcher: [ Mis Comisiones ] | [ Mi Volante de Pago ] */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', background: '#18181b', padding: '6px', borderRadius: '14px', border: '1px solid #27272a' }}>
+            <button
+              type="button"
+              onClick={() => setKioskViewTab('commissions')}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
+                padding: '0.7rem',
+                borderRadius: '10px',
+                border: 'none',
+                background: kioskViewTab === 'commissions' ? '#8b5cf6' : 'transparent',
+                color: kioskViewTab === 'commissions' ? '#ffffff' : '#a1a1aa',
+                fontWeight: 800,
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <TrendingUp size={16} /> Mis Comisiones
+            </button>
+            <button
+              type="button"
+              onClick={() => setKioskViewTab('slip')}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
+                padding: '0.7rem',
+                borderRadius: '10px',
+                border: 'none',
+                background: kioskViewTab === 'slip' ? '#3b82f6' : 'transparent',
+                color: kioskViewTab === 'slip' ? '#ffffff' : '#a1a1aa',
+                fontWeight: 800,
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <FileText size={16} /> Mi Volante de Pago
+            </button>
           </div>
 
           {/* Quincenas Tabs (Selector de Cortes) */}
@@ -1370,9 +1584,9 @@ const AttendanceKiosk = () => {
                     onClick={() => handleSelectQuincena(period.key)}
                     style={{
                       padding: '0.65rem 0.5rem',
-                      background: isSelected ? '#8b5cf6' : '#27272a',
+                      background: isSelected ? (kioskViewTab === 'slip' ? '#3b82f6' : '#8b5cf6') : '#27272a',
                       color: isSelected ? '#ffffff' : '#d4d4d8',
-                      border: isSelected ? '1px solid #a78bfa' : '1px solid #3f3f46',
+                      border: isSelected ? (kioskViewTab === 'slip' ? '1px solid #60a5fa' : '1px solid #a78bfa') : '1px solid #3f3f46',
                       borderRadius: '12px',
                       cursor: 'pointer',
                       fontSize: '0.75rem',
@@ -1390,7 +1604,7 @@ const AttendanceKiosk = () => {
                       {period.key.endsWith('Q1') ? '1 al 15' : '16 a Fin'}
                     </span>
                     {period.isCurrent ? (
-                      <span style={{ fontSize: '0.6rem', background: isSelected ? '#ffffff' : 'rgba(16,185,129,0.2)', color: isSelected ? '#7c3aed' : '#34d399', fontWeight: 900, padding: '1px 6px', borderRadius: '8px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.6rem', background: isSelected ? '#ffffff' : 'rgba(16,185,129,0.2)', color: isSelected ? (kioskViewTab === 'slip' ? '#1d4ed8' : '#7c3aed') : '#34d399', fontWeight: 900, padding: '1px 6px', borderRadius: '8px', marginTop: '2px' }}>
                         En curso
                       </span>
                     ) : period.isFuture ? (
@@ -1408,52 +1622,216 @@ const AttendanceKiosk = () => {
             </div>
           </div>
 
-          {/* Commissions List */}
-          <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: '20px', overflow: 'hidden' }}>
-            {commissionLoading ? (
-              <div style={{ padding: '3rem', textAlign: 'center' }}>
-                <RefreshCw size={24} color="#8b5cf6" style={{ animation: 'spin 1.5s linear infinite', margin: '0 auto 0.75rem', display: 'block' }} />
-                <p style={{ color: '#71717a', fontSize: '0.85rem' }}>Cargando comisiones del período...</p>
-              </div>
-            ) : employeeCommissions.length === 0 ? (
-              <div style={{ padding: '3rem', textAlign: 'center' }}>
-                <DollarSign size={36} color="#3f3f46" style={{ margin: '0 auto 1rem', display: 'block' }} />
-                <p style={{ color: '#71717a', fontSize: '0.9rem', fontWeight: 700 }}>No hay comisiones registradas</p>
-                <p style={{ color: '#52525b', fontSize: '0.78rem', marginTop: '0.25rem' }}>en este período de corte seleccionado.</p>
-              </div>
-            ) : (
-              <>
-                {/* Total summary */}
-                <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #27272a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(139,92,246,0.06)' }}>
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: '#a1a1aa', fontWeight: 800, textTransform: 'uppercase' }}>Total Acumulado en el Corte</span>
-                    <p style={{ fontSize: '0.68rem', color: '#71717a', margin: '2px 0 0' }}>{employeeCommissions.length} servicio(s) comisionado(s)</p>
-                  </div>
-                  <span style={{ fontSize: '1.4rem', fontWeight: 900, color: '#a78bfa' }}>
-                    RD$ {employeeCommissions.reduce((sum, c) => sum + (Number(c.monto_comision || c.amount || c.commission_amount || 0)), 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                  </span>
+          {/* TAB 1: COMMISSIONS VIEW */}
+          {kioskViewTab === 'commissions' && (
+            <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: '20px', overflow: 'hidden' }}>
+              {commissionLoading ? (
+                <div style={{ padding: '3rem', textAlign: 'center' }}>
+                  <RefreshCw size={24} color="#8b5cf6" style={{ animation: 'spin 1.5s linear infinite', margin: '0 auto 0.75rem', display: 'block' }} />
+                  <p style={{ color: '#71717a', fontSize: '0.85rem' }}>Cargando comisiones del período...</p>
                 </div>
-                {/* Commission rows */}
-                <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
-                  {employeeCommissions.map((comm, idx) => (
-                    <div key={idx} style={{ padding: '0.85rem 1.5rem', borderBottom: idx < employeeCommissions.length - 1 ? '1px solid #27272a' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>
-                          {comm.service_name || comm.servicio || comm.description || 'Servicio'}
-                        </p>
-                        <p style={{ fontSize: '0.7rem', color: '#71717a', margin: '0.15rem 0 0' }}>
-                          {comm.client_name || comm.cliente || comm.ticket_number || ''} • {(comm.created_at || comm.date) ? new Date(comm.created_at || comm.date).toLocaleDateString('es-DO') : ''}
-                        </p>
+              ) : employeeCommissions.length === 0 ? (
+                <div style={{ padding: '3rem', textAlign: 'center' }}>
+                  <DollarSign size={36} color="#3f3f46" style={{ margin: '0 auto 1rem', display: 'block' }} />
+                  <p style={{ color: '#71717a', fontSize: '0.9rem', fontWeight: 700 }}>No hay comisiones registradas</p>
+                  <p style={{ color: '#52525b', fontSize: '0.78rem', marginTop: '0.25rem' }}>en este período de corte seleccionado.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Total summary */}
+                  <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #27272a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(139,92,246,0.06)' }}>
+                    <div>
+                      <span style={{ fontSize: '0.72rem', color: '#a1a1aa', fontWeight: 800, textTransform: 'uppercase' }}>Total Acumulado en el Corte</span>
+                      <p style={{ fontSize: '0.68rem', color: '#71717a', margin: '2px 0 0' }}>{employeeCommissions.length} servicio(s) comisionado(s)</p>
+                    </div>
+                    <span style={{ fontSize: '1.4rem', fontWeight: 900, color: '#a78bfa' }}>
+                      RD$ {employeeCommissions.reduce((sum, c) => sum + (Number(c.monto_comision || c.amount || c.commission_amount || 0)), 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  {/* Commission rows */}
+                  <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                    {employeeCommissions.map((comm, idx) => (
+                      <div key={idx} style={{ padding: '0.85rem 1.5rem', borderBottom: idx < employeeCommissions.length - 1 ? '1px solid #27272a' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <p style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>
+                            {comm.service_name || comm.servicio || comm.description || 'Servicio'}
+                          </p>
+                          <p style={{ fontSize: '0.7rem', color: '#71717a', margin: '0.15rem 0 0' }}>
+                            {comm.client_name || comm.cliente || comm.ticket_number || ''} • {(comm.created_at || comm.date) ? new Date(comm.created_at || comm.date).toLocaleDateString('es-DO') : ''}
+                          </p>
+                        </div>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#4ade80' }}>
+                          +RD$ {Number(comm.monto_comision || comm.amount || comm.commission_amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        </span>
                       </div>
-                      <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#4ade80' }}>
-                        +RD$ {Number(comm.monto_comision || comm.amount || comm.commission_amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* TAB 2: PAYSLIP VIEW (VOLANTE DE PAGO) */}
+          {kioskViewTab === 'slip' && (
+            <div style={{ background: '#18181b', border: '1px solid #27272a', borderRadius: '20px', overflow: 'hidden' }}>
+              {slipLoading ? (
+                <div style={{ padding: '3.5rem', textAlign: 'center' }}>
+                  <RefreshCw size={26} color="#3b82f6" style={{ animation: 'spin 1.5s linear infinite', margin: '0 auto 0.75rem', display: 'block' }} />
+                  <p style={{ color: '#71717a', fontSize: '0.85rem' }}>Calculando volante de pago de la quincena...</p>
+                </div>
+              ) : !employeeSlip || !employeeSlip.item ? (
+                <div style={{ padding: '3rem', textAlign: 'center' }}>
+                  <FileText size={36} color="#3f3f46" style={{ margin: '0 auto 1rem', display: 'block' }} />
+                  <p style={{ color: '#71717a', fontSize: '0.9rem', fontWeight: 700 }}>No hay cálculo de nómina disponible</p>
+                  <p style={{ color: '#52525b', fontSize: '0.78rem', marginTop: '0.25rem' }}>{slipError || 'Este período aún no cuenta con registros de nómina calculados.'}</p>
+                </div>
+              ) : (
+                <div style={{ padding: '1.25rem' }}>
+                  {/* Status Banner & Action */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{
+                        padding: '3px 9px',
+                        borderRadius: '20px',
+                        fontSize: '0.68rem',
+                        fontWeight: 900,
+                        background: employeeSlip.isDraft ? 'rgba(234,179,8,0.15)' : 'rgba(16,185,129,0.15)',
+                        color: employeeSlip.isDraft ? '#facc15' : '#4ade80',
+                        border: employeeSlip.isDraft ? '1px solid rgba(234,179,8,0.3)' : '1px solid rgba(16,185,129,0.3)'
+                      }}>
+                        {employeeSlip.isDraft ? '● EN CURSO (BORRADOR EN VIVO)' : '✓ NÓMINA APROBADA'}
+                      </span>
+                      <span style={{ fontSize: '0.72rem', color: '#71717a' }}>
+                        {employeeSlip.period?.period_name}
                       </span>
                     </div>
-                  ))}
+
+                    <button
+                      type="button"
+                      onClick={handlePrintKioskSlip}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '0.45rem 0.85rem',
+                        background: '#2563eb',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '10px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <Printer size={13} /> Imprimir Volante
+                    </button>
+                  </div>
+
+                  {/* Net Pay Highlight Card */}
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(30,58,138,0.4) 0%, rgba(15,23,42,0.6) 100%)',
+                    border: '1px solid rgba(59,130,246,0.35)',
+                    borderRadius: '16px',
+                    padding: '1.25rem 1.5rem',
+                    textAlign: 'center',
+                    marginBottom: '1.25rem'
+                  }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#93c5fd', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Monto Neto a Recibir
+                    </span>
+                    <div style={{ fontSize: '2.1rem', fontWeight: 900, color: '#ffffff', marginTop: '0.2rem', fontFamily: 'monospace' }}>
+                      RD$ {Number(employeeSlip.item.neto_pagar || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem', marginTop: '0.5rem', fontSize: '0.75rem', color: '#cbd5e1' }}>
+                      <span>Ingresos: <strong style={{ color: '#4ade80' }}>RD$ {Number(employeeSlip.item.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong></span>
+                      <span>•</span>
+                      <span>Descuentos: <strong style={{ color: '#f87171' }}>RD$ {Number(employeeSlip.item.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Dual Grid Breakdown */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                    {/* Ingresos Box */}
+                    <div style={{ background: '#09090b', border: '1px solid #27272a', borderRadius: '14px', padding: '1rem' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#4ade80', textTransform: 'uppercase', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>(+) Ingresos</span>
+                        <span>Monto</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.8rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Salario Fijo Quincenal</span>
+                          <strong>RD$ {Number(employeeSlip.item.salario_fijo || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Comisiones Servicios</span>
+                          <strong>RD$ {Number(employeeSlip.item.comisiones || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Horas Extras</span>
+                          <strong>RD$ {Number(employeeSlip.item.horas_extras || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Día de Descanso Laborado</span>
+                          <strong style={{ color: '#38bdf8' }}>RD$ {Number(employeeSlip.item.descanso || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Feriados Trabajados</span>
+                          <strong>RD$ {Number(employeeSlip.item.feriados || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Otros Ingresos / Bonos</span>
+                          <strong>RD$ {Number(employeeSlip.item.otros_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #27272a', paddingTop: '0.5rem', marginTop: '0.2rem', color: '#4ade80', fontWeight: 800 }}>
+                          <span>Total Ingresos</span>
+                          <span>RD$ {Number(employeeSlip.item.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Descuentos Box */}
+                    <div style={{ background: '#09090b', border: '1px solid #27272a', borderRadius: '14px', padding: '1rem' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#f87171', textTransform: 'uppercase', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>(-) Descuentos</span>
+                        <span>Monto</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.8rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>TSS Ley (5.91%)</span>
+                          <strong>RD$ {Number(employeeSlip.item.tss || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Servicios de Salón</span>
+                          <strong>RD$ {Number(employeeSlip.item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Préstamos / Anticipos</span>
+                          <strong>RD$ {Number(employeeSlip.item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Ausencias</span>
+                          <strong>RD$ {Number(employeeSlip.item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Tardanzas</span>
+                          <strong>RD$ {Number(employeeSlip.item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
+                          <span>Otros Descuentos</span>
+                          <strong>RD$ {Number(employeeSlip.item.otros_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #27272a', paddingTop: '0.5rem', marginTop: '0.2rem', color: '#f87171', fontWeight: 800 }}>
+                          <span>Total Descuentos</span>
+                          <span>RD$ {Number(employeeSlip.item.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           <button
             onClick={handleCancelKiosk}

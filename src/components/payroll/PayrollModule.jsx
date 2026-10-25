@@ -120,6 +120,7 @@ export default function PayrollModule({ initialTab }) {
       comisiones: true,
       feriados: true,
       horas_extras: true,
+      descanso: true,
       otros_ingresos: true,
       total_ingresos: true,
       tss: true,
@@ -150,6 +151,7 @@ export default function PayrollModule({ initialTab }) {
       comisiones: val,
       feriados: val,
       horas_extras: val,
+      descanso: val,
       otros_ingresos: val,
       total_ingresos: true,
       tss: val,
@@ -173,6 +175,7 @@ export default function PayrollModule({ initialTab }) {
       comisiones: true,
       feriados: false,
       horas_extras: false,
+      descanso: false,
       otros_ingresos: false,
       total_ingresos: true,
       tss: true,
@@ -196,6 +199,7 @@ export default function PayrollModule({ initialTab }) {
       comisiones: true,
       feriados: true,
       horas_extras: true,
+      descanso: true,
       otros_ingresos: false,
       total_ingresos: true,
       tss: false,
@@ -219,6 +223,7 @@ export default function PayrollModule({ initialTab }) {
       comisiones: true,
       feriados: false,
       horas_extras: false,
+      descanso: false,
       otros_ingresos: false,
       total_ingresos: true,
       tss: true,
@@ -263,6 +268,7 @@ export default function PayrollModule({ initialTab }) {
     if (visibleColumns.comisiones) headers.push('Comisiones');
     if (visibleColumns.feriados) headers.push('Feriados');
     if (visibleColumns.horas_extras) headers.push('Horas Extras');
+    if (visibleColumns.descanso) headers.push('Descanso');
     if (visibleColumns.otros_ingresos) headers.push('Otros Ingresos');
     if (visibleColumns.total_ingresos) headers.push('Total Ingresos');
     if (visibleColumns.tss) headers.push('TSS Ley');
@@ -285,6 +291,7 @@ export default function PayrollModule({ initialTab }) {
       if (visibleColumns.comisiones) row.push(parseFloat(item.comisiones || 0).toFixed(2));
       if (visibleColumns.feriados) row.push(parseFloat(item.feriados || 0).toFixed(2));
       if (visibleColumns.horas_extras) row.push(parseFloat(item.horas_extras || 0).toFixed(2));
+      if (visibleColumns.descanso) row.push(parseFloat(item.descanso || 0).toFixed(2));
       if (visibleColumns.otros_ingresos) row.push(parseFloat(item.otros_ingresos || 0).toFixed(2));
       if (visibleColumns.total_ingresos) row.push(parseFloat(item.total_ingresos || 0).toFixed(2));
       if (visibleColumns.tss) row.push(parseFloat(item.tss || 0).toFixed(2));
@@ -304,6 +311,7 @@ export default function PayrollModule({ initialTab }) {
     if (visibleColumns.comisiones) totalsRow.push(filteredItems.reduce((acc, it) => acc + Number(it.comisiones || 0), 0).toFixed(2));
     if (visibleColumns.feriados) totalsRow.push(filteredItems.reduce((acc, it) => acc + Number(it.feriados || 0), 0).toFixed(2));
     if (visibleColumns.horas_extras) totalsRow.push(filteredItems.reduce((acc, it) => acc + Number(it.horas_extras || 0), 0).toFixed(2));
+    if (visibleColumns.descanso) totalsRow.push(filteredItems.reduce((acc, it) => acc + Number(it.descanso || 0), 0).toFixed(2));
     if (visibleColumns.otros_ingresos) totalsRow.push(filteredItems.reduce((acc, it) => acc + Number(it.otros_ingresos || 0), 0).toFixed(2));
     if (visibleColumns.total_ingresos) totalsRow.push(filteredItems.reduce((acc, it) => acc + Number(it.total_ingresos || 0), 0).toFixed(2));
     if (visibleColumns.tss) totalsRow.push(filteredItems.reduce((acc, it) => acc + Number(it.tss || 0), 0).toFixed(2));
@@ -647,6 +655,7 @@ export default function PayrollModule({ initialTab }) {
       parseFloat(copy.comisiones || 0) +
       parseFloat(copy.feriados || 0) +
       parseFloat(copy.horas_extras || 0) +
+      parseFloat(copy.descanso || 0) +
       parseFloat(copy.otros_ingresos || 0)
     );
 
@@ -703,6 +712,7 @@ export default function PayrollModule({ initialTab }) {
       parseFloat(copy.comisiones || 0) +
       parseFloat(copy.feriados || 0) +
       parseFloat(copy.horas_extras || 0) +
+      parseFloat(copy.descanso || 0) +
       parseFloat(copy.otros_ingresos || 0)
     );
 
@@ -868,6 +878,7 @@ export default function PayrollModule({ initialTab }) {
         parseFloat(copy.comisiones || 0) +
         parseFloat(copy.feriados || 0) +
         parseFloat(copy.horas_extras || 0) +
+        parseFloat(copy.descanso || 0) +
         parseFloat(copy.otros_ingresos || 0)
       );
 
@@ -1021,7 +1032,7 @@ export default function PayrollModule({ initialTab }) {
 
   // Totales y Desglose para el Modal de Resumen y KPIs
   const summaryData = useMemo(() => {
-    let totSalario = 0, totComisiones = 0, totFeriados = 0, totHorasExtras = 0, totOtrosIng = 0;
+    let totSalario = 0, totComisiones = 0, totFeriados = 0, totHorasExtras = 0, totDescanso = 0, totOtrosIng = 0;
     let totTss = 0, totServicios = 0, totPrestamos = 0, totAusencias = 0, totTardanzas = 0, totOtrosDesc = 0;
 
     items.forEach(it => {
@@ -1029,6 +1040,7 @@ export default function PayrollModule({ initialTab }) {
       totComisiones += parseFloat(it.comisiones || 0);
       totFeriados += parseFloat(it.feriados || 0);
       totHorasExtras += parseFloat(it.horas_extras || 0);
+      totDescanso += parseFloat(it.descanso || 0);
       totOtrosIng += parseFloat(it.otros_ingresos || 0);
 
       totTss += parseFloat(it.tss || 0);
@@ -1039,7 +1051,7 @@ export default function PayrollModule({ initialTab }) {
       totOtrosDesc += parseFloat(it.otros_descuentos || 0);
     });
 
-    const totalIngresos = totSalario + totComisiones + totFeriados + totHorasExtras + totOtrosIng;
+    const totalIngresos = totSalario + totComisiones + totFeriados + totHorasExtras + totDescanso + totOtrosIng;
     const totalDescuentos = totTss + totServicios + totPrestamos + totAusencias + totTardanzas + totOtrosDesc;
     const totalNeto = totalIngresos - totalDescuentos;
 
@@ -1050,6 +1062,7 @@ export default function PayrollModule({ initialTab }) {
       { label: 'Salario fijo', monto: totSalario, color: '#0066ff' },
       { label: 'Comisiones', monto: totComisiones, color: '#00b4d8' },
       { label: 'Horas extras', monto: totHorasExtras, color: '#48cae4' },
+      { label: 'Día de descanso', monto: totDescanso, color: '#06b6d4' },
       { label: 'Feriados', monto: totFeriados, color: '#805ad5' },
       { label: 'Otros ingresos / Bonos', monto: totOtrosIng, color: '#6b46c1' }
     ].map(item => ({
@@ -1130,6 +1143,7 @@ export default function PayrollModule({ initialTab }) {
                 <tr><td>Salario Fijo (Quincenal)</td><td style="text-align: right;">${parseFloat(item.salario_fijo).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Comisiones por Servicios</td><td style="text-align: right;">${parseFloat(item.comisiones).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Horas Extras</td><td style="text-align: right;">${parseFloat(item.horas_extras).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Día de Descanso Laborado</td><td style="text-align: right;">${parseFloat(item.descanso || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Feriados Trabajados</td><td style="text-align: right;">${parseFloat(item.feriados).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Otros Ingresos / Bonos</td><td style="text-align: right;">${parseFloat(item.otros_ingresos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr style="font-weight: bold; background: #f0fdf4;"><td>TOTAL INGRESOS</td><td style="text-align: right; color: #16a34a;">RD$ ${parseFloat(item.total_ingresos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
@@ -1695,6 +1709,7 @@ export default function PayrollModule({ initialTab }) {
                           { key: 'comisiones', label: 'Comisiones' },
                           { key: 'feriados', label: 'Feriados' },
                           { key: 'horas_extras', label: 'H. Extras' },
+                          { key: 'descanso', label: 'Descanso' },
                           { key: 'otros_ingresos', label: 'Otros Ing.' },
                           { key: 'total_ingresos', label: 'Total Ingresos' }
                         ].map(col => (
@@ -1885,6 +1900,7 @@ export default function PayrollModule({ initialTab }) {
               visibleColumns.comisiones,
               visibleColumns.feriados,
               visibleColumns.horas_extras,
+              visibleColumns.descanso,
               visibleColumns.otros_ingresos,
               visibleColumns.total_ingresos
             ].filter(Boolean).length;
@@ -1964,6 +1980,7 @@ export default function PayrollModule({ initialTab }) {
                         {visibleColumns.comisiones && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderBottom: '2px solid #e2e8f0' }}>Comisiones</th>}
                         {visibleColumns.feriados && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderBottom: '2px solid #e2e8f0' }}>Feriados</th>}
                         {visibleColumns.horas_extras && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderBottom: '2px solid #e2e8f0' }}>H. Extras</th>}
+                        {visibleColumns.descanso && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderBottom: '2px solid #e2e8f0' }}>Descanso</th>}
                         {visibleColumns.otros_ingresos && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderBottom: '2px solid #e2e8f0' }}>Otros Ing.</th>}
                         {visibleColumns.total_ingresos && <th style={{ background: '#eff6ff', padding: '0.6rem 0.75rem', textAlign: 'right', fontWeight: 900, color: '#1d4ed8', borderRight: '1px solid #dbeafe', borderBottom: '2px solid #e2e8f0' }}>Total Ingresos</th>}
 
@@ -2088,6 +2105,11 @@ export default function PayrollModule({ initialTab }) {
                             {visibleColumns.horas_extras && (
                               <td style={{ padding: '0.85rem 0.75rem', textAlign: 'right', color: '#334155', borderBottom: '1px solid #f1f5f9', fontVariantNumeric: 'tabular-nums' }}>
                                 {parseFloat(item.horas_extras || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </td>
+                            )}
+                            {visibleColumns.descanso && (
+                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'right', color: '#334155', borderBottom: '1px solid #f1f5f9', fontVariantNumeric: 'tabular-nums' }}>
+                                {parseFloat(item.descanso || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                               </td>
                             )}
                             {visibleColumns.otros_ingresos && (
@@ -2597,6 +2619,7 @@ export default function PayrollModule({ initialTab }) {
                       { label: 'Comisiones por Servicios', key: 'comisiones' },
                       { label: 'Feriados Trabajados', key: 'feriados' },
                       { label: 'Horas Extras', key: 'horas_extras' },
+                      { label: 'Día de Descanso Laborado', key: 'descanso' },
                       { label: 'Otros Ingresos / Bonos', key: 'otros_ingresos' }
                     ].map(field => (
                       <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -2636,6 +2659,25 @@ export default function PayrollModule({ initialTab }) {
                                   handleUpdateConceptValue('ingreso', 'horas_extras', (curr + h * rate).toFixed(2));
                                 }}
                                 style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                +{h}h
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {field.key === 'descanso' && currentPeriod?.status !== 'Aprobada' && (
+                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.68rem', color: '#0891b2', fontWeight: 700 }}>Hora Regular (100%):</span>
+                            {[4, 8].map(h => (
+                              <button
+                                key={h}
+                                type="button"
+                                onClick={() => {
+                                  const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
+                                  const curr = parseFloat(editingItem.descanso || 0);
+                                  handleUpdateConceptValue('ingreso', 'descanso', (curr + h * rate).toFixed(2));
+                                }}
+                                style={{ background: '#ecfeff', border: '1px solid #a5f3fc', color: '#0e7490', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
                               >
                                 +{h}h
                               </button>

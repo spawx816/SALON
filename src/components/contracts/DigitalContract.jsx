@@ -533,8 +533,9 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
   const handleRequestCode = async (contract, type) => {
     try {
       setActionModal({ ...actionModal, loading: true });
-      await dataService.requestContractCode(contract.id, type);
-      setActionModal({ open: true, contract, type, code: '', loading: false });
+      const res = await dataService.requestContractCode(contract.id, type);
+      const activeCode = res?.code || null;
+      setActionModal({ open: true, contract, type, code: '', activeCode, loading: false });
       showNotification(`Código de verificación enviado al correo de ${contract.clientName}`, 'info');
     } catch (err) {
       showNotification(err.message, 'error');
@@ -1534,6 +1535,49 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
             Ingrese el código de 6 dígitos enviado al correo de <strong>{actionModal.contract.clientName}</strong>.
           </p>
           
+          {/* Visualizador de Código para Administración */}
+          <div style={{ margin: '0 0 1.5rem', padding: '1.25rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '16px', textAlign: 'center' }}>
+            <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.4rem 0' }}>
+              🔑 Código de {actionModal.type === 'cancellation' ? 'Cancelación' : 'Autorización'}:
+            </p>
+            {actionModal.activeCode ? (
+              <div>
+                <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#1e40af', letterSpacing: '8px', fontFamily: 'monospace', margin: '0.25rem 0' }}>
+                  {actionModal.activeCode}
+                </div>
+                <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0.25rem 0 0.75rem 0' }}>
+                  Este código fue enviado al cliente y está disponible aquí para confirmar directamente.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActionModal(prev => ({ ...prev, code: prev.activeCode }))}
+                  style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  Autocompletar Código
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const cRes = await dataService.getActiveContractCode(actionModal.contract.id, actionModal.type);
+                    if (cRes && cRes.code) {
+                      setActionModal(prev => ({ ...prev, activeCode: cRes.code }));
+                    } else {
+                      showNotification('No hay código activo actualmente.', 'info');
+                    }
+                  } catch (e) {
+                    showNotification('Error al consultar código.', 'error');
+                  }
+                }}
+                style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                👁️ Visualizar código generado
+              </button>
+            )}
+          </div>
+
           <input 
             type="text" 
             maxLength="6"

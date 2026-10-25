@@ -831,11 +831,20 @@ const ClientProfile = () => {
   };
 
   const fetchActiveOTP = async () => {
-    const roleLower = user?.role?.toLowerCase();
-    if (roleLower !== 'admin' && roleLower !== 'administrador') return;
+    if (contract?.id) {
+      try {
+        const cRes = await dataService.getActiveContractCode(contract.id, 'cancellation');
+        if (cRes && cRes.code) {
+          setActiveOtpCode(cRes.code);
+          setActionModal(prev => ({ ...prev, activeCode: cRes.code }));
+          return;
+        }
+      } catch (e) {}
+    }
     const res = await dataService.getActiveOTP(client.id);
     if (res && res.code) {
       setActiveOtpCode(res.code);
+      setActionModal(prev => ({ ...prev, activeCode: res.code }));
     } else {
       showNotification("No hay código activo actualmente.", "info");
     }
@@ -887,8 +896,13 @@ const ClientProfile = () => {
     if (!contract) return;
     try {
       setActionModal({ ...actionModal, loading: true });
-      await dataService.requestContractCode(contract.id, 'cancellation');
-      setActionModal({ open: true, type: 'cancellation', code: '', loading: false });
+      const res = await dataService.requestContractCode(contract.id, 'cancellation');
+      const activeCode = res?.code || null;
+      setActionModal({ open: true, type: 'cancellation', code: '', activeCode, loading: false });
+      if (activeCode) {
+        setActiveOtpCode(activeCode);
+      }
+      showNotification(`Código de cancelación enviado al correo de ${client.nombre}`, 'info');
     } catch (err) {
       showNotification(err.message, 'error');
       setActionModal({ ...actionModal, loading: false });
@@ -3369,24 +3383,39 @@ const ClientProfile = () => {
               </button>
             </div>
 
-            {(user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador') && (
-              <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px dashed #e2e8f0' }}>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Acceso Administrativo:</p>
-                {activeOtpCode ? (
-                  <div style={{ background: '#f0f9ff', padding: '1rem', borderRadius: '12px', border: '1px solid #bae6fd' }}>
-                    <span style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0369a1', letterSpacing: '0.1em' }}>{activeOtpCode}</span>
-                    <p style={{ fontSize: '0.65rem', color: '#0369a1', marginTop: '0.25rem' }}>Use este código si el cliente no puede ver su correo.</p>
+            {/* Visualizador de Código de Cancelación */}
+            <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px dashed #e2e8f0' }}>
+              <div style={{ background: '#f0f9ff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #bae6fd', textAlign: 'center' }}>
+                <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.5rem 0' }}>
+                  🔑 Código de Cancelación:
+                </p>
+                {actionModal.activeCode || activeOtpCode ? (
+                  <div>
+                    <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#0284c7', letterSpacing: '8px', fontFamily: 'monospace', margin: '0.25rem 0' }}>
+                      {actionModal.activeCode || activeOtpCode}
+                    </div>
+                    <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0.25rem 0 0.75rem 0' }}>
+                      Este código fue enviado al correo y está visible aquí para agilizar la cancelación.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActionModal(prev => ({ ...prev, code: prev.activeCode || activeOtpCode }))}
+                      style={{ background: '#0284c7', color: 'white', border: 'none', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}
+                    >
+                      Autocompletar Código
+                    </button>
                   </div>
                 ) : (
                   <button 
+                    type="button"
                     onClick={fetchActiveOTP}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
+                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
                   >
-                    Visualizar código enviado
+                    👁️ Visualizar código de cancelación
                   </button>
                 )}
               </div>
-            )}
+            </div>
           </motion.div>
         </div>
       )}

@@ -712,10 +712,23 @@ function createAuthRouter(pool, helpers = {}) {
         [clientId]
       );
       if (rows && rows.length > 0) {
-        res.json(rows[0]);
-      } else {
-        res.status(404).json({ error: 'No hay código activo para este cliente.' });
+        return res.json(rows[0]);
       }
+
+      // Fallback: check if there is an active billing/cancellation code for any contract of this client
+      const [billingRows] = await pool.query(`
+        SELECT bc.code, bc.action_type, bc.expires_at, bc.created_at 
+        FROM billing_codes bc
+        JOIN contracts c ON bc.contract_id = c.id
+        WHERE c.client_id = ? AND bc.is_used = 0 AND bc.expires_at > NOW()
+        ORDER BY bc.id DESC LIMIT 1
+      `, [clientId]);
+
+      if (billingRows && billingRows.length > 0) {
+        return res.json(billingRows[0]);
+      }
+
+      res.status(404).json({ error: 'No hay código activo para este cliente.' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

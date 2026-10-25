@@ -60,6 +60,9 @@ function createPayrollRouter(pool) {
       try {
         await pool.query("ALTER TABLE payroll_calculation_settings ADD COLUMN aplicar_retencion_isr TINYINT(1) DEFAULT 0");
       } catch (e) {}
+      try {
+        await pool.query("ALTER TABLE payroll_items ADD COLUMN descanso DECIMAL(12,2) DEFAULT 0.00 AFTER horas_extras");
+      } catch (e) {}
 
       const [rows] = await pool.query('SELECT * FROM payroll_calculation_settings WHERE id = 1');
       if (rows.length === 0) {
@@ -339,6 +342,100 @@ function createPayrollRouter(pool) {
       };
     });
   }
+
+  // 1.1 Obtener volante de pago individual para un empleado en un período específico (o en tiempo real para la tableta)
+  router.get('/employee-slip', async (req, res) => {
+    try {
+      const { employee_id, start_date, end_date, period_id } = req.query;
+      if (!employee_id) {
+        return res.status(400).json({ error: 'employee_id es requerido' });
+      }
+
+      // Si se pasa un period_id numérico específico
+      if (period_id && period_id !== 'live_draft') {
+        const [periods] = await pool.query(
+          "SELECT id, period_name, DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(end_date, '%Y-%m-%d') as end_date, status, sucursal FROM payroll_periods WHERE id = ?",
+          [period_id]
+        );
+        if (periods.length > 0) {
+          const [items] = await pool.query(
+            "SELECT * FROM payroll_items WHERE payroll_id = ? AND (employee_id = ? OR employee_id = ? OR employee_name = ?) LIMIT 1",
+            [period_id, employee_id, `EMP-${employee_id}`, employee_id]
+          );
+          if (items.length > 0) {
+            const it = items[0];
+            return res.json({
+              success: true,
+              period: periods[0],
+              item: {
+                ...it,
+                detalles_json: typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {})
+              }
+            });
+          }
+        }
+      }
+
+      // Si se pasan fechas de inicio y fin (o buscar quincena)
+      const startDate = start_date || new Date().toISOString().slice(0, 7) + '-01';
+      const endDate = end_date || new Date().toISOString().slice(0, 10);
+
+      // Buscar si existe un período en DB para estas fechas exactas
+      const [existingPeriods] = await pool.query(
+        "SELECT id, period_name, DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(end_date, '%Y-%m-%d') as end_date, status, sucursal FROM payroll_periods WHERE start_date = ? AND end_date = ? ORDER BY id DESC LIMIT 1",
+        [startDate, endDate]
+      );
+
+      if (existingPeriods.length > 0) {
+        const p = existingPeriods[0];
+        const [items] = await pool.query(
+          "SELECT * FROM payroll_items WHERE payroll_id = ? AND (employee_id = ? OR employee_id = ? OR employee_name = ?) LIMIT 1",
+          [p.id, employee_id, `EMP-${employee_id}`, employee_id]
+        );
+        if (items.length > 0) {
+          const it = items[0];
+          return res.json({
+            success: true,
+            period: p,
+            item: {
+              ...it,
+              detalles_json: typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {})
+            }
+          });
+        }
+      }
+
+      // Si no existe guardado en DB para este colaborador en este rango:
+      // Calcular en tiempo real con datos verídicos (asistencia, comisiones, descansos, etc.)
+      const [staffRows] = await pool.query(
+        "SELECT * FROM staff_records WHERE id = ? OR id = ? OR nombre = ? LIMIT 1",
+        [employee_id, String(employee_id).replace(/^EMP-/, ''), employee_id]
+      );
+
+      if (staffRows.length === 0) {
+        return res.status(404).json({ error: 'Colaborador no encontrado' });
+      }
+
+      const emp = staffRows[0];
+      const cfg = await getCalculationSettings(pool);
+      const computed = await calculateEmployeePayrollValues(pool, emp, startDate, endDate, cfg);
+
+      return res.json({
+        success: true,
+        period: {
+          id: 'live_draft',
+          period_name: `Corte ${startDate} al ${endDate}`,
+          start_date: startDate,
+          end_date: endDate,
+          status: 'En curso (Borrador en vivo)'
+        },
+        item: computed
+      });
+    } catch (err) {
+      console.error('[EMPLOYEE SLIP GET ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // 2. Obtener detalle de un período con todos los empleados e items
   router.get('/periods/:id', async (req, res) => {
@@ -686,19 +783,22 @@ function createPayrollRouter(pool) {
     const recargoFeriado = parseFloat(cfg.recargo_feriado || 1.00);
 
     // Unidades de cálculo: mensual -> diario (23.83) -> hora (8h) -> minutos (/ 60)
-    const effectiveBaseSalary = Math.max(baseMensual, salarioBaseGarantizado);
-    const empSalarioDiario = effectiveBaseSalary / diasLaboralesMes;
+    // El valor de la unidad por minuto se rige estrictamente por el salario mensual base configurado
+    // garantizado en la pantalla de configuración salarial (RD$ 18,421.00 por defecto)
+    const empSalarioDiario = salarioBaseGarantizado / diasLaboralesMes;
     const empSalarioHora = empSalarioDiario / horasDiaCompleto;
     const empSalarioMinuto = empSalarioHora / 60;
 
-    const salarioDiarioGarantizado = salarioBaseGarantizado / diasLaboralesMes;
-    const salarioHoraGarantizado = salarioDiarioGarantizado / horasDiaCompleto;
-    const salarioMinutoGarantizado = salarioHoraGarantizado / 60;
+    const salarioDiarioGarantizado = empSalarioDiario;
+    const salarioHoraGarantizado = empSalarioHora;
+    const salarioMinutoGarantizado = empSalarioMinuto;
 
-    // Variables de horas extras, feriados y ausencias
+    // Variables de horas extras, descansos, feriados y ausencias
     let feriados = 0.00;
     let horasExtras = 0.00;
+    let descanso = 0.00;
     let totalOvertimeMins = 0;
+    let totalDescansoMins = 0;
     let totalNetLatenessMins = 0;
     let ausenciasHorasDetalle = [];
 
@@ -822,7 +922,7 @@ function createPayrollRouter(pool) {
           const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
           const daySched = getScheduledDurationSecs(dateStr);
 
-          // Si trabajó en día de descanso semanal: Pago doble (factor 2.0x / 100% recargo)
+          // Si trabajó en día de descanso semanal: Pago al 100% en categoría Descanso (hora regular)
           if (!daySched.isWorking) {
             if (checkOut) {
               const inDate = new Date(checkIn.timestamp);
@@ -832,8 +932,8 @@ function createPayrollRouter(pool) {
               const outH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(outDate), 10);
               const outM = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(outDate), 10);
               const workedMins = Math.max(0, (outH * 60 + outM) - (inH * 60 + inM));
-              // Tiempo doble al realizado para fines de pago
-              totalOvertimeMins += (workedMins * 2);
+              // Tiempo trabajado en descanso semanal: se computa por separado en categoría "Descanso" al 100% regular
+              totalDescansoMins += workedMins;
             }
             return;
           }
@@ -986,6 +1086,10 @@ function createPayrollRouter(pool) {
       if (totalOvertimeMins > 0) {
         horasExtras = Number((totalOvertimeMins * empSalarioMinuto * recargoHorasExtras).toFixed(2));
       }
+      if (totalDescansoMins > 0) {
+        // El descanso trabajado se paga al 100% (tarifa regular) porque el día ya está cubierto en el salario fijo
+        descanso = Number((totalDescansoMins * empSalarioMinuto * 1.00).toFixed(2));
+      }
     } catch(e) {
       console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
     }
@@ -1108,19 +1212,23 @@ function createPayrollRouter(pool) {
     otrosIngresos = Number(otrosIngresos.toFixed(2));
 
     // 5. TSS: Seguro Familiar de Salud (SFS 3.04%) + Pensión (AFP 2.87%) = 5.91% de ley
-    let baseTss = salarioFijo;
-    if (cfg.tss_base_mode === 'fijo_mas_comisiones') {
+    let baseTss = 0.00;
+    if (cfg.tss_base_mode === 'salario_definido') {
+      // Opción 3: Salario Definido en configuración (RD$ 18,421.00 mensual base -> RD$ 9,210.50 quincenal)
+      baseTss = Number((salarioBaseGarantizado / 2).toFixed(2));
+    } else if (cfg.tss_base_mode === 'fijo_mas_comisiones') {
+      // Opción 2: Salario Fijo + Comisiones por Servicios (Ley 87-01)
       baseTss = salarioFijo + comisiones;
-    } else if (salarioFijo === 0 && (tipoSalario === 'comision_pura' || tipoSalario === 'solo_comisiones') && comisiones > 0) {
-      // Si el colaborador está bajo comisión pura pero la empresa cotiza comisiones
-      baseTss = cfg.tss_base_mode === 'fijo_mas_comisiones' ? comisiones : 0.00;
+    } else {
+      // Opción 1: Solo Salario Fijo Ordinario (Práctica común)
+      baseTss = salarioFijo;
     }
     const tss = baseTss > 0 ? Number((baseTss * 0.0591).toFixed(2)) : 0.00;
 
     // 5.1 RETENCIÓN ISR DGII (Si está habilitada en configuración de nómina)
     let isrRetencion = 0.00;
     if (cfg.aplicar_retencion_isr === 1 || cfg.aplicar_retencion_isr === true) {
-      const ingresosGravables = salarioFijo + comisiones + horasExtras;
+      const ingresosGravables = salarioFijo + comisiones + horasExtras + descanso;
       isrRetencion = calculateDgiiIsrQuincenal(ingresosGravables, tss);
       if (isrRetencion > 0) {
         descuentosItemsList.push({
@@ -1140,7 +1248,7 @@ function createPayrollRouter(pool) {
     otrosDescuentos = Number(otrosDescuentos.toFixed(2));
 
     // Totales
-    const totalIngresos = Number((salarioFijo + comisiones + feriados + horasExtras + otrosIngresos).toFixed(2));
+    const totalIngresos = Number((salarioFijo + comisiones + feriados + horasExtras + descanso + otrosIngresos).toFixed(2));
     const totalDescuentos = Number((tss + serviciosConsumo + prestamosMonto + ausenciasMonto + tardanzasMonto + otrosDescuentos).toFixed(2));
     const netoPagar = Number(Math.max(0, totalIngresos - totalDescuentos).toFixed(2));
 
@@ -1154,6 +1262,7 @@ function createPayrollRouter(pool) {
       comisiones: comisiones,
       feriados: feriados,
       horas_extras: horasExtras,
+      descanso: descanso,
       otros_ingresos: otrosIngresos,
       total_ingresos: totalIngresos,
       tss: tss,
@@ -1170,11 +1279,12 @@ function createPayrollRouter(pool) {
           { id: 'c2', label: 'Comisiones', monto: comisiones },
           { id: 'c3', label: 'Feriados', monto: feriados },
           { id: 'c4', label: totalOvertimeMins > 0 ? `Horas extras (${Math.round(totalOvertimeMins / 60 * 10) / 10}h / ${totalOvertimeMins}m)` : 'Horas extras', monto: horasExtras },
+          { id: 'c_descanso', label: totalDescansoMins > 0 ? `Descanso laborado (${Math.round(totalDescansoMins / 60 * 10) / 10}h / ${totalDescansoMins}m)` : 'Descanso', monto: descanso },
           { id: 'c5', label: 'Otros ingresos / Bonos', monto: otrosIngresos },
           ...ingresosItemsList
         ],
         conceptos_descuentos: [
-          { id: 'd1', label: cfg.tss_base_mode === 'fijo_mas_comisiones' ? 'TSS (Ley 5.91% Sueldo+Comisión)' : 'TSS (Ley 5.91%)', monto: tss },
+          { id: 'd1', label: cfg.tss_base_mode === 'salario_definido' ? `TSS (Ley 5.91% Base General RD$ ${baseTss.toLocaleString('en-US', { minimumFractionDigits: 2 })})` : cfg.tss_base_mode === 'fijo_mas_comisiones' ? 'TSS (Ley 5.91% Sueldo+Comisión)' : 'TSS (Ley 5.91%)', monto: tss },
           ...(isrRetencion > 0 ? [{ id: 'd_isr', label: 'Retención ISR (DGII)', monto: isrRetencion }] : []),
           { id: 'd2', label: 'Servicios de Salón', monto: serviciosConsumo },
           { id: 'd3', label: 'Préstamos / Adelantos', monto: prestamosMonto },
@@ -1274,7 +1384,7 @@ function createPayrollRouter(pool) {
       if (generatedItems.length > 0) {
         const insertValues = generatedItems.map(itemData => [
           itemData.payroll_id, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
-          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, itemData.otros_ingresos, itemData.total_ingresos,
+          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, (itemData.descanso || 0), itemData.otros_ingresos, itemData.total_ingresos,
           itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
           itemData.neto_pagar, JSON.stringify(itemData.detalles_json)
         ]);
@@ -1282,7 +1392,7 @@ function createPayrollRouter(pool) {
         await conn.query(`
           INSERT INTO payroll_items (
             payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
-            salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
+            salario_fijo, comisiones, feriados, horas_extras, descanso, otros_ingresos, total_ingresos,
             tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
             neto_pagar, detalles_json
           ) VALUES ?
@@ -1372,6 +1482,7 @@ function createPayrollRouter(pool) {
           parseFloat(it.comisiones || 0) +
           parseFloat(it.feriados || 0) +
           parseFloat(it.horas_extras || 0) +
+          parseFloat(it.descanso || 0) +
           parseFloat(it.otros_ingresos || 0)
         ).toFixed(2));
 
@@ -1394,7 +1505,7 @@ function createPayrollRouter(pool) {
         const prev = currentMap[it.id];
         if (prev) {
           const fieldsToCheck = [
-            'salario_fijo', 'comisiones', 'feriados', 'horas_extras', 'otros_ingresos',
+            'salario_fijo', 'comisiones', 'feriados', 'horas_extras', 'descanso', 'otros_ingresos',
             'tss', 'servicios', 'prestamos', 'ausencias', 'tardanzas', 'otros_descuentos'
           ];
 
@@ -1413,12 +1524,12 @@ function createPayrollRouter(pool) {
         await conn.query(`
           UPDATE payroll_items
           SET 
-            salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, otros_ingresos = ?, total_ingresos = ?,
+            salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, descanso = ?, otros_ingresos = ?, total_ingresos = ?,
             tss = ?, servicios = ?, prestamos = ?, ausencias = ?, tardanzas = ?, otros_descuentos = ?, total_descuentos = ?,
             neto_pagar = ?, detalles_json = ?
           WHERE id = ? AND payroll_id = ?
         `, [
-          it.salario_fijo, it.comisiones, it.feriados, it.horas_extras, it.otros_ingresos, totalIngresos,
+          it.salario_fijo, it.comisiones, it.feriados, it.horas_extras, (it.descanso || 0), it.otros_ingresos, totalIngresos,
           it.tss, it.servicios, it.prestamos, it.ausencias, it.tardanzas, it.otros_descuentos, totalDescuentos,
           netoPagar, typeof it.detalles_json === 'object' ? JSON.stringify(it.detalles_json) : it.detalles_json,
           it.id, payroll_id
@@ -1529,6 +1640,7 @@ function createPayrollRouter(pool) {
             parseFloat(item.comisiones || 0) +
             parseFloat(item.feriados || 0) +
             parseFloat(item.horas_extras || 0) +
+            parseFloat(item.descanso || 0) +
             parseFloat(item.otros_ingresos || 0)
           ).toFixed(2));
 
@@ -1546,12 +1658,12 @@ function createPayrollRouter(pool) {
           await conn.query(`
             UPDATE payroll_items
             SET 
-              salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, otros_ingresos = ?, total_ingresos = ?,
+              salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, descanso = ?, otros_ingresos = ?, total_ingresos = ?,
               tss = ?, servicios = ?, prestamos = ?, ausencias = ?, tardanzas = ?, otros_descuentos = ?, total_descuentos = ?,
               neto_pagar = ?, detalles_json = ?
             WHERE id = ?
           `, [
-            item.salario_fijo, item.comisiones, item.feriados, item.horas_extras, item.otros_ingresos, totalIng,
+            item.salario_fijo, item.comisiones, item.feriados, item.horas_extras, (item.descanso || 0), item.otros_ingresos, totalIng,
             item.tss, item.servicios, item.prestamos, item.ausencias, item.tardanzas, item.otros_descuentos, totalDesc,
             netoPagar, JSON.stringify(details), itemId
           ]);
@@ -1779,7 +1891,7 @@ function createPayrollRouter(pool) {
       if (generatedItems.length > 0) {
         const insertValues = generatedItems.map(itemData => [
           itemData.payroll_id, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
-          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, itemData.otros_ingresos, itemData.total_ingresos,
+          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, (itemData.descanso || 0), itemData.otros_ingresos, itemData.total_ingresos,
           itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
           itemData.neto_pagar, JSON.stringify(itemData.detalles_json)
         ]);
@@ -1787,7 +1899,7 @@ function createPayrollRouter(pool) {
         await conn.query(`
           INSERT INTO payroll_items (
             payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
-            salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
+            salario_fijo, comisiones, feriados, horas_extras, descanso, otros_ingresos, total_ingresos,
             tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
             neto_pagar, detalles_json
           ) VALUES ?

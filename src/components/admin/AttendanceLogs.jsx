@@ -828,6 +828,7 @@ const AttendanceLogs = () => {
     let daysWorked = 0;
     let totalLateness = 0; // Net uncompensated lateness / missing minutes to deduct
     let totalOvertime = 0; // Net extra minutes
+    let totalDescanso = 0; // Minutos netos trabajados en días de descanso semanal (al 100% regular)
     let absencesCount = 0;
     let totalCheckins = 0;
     let tardyCheckins = 0;
@@ -946,9 +947,10 @@ const AttendanceLogs = () => {
       let checkOutStr = checkOut ? formatPunchTime(checkOut.timestamp) : '—';
       let dayLatenessMins = 0;
       let dayOvertimeMins = 0;
+      let dayDescansoMins = 0;
       let dayWorkedMins = 0;
       let dayStatus = 'Completo';
-      let dayStatusType = 'complete'; // 'complete', 'tardy', 'overtime', 'tardy_overtime', 'absent', 'dayoff', 'holiday'
+      let dayStatusType = 'complete'; // 'complete', 'tardy', 'overtime', 'tardy_overtime', 'absent', 'dayoff', 'holiday', 'descanso'
 
       // Holiday calculation for hours worked on this day
       if (matchingHoliday && checkIn) {
@@ -975,7 +977,7 @@ const AttendanceLogs = () => {
 
       if (isDayOff) {
         if (checkIn && checkOut) {
-          // TRABAJÓ EN SU DÍA DE DESCANSO: PAGO DOBLE (FACTOR 2.0x / 100% RECARGO)
+          // TRABAJÓ EN SU DÍA DE DESCANSO: PAGO AL 100% REGULAR (CATEGORÍA DESCANSO)
           daysWorked += 1;
           totalCheckins += 1;
           const inHour = getDRHour(checkIn.timestamp);
@@ -986,17 +988,19 @@ const AttendanceLogs = () => {
           const outClockMins = outHour * 60 + outMinute;
           dayWorkedMins = Math.max(0, outClockMins - inClockMins);
 
-          // Código de Trabajo RD: descanso semanal laborado computa el doble para fines de pago
-          dayOvertimeMins = dayWorkedMins * 2;
+          // Se clasifica en su categoría propia "Descanso" al 100% (no como hora extra)
+          dayDescansoMins = dayWorkedMins;
+          dayOvertimeMins = 0;
           dayLatenessMins = 0; // En día libre nunca hay penalidad de tardanza ni salida temprana
-          totalOvertime += dayOvertimeMins;
-          dayStatus = 'Descanso Trabajado (2.0x)';
-          dayStatusType = 'overtime';
+          totalDescanso += dayDescansoMins;
+          dayStatus = 'Descanso Trabajado';
+          dayStatusType = 'descanso';
         } else if (checkIn || checkOut) {
           daysWorked += 1;
           dayWorkedMins = 0;
           dayLatenessMins = 0;
           dayOvertimeMins = 0;
+          dayDescansoMins = 0;
           dayStatus = checkIn ? 'Descanso (en turno)' : 'Descanso (falta entrada)';
           dayStatusType = 'incomplete';
         } else {
@@ -1176,6 +1180,7 @@ const AttendanceLogs = () => {
         checkOutTime: checkOutStr,
         latenessMinutes: dayLatenessMins,
         overtimeMinutes: dayOvertimeMins,
+        descansoMinutes: dayDescansoMins,
         workedMinutes: dayWorkedMins,
         status: dayStatus,
         statusType: dayStatusType,
@@ -1192,6 +1197,7 @@ const AttendanceLogs = () => {
       daysWorked,
       totalLateness,
       totalOvertime,
+      totalDescanso,
       absencesCount,
       punctualityRate,
       tardyCheckins,
@@ -1550,10 +1556,11 @@ const AttendanceLogs = () => {
           <table>
             <thead>
               <tr>
-                <th style="width: 30%;">Empleado</th>
+                <th style="width: 25%;">Empleado</th>
                 <th style="text-align: center;">Días Laborados</th>
                 <th style="text-align: center;">Tardanza Total</th>
                 <th style="text-align: center;">Horas Extra</th>
+                <th style="text-align: center;">Descanso</th>
                 <th style="text-align: center;">Ausencias</th>
                 <th style="text-align: center;">Puntualidad</th>
               </tr>
@@ -1566,6 +1573,9 @@ const AttendanceLogs = () => {
                   : '<span class="text-muted">0 min</span>';
                 const overtimeText = p.totalOvertime > 0 
                   ? `<span class="badge-overtime">${formatMins(p.totalOvertime)}</span>` 
+                  : '<span class="text-muted">0 min</span>';
+                const descansoText = p.totalDescanso > 0 
+                  ? `<span class="badge-overtime" style="background:#faf5ff; color:#7e22ce; border-color:#f3e8ff;">${formatMins(p.totalDescanso)}</span>` 
                   : '<span class="text-muted">0 min</span>';
                 const absencesContent = p.absencesCount > 0 
                   ? `<span class="badge-absences">${p.absencesCount}</span>` 
@@ -1580,6 +1590,7 @@ const AttendanceLogs = () => {
                     <td style="text-align: center; font-weight: 700;">${p.daysWorked} días</td>
                     <td style="text-align: center;">${latenessText}</td>
                     <td style="text-align: center;">${overtimeText}</td>
+                    <td style="text-align: center;">${descansoText}</td>
                     <td style="text-align: center;">${absencesContent}</td>
                     <td style="text-align: center;">
                       <span class="rate-pill ${rateClass}">${p.punctualityRate}%</span>
@@ -3571,6 +3582,7 @@ const AttendanceLogs = () => {
           const filteredDaily = (activeEmpPayroll.dailyBreakdown || []).filter(d => {
             if (detailFilterTab === 'tardy') return d.latenessMinutes > 0 || (d.status && d.status.includes('Tardanza'));
             if (detailFilterTab === 'overtime') return d.overtimeMinutes > 0 || (d.status && d.status.includes('extra'));
+            if (detailFilterTab === 'descanso') return (d.descansoMinutes > 0) || (d.status && d.status.includes('Descanso'));
             if (detailFilterTab === 'absent') return d.status === 'Ausencia';
             if (detailFilterTab === 'incidents') return d.latenessMinutes > 0 || d.status === 'Ausencia' || d.status === 'Salida Temprana' || (d.status && d.status.includes('Tardanza'));
             return true;
@@ -3729,12 +3741,13 @@ const AttendanceLogs = () => {
                     </p>
                   </div>
 
-                  {/* Filter tabs matching screenshot */}
+                  {/* Filter tabs */}
                   <div style={{ display: 'flex', gap: '0.35rem', background: '#f1f5f9', padding: '0.3rem', borderRadius: '12px' }}>
                     {[
                       { id: 'all', label: 'Todos' },
                       { id: 'tardy', label: 'Tardanzas' },
                       { id: 'overtime', label: 'Horas extras' },
+                      { id: 'descanso', label: 'Descansos' },
                       { id: 'absent', label: 'Ausencias' },
                       { id: 'incidents', label: 'Incidencias' }
                     ].map(tab => (
@@ -3944,6 +3957,10 @@ const AttendanceLogs = () => {
         const totalOvertimeMinsAll = filteredPayroll.reduce((acc, curr) => acc + (curr.totalOvertime || 0), 0);
         const totalOvertimeHoursDecimal = (totalOvertimeMinsAll / 60).toFixed(1);
         const totalOvertimeFormatted = formatMins(totalOvertimeMinsAll);
+
+        const totalDescansoMinsAll = filteredPayroll.reduce((acc, curr) => acc + (curr.totalDescanso || 0), 0);
+        const totalDescansoHoursDecimal = (totalDescansoMinsAll / 60).toFixed(1);
+        const totalDescansoFormatted = formatMins(totalDescansoMinsAll);
 
         const totalLatenessMinsAll = filteredPayroll.reduce((acc, curr) => acc + (curr.totalLateness || 0), 0);
         const totalLatenessFormatted = formatMins(totalLatenessMinsAll);
@@ -4309,6 +4326,7 @@ const AttendanceLogs = () => {
                     <option value="holidays">🌴 Solo con Feriados Trabajados</option>
                     <option value="tardy">⚠️ Solo con Tardanzas</option>
                     <option value="overtime">🚀 Solo con Horas Extras</option>
+                    <option value="descanso">🏖️ Solo con Descansos</option>
                     <option value="absent">🛑 Solo con Ausencias</option>
                   </select>
                 </div>
@@ -4377,6 +4395,7 @@ const AttendanceLogs = () => {
                       <th style={{ padding: '1rem 1.25rem', color: '#047857', fontWeight: 800, textAlign: 'right' }}>💰 Pago Feriados</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Tardanza Neta</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Horas Extra Totales</th>
+                      <th style={{ padding: '1rem 1.25rem', color: '#7e22ce', fontWeight: 800, textAlign: 'center' }}>🏖️ Descanso</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Ausencias / Faltas</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Puntualidad</th>
                       <th style={{ padding: '1rem 1.25rem', color: '#64748b', fontWeight: 800, textAlign: 'center' }}>Acción</th>
@@ -4425,6 +4444,13 @@ const AttendanceLogs = () => {
                           {p.totalOvertime > 0 ? (
                             <span style={{ background: '#eff6ff', color: '#2563eb', padding: '0.25rem 0.55rem', borderRadius: '6px', fontWeight: 800 }}>
                               🚀 {formatMins(p.totalOvertime)}
+                            </span>
+                          ) : '0 min'}
+                        </td>
+                        <td style={{ padding: '1rem 1.25rem', textAlign: 'center', fontWeight: 800, color: (p.totalDescanso || 0) > 0 ? '#7e22ce' : '#64748b' }}>
+                          {(p.totalDescanso || 0) > 0 ? (
+                            <span style={{ background: '#faf5ff', color: '#7e22ce', padding: '0.25rem 0.55rem', borderRadius: '6px', fontWeight: 800, border: '1px solid #f3e8ff' }}>
+                              🏖️ {formatMins(p.totalDescanso)}
                             </span>
                           ) : '0 min'}
                         </td>

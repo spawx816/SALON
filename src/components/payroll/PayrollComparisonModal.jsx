@@ -89,6 +89,9 @@ export default function PayrollComparisonModal({
     const calcHorasExtrasA = itemsA.length ? sumField(itemsA, 'horas_extras') : 28600;
     const calcHorasExtrasB = itemsB.length ? sumField(itemsB, 'horas_extras') : 32500;
 
+    const calcDescansoA = itemsA.length ? sumField(itemsA, 'descanso') : 0;
+    const calcDescansoB = itemsB.length ? sumField(itemsB, 'descanso') : 0;
+
     const calcFeriadosA = itemsA.length ? sumField(itemsA, 'feriados') : 12300;
     const calcFeriadosB = itemsB.length ? sumField(itemsB, 'feriados') : 11200;
 
@@ -116,6 +119,13 @@ export default function PayrollComparisonModal({
         montoB: calcHorasExtrasB,
         diff: calcHorasExtrasA - calcHorasExtrasB,
         pct: calcHorasExtrasB > 0 ? (((calcHorasExtrasA - calcHorasExtrasB) / calcHorasExtrasB) * 100).toFixed(1) : '0.0'
+      },
+      {
+        concepto: 'Día de descanso',
+        montoA: calcDescansoA,
+        montoB: calcDescansoB,
+        diff: calcDescansoA - calcDescansoB,
+        pct: calcDescansoB > 0 ? (((calcDescansoA - calcDescansoB) / calcDescansoB) * 100).toFixed(1) : '0.0'
       },
       {
         concepto: 'Feriados',

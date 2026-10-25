@@ -463,11 +463,14 @@ export default function PayrollCalculationSettingsModal({
                   >
                     <option value="solo_fijo">Solo Salario Fijo Ordinario (Práctica común)</option>
                     <option value="fijo_mas_comisiones">Salario Fijo + Comisiones por Servicios (Ley 87-01)</option>
+                    <option value="salario_definido">Salario Definido (RD$ {sm.toLocaleString('en-US', { minimumFractionDigits: 2 })} Base General)</option>
                   </select>
-                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.4rem' }}>
-                    {form.tss_base_mode === 'fijo_mas_comisiones'
-                      ? '✓ Incluye comisiones variables en la base para estilistas y barberos.'
-                      : '✓ Solo descuenta el 5.91% sobre la porción del sueldo básico ordinario.'}
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.4rem', lineHeight: 1.4 }}>
+                    {form.tss_base_mode === 'salario_definido'
+                      ? `✓ Cotiza fijo sobre el salario base definido arriba (RD$ ${sm.toLocaleString('en-US', { minimumFractionDigits: 2 })} / Quincena RD$ ${(sm / 2).toLocaleString('en-US', { minimumFractionDigits: 2 })} = RD$ ${((sm / 2) * 0.0591).toFixed(2)} por quincena).`
+                      : form.tss_base_mode === 'fijo_mas_comisiones'
+                        ? '✓ Incluye comisiones variables en la base para estilistas y barberos.'
+                        : '✓ Solo descuenta el 5.91% sobre la porción del sueldo básico ordinario de cada colaborador.'}
                   </div>
                 </div>
 

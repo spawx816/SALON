@@ -1235,6 +1235,14 @@ export const dataService = {
     } catch (e) { throw e; }
   },
 
+  getActiveContractCode: async (contractId, actionType = 'cancellation') => {
+    try {
+      const res = await fetch(`${API_URL}/contracts/${contractId}/active-code?actionType=${actionType}`);
+      if (res.ok) return await res.json();
+    } catch (e) {}
+    return null;
+  },
+
   // Employees
   getEmployees: async (light = false) => {
     try {
