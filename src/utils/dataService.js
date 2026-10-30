@@ -802,7 +802,16 @@ export const dataService = {
 
   getActiveOTP: async (clientId) => {
     try {
-      const res = await fetch(`${API_URL}/otp/active/${clientId}`);
+      let role = '';
+      try {
+        const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+        const user = userStr ? JSON.parse(userStr) : null;
+        role = user?.role || user?.role_name || '';
+      } catch (e) {}
+
+      const res = await fetch(`${API_URL}/otp/active/${clientId}`, {
+        headers: { 'x-user-role': role }
+      });
       if (res.ok) return await res.json();
     } catch { }
     try {
@@ -1101,6 +1110,62 @@ export const dataService = {
     } catch (e) { throw e; }
   },
 
+  getBIReport: async (params = {}) => {
+    try {
+      const query = new URLSearchParams();
+      Object.keys(params).forEach(k => {
+        if (params[k] !== undefined && params[k] !== null && params[k] !== '') {
+          query.append(k, params[k]);
+        }
+      });
+      const url = `${API_URL}/reports/bi?${query.toString()}`;
+
+      // 1. Try standard fetch with protection against extension monkey patching
+      try {
+        const res = await window.fetch(url, {
+          headers: { 'Accept': 'application/json' }
+        });
+        if (res && res.ok) {
+          const data = await res.json();
+          if (data) return data;
+        }
+      } catch (fetchErr) {
+        console.warn('[BI] Fetch intercepted by browser script/extension, activating clean XHR fallback:', fetchErr);
+      }
+
+      // 2. Ultra-reliable XMLHttpRequest fallback (immune to Chrome extension fetch-patching)
+      return new Promise((resolve) => {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.setRequestHeader('Accept', 'application/json');
+          xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const data = JSON.parse(xhr.responseText);
+                resolve(data);
+              } catch (e) {
+                resolve(null);
+              }
+            } else {
+              resolve(null);
+            }
+          };
+          xhr.onerror = function() {
+            resolve(null);
+          };
+          xhr.send();
+        } catch (xhrErr) {
+          console.warn('[BI] XHR fallback error:', xhrErr);
+          resolve(null);
+        }
+      });
+    } catch (e) {
+      console.warn('Error in getBIReport:', e);
+      return null;
+    }
+  },
+
   async getGiftsByClient(clientId) {
     try {
       const res = await fetch(`/api/gifts?clientId=${clientId}`);
@@ -1211,9 +1276,19 @@ export const dataService = {
 
   requestContractCode: async (contractId, actionType) => {
     try {
+      let role = '';
+      try {
+        const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+        const user = userStr ? JSON.parse(userStr) : null;
+        role = user?.role || user?.role_name || '';
+      } catch (e) {}
+
       const res = await fetch(`${API_URL}/contracts/${contractId}/request-code`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-user-role': role
+        },
         body: JSON.stringify({ actionType })
       });
       const data = await res.json();
@@ -1237,7 +1312,16 @@ export const dataService = {
 
   getActiveContractCode: async (contractId, actionType = 'cancellation') => {
     try {
-      const res = await fetch(`${API_URL}/contracts/${contractId}/active-code?actionType=${actionType}`);
+      let role = '';
+      try {
+        const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+        const user = userStr ? JSON.parse(userStr) : null;
+        role = user?.role || user?.role_name || '';
+      } catch (e) {}
+
+      const res = await fetch(`${API_URL}/contracts/${contractId}/active-code?actionType=${actionType}`, {
+        headers: { 'x-user-role': role }
+      });
       if (res.ok) return await res.json();
     } catch (e) {}
     return null;

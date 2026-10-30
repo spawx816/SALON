@@ -1,3 +1,4 @@
+const { handleBIReport } = require('./bi_engine');
 const express = require('express');
 
 /**
@@ -7,6 +8,17 @@ const express = require('express');
  */
 function createReportsRouter(pool) {
   const router = express.Router();
+
+  // GET /api/reports/bi - Endpoint Centralizado de Inteligencia de Negocios
+  router.get('/bi', async (req, res) => {
+    try {
+      const data = await handleBIReport(pool, req.query);
+      res.json(data);
+    } catch (err) {
+      console.error('Error in /api/reports/bi:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   // GET /api/reports/analytics
   router.get('/analytics', async (req, res) => {

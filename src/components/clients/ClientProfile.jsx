@@ -59,6 +59,10 @@ const ClientProfile = () => {
   const [visits, setVisits] = useState([]);
   const [payments, setPayments] = useState([]);
   const { user } = useAuth();
+  const isAdmin = user?.role?.toLowerCase() === 'admin' || 
+                  user?.role?.toLowerCase() === 'administrador' || 
+                  user?.role_name?.toLowerCase() === 'administrador' ||
+                  user?.role_name?.toLowerCase() === 'admin';
   
   // OTP & Staff States
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -831,6 +835,10 @@ const ClientProfile = () => {
   };
 
   const fetchActiveOTP = async () => {
+    if (!isAdmin) {
+      showNotification("Solo los administradores tienen autorización para visualizar este código.", "warning");
+      return;
+    }
     if (contract?.id) {
       try {
         const cRes = await dataService.getActiveContractCode(contract.id, 'cancellation');
@@ -897,10 +905,13 @@ const ClientProfile = () => {
     try {
       setActionModal({ ...actionModal, loading: true });
       const res = await dataService.requestContractCode(contract.id, 'cancellation');
-      const activeCode = res?.code || null;
+      // Solo el Administrador recibe y pre-carga el código de cancelación
+      const activeCode = isAdmin ? (res?.code || null) : null;
       setActionModal({ open: true, type: 'cancellation', code: '', activeCode, loading: false });
-      if (activeCode) {
+      if (isAdmin && activeCode) {
         setActiveOtpCode(activeCode);
+      } else {
+        setActiveOtpCode(null);
       }
       showNotification(`Código de cancelación enviado al correo de ${client.nombre}`, 'info');
     } catch (err) {
@@ -3384,38 +3395,48 @@ const ClientProfile = () => {
             </div>
 
             {/* Visualizador de Código de Cancelación */}
-            <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px dashed #e2e8f0' }}>
-              <div style={{ background: '#f0f9ff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #bae6fd', textAlign: 'center' }}>
-                <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.5rem 0' }}>
-                  🔑 Código de Cancelación:
-                </p>
-                {actionModal.activeCode || activeOtpCode ? (
-                  <div>
-                    <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#0284c7', letterSpacing: '8px', fontFamily: 'monospace', margin: '0.25rem 0' }}>
-                      {actionModal.activeCode || activeOtpCode}
+            {isAdmin ? (
+              <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px dashed #e2e8f0' }}>
+                <div style={{ background: '#f0f9ff', padding: '1.25rem', borderRadius: '16px', border: '1px solid #bae6fd', textAlign: 'center' }}>
+                  <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.5rem 0' }}>
+                    🔑 Código de Cancelación (Vista Administrador):
+                  </p>
+                  {actionModal.activeCode || activeOtpCode ? (
+                    <div>
+                      <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#0284c7', letterSpacing: '8px', fontFamily: 'monospace', margin: '0.25rem 0' }}>
+                        {actionModal.activeCode || activeOtpCode}
+                      </div>
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0.25rem 0 0.75rem 0' }}>
+                        Este código fue enviado al correo del cliente y está visible exclusivamente para administración.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setActionModal(prev => ({ ...prev, code: prev.activeCode || activeOtpCode }))}
+                        style={{ background: '#0284c7', color: 'white', border: 'none', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}
+                      >
+                        Autocompletar Código
+                      </button>
                     </div>
-                    <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0.25rem 0 0.75rem 0' }}>
-                      Este código fue enviado al correo y está visible aquí para agilizar la cancelación.
-                    </p>
-                    <button
+                  ) : (
+                    <button 
                       type="button"
-                      onClick={() => setActionModal(prev => ({ ...prev, code: prev.activeCode || activeOtpCode }))}
-                      style={{ background: '#0284c7', color: 'white', border: 'none', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}
+                      onClick={fetchActiveOTP}
+                      style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
                     >
-                      Autocompletar Código
+                      👁️ Visualizar código de cancelación
                     </button>
-                  </div>
-                ) : (
-                  <button 
-                    type="button"
-                    onClick={fetchActiveOTP}
-                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
-                  >
-                    👁️ Visualizar código de cancelación
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px dashed #e2e8f0' }}>
+                <div style={{ background: '#f8fafc', padding: '1rem 1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                  <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+                    🔒 <strong>Autorización requerida:</strong> Por seguridad, el código de cancelación ha sido enviado únicamente al correo del cliente. Pídale el código al cliente o solicite autorización a un <strong>Administrador</strong>.
+                  </p>
+                </div>
+              </div>
+            )}
           </motion.div>
         </div>
       )}

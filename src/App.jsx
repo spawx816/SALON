@@ -6,7 +6,7 @@ import {
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
   Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
   Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft, Shield, DollarSign, History,
-  Crown, ShoppingCart, UserCheck, Key
+  Crown, ShoppingCart, UserCheck, Key, BarChart2, BarChart3, Banknote
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -36,6 +36,7 @@ import PlansModule from './components/admin/PlansModule';
 import ClientProfile from './components/clients/ClientProfile';
 import MarketingModule from './components/admin/MarketingModule';
 import ServiceAnalytics from './components/admin/ServiceAnalytics';
+import BusinessIntelligence from './components/bi/BusinessIntelligence';
 import StaffModule from './components/admin/StaffModule';
 import SalonsModule from './components/admin/SalonsModule';
 import SettingsModule from './components/admin/SettingsModule';
@@ -815,7 +816,7 @@ const AppContent = () => {
                     {isBiOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
                   </button>
 
-                  {/* Submenú de Inteligencia de Negocios */}
+                  {/* Submenú Completo con Todos los Reportes */}
                   {isBiOpen && (
                     <div style={{ 
                       marginLeft: '1.25rem', 
@@ -828,6 +829,13 @@ const AppContent = () => {
                       gap: '0.25rem'
                     }}>
                       <SidebarLink 
+                        to="/analitica?tab=bi_executive" 
+                        icon={Sparkles} 
+                        label="Tablero BI Ejecutivo" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=bi_executive')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
                         to="/analitica?tab=sales" 
                         icon={TrendingUp} 
                         label="Ventas Diarias" 
@@ -835,17 +843,17 @@ const AppContent = () => {
                         onClick={closeMobileMenu} 
                       />
                       <SidebarLink 
-                        to="/analitica?tab=invoices" 
-                        icon={Receipt} 
-                        label="Facturas & Ventas" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=invoices')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
                         to="/analitica?tab=client_payments" 
                         icon={CreditCard} 
                         label="Cobros por Cliente" 
                         active={location.pathname === '/analitica' && location.search.includes('tab=client_payments')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=invoices" 
+                        icon={Receipt} 
+                        label="Facturas & Ventas" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=invoices')} 
                         onClick={closeMobileMenu} 
                       />
                       <SidebarLink 
@@ -857,7 +865,7 @@ const AppContent = () => {
                       />
                       <SidebarLink 
                         to="/analitica?tab=commissions" 
-                        icon={Percent} 
+                        icon={Users} 
                         label="Comisiones Colaboradores" 
                         active={location.pathname === '/analitica' && location.search.includes('tab=commissions')} 
                         onClick={closeMobileMenu} 
@@ -867,6 +875,27 @@ const AppContent = () => {
                         icon={Users} 
                         label="Estado de Clientes" 
                         active={location.pathname === '/analitica' && location.search.includes('tab=clients')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=inactive" 
+                        icon={Clock} 
+                        label="Clientes Inactivos" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=inactive')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=payments" 
+                        icon={BarChart2} 
+                        label="Desglose de Pagos" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=payments')} 
+                        onClick={closeMobileMenu} 
+                      />
+                      <SidebarLink 
+                        to="/analitica?tab=frequency" 
+                        icon={Calendar} 
+                        label="Frecuencia de Visitas" 
+                        active={location.pathname === '/analitica' && location.search.includes('tab=frequency')} 
                         onClick={closeMobileMenu} 
                       />
                     </div>
@@ -998,7 +1027,9 @@ const AppContent = () => {
                 <Route path="/planes" element={isAdmin ? <PlansModule /> : <Navigate to="/" />} />
                 <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />
                 <Route path="/marketing" element={isAdmin ? <MarketingModule /> : <Navigate to="/" />} />
-                <Route path="/analitica" element={isAdmin ? <ServiceAnalytics /> : <Navigate to="/" />} />
+                <Route path="/analitica" element={(isAdmin || user?.permissions?.view_analytics) ? <ServiceAnalytics /> : <Navigate to="/" />} />
+                <Route path="/bi" element={(isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />} />
+                <Route path="/inteligencia-negocios" element={(isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />} />
                 <Route path="/contabilidad" element={isAdmin ? <Navigate to="/contabilidad/reporte-607" replace /> : <Navigate to="/" />} />
                 <Route path="/secuencias-dgii" element={isAdmin ? <DgiiSequencesModule /> : <Navigate to="/" />} />
                 <Route path="/contabilidad/notas-credito" element={isAdmin ? <CreditNotesModule /> : <Navigate to="/" />} />

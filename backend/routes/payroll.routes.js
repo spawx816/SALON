@@ -8,9 +8,26 @@ const express = require('express');
 function createPayrollRouter(pool) {
   const router = express.Router();
 
-  // 1. Obtener lista de períodos de nómina
+  // 1. Obtener lista de períodos de nómina (con sincronización automática de períodos en preparación)
   router.get('/periods', async (req, res) => {
     try {
+      const [initialRows] = await pool.query(`
+        SELECT id, status, is_immutable
+        FROM payroll_periods
+        ORDER BY id DESC
+      `);
+
+      // Punto 5: Sincronización automática en tiempo real de períodos no aprobados (En preparación)
+      for (const p of initialRows) {
+        if (p.status !== 'Aprobada' && p.is_immutable !== 1) {
+          try {
+            await syncDraftPeriodInPlace(pool, p.id);
+          } catch (syncErr) {
+            console.warn(`[AUTO-SYNC DRAFT PERIOD ${p.id} WARN]:`, syncErr.message);
+          }
+        }
+      }
+
       const [rows] = await pool.query(`
         SELECT id, period_name, 
                DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
@@ -53,16 +70,16 @@ function createPayrollRouter(pool) {
       // Migraciones seguras en caso de tablas existentes
       try {
         await pool.query("ALTER TABLE payroll_calculation_settings ADD COLUMN recargo_feriado DECIMAL(5,2) DEFAULT 1.00");
-      } catch (e) {}
+      } catch (e) { }
       try {
         await pool.query("ALTER TABLE payroll_calculation_settings ADD COLUMN tss_base_mode VARCHAR(30) DEFAULT 'solo_fijo'");
-      } catch (e) {}
+      } catch (e) { }
       try {
         await pool.query("ALTER TABLE payroll_calculation_settings ADD COLUMN aplicar_retencion_isr TINYINT(1) DEFAULT 0");
-      } catch (e) {}
+      } catch (e) { }
       try {
         await pool.query("ALTER TABLE payroll_items ADD COLUMN descanso DECIMAL(12,2) DEFAULT 0.00 AFTER horas_extras");
-      } catch (e) {}
+      } catch (e) { }
 
       const [rows] = await pool.query('SELECT * FROM payroll_calculation_settings WHERE id = 1');
       if (rows.length === 0) {
@@ -343,6 +360,217 @@ function createPayrollRouter(pool) {
     });
   }
 
+  /**
+   * Punto 5: Sincroniza automáticamente en tiempo real un período de nómina en preparación
+   * sin alterar jamás períodos aprobados/cerrados (is_immutable = 1 o status = 'Aprobada').
+   * Conserva los IDs de payroll_items y cualquier concepto manual (custom: true).
+   */
+  async function syncDraftPeriodInPlace(pool, periodId) {
+    const [periodRows] = await pool.query(`
+      SELECT id, period_name,
+             DATE_FORMAT(start_date, '%Y-%m-%d') as start_date,
+             DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
+             status, sucursal, departamento, is_immutable
+      FROM payroll_periods WHERE id = ?
+    `, [periodId]);
+    if (periodRows.length === 0) return null;
+
+    const period = periodRows[0];
+    if (period.status === 'Aprobada' || period.is_immutable === 1) {
+      return period;
+    }
+
+    const startDate = period.start_date ? String(period.start_date).split('T')[0] : '';
+    const endDate = period.end_date ? String(period.end_date).split('T')[0] : '';
+    if (!startDate || !endDate) return period;
+
+    let staffQuery = "SELECT * FROM staff_records WHERE (status = 'Activo' OR status = 'Active' OR status IS NULL)";
+    const staffParams = [];
+    if (period.sucursal && period.sucursal !== 'Todas') {
+      const sucLower = String(period.sucursal).toLowerCase();
+      if (sucLower.includes('disponible')) {
+        staffQuery += " AND (salon_id = 6 OR localidad LIKE '%disponible%')";
+      } else if (sucLower.includes('villa mella') || sucLower.includes('mella')) {
+        staffQuery += " AND (salon_id IN (2, 4) OR localidad LIKE '%mella%')";
+      } else if (sucLower.includes('san vicente') || sucLower.includes('vicente')) {
+        staffQuery += " AND (salon_id = 1 OR localidad LIKE '%vicente%')";
+      } else {
+        staffQuery += " AND (salon_id = ? OR localidad LIKE ?)";
+        staffParams.push(period.sucursal, `%${period.sucursal}%`);
+      }
+    }
+    if (period.departamento && period.departamento !== 'Todos') {
+      staffQuery += " AND (posicion LIKE ?)";
+      staffParams.push(`%${period.departamento}%`);
+    }
+    let [staffList] = await pool.query(staffQuery, staffParams);
+
+    const [existingItems] = await pool.query('SELECT * FROM payroll_items WHERE payroll_id = ? ORDER BY id ASC', [periodId]);
+    const existingByEmpId = new Map();
+    for (const ex of existingItems) {
+      existingByEmpId.set(String(ex.employee_id), ex);
+      existingByEmpId.set(String(ex.employee_id).replace(/^EMP-/, ''), ex);
+      if (ex.employee_name) existingByEmpId.set(ex.employee_name.toLowerCase().trim(), ex);
+    }
+
+    if (staffList.length === 0 && existingItems.length > 0) {
+      staffList = existingItems.map(it => ({
+        id: it.employee_id,
+        nombre: it.employee_name,
+        posicion: it.posicion,
+        localidad: it.sucursal,
+        salario_base: it.salario_fijo ? parseFloat(it.salario_fijo) * 2 : 20000
+      }));
+    }
+
+    const batchContext = await preloadPayrollBatchContext(pool, startDate, endDate);
+    let sumTotalIngresos = 0;
+    let sumTotalDescuentos = 0;
+    let sumTotalNeto = 0;
+    let totalCount = 0;
+
+    for (const emp of staffList) {
+      const itemData = await calculateEmployeePayrollValues(pool, emp, startDate, endDate, batchContext);
+      const ex = existingByEmpId.get(String(emp.id))
+        || existingByEmpId.get(String(emp.id).replace(/^EMP-/, ''))
+        || (emp.nombre ? existingByEmpId.get(emp.nombre.toLowerCase().trim()) : null);
+
+      // Preservar conceptos manuales personalizados (custom: true) si fueron agregados en el borrador
+      if (ex && ex.detalles_json) {
+        try {
+          const exDet = typeof ex.detalles_json === 'string' ? JSON.parse(ex.detalles_json || '{}') : ex.detalles_json;
+          const customIng = (exDet.conceptos_ingresos || []).filter(c => c && c.custom);
+          const customDesc = (exDet.conceptos_descuentos || []).filter(c => c && c.custom);
+          if (customIng.length > 0) {
+            const extraIng = customIng.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
+            itemData.otros_ingresos = Number((itemData.otros_ingresos + extraIng).toFixed(2));
+            itemData.detalles_json.conceptos_ingresos.push(...customIng);
+          }
+          if (customDesc.length > 0) {
+            const extraDesc = customDesc.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
+            itemData.otros_descuentos = Number((itemData.otros_descuentos + extraDesc).toFixed(2));
+            itemData.detalles_json.conceptos_descuentos.push(...customDesc);
+          }
+          if (customIng.length > 0 || customDesc.length > 0) {
+            itemData.total_ingresos = Number((
+              itemData.salario_fijo + itemData.comisiones + itemData.feriados +
+              itemData.horas_extras + (itemData.descanso || 0) + itemData.otros_ingresos
+            ).toFixed(2));
+            itemData.total_descuentos = Number((
+              itemData.tss + itemData.servicios + itemData.prestamos +
+              itemData.ausencias + itemData.tardanzas + itemData.otros_descuentos
+            ).toFixed(2));
+            itemData.neto_pagar = Number(Math.max(0, itemData.total_ingresos - itemData.total_descuentos).toFixed(2));
+          }
+        } catch (e) { }
+      }
+
+      if (ex) {
+        await pool.query(`
+          UPDATE payroll_items
+          SET employee_name = ?, posicion = ?, sucursal = ?, departamento = ?,
+              salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, descanso = ?, otros_ingresos = ?, total_ingresos = ?,
+              tss = ?, servicios = ?, prestamos = ?, ausencias = ?, tardanzas = ?, otros_descuentos = ?, total_descuentos = ?,
+              neto_pagar = ?, detalles_json = ?
+          WHERE id = ?
+        `, [
+          itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
+          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, (itemData.descanso || 0), itemData.otros_ingresos, itemData.total_ingresos,
+          itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
+          itemData.neto_pagar, JSON.stringify(itemData.detalles_json),
+          ex.id
+        ]);
+      } else {
+        await pool.query(`
+          INSERT INTO payroll_items (
+            payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
+            salario_fijo, comisiones, feriados, horas_extras, descanso, otros_ingresos, total_ingresos,
+            tss, servicios, prestamos, ausencias, tardanzas, otros_descuentos, total_descuentos,
+            neto_pagar, detalles_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          periodId, itemData.employee_id, itemData.employee_name, itemData.posicion, itemData.sucursal, itemData.departamento,
+          itemData.salario_fijo, itemData.comisiones, itemData.feriados, itemData.horas_extras, (itemData.descanso || 0), itemData.otros_ingresos, itemData.total_ingresos,
+          itemData.tss, itemData.servicios, itemData.prestamos, itemData.ausencias, itemData.tardanzas, itemData.otros_descuentos, itemData.total_descuentos,
+          itemData.neto_pagar, JSON.stringify(itemData.detalles_json)
+        ]);
+      }
+
+      sumTotalIngresos += itemData.total_ingresos;
+      sumTotalDescuentos += itemData.total_descuentos;
+      sumTotalNeto += itemData.neto_pagar;
+      totalCount++;
+    }
+
+    await pool.query(`
+      UPDATE payroll_periods
+      SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ?
+      WHERE id = ? AND status != 'Aprobada' AND (is_immutable = 0 OR is_immutable IS NULL)
+    `, [
+      Number(sumTotalIngresos.toFixed(2)),
+      Number(sumTotalDescuentos.toFixed(2)),
+      Number(sumTotalNeto.toFixed(2)),
+      totalCount,
+      periodId
+    ]);
+
+    return {
+      ...period,
+      total_ingresos: Number(sumTotalIngresos.toFixed(2)),
+      total_descuentos: Number(sumTotalDescuentos.toFixed(2)),
+      total_neto: Number(sumTotalNeto.toFixed(2)),
+      total_empleados: totalCount
+    };
+  }
+
+  /**
+   * Garantiza que incluso un item de nómina aprobado previamente cuente con `desglose_descuentos`
+   * en memoria para el volante del empleado, cuadrando el total con el monto congelado del volante.
+   */
+  async function ensureItemDiscountBreakdown(pool, item, startDate, endDate) {
+    const det = typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {});
+    if (det && det.desglose_descuentos) {
+      return { ...item, detalles_json: det };
+    }
+    try {
+      const [staffRows] = await pool.query(
+        "SELECT * FROM staff_records WHERE id = ? OR id = ? OR nombre = ? LIMIT 1",
+        [item.employee_id, String(item.employee_id).replace(/^EMP-/, ''), item.employee_name || item.employee_id]
+      );
+      if (staffRows.length > 0) {
+        const cfg = await getCalculationSettings(pool);
+        const computed = await calculateEmployeePayrollValues(pool, staffRows[0], startDate, endDate, cfg);
+        const breakdown = computed.detalles_json?.desglose_descuentos || {
+          tardanzas: { items: [], total_minutos: 0, valor_minuto: 0, total_monto: 0 },
+          ausencias: { items: [], total_monto: 0 },
+          servicios: { items: [], total_monto: 0 },
+          prestamos: { items: [], total_monto: 0 }
+        };
+        // Ajustar el total de cada desglose para coincidir exactamente con el importe congelado del volante
+        const reconcileList = (section, targetAmt, amountField = 'monto') => {
+          const target = Number(parseFloat(targetAmt || 0).toFixed(2));
+          section.total_monto = target;
+          if (section.items && section.items.length > 0) {
+            const sum = Number(section.items.reduce((s, r) => s + (parseFloat(r[amountField]) || 0), 0).toFixed(2));
+            const diff = Number((target - sum).toFixed(2));
+            if (Math.abs(diff) > 0 && Math.abs(diff) <= 1.00) {
+              const lastIdx = section.items.length - 1;
+              section.items[lastIdx][amountField] = Number((parseFloat(section.items[lastIdx][amountField] || 0) + diff).toFixed(2));
+            }
+          }
+        };
+        reconcileList(breakdown.tardanzas, item.tardanzas, 'monto');
+        reconcileList(breakdown.ausencias, item.ausencias, 'monto');
+        reconcileList(breakdown.servicios, item.servicios, 'monto');
+        reconcileList(breakdown.prestamos, item.prestamos, 'cuota_descontada');
+        det.desglose_descuentos = breakdown;
+      }
+    } catch (e) {
+      console.warn('[ENSURE DISCOUNT BREAKDOWN WARN]:', e.message);
+    }
+    return { ...item, detalles_json: det };
+  }
+
   // 1.1 Obtener volante de pago individual para un empleado en un período específico (o en tiempo real para la tableta)
   router.get('/employee-slip', async (req, res) => {
     try {
@@ -354,23 +582,25 @@ function createPayrollRouter(pool) {
       // Si se pasa un period_id numérico específico
       if (period_id && period_id !== 'live_draft') {
         const [periods] = await pool.query(
-          "SELECT id, period_name, DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(end_date, '%Y-%m-%d') as end_date, status, sucursal FROM payroll_periods WHERE id = ?",
+          "SELECT id, period_name, DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(end_date, '%Y-%m-%d') as end_date, status, sucursal, is_immutable FROM payroll_periods WHERE id = ?",
           [period_id]
         );
         if (periods.length > 0) {
+          let p = periods[0];
+          // Punto 5: Si el período NO está aprobado, sincronizar automáticamente en tiempo real
+          if (p.status !== 'Aprobada' && p.is_immutable !== 1) {
+            p = (await syncDraftPeriodInPlace(pool, p.id)) || p;
+          }
           const [items] = await pool.query(
             "SELECT * FROM payroll_items WHERE payroll_id = ? AND (employee_id = ? OR employee_id = ? OR employee_name = ?) LIMIT 1",
             [period_id, employee_id, `EMP-${employee_id}`, employee_id]
           );
           if (items.length > 0) {
-            const it = items[0];
+            const enrichedItem = await ensureItemDiscountBreakdown(pool, items[0], p.start_date, p.end_date);
             return res.json({
               success: true,
-              period: periods[0],
-              item: {
-                ...it,
-                detalles_json: typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {})
-              }
+              period: p,
+              item: enrichedItem
             });
           }
         }
@@ -382,25 +612,26 @@ function createPayrollRouter(pool) {
 
       // Buscar si existe un período en DB para estas fechas exactas
       const [existingPeriods] = await pool.query(
-        "SELECT id, period_name, DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(end_date, '%Y-%m-%d') as end_date, status, sucursal FROM payroll_periods WHERE start_date = ? AND end_date = ? ORDER BY id DESC LIMIT 1",
+        "SELECT id, period_name, DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, DATE_FORMAT(end_date, '%Y-%m-%d') as end_date, status, sucursal, is_immutable FROM payroll_periods WHERE start_date = ? AND end_date = ? ORDER BY id DESC LIMIT 1",
         [startDate, endDate]
       );
 
       if (existingPeriods.length > 0) {
-        const p = existingPeriods[0];
+        let p = existingPeriods[0];
+        // Punto 5: Si el período está en preparación, sincronizar automáticamente en tiempo real
+        if (p.status !== 'Aprobada' && p.is_immutable !== 1) {
+          p = (await syncDraftPeriodInPlace(pool, p.id)) || p;
+        }
         const [items] = await pool.query(
           "SELECT * FROM payroll_items WHERE payroll_id = ? AND (employee_id = ? OR employee_id = ? OR employee_name = ?) LIMIT 1",
           [p.id, employee_id, `EMP-${employee_id}`, employee_id]
         );
         if (items.length > 0) {
-          const it = items[0];
+          const enrichedItem = await ensureItemDiscountBreakdown(pool, items[0], p.start_date, p.end_date);
           return res.json({
             success: true,
             period: p,
-            item: {
-              ...it,
-              detalles_json: typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {})
-            }
+            item: enrichedItem
           });
         }
       }
@@ -459,6 +690,17 @@ function createPayrollRouter(pool) {
       }
 
       if (periods && periods.length > 0) {
+        let periodRow = periods[0];
+        // Punto 5: Si el período NO está aprobado ni cerrado, sincronizar automáticamente en tiempo real
+        if (periodRow.status !== 'Aprobada' && periodRow.is_immutable !== 1) {
+          try {
+            const updatedPeriod = await syncDraftPeriodInPlace(pool, periodRow.id);
+            if (updatedPeriod) periodRow = { ...periodRow, ...updatedPeriod };
+          } catch (syncErr) {
+            console.warn(`[AUTO-SYNC PERIOD DETAIL ${id} WARN]:`, syncErr.message);
+          }
+        }
+
         const [items] = await pool.query(`
           SELECT * FROM payroll_items 
           WHERE payroll_id = ? 
@@ -466,7 +708,7 @@ function createPayrollRouter(pool) {
         `, [id]);
 
         return res.json({
-          period: periods[0],
+          period: periodRow,
           items: items.map(item => ({
             ...item,
             detalles_json: typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {})
@@ -525,6 +767,7 @@ function createPayrollRouter(pool) {
       [periodHolidays],
       [commRows],
       [discountRows],
+      [futureLoanRows],
       [overrides],
       [attPunches],
       [rawCommLogs],
@@ -549,6 +792,14 @@ function createPayrollRouter(pool) {
         WHERE date BETWEEN ? AND ?
           AND (status != 'Anulado' OR status IS NULL)
       `, [startDate, endDate]),
+      conn.query(`
+        SELECT employee_id, employee_name, COALESCE(SUM(amount), 0) as future_pending
+        FROM employee_discounts
+        WHERE date > ?
+          AND status = 'Pendiente'
+          AND (LOWER(type) LIKE '%prestamo%' OR LOWER(type) LIKE '%préstamo%' OR LOWER(type) LIKE '%adelanto%' OR LOWER(type) LIKE '%anticipo%')
+        GROUP BY employee_id, employee_name
+      `, [endDate]),
       conn.query(`
         SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida, reason 
         FROM schedule_overrides 
@@ -610,6 +861,19 @@ function createPayrollRouter(pool) {
       }
     }
 
+    const futureLoansMap = new Map();
+    for (const fl of (futureLoanRows || [])) {
+      const val = parseFloat(fl.future_pending || 0);
+      if (fl.employee_id) {
+        futureLoansMap.set(String(fl.employee_id), (futureLoansMap.get(String(fl.employee_id)) || 0) + val);
+        futureLoansMap.set(`EMP-${fl.employee_id}`, (futureLoansMap.get(`EMP-${fl.employee_id}`) || 0) + val);
+      }
+      if (fl.employee_name) {
+        const n = fl.employee_name.toLowerCase().trim();
+        futureLoansMap.set(n, (futureLoansMap.get(n) || 0) + val);
+      }
+    }
+
     const overrideMap = new Map();
     for (const o of overrides) {
       const keys = [String(o.employee_id)];
@@ -659,6 +923,7 @@ function createPayrollRouter(pool) {
       periodHolidays,
       commMap,
       discMap,
+      futureLoansMap,
       overrideMap,
       punchesMap,
       commLogsMap,
@@ -681,7 +946,7 @@ function createPayrollRouter(pool) {
     // Salario fijo según configuración salarial del colaborador
     const tipoSalario = emp.tipo_salario || 'fijo_mas_comision';
     let baseMensual = parseFloat(emp.salario_base !== undefined && emp.salario_base !== null ? emp.salario_base : 0);
-    
+
     let salarioFijo = 0;
     if (tipoSalario === 'comision_pura' || tipoSalario === 'solo_comisiones') {
       salarioFijo = 0.00;
@@ -716,7 +981,7 @@ function createPayrollRouter(pool) {
           `, [empId, `EMP-${empId}`, empName, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
           comisiones = Number(parseFloat(commRows[0]?.total_comm || 0).toFixed(2));
         }
-      } catch(e) {
+      } catch (e) {
         console.warn(`[COMMISSIONS CALC WARN for ${empName}]:`, e.message);
       }
     }
@@ -728,14 +993,25 @@ function createPayrollRouter(pool) {
     let tardanzasMonto = 0.00;
     let otrosDescuentos = 0.00;
     const descuentosItemsList = [];
+    const serviciosDetalleList = [];
+    const prestamosDetalleList = [];
+    const manualAusenciasList = [];
+    const manualTardanzasList = [];
 
     try {
       let discountRows = [];
+      let futurePendingLoanBalance = 0;
       if (batchContext && batchContext.discMap) {
-        discountRows = batchContext.discMap.get(String(empId)) 
-          || batchContext.discMap.get(`EMP-${empId}`) 
-          || batchContext.discMap.get(empName.toLowerCase().trim()) 
+        discountRows = batchContext.discMap.get(String(empId))
+          || batchContext.discMap.get(`EMP-${empId}`)
+          || batchContext.discMap.get(empName.toLowerCase().trim())
           || [];
+        if (batchContext.futureLoansMap) {
+          futurePendingLoanBalance = batchContext.futureLoansMap.get(String(empId))
+            || batchContext.futureLoansMap.get(`EMP-${empId}`)
+            || batchContext.futureLoansMap.get(empName.toLowerCase().trim())
+            || 0;
+        }
       } else {
         const [rows] = await pool.query(`
           SELECT id, type, amount, notes, status, DATE_FORMAT(date, '%Y-%m-%d') as d_date
@@ -745,19 +1021,77 @@ function createPayrollRouter(pool) {
             AND (status != 'Anulado' OR status IS NULL)
         `, [empId, `EMP-${empId}`, empName, start_date, end_date]);
         discountRows = rows;
+
+        try {
+          const [fRows] = await pool.query(`
+            SELECT COALESCE(SUM(amount), 0) as future_pending
+            FROM employee_discounts
+            WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
+              AND date > ?
+              AND status = 'Pendiente'
+              AND (LOWER(type) LIKE '%prestamo%' OR LOWER(type) LIKE '%préstamo%' OR LOWER(type) LIKE '%adelanto%' OR LOWER(type) LIKE '%anticipo%')
+          `, [empId, `EMP-${empId}`, empName, end_date]);
+          futurePendingLoanBalance = parseFloat(fRows[0]?.future_pending || 0);
+        } catch (fErr) { }
       }
 
+      // Deduplicar por id en caso de múltiples llaves
+      const seenDiscountIds = new Set();
       for (const d of discountRows) {
+        if (d.id && seenDiscountIds.has(d.id)) continue;
+        if (d.id) seenDiscountIds.add(d.id);
+
         const amt = Number(parseFloat(d.amount || 0).toFixed(2));
         const typeLower = (d.type || '').toLowerCase();
-        if (typeLower.includes('servicio')) {
+        if (typeLower.includes('servicio') || typeLower.includes('producto') || typeLower.includes('consumo')) {
           serviciosConsumo += amt;
-        } else if (typeLower.includes('prestamo') || typeLower.includes('préstamo') || typeLower.includes('adelanto')) {
+          serviciosDetalleList.push({
+            id: d.id,
+            fecha: d.d_date || start_date,
+            servicio_producto: d.notes || (typeLower.includes('producto') ? 'Consumo de producto' : 'Servicio de salón'),
+            tipo: d.type || 'Consumo_Servicio',
+            monto: amt
+          });
+        } else if (typeLower.includes('prestamo') || typeLower.includes('préstamo') || typeLower.includes('adelanto') || typeLower.includes('anticipo')) {
           prestamosMonto += amt;
+          // Extraer saldo pendiente si viene indicado en notas (ej. "Saldo: 1500") o usar cuotas futuras pendientes
+          let parsedSaldo = null;
+          if (d.notes) {
+            const m = String(d.notes).match(/saldo(?:\s*pendiente)?\s*[:=]?\s*(?:RD\$)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+            if (m && m[1]) {
+              parsedSaldo = parseFloat(m[1].replace(/,/g, ''));
+            }
+          }
+          prestamosDetalleList.push({
+            id: d.id,
+            fecha: d.d_date || start_date,
+            concepto: d.notes ? `${d.type === 'Adelanto' ? 'Anticipo' : 'Préstamo'}: ${d.notes}` : (typeLower.includes('adelanto') || typeLower.includes('anticipo') ? 'Anticipo de sueldo' : 'Préstamo a empleado'),
+            tipo: d.type || 'Prestamo',
+            cuota_descontada: amt,
+            saldo_pendiente: parsedSaldo !== null && !isNaN(parsedSaldo) ? Number(parsedSaldo.toFixed(2)) : Number(futurePendingLoanBalance.toFixed(2))
+          });
         } else if (typeLower.includes('ausencia')) {
           ausenciasMonto += amt;
+          manualAusenciasList.push({
+            id: d.id,
+            fecha: d.d_date || start_date,
+            tipo: d.notes || 'Descuento manual por ausencia',
+            horas: 8,
+            monto: amt
+          });
         } else if (typeLower.includes('tardanza')) {
           tardanzasMonto += amt;
+          manualTardanzasList.push({
+            id: d.id,
+            fecha: d.d_date || start_date,
+            horario: 'Ajuste manual',
+            entrada: '—',
+            salida: '—',
+            minutos_descontados: 0,
+            detalle_minutos: d.notes || 'Descuento manual por tardanza',
+            valor_minuto: 0,
+            monto: amt
+          });
         } else {
           otrosDescuentos += amt;
         }
@@ -769,7 +1103,7 @@ function createPayrollRouter(pool) {
           db_id: d.id
         });
       }
-    } catch(e) {
+    } catch (e) {
       console.warn(`[EMPLOYEE DISCOUNTS CALC WARN for ${empName}]:`, e.message);
     }
 
@@ -800,7 +1134,8 @@ function createPayrollRouter(pool) {
     let totalOvertimeMins = 0;
     let totalDescansoMins = 0;
     let totalNetLatenessMins = 0;
-    let ausenciasHorasDetalle = [];
+    let ausenciasHorasDetalle = [...manualAusenciasList];
+    let tardanzasDiasDetalle = [...manualTardanzasList];
 
     try {
       // Cargar sobreescrituras de horario para el colaborador en el período
@@ -820,9 +1155,9 @@ function createPayrollRouter(pool) {
       const getScheduledDurationSecs = (dateStr) => {
         const override = overrideMap.get(dateStr);
         if (override) {
-          const hasValidWorkingHours = override.new_hora_entrada && 
-            override.new_hora_entrada !== '00:00:00' && 
-            override.new_hora_salida && 
+          const hasValidWorkingHours = override.new_hora_entrada &&
+            override.new_hora_entrada !== '00:00:00' &&
+            override.new_hora_salida &&
             override.new_hora_salida !== '00:00:00';
 
           if (!hasValidWorkingHours) {
@@ -855,7 +1190,7 @@ function createPayrollRouter(pool) {
             } else {
               return { secs: 0, hrs: 0, isWorking: false, entrada: null, salida: null };
             }
-          } catch(e) {}
+          } catch (e) { }
         } else if (emp.hora_entrada && emp.hora_salida) {
           const workingDays = (emp.dias_laborables || '').split(',').map(s => normalizeDay(s));
           const isWorking = workingDays.length === 0 || workingDays.some(w => w.slice(0, 3) === normDName.slice(0, 3)) || (!emp.dias_laborables && normDName !== 'domingo');
@@ -902,6 +1237,14 @@ function createPayrollRouter(pool) {
         }
       };
 
+      const formatMinsTo12h = (mins) => {
+        const h24 = Math.floor(mins / 60) % 24;
+        const m = mins % 60;
+        const ampm = h24 >= 12 ? 'p. m.' : 'a. m.';
+        const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+        return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+      };
+
       const punchesByDay = {};
       attPunches.forEach(p => {
         const dKey = getDRDateStr(p.timestamp) || p.p_date;
@@ -912,7 +1255,7 @@ function createPayrollRouter(pool) {
       let totalCalculatedAusencias = 0;
 
       // 3.1 Procesar ponches reales por día (entradas, salidas, compensación neta, fin de semana y tolerancia)
-      Object.keys(punchesByDay).forEach(dateStr => {
+      Object.keys(punchesByDay).sort().forEach(dateStr => {
         const dayPunches = punchesByDay[dateStr];
         const ins = dayPunches.filter(p => p.type === 'Check-In');
         const outs = dayPunches.filter(p => p.type === 'Check-Out');
@@ -938,9 +1281,6 @@ function createPayrollRouter(pool) {
             return;
           }
 
-          const scheduledSecs = daySched.secs > 0 ? daySched.secs : (horasDiaCompleto * 3600);
-          const scheduledMins = Math.round(scheduledSecs / 60);
-
           let scheduledEntMins = 8 * 60;
           let scheduledSalMins = 17 * 60;
           if (daySched.entrada) {
@@ -952,16 +1292,23 @@ function createPayrollRouter(pool) {
             scheduledSalMins = sh * 60 + sm;
           }
 
-          // Regla 1: Tolerancia de entrada de 15 minutos:
-          // Se evalúa sobre la llegada original del empleado frente a la entrada programada:
-          // Si superó los 15 min (> 15 min): se considera TODO el retraso original sin restar los 15 min.
-          // Si llegó dentro de los 15 min (<= 15 min): 0 tardanza (protegido por tolerancia).
           const inDate = new Date(checkIn.timestamp);
           const inH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(inDate), 10);
           const inM = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(inDate), 10);
           const inClockMins = inH * 60 + inM;
+
+          // Punto 1 y Regla de Tolerancia de Entrada (15 min):
+          // - Si rawDelayMins <= 15: evita descuento de tardanza (tardanzaEntrada = 0), pero NO convierte esos minutos en tiempo trabajado.
+          // - Si rawDelayMins > 15: se considera todo el retraso original sin restar 15 min.
           const rawDelayMins = Math.max(0, inClockMins - scheduledEntMins);
           const tardanzaEntrada = rawDelayMins > 15 ? rawDelayMins : 0;
+
+          // Punto 2: Nueva regla de entradas anticipadas:
+          // - Si llega 15 minutos o menos antes de su entrada asignada (rawEarlyMins <= 15), no se reconoce ese tiempo para pago (0).
+          // - Si supera los 15 minutos (rawEarlyMins > 15), se reconoce TODO el tiempo anticipado sin restar 15 minutos.
+          // - Sustituye la condición de que el salón esté abierto y aplica también antes de las 8:00 a. m.
+          const rawEarlyMins = Math.max(0, scheduledEntMins - inClockMins);
+          const earlyExtraMins = rawEarlyMins > 15 ? rawEarlyMins : 0;
 
           if (checkOut) {
             const outDate = new Date(checkOut.timestamp);
@@ -969,7 +1316,6 @@ function createPayrollRouter(pool) {
             const outHour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(outDate), 10);
             const outMinute = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(outDate), 10);
             const outClockMins = outHour * 60 + outMinute;
-            const workedMins = Math.max(0, outClockMins - inClockMins);
 
             // Cierre oficial de salón según día de la semana (hora República Dominicana):
             // - Sábados: corte de cierre 6:00 PM (18:00 = 1080 min)
@@ -981,12 +1327,7 @@ function createPayrollRouter(pool) {
             let isEarlyExit = false;
             let extraAtExit = 0;
 
-            // Excepción de cierre oficial:
-            // Si el horario asignado termina después del corte de cierre (ej. 9:00 PM vs corte 8:00 PM):
-            // - Si la empleada alcanza o supera el corte de cierre (outClockMins >= closingCutoffMins),
-            //   aplica la excepción y queda exonerada de salida anticipada.
-            // - Si NO alcanza el corte de cierre (outClockMins < closingCutoffMins), NO aplica la excepción
-            //   y la salida anticipada se calcula contra su horario asignado (scheduledSalMins).
+            // Excepción de cierre oficial (Nota Punto 2: llegar temprano NO autoriza salir antes del horario asignado):
             if (scheduledSalMins > closingCutoffMins) {
               if (outClockMins >= closingCutoffMins) {
                 salidaAnticipada = 0;
@@ -1009,27 +1350,57 @@ function createPayrollRouter(pool) {
               }
             }
 
-            // Regla de compensación de tardanza:
-            // Si llegó tarde (>15 min) pero salió después de su hora (extraAtExit > 0),
-            // solo se resta el tiempo REALMENTE compensado a la salida.
-            let compensatedMins = 0;
-            let netLateness = tardanzaEntrada;
-            if (tardanzaEntrada > 0 && extraAtExit > 0) {
-              compensatedMins = Math.min(tardanzaEntrada, extraAtExit);
-              netLateness = tardanzaEntrada - compensatedMins;
+            // Punto 1: Completar la jornada antes de generar extras:
+            // Antes de reconocer extras a la salida, el tiempo posterior a la salida (extraAtExit)
+            // debe compensar la llegada tardía (rawDelayMins), incluso si estuvo dentro de los 15 min de tolerancia.
+            const delayCompensatedAtExit = Math.min(rawDelayMins, extraAtExit);
+            const netLateness = rawDelayMins > 15 ? Math.max(0, rawDelayMins - delayCompensatedAtExit) : 0;
+            const dayDeductedMins = netLateness + salidaAnticipada;
+
+            totalNetLatenessMins += dayDeductedMins;
+
+            if (dayDeductedMins > 0) {
+              const dayMonto = Number((dayDeductedMins * empSalarioMinuto).toFixed(2));
+              const partes = [];
+              if (netLateness > 0) partes.push(`Tardanza neta: ${netLateness}m`);
+              if (salidaAnticipada > 0) partes.push(`Salida anticipada: ${salidaAnticipada}m`);
+              tardanzasDiasDetalle.push({
+                fecha: dateStr,
+                horario: `${formatMinsTo12h(scheduledEntMins)} - ${formatMinsTo12h(scheduledSalMins)}`,
+                entrada: formatMinsTo12h(inClockMins),
+                salida: formatMinsTo12h(outClockMins),
+                minutos_descontados: dayDeductedMins,
+                detalle_minutos: partes.join(' + '),
+                valor_minuto: Number(empSalarioMinuto.toFixed(4)),
+                monto: dayMonto
+              });
             }
 
-            totalNetLatenessMins += (netLateness + salidaAnticipada);
-
-            // Horas extras: aplica si no hubo salida anticipada, la tardanza fue 0 o totalmente compensada (netLateness === 0),
-            // y queda tiempo excedente (remainingExtra > 0)
-            const remainingExtra = Math.max(0, extraAtExit - compensatedMins);
-            if (!isEarlyExit && netLateness === 0 && remainingExtra > 0) {
-              totalOvertimeMins += remainingExtra;
+            // Horas extras del día = entrada anticipada reconocida (>15m) + excedente a la salida tras completar jornada (rawDelayMins)
+            const extraAfterExit = !isEarlyExit ? Math.max(0, extraAtExit - rawDelayMins) : 0;
+            const dayOvertimeMins = earlyExtraMins + extraAfterExit;
+            if (dayOvertimeMins > 0) {
+              totalOvertimeMins += dayOvertimeMins;
             }
           } else {
-            // Solo ponche de entrada
+            // Solo ponche de entrada (turno abierto o sin ponche de salida)
             totalNetLatenessMins += tardanzaEntrada;
+            if (tardanzaEntrada > 0) {
+              const dayMonto = Number((tardanzaEntrada * empSalarioMinuto).toFixed(2));
+              tardanzasDiasDetalle.push({
+                fecha: dateStr,
+                horario: `${formatMinsTo12h(scheduledEntMins)} - ${formatMinsTo12h(scheduledSalMins)}`,
+                entrada: formatMinsTo12h(inClockMins),
+                salida: 'Sin salida',
+                minutos_descontados: tardanzaEntrada,
+                detalle_minutos: `Tardanza entrada: ${tardanzaEntrada}m`,
+                valor_minuto: Number(empSalarioMinuto.toFixed(4)),
+                monto: dayMonto
+              });
+            }
+            if (earlyExtraMins > 0) {
+              totalOvertimeMins += earlyExtraMins;
+            }
           }
         }
       });
@@ -1037,7 +1408,11 @@ function createPayrollRouter(pool) {
       // 3.2 Determinar Ausencias en días laborables programados sin NINGÚN ponche (ni Entrada ni Salida)
       const curDateObj = new Date(start_date + 'T12:00:00');
       const endDateObj = new Date(end_date + 'T12:00:00');
-      const todayDateStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' });
+      const nowDR = new Date();
+      const todayDateStr = nowDR.toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' });
+      const nowDRHour = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', hour: 'numeric', hourCycle: 'h23' }).format(nowDR), 10);
+      const nowDRMinute = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santo_Domingo', minute: 'numeric' }).format(nowDR), 10);
+      const nowDRMins = nowDRHour * 60 + nowDRMinute;
       const hireDateStr = emp.fecha_entrada ? new Date(emp.fecha_entrada).toLocaleDateString('sv-SE', { timeZone: 'America/Santo_Domingo' }) : null;
 
       while (curDateObj <= endDateObj) {
@@ -1047,24 +1422,34 @@ function createPayrollRouter(pool) {
           const dayPunches = punchesByDay[dateStr] || [];
           const ins = dayPunches.filter(p => p.type === 'Check-In');
           const outs = dayPunches.filter(p => p.type === 'Check-Out');
-          const abs = dayPunches.find(p => p.type === 'Ausencia');
 
           // CRÍTICO: SOLO computar ausencia si NO existe NINGÚN ponche real (ni entrada ni salida)
-          // Si la colaboradora ponchó entrada pero olvidó salida, o ponchó salida pero olvidó entrada:
-          // ESTUVO PRESENTE, por lo que NUNCA se descuenta como Ausencia.
           const hasRealPunch = ins.length > 0 || outs.length > 0;
 
           if (daySched.isWorking && !hasRealPunch) {
-            if (abs || dateStr < todayDateStr) {
+            // Punto 4: Confirmar ausencias durante un turno abierto:
+            // Mientras la jornada de hoy siga abierta (nowDRMins < scheduledSalMins), la ausencia es provisional
+            // y NO debe consolidarse todavía como descuento definitivo para pago.
+            let isShiftClosed = dateStr < todayDateStr;
+            if (dateStr === todayDateStr) {
+              let scheduledSalMins = 17 * 60;
+              if (daySched.salida) {
+                const [sh, sm] = daySched.salida.split(':').map(Number);
+                scheduledSalMins = sh * 60 + sm;
+              }
+              isShiftClosed = nowDRMins >= scheduledSalMins;
+            }
+
+            if (isShiftClosed) {
               const isHalfDay = daySched.hrs <= 5;
               const scheduledHrs = isHalfDay ? horasMediaJornada : horasDiaCompleto;
-              const descuentoDia = scheduledHrs * empSalarioHora;
+              const descuentoDia = Number((scheduledHrs * empSalarioHora).toFixed(2));
               totalCalculatedAusencias += descuentoDia;
               ausenciasHorasDetalle.push({
                 fecha: dateStr,
                 tipo: isHalfDay ? 'Medio Día (4 hrs)' : 'Día Completo (8 hrs)',
                 horas: scheduledHrs,
-                monto: Number(descuentoDia.toFixed(2))
+                monto: descuentoDia
               });
             }
           }
@@ -1076,12 +1461,17 @@ function createPayrollRouter(pool) {
       const isComisionPura = tipoSalario === 'comision_pura' || tipoSalario === 'solo_comisiones' || salarioFijo === 0;
 
       if (!isComisionPura) {
-        if (totalCalculatedAusencias > 0 && ausenciasMonto === 0) {
-          ausenciasMonto = Number(totalCalculatedAusencias.toFixed(2));
+        if (ausenciasHorasDetalle.length > 0) {
+          // Punto 6: La suma del desglose debe coincidir exactamente con el importe del volante
+          ausenciasMonto = Number(ausenciasHorasDetalle.reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0).toFixed(2));
         }
-        if (totalNetLatenessMins > 0 && tardanzasMonto === 0) {
-          tardanzasMonto = Number((totalNetLatenessMins * empSalarioMinuto).toFixed(2));
+        if (tardanzasDiasDetalle.length > 0) {
+          // Punto 6: La suma del desglose diario de tardanzas coincide exactamente con el importe del volante
+          tardanzasMonto = Number(tardanzasDiasDetalle.reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0).toFixed(2));
         }
+      } else {
+        ausenciasHorasDetalle = [];
+        tardanzasDiasDetalle = [];
       }
       if (totalOvertimeMins > 0) {
         horasExtras = Number((totalOvertimeMins * empSalarioMinuto * recargoHorasExtras).toFixed(2));
@@ -1090,7 +1480,7 @@ function createPayrollRouter(pool) {
         // El descanso trabajado se paga al 100% (tarifa regular) porque el día ya está cubierto en el salario fijo
         descanso = Number((totalDescansoMins * empSalarioMinuto * 1.00).toFixed(2));
       }
-    } catch(e) {
+    } catch (e) {
       console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
     }
 
@@ -1098,9 +1488,9 @@ function createPayrollRouter(pool) {
     try {
       const periodHolidays = (batchContext && batchContext.periodHolidays)
         ? batchContext.periodHolidays
-        : (preloadedHolidays !== null 
-            ? preloadedHolidays 
-            : (await pool.query(`
+        : (preloadedHolidays !== null
+          ? preloadedHolidays
+          : (await pool.query(`
                 SELECT DATE_FORMAT(date, '%Y-%m-%d') as holiday_date, name, rate_multiplier 
                 FROM holidays 
                 WHERE date BETWEEN ? AND ? AND is_active = 1
@@ -1108,7 +1498,7 @@ function createPayrollRouter(pool) {
 
       if (periodHolidays.length > 0) {
         const holidayDates = new Set(periodHolidays.map(h => h.holiday_date));
-        
+
         let holidayPunches = [];
         if (batchContext && batchContext.punchesMap) {
           const allEmpPunches = batchContext.punchesMap.get(String(empId)) || batchContext.punchesMap.get(empName) || [];
@@ -1153,7 +1543,7 @@ function createPayrollRouter(pool) {
         });
         feriados = Number(feriados.toFixed(2));
       }
-    } catch (hErr) {}
+    } catch (hErr) { }
 
     let otrosIngresos = 0.00;
     const ingresosItemsList = [];
@@ -1292,7 +1682,27 @@ function createPayrollRouter(pool) {
           { id: 'd5', label: totalNetLatenessMins > 0 ? `Tardanzas netas (${totalNetLatenessMins}m)` : 'Tardanzas', monto: tardanzasMonto },
           { id: 'd6', label: 'Otros descuentos', monto: otrosDescuentos },
           ...descuentosItemsList.filter(d => d.id !== 'd_isr_dgii')
-        ]
+        ],
+        desglose_descuentos: {
+          tardanzas: {
+            items: tardanzasDiasDetalle,
+            total_minutos: totalNetLatenessMins,
+            valor_minuto: Number(empSalarioMinuto.toFixed(4)),
+            total_monto: tardanzasMonto
+          },
+          ausencias: {
+            items: ausenciasHorasDetalle,
+            total_monto: ausenciasMonto
+          },
+          servicios: {
+            items: serviciosDetalleList,
+            total_monto: serviciosConsumo
+          },
+          prestamos: {
+            items: prestamosDetalleList,
+            total_monto: prestamosMonto
+          }
+        }
       }
     };
   }
@@ -1786,9 +2196,9 @@ function createPayrollRouter(pool) {
 
       await conn.commit();
 
-      res.json({ 
-        success: true, 
-        message: 'Nómina aprobada exitosamente. Se han saldado los descuentos y liquidado las comisiones de los colaboradores para este período.' 
+      res.json({
+        success: true,
+        message: 'Nómina aprobada exitosamente. Se han saldado los descuentos y liquidado las comisiones de los colaboradores para este período.'
       });
     } catch (err) {
       await conn.rollback();
@@ -1823,7 +2233,7 @@ function createPayrollRouter(pool) {
         conn.release();
         return res.status(404).json({ error: 'Período no encontrado' });
       }
-      
+
       const period = periodRows[0];
       if (period.status === 'Aprobada' || period.is_immutable === 1) {
         await conn.rollback();

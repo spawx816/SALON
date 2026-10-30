@@ -45,7 +45,10 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
   const { showNotification } = useNotification();
 
   // Permisos: Solo Admin o quienes tengan view_contracts
-  const isAdmin = user?.role === 'admin' || user?.role_name === 'Administrador';
+  const isAdmin = user?.role?.toLowerCase() === 'admin' || 
+                  user?.role?.toLowerCase() === 'administrador' || 
+                  user?.role_name?.toLowerCase() === 'administrador' ||
+                  user?.role_name?.toLowerCase() === 'admin';
   const hasAccess = isAdmin || (user?.permissions && user?.permissions.view_contracts) || isModal;
 
   useEffect(() => {
@@ -534,7 +537,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
     try {
       setActionModal({ ...actionModal, loading: true });
       const res = await dataService.requestContractCode(contract.id, type);
-      const activeCode = res?.code || null;
+      const activeCode = (isAdmin || type !== 'cancellation') ? (res?.code || null) : null;
       setActionModal({ open: true, contract, type, code: '', activeCode, loading: false });
       showNotification(`Código de verificación enviado al correo de ${contract.clientName}`, 'info');
     } catch (err) {
@@ -1536,47 +1539,57 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
           </p>
           
           {/* Visualizador de Código para Administración */}
-          <div style={{ margin: '0 0 1.5rem', padding: '1.25rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '16px', textAlign: 'center' }}>
-            <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.4rem 0' }}>
-              🔑 Código de {actionModal.type === 'cancellation' ? 'Cancelación' : 'Autorización'}:
-            </p>
-            {actionModal.activeCode ? (
-              <div>
-                <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#1e40af', letterSpacing: '8px', fontFamily: 'monospace', margin: '0.25rem 0' }}>
-                  {actionModal.activeCode}
+          {(isAdmin || actionModal.type !== 'cancellation') ? (
+            <div style={{ margin: '0 0 1.5rem', padding: '1.25rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '16px', textAlign: 'center' }}>
+              <p style={{ fontSize: '0.72rem', fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 0.4rem 0' }}>
+                🔑 Código de {actionModal.type === 'cancellation' ? 'Cancelación (Vista Administrador)' : 'Autorización'}:
+              </p>
+              {actionModal.activeCode ? (
+                <div>
+                  <div style={{ fontSize: '2.2rem', fontWeight: 900, color: '#1e40af', letterSpacing: '8px', fontFamily: 'monospace', margin: '0.25rem 0' }}>
+                    {actionModal.activeCode}
+                  </div>
+                  <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0.25rem 0 0.75rem 0' }}>
+                    {actionModal.type === 'cancellation'
+                      ? 'Este código fue enviado al cliente y está visible exclusivamente para administración.'
+                      : 'Este código fue enviado al cliente y está disponible aquí para confirmar directamente.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActionModal(prev => ({ ...prev, code: prev.activeCode }))}
+                    style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    Autocompletar Código
+                  </button>
                 </div>
-                <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '0.25rem 0 0.75rem 0' }}>
-                  Este código fue enviado al cliente y está disponible aquí para confirmar directamente.
-                </p>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => setActionModal(prev => ({ ...prev, code: prev.activeCode }))}
-                  style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '10px', padding: '0.5rem 1.25rem', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer' }}
-                >
-                  Autocompletar Código
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const cRes = await dataService.getActiveContractCode(actionModal.contract.id, actionModal.type);
-                    if (cRes && cRes.code) {
-                      setActionModal(prev => ({ ...prev, activeCode: cRes.code }));
-                    } else {
-                      showNotification('No hay código activo actualmente.', 'info');
+                  onClick={async () => {
+                    try {
+                      const cRes = await dataService.getActiveContractCode(actionModal.contract.id, actionModal.type);
+                      if (cRes && cRes.code) {
+                        setActionModal(prev => ({ ...prev, activeCode: cRes.code }));
+                      } else {
+                        showNotification('No hay código activo actualmente.', 'info');
+                      }
+                    } catch (e) {
+                      showNotification('Error al consultar código.', 'error');
                     }
-                  } catch (e) {
-                    showNotification('Error al consultar código.', 'error');
-                  }
-                }}
-                style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
-              >
-                👁️ Visualizar código generado
-              </button>
-            )}
-          </div>
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  👁️ Visualizar código generado
+                </button>
+              )}
+            </div>
+          ) : (
+            <div style={{ margin: '0 0 1.5rem', padding: '1rem 1.25rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', textAlign: 'center' }}>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
+                🔒 <strong>Autorización requerida:</strong> Por seguridad, el código de cancelación ha sido enviado únicamente al correo del cliente. Pídale el código al cliente o solicite asistencia a un <strong>Administrador</strong>.
+              </p>
+            </div>
+          )}
 
           <input 
             type="text" 

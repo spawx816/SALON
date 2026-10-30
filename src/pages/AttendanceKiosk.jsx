@@ -46,6 +46,7 @@ const AttendanceKiosk = () => {
   const [employeeSlip, setEmployeeSlip] = useState(null);
   const [slipLoading, setSlipLoading] = useState(false);
   const [slipError, setSlipError] = useState('');
+  const [expandedDiscountConcept, setExpandedDiscountConcept] = useState(null); // 'tardanzas' | 'ausencias' | 'servicios' | 'prestamos' | null
 
   const [punchType, setPunchType] = useState('Check-In'); // 'Check-In' o 'Check-Out'
   const [todayPunches, setTodayPunches] = useState([]);
@@ -1790,37 +1791,265 @@ const AttendanceKiosk = () => {
                       </div>
                     </div>
 
-                    {/* Descuentos Box */}
+                    {/* Descuentos Box con Desglose Interactivo (Punto 6) */}
                     <div style={{ background: '#09090b', border: '1px solid #27272a', borderRadius: '14px', padding: '1rem' }}>
                       <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#f87171', textTransform: 'uppercase', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>(-) Descuentos</span>
+                        <span>(-) Descuentos (Toca para ver desglose)</span>
                         <span>Monto</span>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.8rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8rem' }}>
+                        
+                        {/* 1. TSS */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
                           <span>TSS Ley (5.91%)</span>
                           <strong>RD$ {Number(employeeSlip.item.tss || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
-                          <span>Servicios de Salón</span>
-                          <strong>RD$ {Number(employeeSlip.item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+
+                        {/* 2. Servicios de Salón */}
+                        <div>
+                          <div 
+                            onClick={() => setExpandedDiscountConcept(expandedDiscountConcept === 'servicios' ? null : 'servicios')}
+                            style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8', cursor: 'pointer', padding: '0.25rem 0', userSelect: 'none' }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: Number(employeeSlip.item.servicios || 0) > 0 ? '#60a5fa' : '#d4d4d8' }}>
+                              <span>Servicios / Consumos de Salón</span>
+                              {Number(employeeSlip.item.servicios || 0) > 0 && (
+                                <span style={{ fontSize: '0.7rem' }}>{expandedDiscountConcept === 'servicios' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                            <strong>RD$ {Number(employeeSlip.item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          {expandedDiscountConcept === 'servicios' && (
+                            <div style={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px', padding: '0.6rem', marginTop: '0.3rem', fontSize: '0.74rem' }}>
+                              <div style={{ fontWeight: 800, color: '#93c5fd', marginBottom: '0.4rem', borderBottom: '1px solid #27272a', paddingBottom: '0.25rem' }}>
+                                Desglose de Consumos y Servicios:
+                              </div>
+                              {employeeSlip.item.detalles_json?.desglose_descuentos?.servicios?.items?.length > 0 ? (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                  <thead>
+                                    <tr style={{ color: '#a1a1aa', borderBottom: '1px solid #27272a' }}>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Servicio / Producto</th>
+                                      <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {employeeSlip.item.detalles_json.desglose_descuentos.servicios.items.map((s, sIdx) => (
+                                      <tr key={sIdx} style={{ borderBottom: '1px solid #27272a' }}>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#e4e4e7' }}>{s.fecha}</td>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#cbd5e1' }}>{s.servicio_producto}</td>
+                                        <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#f87171' }}>
+                                          RD$ {Number(s.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr style={{ fontWeight: 800, color: '#f87171' }}>
+                                      <td colSpan="2" style={{ padding: '0.4rem 0.3rem' }}>Total Servicios</td>
+                                      <td style={{ padding: '0.4rem 0.3rem', textAlign: 'right' }}>
+                                        RD$ {Number(employeeSlip.item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              ) : (
+                                <div style={{ color: '#a1a1aa' }}>No hay consumos ni servicios registrados en el período.</div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
-                          <span>Préstamos / Anticipos</span>
-                          <strong>RD$ {Number(employeeSlip.item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+
+                        {/* 3. Préstamos / Anticipos */}
+                        <div>
+                          <div 
+                            onClick={() => setExpandedDiscountConcept(expandedDiscountConcept === 'prestamos' ? null : 'prestamos')}
+                            style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8', cursor: 'pointer', padding: '0.25rem 0', userSelect: 'none' }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: Number(employeeSlip.item.prestamos || 0) > 0 ? '#60a5fa' : '#d4d4d8' }}>
+                              <span>Préstamos / Anticipos</span>
+                              {Number(employeeSlip.item.prestamos || 0) > 0 && (
+                                <span style={{ fontSize: '0.7rem' }}>{expandedDiscountConcept === 'prestamos' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                            <strong>RD$ {Number(employeeSlip.item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          {expandedDiscountConcept === 'prestamos' && (
+                            <div style={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px', padding: '0.6rem', marginTop: '0.3rem', fontSize: '0.74rem' }}>
+                              <div style={{ fontWeight: 800, color: '#93c5fd', marginBottom: '0.4rem', borderBottom: '1px solid #27272a', paddingBottom: '0.25rem' }}>
+                                Desglose de Préstamos y Adelantos:
+                              </div>
+                              {employeeSlip.item.detalles_json?.desglose_descuentos?.prestamos?.items?.length > 0 ? (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                  <thead>
+                                    <tr style={{ color: '#a1a1aa', borderBottom: '1px solid #27272a' }}>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Concepto</th>
+                                      <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Cuota desc.</th>
+                                      <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Saldo pend.</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {employeeSlip.item.detalles_json.desglose_descuentos.prestamos.items.map((p, pIdx) => (
+                                      <tr key={pIdx} style={{ borderBottom: '1px solid #27272a' }}>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#e4e4e7' }}>
+                                          <div>{p.concepto}</div>
+                                          <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{p.fecha}</div>
+                                        </td>
+                                        <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#f87171' }}>
+                                          RD$ {Number(p.cuota_descontada || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </td>
+                                        <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', color: '#fbbf24', fontWeight: 650 }}>
+                                          RD$ {Number(p.saldo_pendiente || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr style={{ fontWeight: 800, color: '#f87171' }}>
+                                      <td style={{ padding: '0.4rem 0.3rem' }}>Total Cuotas</td>
+                                      <td style={{ padding: '0.4rem 0.3rem', textAlign: 'right' }}>
+                                        RD$ {Number(employeeSlip.item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                      </td>
+                                      <td></td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              ) : (
+                                <div style={{ color: '#a1a1aa' }}>No hay préstamos ni anticipos en el período.</div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
-                          <span>Ausencias</span>
-                          <strong>RD$ {Number(employeeSlip.item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+
+                        {/* 4. Ausencias */}
+                        <div>
+                          <div 
+                            onClick={() => setExpandedDiscountConcept(expandedDiscountConcept === 'ausencias' ? null : 'ausencias')}
+                            style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8', cursor: 'pointer', padding: '0.25rem 0', userSelect: 'none' }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: Number(employeeSlip.item.ausencias || 0) > 0 ? '#60a5fa' : '#d4d4d8' }}>
+                              <span>Ausencias</span>
+                              {Number(employeeSlip.item.ausencias || 0) > 0 && (
+                                <span style={{ fontSize: '0.7rem' }}>{expandedDiscountConcept === 'ausencias' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                            <strong>RD$ {Number(employeeSlip.item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          {expandedDiscountConcept === 'ausencias' && (
+                            <div style={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px', padding: '0.6rem', marginTop: '0.3rem', fontSize: '0.74rem' }}>
+                              <div style={{ fontWeight: 800, color: '#93c5fd', marginBottom: '0.4rem', borderBottom: '1px solid #27272a', paddingBottom: '0.25rem' }}>
+                                Desglose de Ausencias Descontadas:
+                              </div>
+                              {employeeSlip.item.detalles_json?.desglose_descuentos?.ausencias?.items?.length > 0 ? (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                  <thead>
+                                    <tr style={{ color: '#a1a1aa', borderBottom: '1px solid #27272a' }}>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Jornada</th>
+                                      <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {employeeSlip.item.detalles_json.desglose_descuentos.ausencias.items.map((a, aIdx) => (
+                                      <tr key={aIdx} style={{ borderBottom: '1px solid #27272a' }}>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#e4e4e7' }}>{a.fecha}</td>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#cbd5e1' }}>{a.tipo || `${a.horas} hrs`}</td>
+                                        <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#f87171' }}>
+                                          RD$ {Number(a.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr style={{ fontWeight: 800, color: '#f87171' }}>
+                                      <td colSpan="2" style={{ padding: '0.4rem 0.3rem' }}>Total Ausencias</td>
+                                      <td style={{ padding: '0.4rem 0.3rem', textAlign: 'right' }}>
+                                        RD$ {Number(employeeSlip.item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              ) : (
+                                <div style={{ color: '#a1a1aa' }}>0 ausencias descontadas en el período.</div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
-                          <span>Tardanzas</span>
-                          <strong>RD$ {Number(employeeSlip.item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+
+                        {/* 5. Tardanzas */}
+                        <div>
+                          <div 
+                            onClick={() => setExpandedDiscountConcept(expandedDiscountConcept === 'tardanzas' ? null : 'tardanzas')}
+                            style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8', cursor: 'pointer', padding: '0.25rem 0', userSelect: 'none' }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: Number(employeeSlip.item.tardanzas || 0) > 0 ? '#60a5fa' : '#d4d4d8' }}>
+                              <span>Tardanzas</span>
+                              {Number(employeeSlip.item.tardanzas || 0) > 0 && (
+                                <span style={{ fontSize: '0.7rem' }}>{expandedDiscountConcept === 'tardanzas' ? '▲' : '▼'}</span>
+                              )}
+                            </span>
+                            <strong>RD$ {Number(employeeSlip.item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                          {expandedDiscountConcept === 'tardanzas' && (
+                            <div style={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px', padding: '0.6rem', marginTop: '0.3rem', fontSize: '0.74rem' }}>
+                              <div style={{ fontWeight: 800, color: '#93c5fd', marginBottom: '0.4rem', borderBottom: '1px solid #27272a', paddingBottom: '0.25rem' }}>
+                                Desglose Diario de Tardanzas y Salidas Anticipadas:
+                              </div>
+                              {employeeSlip.item.detalles_json?.desglose_descuentos?.tardanzas?.items?.length > 0 ? (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                  <thead>
+                                    <tr style={{ color: '#a1a1aa', borderBottom: '1px solid #27272a' }}>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Minutos</th>
+                                      <th style={{ padding: '0.2rem 0.3rem' }}>Valor/Min</th>
+                                      <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {employeeSlip.item.detalles_json.desglose_descuentos.tardanzas.items.map((t, tIdx) => (
+                                      <tr key={tIdx} style={{ borderBottom: '1px solid #27272a' }}>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#e4e4e7' }}>
+                                          <div>{t.fecha}</div>
+                                          <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{t.horario}</div>
+                                        </td>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#f97316', fontWeight: 700 }}>
+                                          <div>{t.minutos_descontados} min</div>
+                                          <div style={{ fontSize: '0.65rem', color: '#a1a1aa' }}>{t.detalle_minutos}</div>
+                                        </td>
+                                        <td style={{ padding: '0.25rem 0.3rem', color: '#cbd5e1' }}>
+                                          RD$ {Number(t.valor_minuto || 0).toFixed(2)}
+                                        </td>
+                                        <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#f87171' }}>
+                                          RD$ {Number(t.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr style={{ fontWeight: 800, color: '#f87171' }}>
+                                      <td colSpan="3" style={{ padding: '0.4rem 0.3rem' }}>
+                                        Total Tardanzas ({employeeSlip.item.detalles_json.desglose_descuentos.tardanzas.total_minutos || 0} min)
+                                      </td>
+                                      <td style={{ padding: '0.4rem 0.3rem', textAlign: 'right' }}>
+                                        RD$ {Number(employeeSlip.item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              ) : (
+                                <div style={{ color: '#a1a1aa' }}>0 tardanzas netas en el período.</div>
+                              )}
+                            </div>
+                          )}
                         </div>
+
+                        {/* 6. Otros Descuentos */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8' }}>
                           <span>Otros Descuentos</span>
                           <strong>RD$ {Number(employeeSlip.item.otros_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
                         </div>
+
+                        {/* Total Descuentos */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #27272a', paddingTop: '0.5rem', marginTop: '0.2rem', color: '#f87171', fontWeight: 800 }}>
                           <span>Total Descuentos</span>
                           <span>RD$ {Number(employeeSlip.item.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>

@@ -628,38 +628,23 @@ router.post('/punch', async (req, res) => {
         actualCheckinDate.setHours(entH, entM, entS || 0, 0);
       }
 
-      // Early check-in rule: if actual check-in is earlier than scheduled entry, treat as scheduled entry only if within 15 minutes
+      // Punto 2: Nueva regla de entradas anticipadas:
+      // Si llega > 15 min antes, se reconocen los minutos anticipados. Si llega <= 15 min antes, no se reconoce para pago.
+      let earlyExtraMinutes = 0;
       if (effectiveHoraEntrada && actualCheckinDate) {
         const [entH, entM, entS] = effectiveHoraEntrada.split(':').map(Number);
         const scheduledEntryDate = new Date(nowDRString);
         scheduledEntryDate.setHours(entH, entM, entS || 0, 0);
         
-        const diffMs = scheduledEntryDate - actualCheckinDate;
-        const earlyMinutes = diffMs / (1000 * 60);
+        const rawEarlyMs = scheduledEntryDate - actualCheckinDate;
+        const rawEarlyMins = Math.floor(rawEarlyMs / (1000 * 60));
 
-        if (earlyMinutes > 0 && earlyMinutes <= 15) {
-          actualCheckinDate = scheduledEntryDate;
+        if (rawEarlyMins > 15) {
+          earlyExtraMinutes = rawEarlyMins;
         }
       }
 
-      let scheduledDurationMinutes = 0;
-      if (effectiveHoraEntrada) {
-        const [entH, entM, entS] = effectiveHoraEntrada.split(':').map(Number);
-        scheduledDurationMinutes = (expH * 60 + expM) - (entH * 60 + entM);
-        if (scheduledDurationMinutes < 0) {
-          scheduledDurationMinutes += 24 * 60; // Handle wrap around midnight
-        }
-      }
-
-      // Calculate actual worked duration in minutes
-      const workedDurationMinutes = actualCheckinDate
-        ? Math.max(0, Math.floor((now - actualCheckinDate) / (1000 * 60)))
-        : 0;
-
-      // Salon closing threshold according to day of the week (hora República Dominicana):
-      // - Sábados: salida a partir de las 6:00 PM (18:00) es cierre sin descuento.
-      // - Domingos: salida a partir de las 5:00 PM (17:00) es cierre sin descuento.
-      // - Lunes a Viernes: salida a partir de las 8:00 PM (20:00) para turnos hasta las 9:00 PM.
+      // salon closing cutoff (hora República Dominicana):
       const dayOfWeek = now.getDay(); // 0: Sunday, 6: Saturday
       const closingDate = new Date(nowDRString);
       let hasClosingCutoff = false;
@@ -678,26 +663,30 @@ router.post('/punch', async (req, res) => {
       const diffMs = now - expDate;
       const extraFromSchedExit = Math.max(0, Math.floor(diffMs / (1000 * 60)));
 
-      if (scheduledDurationMinutes > 0 && workedDurationMinutes >= scheduledDurationMinutes) {
-        // Jornada programada cumplida o excedida: NUNCA salida temprana!
-        status = 'Normal';
-        extraMinutes = Math.max(workedDurationMinutes - scheduledDurationMinutes, extraFromSchedExit);
-      } else if (hasClosingCutoff && now >= closingDate) {
+      // Retraso de llegada frente a la entrada asignada
+      let rawDelayMins = 0;
+      if (effectiveHoraEntrada && actualCheckinDate) {
+        const [entH, entM, entS] = effectiveHoraEntrada.split(':').map(Number);
+        const scheduledEntryDate = new Date(nowDRString);
+        scheduledEntryDate.setHours(entH, entM, entS || 0, 0);
+        rawDelayMins = Math.max(0, Math.floor((actualCheckinDate - scheduledEntryDate) / (1000 * 60)));
+      }
+
+      if (hasClosingCutoff && now >= closingDate) {
         // Ponchó a la hora de cierre del salón o después (ej. sábado >= 6pm, domingo >= 5pm, semana >= 8pm)
         status = 'Normal';
-        extraMinutes = scheduledDurationMinutes > 0 ? Math.max(0, workedDurationMinutes - scheduledDurationMinutes) : 0;
+        const extraAfterComp = Math.max(0, extraFromSchedExit - rawDelayMins);
+        extraMinutes = earlyExtraMinutes + extraAfterComp;
       } else if (now >= expDate) {
         // Hora de salida programada alcanzada o superada
         status = 'Normal';
-        if (actualCheckinDate && scheduledDurationMinutes > 0) {
-          extraMinutes = Math.max(workedDurationMinutes - scheduledDurationMinutes, extraFromSchedExit);
-        } else {
-          extraMinutes = extraFromSchedExit;
-        }
+        // Punto 1: Completar la jornada antes de generar extras a la salida
+        const extraAfterComp = Math.max(0, extraFromSchedExit - rawDelayMins);
+        extraMinutes = earlyExtraMinutes + extraAfterComp;
       } else {
-        // Salió antes de la hora programada y antes del cierre oficial del salón
+        // Salió antes de la hora programada y antes del cierre oficial del salón (llegar temprano NO autoriza salida temprana)
         status = 'Salida Temprana';
-        extraMinutes = 0;
+        extraMinutes = earlyExtraMinutes;
       }
     }
     
@@ -932,16 +921,24 @@ router.get('/history', async (req, res) => {
           if (!punchSet.has(lookupKey) && !realPunchSet.has(lookupKey) && !checkinSet.has(lookupKey)) {
             let shouldMarkAbsent = true;
             const effectiveHoraEntrada = override ? override.new_hora_entrada : empDailyHoraEntrada;
+            const effectiveHoraSalida = override ? override.new_hora_salida : empDailyHoraSalida;
 
             if (dateStr > todayStr) {
               shouldMarkAbsent = false;
             } else if (dateStr <= '2026-07-12') {
               shouldMarkAbsent = false;
             } else if (dateStr === todayStr) {
-              if (effectiveHoraEntrada) {
-                const grace = emp.tolerancia_minutos !== null && emp.tolerancia_minutos !== undefined ? emp.tolerancia_minutos : 15;
-                const isPast = isDRTimePastLimit(effectiveHoraEntrada, grace);
-                if (!isPast) {
+              // Punto 4: Confirmar ausencias durante un turno abierto
+              // Mientras la jornada esté abierta (hora actual < hora de salida del turno), la ausencia es provisional
+              // y NO debe consolidarse ni insertarse en base de datos como registro definitivo de ausencia.
+              if (effectiveHoraSalida) {
+                const isShiftOver = isDRTimePastLimit(effectiveHoraSalida, 0);
+                if (!isShiftOver) {
+                  shouldMarkAbsent = false;
+                }
+              } else if (effectiveHoraEntrada) {
+                const isPastGrace = isDRTimePastLimit(effectiveHoraEntrada, 120); // Al menos 2h si no hay hora de salida
+                if (!isPastGrace) {
                   shouldMarkAbsent = false;
                 }
               } else {

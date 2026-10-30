@@ -514,7 +514,17 @@ function createContractsRouter(pool, helpers = {}) {
         `
       });
 
-      res.json({ success: true, message: 'Código enviado al cliente.', code });
+      const userRole = (req.headers['x-user-role'] || '').toLowerCase();
+      const isAdmin = ['admin', 'administrador'].includes(userRole);
+
+      const responsePayload = { success: true, message: 'Código enviado al cliente.' };
+      // Solo el Administrador puede ver el código de cancelación en la respuesta.
+      // El representante o recepcionista debe pedir autorización o el cliente proveerlo desde su correo.
+      if (isAdmin || actionType !== 'cancellation') {
+        responsePayload.code = code;
+      }
+
+      res.json(responsePayload);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -523,6 +533,12 @@ function createContractsRouter(pool, helpers = {}) {
   router.get('/contracts/:id/active-code', async (req, res) => {
     const { id } = req.params;
     const { actionType } = req.query;
+    const userRole = (req.headers['x-user-role'] || '').toLowerCase();
+    const isAdmin = ['admin', 'administrador'].includes(userRole);
+
+    if (actionType === 'cancellation' && !isAdmin) {
+      return res.status(403).json({ error: 'Solo los administradores tienen permiso para consultar el código de cancelación.' });
+    }
     try {
       let query = 'SELECT code, action_type, expires_at, created_at FROM billing_codes WHERE contract_id = ? AND is_used = 0 AND expires_at > NOW()';
       const params = [id];
@@ -533,6 +549,9 @@ function createContractsRouter(pool, helpers = {}) {
       query += ' ORDER BY id DESC LIMIT 1';
       const [rows] = await pool.query(query, params);
       if (rows.length > 0) {
+        if (rows[0].action_type === 'cancellation' && !isAdmin) {
+          return res.status(403).json({ error: 'Solo los administradores tienen permiso para consultar el código de cancelación.' });
+        }
         return res.json({ success: true, code: rows[0].code, action_type: rows[0].action_type, expires_at: rows[0].expires_at });
       }
       return res.status(404).json({ error: 'No hay código activo para este contrato.' });

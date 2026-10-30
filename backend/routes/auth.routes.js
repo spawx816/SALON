@@ -716,6 +716,9 @@ function createAuthRouter(pool, helpers = {}) {
       }
 
       // Fallback: check if there is an active billing/cancellation code for any contract of this client
+      const userRole = (req.headers['x-user-role'] || '').toLowerCase();
+      const isAdmin = ['admin', 'administrador'].includes(userRole);
+
       const [billingRows] = await pool.query(`
         SELECT bc.code, bc.action_type, bc.expires_at, bc.created_at 
         FROM billing_codes bc
@@ -725,6 +728,9 @@ function createAuthRouter(pool, helpers = {}) {
       `, [clientId]);
 
       if (billingRows && billingRows.length > 0) {
+        if (billingRows[0].action_type === 'cancellation' && !isAdmin) {
+          return res.status(403).json({ error: 'El código de cancelación solo está disponible para administradores.' });
+        }
         return res.json(billingRows[0]);
       }
 

@@ -1433,15 +1433,25 @@ export default function PayrollModule({ initialTab }) {
             {/* BOTONES DE ACCIÓN SUPERIORES */}
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
               {currentPeriod?.status !== 'Aprobada' && (
-                <button 
-                  onClick={handleSyncRealData}
-                  disabled={loading}
-                  className="btn-secondary"
-                  style={{ background: '#ffffff', border: '1.5px solid #0066ff', color: '#0066ff', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.2rem', borderRadius: '12px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0, 102, 255, 0.08)' }}
-                  title="Recalcular con comisiones y descuentos reales actuales de la base de datos para este período"
+                <div 
+                  style={{
+                    background: '#f0fdf4',
+                    border: '1.5px solid #86efac',
+                    color: '#15803d',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    padding: '0.65rem 1rem',
+                    borderRadius: '12px',
+                    fontWeight: 800,
+                    fontSize: '0.82rem',
+                    boxShadow: '0 2px 6px rgba(34, 197, 94, 0.08)'
+                  }}
+                  title="Los cambios en ponches, horarios, comisiones y descuentos se reflejan automáticamente en tiempo real"
                 >
-                  <RefreshCw size={16} /> Sincronizar Datos Reales
-                </button>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
+                  <span>Sincronización en tiempo real activa</span>
+                </div>
               )}
 
               <button 

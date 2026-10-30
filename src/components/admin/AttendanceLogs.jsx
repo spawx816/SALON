@@ -1008,10 +1008,26 @@ const AttendanceLogs = () => {
           dayStatusType = 'dayoff';
         }
       } else if (!checkIn && !checkOut) {
-        if (absentLog || dateStr < todayDRStr) {
+        // Punto 4: Confirmar ausencias durante un turno abierto
+        let isShiftClosed = dateStr < todayDRStr;
+        if (dateStr === todayDRStr) {
+          const effectiveSal = baseHoraSalida || '17:00';
+          let scheduledSalMins = 17 * 60;
+          try {
+            const [sh, sm] = effectiveSal.split(':').map(Number);
+            scheduledSalMins = sh * 60 + sm;
+          } catch(e) {}
+          const nowMins = currentDRHour * 60 + currentDRMinute;
+          isShiftClosed = nowMins >= scheduledSalMins;
+        }
+
+        if (isShiftClosed) {
           dayStatus = 'Ausencia';
           dayStatusType = 'absent';
           absencesCount += 1;
+        } else if (dateStr === todayDRStr) {
+          dayStatus = 'Sin ponche (Turno abierto)';
+          dayStatusType = 'scheduled';
         } else {
           dayStatus = 'Programado';
           dayStatusType = 'scheduled';
@@ -1047,15 +1063,17 @@ const AttendanceLogs = () => {
         let scheduledSecs = (scheduledSalMins - scheduledEntMins) * 60;
         if (scheduledSecs <= 0) scheduledSecs += 86400;
 
-        // 1. REGLA DE TOLERANCIA DE ENTRADA (15 MINUTOS):
-        // Se evalúa sobre la llegada original del empleado frente a la hora programada:
-        // Si superó los 15 min de tolerancia (> 15 min): se considera TODO el retraso original sin restar los 15 min.
-        // Si llegó dentro de los 15 min (<= 15 min): tardanza = 0 (protegido por tolerancia).
+        // Punto 1 y 2: Entrada del empleado frente a hora programada
         const inHour = getDRHour(checkIn.timestamp);
         const inMinute = getDRMinute(checkIn.timestamp);
         const inClockMins = inHour * 60 + inMinute;
         const rawDelayMins = Math.max(0, inClockMins - scheduledEntMins);
         const tardanzaEntrada = rawDelayMins > 15 ? rawDelayMins : 0;
+
+        // Punto 2: Nueva regla de entradas anticipadas
+        // Si llega > 15 min antes, se reconocen los minutos anticipados. Si llega <= 15 min antes, 0.
+        const rawEarlyMins = Math.max(0, scheduledEntMins - inClockMins);
+        const earlyExtraMins = rawEarlyMins > 15 ? rawEarlyMins : 0;
 
         if (checkOut) {
           const outHour = getDRHour(checkOut.timestamp);
@@ -1076,12 +1094,6 @@ const AttendanceLogs = () => {
           let isEarlyExit = false;
           let extraAtExit = 0;
 
-          // Excepción de cierre oficial:
-          // Si el horario asignado termina después del corte de cierre (ej. 9:00 PM vs corte 8:00 PM):
-          // - Si la empleada alcanza o supera el corte de cierre (outClockMins >= closingCutoffMins),
-          //   aplica la excepción y queda exonerada de salida anticipada.
-          // - Si NO alcanza el corte de cierre (outClockMins < closingCutoffMins), NO aplica la excepción
-          //   y la salida anticipada se calcula contra su horario asignado (scheduledSalMins).
           if (scheduledSalMins > closingCutoffMins) {
             if (outClockMins >= closingCutoffMins) {
               salidaAnticipada = 0;
@@ -1104,34 +1116,24 @@ const AttendanceLogs = () => {
             }
           }
 
-          // 3. REGLA DE COMPENSACIÓN NETA DE TARDANZA:
-          // Si el empleado llegó tarde (>15 min) pero compensó saliendo después de su hora (extraAtExit > 0),
-          // solo se resta el tiempo REALMENTE compensado a la salida.
-          let compensatedMins = 0;
-          let netLateness = tardanzaEntrada;
-          if (tardanzaEntrada > 0 && extraAtExit > 0) {
-            compensatedMins = Math.min(tardanzaEntrada, extraAtExit);
-            netLateness = tardanzaEntrada - compensatedMins;
-            if (compensatedMins > 0) compensatedDaysCount += 1;
-          }
+          // Punto 1: Completar la jornada antes de generar extras:
+          // El tiempo posterior a la salida (extraAtExit) primero debe compensar la llegada tardía (rawDelayMins),
+          // incluso si estuvo dentro de la tolerancia de 15 minutos.
+          const delayCompensatedAtExit = Math.min(rawDelayMins, extraAtExit);
+          const netLateness = rawDelayMins > 15 ? Math.max(0, rawDelayMins - delayCompensatedAtExit) : 0;
+          if (delayCompensatedAtExit > 0 && rawDelayMins > 15) compensatedDaysCount += 1;
 
           // Descuento neto del día:
           dayLatenessMins = netLateness + salidaAnticipada;
           totalLateness += dayLatenessMins;
 
-          // 4. HORAS EXTRAS:
-          // Aplica si no hubo salida anticipada, la tardanza fue 0 o totalmente compensada (netLateness === 0),
-          // y queda tiempo excedente (remainingExtra > 0)
-          const remainingExtra = Math.max(0, extraAtExit - compensatedMins);
-          if (!isEarlyExit && netLateness === 0 && remainingExtra > 0) {
-            dayOvertimeMins = remainingExtra;
-            totalOvertime += dayOvertimeMins;
-          } else {
-            dayOvertimeMins = 0;
-          }
+          // Horas extras del día = entrada anticipada reconocida (>15m) + excedente a la salida tras compensar rawDelayMins
+          const extraAfterExit = !isEarlyExit ? Math.max(0, extraAtExit - rawDelayMins) : 0;
+          dayOvertimeMins = earlyExtraMins + extraAfterExit;
+          totalOvertime += dayOvertimeMins;
 
           if (dayLatenessMins === 0) {
-            if (dayOvertimeMins > 0 && tardanzaEntrada > 0) {
+            if (dayOvertimeMins > 0 && rawDelayMins > 0) {
               dayStatus = 'Compensada + Horas extras';
               dayStatusType = 'overtime';
             } else if (dayOvertimeMins > 0) {
@@ -1140,7 +1142,7 @@ const AttendanceLogs = () => {
             } else if (rawDelayMins > 0 && rawDelayMins <= 15) {
               dayStatus = 'Tolerancia matutina';
               dayStatusType = 'complete';
-            } else if (tardanzaEntrada > 0 && compensatedMins >= tardanzaEntrada) {
+            } else if (rawDelayMins > 15 && delayCompensatedAtExit >= rawDelayMins) {
               dayStatus = 'Tardanza compensada';
               dayStatusType = 'complete';
             } else {
@@ -3675,8 +3677,8 @@ const AttendanceLogs = () => {
                   </div>
                 </div>
 
-                {/* 4 KPI Summary Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginTop: '1.5rem' }}>
+                {/* 5 KPI Summary Cards (incluyendo Descanso trabajado) */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '1rem', marginTop: '1.5rem' }}>
                   
                   {/* Card 1: Días trabajados */}
                   <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -3715,7 +3717,20 @@ const AttendanceLogs = () => {
                     </div>
                   </div>
 
-                  {/* Card 4: Ausencias */}
+                  {/* Card 4: Descanso trabajado (Punto 3) */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#faf5ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                      ☕
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 650 }}>Descanso trabajado</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: activeEmpPayroll.totalDescanso > 0 ? '#7e22ce' : '#0f172a' }}>
+                        {formatMins(activeEmpPayroll.totalDescanso)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 5: Ausencias */}
                   <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: '16px', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#fef2f2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
                       👤
@@ -3783,6 +3798,7 @@ const AttendanceLogs = () => {
                         <th style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>Salida</th>
                         <th style={{ padding: '0.75rem 1rem', fontWeight: 800, textAlign: 'center' }}>Tardanza</th>
                         <th style={{ padding: '0.75rem 1rem', fontWeight: 800, textAlign: 'center' }}>Horas extras</th>
+                        <th style={{ padding: '0.75rem 1rem', fontWeight: 800, textAlign: 'center' }}>Descanso trabajado</th>
                         <th style={{ padding: '0.75rem 1rem', fontWeight: 800 }}>Estado</th>
                       </tr>
                     </thead>
@@ -3865,6 +3881,15 @@ const AttendanceLogs = () => {
                                 <span style={{ color: '#cbd5e1' }}>—</span>
                               )}
                             </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                              {day.descansoMinutes > 0 ? (
+                                <span style={{ background: '#faf5ff', color: '#7e22ce', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                                  {day.descansoMinutes >= 60 ? `${Math.floor(day.descansoMinutes / 60)} h ${day.descansoMinutes % 60 > 0 ? `${day.descansoMinutes % 60}m` : ''}`.trim() : `${day.descansoMinutes} min`}
+                                </span>
+                              ) : (
+                                <span style={{ color: '#cbd5e1' }}>—</span>
+                              )}
+                            </td>
                             <td style={{ padding: '0.85rem 1rem' }}>
                               <span style={{
                                 display: 'inline-flex',
@@ -3886,7 +3911,7 @@ const AttendanceLogs = () => {
                       })}
                       {filteredDaily.length === 0 && (
                         <tr>
-                          <td colSpan="7" style={{ textAlign: 'center', padding: '2.5rem 0', color: '#94a3b8', fontWeight: 600 }}>
+                          <td colSpan="8" style={{ textAlign: 'center', padding: '2.5rem 0', color: '#94a3b8', fontWeight: 600 }}>
                             No hay registros para este filtro en la quincena.
                           </td>
                         </tr>
@@ -3905,6 +3930,11 @@ const AttendanceLogs = () => {
                         <td style={{ padding: '1rem', textAlign: 'center' }}>
                           <span style={{ background: '#eff6ff', color: '#2563eb', padding: '0.3rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 900 }}>
                             {formatMins(activeEmpPayroll.totalOvertime)}
+                          </span>
+                        </td>
+                        <td style={{ padding: '1rem', textAlign: 'center' }}>
+                          <span style={{ background: '#faf5ff', color: '#7e22ce', padding: '0.3rem 0.75rem', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 900 }}>
+                            {formatMins(activeEmpPayroll.totalDescanso)}
                           </span>
                         </td>
                         <td style={{ padding: '1rem' }}>
@@ -4333,32 +4363,27 @@ const AttendanceLogs = () => {
 
               </div>
 
-              {/* Action Buttons: Sync to Payroll & PDF Print */}
+              {/* Punto 5: Actualización automática en tiempo real & PDF Print */}
               <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  onClick={handleSyncToPayroll}
-                  disabled={syncingPayroll}
-                  title="Alimentar la plantilla de nómina activa con las horas extras y asistencias calculadas"
+                <div
+                  title="Los ponches, horarios y descansos se sincronizan automáticamente en tiempo real con nómina"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.5rem',
-                    padding: '0.6rem 1.25rem',
+                    gap: '0.45rem',
+                    padding: '0.55rem 0.95rem',
                     borderRadius: '10px',
-                    fontSize: '0.85rem',
-                    fontWeight: 800,
-                    cursor: syncingPayroll ? 'not-allowed' : 'pointer',
-                    background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)',
-                    color: 'white',
-                    border: 'none',
-                    boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)',
-                    fontFamily: '"Plus Jakarta Sans", sans-serif',
-                    transition: 'all 0.2s ease'
+                    fontSize: '0.8rem',
+                    fontWeight: 750,
+                    background: '#f0fdf4',
+                    color: '#15803d',
+                    border: '1px solid #bbf7d0',
+                    fontFamily: '"Plus Jakarta Sans", sans-serif'
                   }}
                 >
-                  <RefreshCw size={15} className={syncingPayroll ? 'animate-spin' : ''} />
-                  {syncingPayroll ? 'Alimentando Nómina...' : '⚡ Alimentar Plantilla de Nómina'}
-                </button>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 0 2px rgba(34, 197, 94, 0.2)' }}></span>
+                  <span>Sincronización en vivo activa</span>
+                </div>
 
                 <button
                   onClick={handlePrintPayroll}
