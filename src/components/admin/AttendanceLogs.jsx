@@ -811,6 +811,8 @@ const AttendanceLogs = () => {
   const computeDetailedPayroll = (emp, empLogs) => {
     const dateRange = getDatesInRange(filters.startDate, filters.endDate);
     const todayDRStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santo_Domingo' });
+    const currentDRHour = getDRHour(new Date());
+    const currentDRMinute = getDRMinute(new Date());
 
     // Group logs by Dominican Republic date (YYYY-MM-DD)
     const logsByDate = new Map();
