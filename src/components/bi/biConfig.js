@@ -10,14 +10,14 @@ export const BI_CATEGORIES = [
     name: 'Ventas y cobros',
     iconName: 'TrendingUp',
     description: 'Facturación, cobros, medios de pago, impuestos y análisis de compras',
-    count: 13
+    count: 11
   },
   {
     id: 'clients',
     name: 'Clientes',
     iconName: 'Users',
     description: 'Frecuencia, retención, canjes de membresía, inactividad y cumpleaños',
-    count: 7
+    count: 6
   },
   {
     id: 'memberships',
@@ -41,33 +41,29 @@ export const BI_REPORTS_BY_CATEGORY = {
       id: 'sales_summary',
       name: 'Resumen de ventas y cobros',
       chartType: 'sales_evolution',
-      description: 'Presenta facturación, total cobrado, cantidad de facturas válidas y ticket promedio.',
-      note: 'Distingue las ventas del período de los pagos recibidos, incluidos cobros de facturas anteriores. Excluye facturas anuladas.'
+      description: 'Presenta facturación, total cobrado, cantidad de facturas válidas y cuadro totalizado por sucursal.',
+      note: 'Cuadro inferior consolidado por sucursal con facturación, participación, ticket promedio y anulaciones.'
     },
     {
       id: 'sales_by_product',
       name: 'Ventas por producto o servicio',
       chartType: 'bar',
-      description: 'Muestra cantidades vendidas y monto generado por cada producto o servicio.',
+      description: 'Cantidad de ventas realizadas según el servicio vendido y porcentaje de participación sobre el total del catálogo.',
       note: 'Permite identificar los ítems más vendidos y su participación en la facturación total.'
     },
     {
-      id: 'sales_by_salon',
-      name: 'Ventas por sucursal',
-      chartType: 'bar',
-      description: 'Compara las ventas de las sucursales e indica cuánto representa cada una sobre el total de la empresa.'
-    },
-    {
       id: 'sales_by_client',
-      name: 'Ventas por cliente',
+      name: 'Ventas por cliente (Mayor consumo)',
       chartType: 'bar',
-      description: 'Detalla las ventas realizadas a cada cliente y permite identificar quiénes compran más y cuánto gastan.'
+      description: 'Facturas de mayor consumo ordenadas de mayor a menor con desglose por cliente.',
+      note: 'Ordenadas de mayor a menor según el monto total consumido en el período.'
     },
     {
       id: 'payment_methods',
       name: 'Cobros por método de pago',
       chartType: 'donut',
-      description: 'Desglosa los cobros recibidos en efectivo, tarjeta, transferencia y otros métodos con su participación.'
+      description: 'Desglose exacto en 4 métodos: Tarjeta, Efectivo, Cardnet auto y Transferencia (distribuyendo pagos mixtos).',
+      note: 'Los cobros mixtos se desglosan proporcionalmente en sus métodos individuales.'
     },
     {
       id: 'accounts_receivable',
@@ -79,7 +75,7 @@ export const BI_REPORTS_BY_CATEGORY = {
       id: 'cancelled_tickets',
       name: 'Tickets cancelados',
       chartType: 'table_only',
-      description: 'Detalla los tickets cancelados antes de facturar, con fecha, motivo y usuario responsable.'
+      description: 'Totalizado arriba por sucursales y motivos, y abajo el detalle completo de tickets cancelados antes de facturar.'
     },
     {
       id: 'voided_invoices',
@@ -91,7 +87,8 @@ export const BI_REPORTS_BY_CATEGORY = {
       id: 'applied_discounts',
       name: 'Descuentos aplicados',
       chartType: 'bar',
-      description: 'Detalla descuentos por cliente y producto o servicio, con sus montos y el usuario que los autorizó.'
+      description: 'Distribución de descuento por sucursal y detalle de cada transacción: precio base, descuento, precio final y usuario.',
+      note: 'Permite auditar el uso de descuentos y promociones especiales en caja.'
     },
     {
       id: 'cash_membership_payments',
@@ -103,21 +100,13 @@ export const BI_REPORTS_BY_CATEGORY = {
       id: 'sales_itbis',
       name: 'ITBIS en ventas',
       chartType: 'bar',
-      description: 'Presenta ventas gravadas y exentas, base imponible por tasa, ITBIS facturado, ajustes por notas de crédito y débito e ITBIS neto.',
-      note: 'Cumple con el marco fiscal de la DGII. Evita duplicar el efecto de anulaciones y notas de crédito.'
-    },
-    {
-      id: 'avg_spend_per_client',
-      name: 'Consumo promedio por cliente',
-      chartType: 'comparison',
-      description: 'Muestra cuánto consume, en promedio, cada cliente único atendido durante el período.',
-      note: 'Fórmula: Total facturado válido ÷ Clientes únicos atendidos. Distingue crecimiento por más personas de crecimiento por mayor ticket.'
+      description: 'Reporte totalizado por sucursal: ventas gravadas, exentas, base imponible e ITBIS facturado y neto.'
     },
     {
       id: 'joint_purchases',
       name: 'Comportamiento de compra conjunta',
       chartType: 'bar',
-      description: 'Identifica productos y servicios adquiridos juntos en una misma visita para diseño de paquetes y venta cruzada.'
+      description: 'Identifica productos y servicios adquiridos juntos en una misma visita y factura: combinaciones, visitas y % sobre la base.'
     }
   ],
 
@@ -126,17 +115,16 @@ export const BI_REPORTS_BY_CATEGORY = {
       id: 'clients_summary',
       name: 'Estado de clientes',
       chartType: 'bar',
-      description: 'Muestra clientes únicos atendidos, socias con membresía activa, canceladas y clientela regular con desglose por sucursal.',
-      note: 'Distingue clientes únicos de visitas. Un cliente con 4 visitas cuenta como 1 cliente y 4 visitas.'
+      description: 'Muestra clientes activos, clientes con falta de pago, membresías canceladas y clientes regulares/ocasionales.',
+      note: 'Incluye socias con falta de pago (mora / reintentos pendientes).'
     },
     {
       id: 'visit_frequency',
       name: 'Frecuencia de visitas',
       chartType: 'frequency_interactive',
       hasMembershipFilter: true,
-      description: 'Agrupa clientes por cantidad de visitas (0, 1, 2, 3, 4 y 5+) con comparación porcentual y detalle interactivo.',
-      alertInfo: 'Solo cuenta Lavado sencillo. Una visita cuenta una sola vez, aunque incluya varios servicios. Sin duplicados por servicios o facturas de la misma visita.',
-      note: 'Base: clientes con membresía activa durante el período seleccionado. Abre por defecto con Clientes con 0 visitas.'
+      description: 'Cantidad real de clientes que estuvieron activas o usaron el servicio durante el período, aun si luego fueron suspendidas o canceladas.',
+      alertInfo: 'Solo cuenta Lavado sencillo. Una visita cuenta una sola vez, aunque incluya varios servicios. Sin duplicados por servicios o facturas de la misma visita.'
     },
     {
       id: 'inactive_clients',
@@ -146,31 +134,25 @@ export const BI_REPORTS_BY_CATEGORY = {
       description: 'Identifica clientes que llevan un tiempo configurable sin visitar (última visita, días de ausencia y WhatsApp directo).'
     },
     {
-      id: 'new_clients_followup',
-      name: 'Seguimiento de clientes nuevos',
-      chartType: 'bar',
-      hasCohortWindowFilter: true,
-      description: 'Evalúa el retorno dentro de un plazo configurable desde la primera visita (Regresó, Sin regreso hasta ahora, No regresó).'
-    },
-    {
       id: 'membership_redemptions',
-      name: 'Canje de membresía',
+      name: 'Canjes de membresía',
       chartType: 'bar',
-      description: 'Detalla beneficios utilizados por cliente, membresía, fecha y sucursal, incluyendo miembros con cero canjes.'
+      description: 'Arriba cuadro por sucursal (canjes, cobros y precio promedio de lavado); abajo detalle por cliente con canjes hechos, disponibles y pendientes.',
+      note: 'Fórmula de costo promedio: Cobros de membresía ÷ Canjes realizados.'
     },
     {
       id: 'client_birthdays',
       name: 'Cumpleaños de clientes',
       chartType: 'table_only',
-      description: 'Lista los clientes que cumplen años en el período seleccionado, con datos de contacto para felicitaciones y campañas.'
+      description: 'Organizados por fecha de cumpleaños (próximos a cumplir), total del mes y quién usó el descuento de cumpleaños (precio base vs pagado).'
     },
     {
       id: 'membership_cancellations',
-      name: 'Cancelaciones de membresía',
+      name: 'Cancelación de membresía',
       chartType: 'donut',
       hasReasonFilter: true,
-      description: 'Detalla cliente, membresía, fecha efectiva, sucursal, motivo estandarizado, antigüedad, último lavado y contacto.',
-      note: 'Suspensiones y cobros fallidos no se consideran cancelaciones de manera automática.'
+      description: 'Reporte por sucursal y detallado con la fecha visible de cancelación, usuario que canceló, cliente y plan.',
+      note: 'Registra cancelaciones definitivas con auditoría de usuario y sucursal.'
     }
   ],
 

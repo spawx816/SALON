@@ -200,7 +200,8 @@ export const BIChart = ({
             {[
               { id: 'daily', label: 'Diaria' },
               { id: 'weekly', label: 'Semanal' },
-              { id: 'monthly', label: 'Mensual' }
+              { id: 'monthly', label: 'Mensual' },
+              { id: 'yearly', label: 'Anual' }
             ].map(g => {
               const active = (timeGrain || 'daily') === g.id;
               return (

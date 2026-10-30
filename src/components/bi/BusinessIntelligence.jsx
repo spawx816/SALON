@@ -1171,6 +1171,20 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         onTimeGrainChange={(grain) => setTimeGrain(grain)}
       />
 
+      {/* 7.5 Summary / Totals Table (e.g. Totalized by Branch) */}
+      {reportData?.summaryTable && (
+        <div style={{ marginBottom: '1.5rem' }}>
+          <BIDetailTable
+            title={reportData.summaryTable.title || 'Resumen consolidado por sucursal'}
+            badgeText={reportData.summaryTable.badgeText}
+            columns={reportData.summaryTable.columns || []}
+            rows={reportData.summaryTable.rows || []}
+            footerNote={reportData.summaryTable.footerNote}
+            pageSize={10}
+          />
+        </div>
+      )}
+
       {/* 8. Detail Data Table */}
       <BIDetailTable
         title={reportData?.table?.title || 'Detalle de registros'}
