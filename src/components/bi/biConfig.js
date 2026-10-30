@@ -95,9 +95,9 @@ export const BI_REPORTS_BY_CATEGORY = {
     },
     {
       id: 'cash_membership_payments',
-      name: 'Pago en efectivo de membresía',
+      name: 'Pagos en efectivo',
       chartType: 'table_only',
-      description: 'Detalla pagos de membresías recibidos en efectivo: fecha, cliente, membresía, monto, sucursal y usuario receptor.'
+      description: 'Detalla todos los pagos recibidos en efectivo en caja (suscripciones, membresías y ventas): fecha, cliente, monto, sucursal y usuario receptor.'
     },
     {
       id: 'sales_itbis',
@@ -124,9 +124,9 @@ export const BI_REPORTS_BY_CATEGORY = {
   clients: [
     {
       id: 'clients_summary',
-      name: 'Resumen de clientes',
+      name: 'Estado de clientes',
       chartType: 'bar',
-      description: 'Muestra clientes únicos atendidos, cantidad de visitas, nuevos y recurrentes con desglose por sucursal.',
+      description: 'Muestra clientes únicos atendidos, socias con membresía activa, canceladas y clientela regular con desglose por sucursal.',
       note: 'Distingue clientes únicos de visitas. Un cliente con 4 visitas cuenta como 1 cliente y 4 visitas.'
     },
     {

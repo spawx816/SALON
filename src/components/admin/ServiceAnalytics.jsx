@@ -1254,108 +1254,103 @@ const ServiceAnalytics = () => {
           </p>
         </div>
 
-        {/* Top Controls Bar */}
-        <form 
-          onSubmit={handleFilterSubmit} 
-          style={{ 
-            display: 'flex', 
-            gap: '0.65rem', 
-            alignItems: 'center',
-            background: '#ffffff',
-            padding: '0.4rem',
-            borderRadius: '1rem',
-            border: '1px solid #e2e8f0',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-            flexWrap: 'wrap'
-          }}
-        >
-          {/* If in operational report, show Dates & Salon selector */}
-          {activeReport !== 'bi_executive' && (
-            <>
-              {/* Date Picker Group */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                background: '#f8fafc',
-                padding: '0.45rem 0.85rem',
-                borderRadius: '0.75rem',
-                border: '1px solid #cbd5e1'
-              }}>
-                <Calendar size={15} color="#64748b" />
-                <input 
-                  type="date" 
-                  value={startDate} 
-                  onChange={(e) => setStartDate(e.target.value)}
-                  style={{ border: 'none', fontWeight: 600, fontSize: '0.8rem', outline: 'none', background: 'transparent', color: '#0f172a' }} 
-                />
-                <span style={{ color: '#94a3b8', fontWeight: 800 }}>—</span>
-                <input 
-                  type="date" 
-                  value={endDate} 
-                  onChange={(e) => setEndDate(e.target.value)}
-                  style={{ border: 'none', fontWeight: 600, fontSize: '0.8rem', outline: 'none', background: 'transparent', color: '#0f172a' }} 
-                />
-              </div>
-              
-              {/* Branch Picker Group */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                background: '#f8fafc',
-                padding: '0.45rem 0.85rem',
-                borderRadius: '0.75rem',
-                border: '1px solid #cbd5e1'
-              }}>
-                <MapPin size={15} color="#64748b" />
-                <select 
-                  value={selectedSalon} 
-                  onChange={handleSalonChange}
-                  style={{ border: 'none', fontWeight: 600, fontSize: '0.82rem', outline: 'none', background: 'transparent', color: '#0f172a', cursor: 'pointer' }}
-                >
-                  <option value="all">Todas las Sucursales</option>
-                  {salons.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
+        {/* Top Controls Bar (Visible only for operational/classic reports) */}
+        {activeReport !== 'bi_executive' && (
+          <form 
+            onSubmit={handleFilterSubmit} 
+            style={{ 
+              display: 'flex', 
+              gap: '0.65rem', 
+              alignItems: 'center',
+              background: '#ffffff',
+              padding: '0.4rem',
+              borderRadius: '1rem',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+              flexWrap: 'wrap'
+            }}
+          >
+            {/* Date Picker Group */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              background: '#f8fafc',
+              padding: '0.45rem 0.85rem',
+              borderRadius: '0.75rem',
+              border: '1px solid #cbd5e1'
+            }}>
+              <Calendar size={15} color="#64748b" />
+              <input 
+                type="date" 
+                value={startDate} 
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{ border: 'none', fontWeight: 600, fontSize: '0.8rem', outline: 'none', background: 'transparent', color: '#0f172a' }} 
+              />
+              <span style={{ color: '#94a3b8', fontWeight: 800 }}>—</span>
+              <input 
+                type="date" 
+                value={endDate} 
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{ border: 'none', fontWeight: 600, fontSize: '0.8rem', outline: 'none', background: 'transparent', color: '#0f172a' }} 
+              />
+            </div>
+            
+            {/* Branch Picker Group */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              background: '#f8fafc',
+              padding: '0.45rem 0.85rem',
+              borderRadius: '0.75rem',
+              border: '1px solid #cbd5e1'
+            }}>
+              <MapPin size={15} color="#64748b" />
+              <select 
+                value={selectedSalon} 
+                onChange={handleSalonChange}
+                style={{ border: 'none', fontWeight: 600, fontSize: '0.82rem', outline: 'none', background: 'transparent', color: '#0f172a', cursor: 'pointer' }}
+              >
+                <option value="all">Todas las Sucursales</option>
+                {salons.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Quick Report Switcher (Always visible and accessible) */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            background: activeReport === 'bi_executive' ? '#eff6ff' : '#f8fafc',
-            padding: '0.45rem 0.85rem',
-            borderRadius: '0.75rem',
-            border: activeReport === 'bi_executive' ? '1px solid #bfdbfe' : '1px solid #cbd5e1'
-          }}>
-            <List size={15} color={activeReport === 'bi_executive' ? '#2563eb' : '#64748b'} />
-            <select
-              value={activeReport}
-              onChange={(e) => handleTabChange(e.target.value)}
-              style={{
-                border: 'none',
-                fontWeight: 700,
-                fontSize: '0.82rem',
-                outline: 'none',
-                background: 'transparent',
-                color: activeReport === 'bi_executive' ? '#1d4ed8' : '#0f172a',
-                cursor: 'pointer'
-              }}
-            >
-              {reportMenu.map(r => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Quick Report Switcher */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              background: '#f8fafc',
+              padding: '0.45rem 0.85rem',
+              borderRadius: '0.75rem',
+              border: '1px solid #cbd5e1'
+            }}>
+              <List size={15} color="#64748b" />
+              <select
+                value={activeReport}
+                onChange={(e) => handleTabChange(e.target.value)}
+                style={{
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  outline: 'none',
+                  background: 'transparent',
+                  color: '#0f172a',
+                  cursor: 'pointer'
+                }}
+              >
+                {reportMenu.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {activeReport !== 'bi_executive' && (
             <button 
               type="submit" 
               style={{ 
@@ -1375,8 +1370,8 @@ const ServiceAnalytics = () => {
             >
               Actualizar
             </button>
-          )}
-        </form>
+          </form>
+        )}
       </div>
 
       {/* Main Full-Width Content Container */}

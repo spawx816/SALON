@@ -1384,6 +1384,8 @@ function createPayrollRouter(pool) {
             }
           } else {
             // Solo ponche de entrada (turno abierto o sin ponche de salida)
+            // Regla oficial de Asistencia y Nómina: Si no hay ponche de salida, el turno está incompleto
+            // Por tanto, NO se reconocen horas extras por entrada anticipada (no le resta ni le pone tiempo).
             totalNetLatenessMins += tardanzaEntrada;
             if (tardanzaEntrada > 0) {
               const dayMonto = Number((tardanzaEntrada * empSalarioMinuto).toFixed(2));
@@ -1397,9 +1399,6 @@ function createPayrollRouter(pool) {
                 valor_minuto: Number(empSalarioMinuto.toFixed(4)),
                 monto: dayMonto
               });
-            }
-            if (earlyExtraMins > 0) {
-              totalOvertimeMins += earlyExtraMins;
             }
           }
         }

@@ -816,7 +816,7 @@ const AppContent = () => {
                     {isBiOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
                   </button>
 
-                  {/* Submenú Completo con Todos los Reportes */}
+                  {/* Submenú de Inteligencia de Negocios - Solo Tablero BI Ejecutivo */}
                   {isBiOpen && (
                     <div style={{ 
                       marginLeft: '1.25rem', 
@@ -832,70 +832,7 @@ const AppContent = () => {
                         to="/analitica?tab=bi_executive" 
                         icon={Sparkles} 
                         label="Tablero BI Ejecutivo" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=bi_executive')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=sales" 
-                        icon={TrendingUp} 
-                        label="Ventas Diarias" 
-                        active={location.pathname === '/analitica' && (!location.search || location.search.includes('tab=sales'))} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=client_payments" 
-                        icon={CreditCard} 
-                        label="Cobros por Cliente" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=client_payments')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=invoices" 
-                        icon={Receipt} 
-                        label="Facturas & Ventas" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=invoices')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=cash" 
-                        icon={Wallet} 
-                        label="Pagos en Efectivo" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=cash')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=commissions" 
-                        icon={Users} 
-                        label="Comisiones Colaboradores" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=commissions')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=clients" 
-                        icon={Users} 
-                        label="Estado de Clientes" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=clients')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=inactive" 
-                        icon={Clock} 
-                        label="Clientes Inactivos" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=inactive')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=payments" 
-                        icon={BarChart2} 
-                        label="Desglose de Pagos" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=payments')} 
-                        onClick={closeMobileMenu} 
-                      />
-                      <SidebarLink 
-                        to="/analitica?tab=frequency" 
-                        icon={Calendar} 
-                        label="Frecuencia de Visitas" 
-                        active={location.pathname === '/analitica' && location.search.includes('tab=frequency')} 
+                        active={location.pathname === '/analitica' && (location.search.includes('tab=bi_executive') || !location.search)} 
                         onClick={closeMobileMenu} 
                       />
                     </div>
