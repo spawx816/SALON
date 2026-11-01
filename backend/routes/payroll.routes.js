@@ -1222,13 +1222,18 @@ function createPayrollRouter(pool) {
     try {
       let discountRows = [];
       let futurePendingLoanBalance = 0;
+      const numId = parseInt(String(empId || '').replace(/\D/g, ''), 10);
+      const hasValidNumId = !isNaN(numId) && numId > 0;
+
       if (batchContext && batchContext.discMap) {
         discountRows = batchContext.discMap.get(String(empId))
+          || (hasValidNumId ? batchContext.discMap.get(String(numId)) : null)
           || batchContext.discMap.get(`EMP-${empId}`)
           || batchContext.discMap.get(empName.toLowerCase().trim())
           || [];
         if (batchContext.futureLoansMap) {
           futurePendingLoanBalance = batchContext.futureLoansMap.get(String(empId))
+            || (hasValidNumId ? batchContext.futureLoansMap.get(String(numId)) : null)
             || batchContext.futureLoansMap.get(`EMP-${empId}`)
             || batchContext.futureLoansMap.get(empName.toLowerCase().trim())
             || 0;
@@ -1237,21 +1242,21 @@ function createPayrollRouter(pool) {
         const [rows] = await pool.query(`
           SELECT id, type, amount, notes, status, DATE_FORMAT(date, '%Y-%m-%d') as d_date
           FROM employee_discounts
-          WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
+          WHERE (${hasValidNumId ? 'employee_id = ? OR ' : ''}employee_name = ?)
             AND date BETWEEN ? AND ?
             AND (status != 'Anulado' OR status IS NULL)
-        `, [empId, `EMP-${empId}`, empName, start_date, end_date]);
+        `, hasValidNumId ? [numId, empName, start_date, end_date] : [empName, start_date, end_date]);
         discountRows = rows;
 
         try {
           const [fRows] = await pool.query(`
             SELECT COALESCE(SUM(amount), 0) as future_pending
             FROM employee_discounts
-            WHERE (employee_id = ? OR employee_id = ? OR employee_name = ?)
+            WHERE (${hasValidNumId ? 'employee_id = ? OR ' : ''}employee_name = ?)
               AND date > ?
               AND status = 'Pendiente'
               AND (LOWER(type) LIKE '%prestamo%' OR LOWER(type) LIKE '%préstamo%' OR LOWER(type) LIKE '%adelanto%' OR LOWER(type) LIKE '%anticipo%')
-          `, [empId, `EMP-${empId}`, empName, end_date]);
+          `, hasValidNumId ? [numId, empName, end_date] : [empName, end_date]);
           futurePendingLoanBalance = parseFloat(fRows[0]?.future_pending || 0);
         } catch (fErr) { }
       }
@@ -2368,7 +2373,16 @@ function createPayrollRouter(pool) {
 
       await conn.beginTransaction();
 
-      const [periodRows] = await conn.query('SELECT * FROM payroll_periods WHERE id = ?', [payroll_id]);
+      const [periodRows] = await conn.query(`
+        SELECT id, period_name, 
+               DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
+               DATE_FORMAT(end_date, '%Y-%m-%d') as end_date, 
+               total_empleados, total_neto, total_ingresos, total_descuentos,
+               status, sucursal, departamento, is_immutable,
+               DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
+               approved_by, snapshot_json
+        FROM payroll_periods WHERE id = ?
+      `, [payroll_id]);
       if (periodRows.length === 0) {
         await conn.rollback();
         conn.release();
@@ -2406,33 +2420,77 @@ function createPayrollRouter(pool) {
 
       // B. Saldar automáticamente todos los descuentos aplicados en este período para los colaboradores de la nómina
       if (startDate && endDate && items.length > 0) {
-        const empIds = items.map(it => String(it.employee_id)).filter(Boolean);
-        const empCodes = items.map(it => `EMP-${it.employee_id}`);
-        const empNames = items.map(it => it.employee_name).filter(Boolean);
-        const allEmpKeys = Array.from(new Set([...empIds, ...empCodes, ...empNames]));
+        // En employee_discounts la columna employee_id es de tipo INT
+        const numericEmpIds = Array.from(new Set(
+          items
+            .map(it => {
+              const raw = String(it.employee_id || '').replace(/\D/g, '');
+              return raw ? parseInt(raw, 10) : null;
+            })
+            .filter(id => id !== null && !isNaN(id) && id > 0)
+        ));
+        const empNames = Array.from(new Set(items.map(it => it.employee_name).filter(Boolean)));
 
-        await conn.query(`
-          UPDATE employee_discounts 
-          SET status = 'Saldado', 
-              notes = CASE 
-                WHEN notes IS NULL OR notes = '' THEN CONCAT('Liquidado en Nómina ID #', ?) 
-                ELSE CONCAT(notes, ' [Liquidado en Nómina ID #', ?, ']') 
-              END
-          WHERE date BETWEEN ? AND ? 
-            AND (status != 'Anulado' OR status IS NULL) 
-            AND status != 'Saldado'
-            AND (employee_id IN (?) OR employee_name IN (?))
-        `, [payroll_id, payroll_id, startDate, endDate, allEmpKeys, empNames]);
+        if (numericEmpIds.length > 0 || empNames.length > 0) {
+          const discountConditions = [];
+          const discountParams = [payroll_id, payroll_id, startDate, endDate];
+
+          if (numericEmpIds.length > 0 && empNames.length > 0) {
+            discountConditions.push('(employee_id IN (?) OR employee_name IN (?))');
+            discountParams.push(numericEmpIds, empNames);
+          } else if (numericEmpIds.length > 0) {
+            discountConditions.push('employee_id IN (?)');
+            discountParams.push(numericEmpIds);
+          } else if (empNames.length > 0) {
+            discountConditions.push('employee_name IN (?)');
+            discountParams.push(empNames);
+          }
+
+          await conn.query(`
+            UPDATE employee_discounts 
+            SET status = 'Saldado', 
+                notes = CASE 
+                  WHEN notes IS NULL OR notes = '' THEN CONCAT('Liquidado en Nómina ID #', ?) 
+                  ELSE CONCAT(notes, ' [Liquidado en Nómina ID #', ?, ']') 
+                END
+            WHERE date BETWEEN ? AND ? 
+              AND (status != 'Anulado' OR status IS NULL) 
+              AND status != 'Saldado'
+              AND ${discountConditions.join(' AND ')}
+          `, discountParams);
+        }
 
         // C. Marcar comisiones del período como Pagadas para los colaboradores de la nómina
-        await conn.query(`
-          UPDATE employee_commissions_log 
-          SET status = 'Pagada'
-          WHERE created_at >= ? AND created_at <= ? 
-            AND (status != 'Anulada' OR status IS NULL) 
-            AND status != 'Pagada'
-            AND (employee_id IN (?) OR employee_name IN (?))
-        `, [`${startDate} 00:00:00`, `${endDate} 23:59:59`, allEmpKeys, empNames]);
+        // En employee_commissions_log la columna employee_id es VARCHAR(50)
+        const commEmpIds = Array.from(new Set([
+          ...numericEmpIds.map(String),
+          ...numericEmpIds.map(id => `EMP-${id}`)
+        ]));
+
+        if (commEmpIds.length > 0 || empNames.length > 0) {
+          const commConditions = [];
+          const commParams = [`${startDate} 00:00:00`, `${endDate} 23:59:59`];
+
+          if (commEmpIds.length > 0 && empNames.length > 0) {
+            commConditions.push('(employee_id IN (?) OR employee_name IN (?))');
+            commParams.push(commEmpIds, empNames);
+          } else if (commEmpIds.length > 0) {
+            commConditions.push('employee_id IN (?)');
+            commParams.push(commEmpIds);
+          } else if (empNames.length > 0) {
+            commConditions.push('employee_name IN (?)');
+            commParams.push(empNames);
+          }
+
+          await conn.query(`
+            UPDATE employee_commissions_log 
+            SET status = 'Pagada'
+            WHERE created_at >= ? AND created_at <= ? 
+              AND (status != 'Anulada' OR status IS NULL) 
+              AND status != 'Pagada'
+              AND ${commConditions.join(' AND ')}
+          `, commParams);
+        }
       }
 
       // D. Registrar en auditoría
