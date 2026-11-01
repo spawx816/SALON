@@ -413,6 +413,18 @@ function createPayrollRouter(pool) {
       if (ex.employee_name) existingByEmpId.set(ex.employee_name.toLowerCase().trim(), ex);
     }
 
+    // Identificar qué colaboradores tienen ediciones manuales registradas en este período
+    const [manualAuditRows] = await pool.query(
+      "SELECT DISTINCT employee_id, field_name FROM payroll_audit_logs WHERE payroll_id = ? AND action_type = 'Edición Manual'",
+      [periodId]
+    );
+    const manualFieldsByEmp = new Map();
+    for (const r of manualAuditRows) {
+      const empKey = String(r.employee_id).replace(/^EMP-/, '');
+      if (!manualFieldsByEmp.has(empKey)) manualFieldsByEmp.set(empKey, new Set());
+      manualFieldsByEmp.get(empKey).add(r.field_name);
+    }
+
     if (staffList.length === 0 && existingItems.length > 0) {
       staffList = existingItems.map(it => ({
         id: it.employee_id,
@@ -435,34 +447,137 @@ function createPayrollRouter(pool) {
         || existingByEmpId.get(String(emp.id).replace(/^EMP-/, ''))
         || (emp.nombre ? existingByEmpId.get(emp.nombre.toLowerCase().trim()) : null);
 
-      // Preservar conceptos manuales personalizados (custom: true) si fueron agregados en el borrador
-      if (ex && ex.detalles_json) {
-        try {
-          const exDet = typeof ex.detalles_json === 'string' ? JSON.parse(ex.detalles_json || '{}') : ex.detalles_json;
-          const customIng = (exDet.conceptos_ingresos || []).filter(c => c && c.custom);
-          const customDesc = (exDet.conceptos_descuentos || []).filter(c => c && c.custom);
-          if (customIng.length > 0) {
-            const extraIng = customIng.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
-            itemData.otros_ingresos = Number((itemData.otros_ingresos + extraIng).toFixed(2));
-            itemData.detalles_json.conceptos_ingresos.push(...customIng);
+      if (ex) {
+        let exDet = {};
+        if (ex.detalles_json) {
+          try {
+            exDet = typeof ex.detalles_json === 'string' ? JSON.parse(ex.detalles_json || '{}') : (ex.detalles_json || {});
+          } catch (e) { exDet = {}; }
+        }
+
+        const empKey = String(emp.id).replace(/^EMP-/, '');
+        const empAuditSet = manualFieldsByEmp.get(empKey) || manualFieldsByEmp.get(String(emp.id)) || null;
+        const isManuallyAdjusted = Boolean(
+          exDet.manually_adjusted ||
+          exDet.manual_override ||
+          (exDet.manual_fields && exDet.manual_fields.length > 0) ||
+          (empAuditSet && empAuditSet.size > 0)
+        );
+
+        // Si el volante de este empleado fue ajustado manualmente por el usuario, PRESERVAR sus valores guardados
+        if (isManuallyAdjusted) {
+          const fieldsToCheck = [
+            'salario_fijo', 'comisiones', 'feriados', 'horas_extras', 'descanso', 'otros_ingresos',
+            'tss', 'servicios', 'prestamos', 'ausencias', 'tardanzas', 'otros_descuentos'
+          ];
+
+          for (const f of fieldsToCheck) {
+            const isFieldOverridden = (empAuditSet && empAuditSet.has(f)) ||
+              (exDet.manual_fields && exDet.manual_fields.includes(f)) ||
+              exDet.manual_override;
+
+            if (isFieldOverridden && ex[f] !== undefined && ex[f] !== null) {
+              itemData[f] = parseFloat(ex[f]) || 0;
+            }
           }
-          if (customDesc.length > 0) {
-            const extraDesc = customDesc.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
-            itemData.otros_descuentos = Number((itemData.otros_descuentos + extraDesc).toFixed(2));
-            itemData.detalles_json.conceptos_descuentos.push(...customDesc);
+
+          // Si ausencias o tardanzas fueron puestas en 0 manualmente, limpiar su desglose en el volante
+          if (parseFloat(itemData.ausencias || 0) === 0 && itemData.detalles_json?.desglose_descuentos?.ausencias) {
+            itemData.detalles_json.desglose_descuentos.ausencias.items = [];
+            itemData.detalles_json.desglose_descuentos.ausencias.total_monto = 0;
           }
-          if (customIng.length > 0 || customDesc.length > 0) {
-            itemData.total_ingresos = Number((
-              itemData.salario_fijo + itemData.comisiones + itemData.feriados +
-              itemData.horas_extras + (itemData.descanso || 0) + itemData.otros_ingresos
-            ).toFixed(2));
-            itemData.total_descuentos = Number((
-              itemData.tss + itemData.servicios + itemData.prestamos +
-              itemData.ausencias + itemData.tardanzas + itemData.otros_descuentos
-            ).toFixed(2));
-            itemData.neto_pagar = Number(Math.max(0, itemData.total_ingresos - itemData.total_descuentos).toFixed(2));
+          if (parseFloat(itemData.tardanzas || 0) === 0 && itemData.detalles_json?.desglose_descuentos?.tardanzas) {
+            itemData.detalles_json.desglose_descuentos.tardanzas.items = [];
+            itemData.detalles_json.desglose_descuentos.tardanzas.total_monto = 0;
+            itemData.detalles_json.desglose_descuentos.tardanzas.total_minutos = 0;
           }
-        } catch (e) { }
+
+          // Actualizar conceptos_descuentos correspondientes
+          if (itemData.detalles_json?.conceptos_descuentos) {
+            const ausC = itemData.detalles_json.conceptos_descuentos.find(c => c.id === 'd4' || c.label?.toLowerCase().includes('ausencia'));
+            if (ausC) ausC.monto = parseFloat(itemData.ausencias || 0);
+            const tarC = itemData.detalles_json.conceptos_descuentos.find(c => c.id === 'd5' || c.label?.toLowerCase().includes('tardanza'));
+            if (tarC) tarC.monto = parseFloat(itemData.tardanzas || 0);
+          }
+
+          // Preservar conceptos manuales personalizados si los tenía
+          if (exDet.conceptos_ingresos) {
+            const customIng = (exDet.conceptos_ingresos || []).filter(c => c && c.custom);
+            if (customIng.length > 0) {
+              itemData.detalles_json.conceptos_ingresos = itemData.detalles_json.conceptos_ingresos || [];
+              for (const ci of customIng) {
+                if (!itemData.detalles_json.conceptos_ingresos.some(x => x.id === ci.id)) {
+                  itemData.detalles_json.conceptos_ingresos.push(ci);
+                }
+              }
+            }
+          }
+          if (exDet.conceptos_descuentos) {
+            const customDesc = (exDet.conceptos_descuentos || []).filter(c => c && c.custom);
+            if (customDesc.length > 0) {
+              itemData.detalles_json.conceptos_descuentos = itemData.detalles_json.conceptos_descuentos || [];
+              for (const cd of customDesc) {
+                if (!itemData.detalles_json.conceptos_descuentos.some(x => x.id === cd.id)) {
+                  itemData.detalles_json.conceptos_descuentos.push(cd);
+                }
+              }
+            }
+          }
+
+          itemData.detalles_json.manually_adjusted = true;
+          itemData.detalles_json.manual_override = true;
+          itemData.detalles_json.manual_fields = Array.from(new Set([
+            ...(exDet.manual_fields || []),
+            ...(empAuditSet ? Array.from(empAuditSet) : [])
+          ]));
+
+          itemData.total_ingresos = Number((
+            parseFloat(itemData.salario_fijo || 0) +
+            parseFloat(itemData.comisiones || 0) +
+            parseFloat(itemData.feriados || 0) +
+            parseFloat(itemData.horas_extras || 0) +
+            parseFloat(itemData.descanso || 0) +
+            parseFloat(itemData.otros_ingresos || 0)
+          ).toFixed(2));
+
+          itemData.total_descuentos = Number((
+            parseFloat(itemData.tss || 0) +
+            parseFloat(itemData.servicios || 0) +
+            parseFloat(itemData.prestamos || 0) +
+            parseFloat(itemData.ausencias || 0) +
+            parseFloat(itemData.tardanzas || 0) +
+            parseFloat(itemData.otros_descuentos || 0)
+          ).toFixed(2));
+
+          itemData.neto_pagar = Number(Math.max(0, itemData.total_ingresos - itemData.total_descuentos).toFixed(2));
+        } else if (ex.detalles_json) {
+          // Preservar conceptos manuales personalizados (custom: true) si fueron agregados en el borrador
+          try {
+            const customIng = (exDet.conceptos_ingresos || []).filter(c => c && c.custom);
+            const customDesc = (exDet.conceptos_descuentos || []).filter(c => c && c.custom);
+            if (customIng.length > 0) {
+              const extraIng = customIng.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
+              itemData.otros_ingresos = Number((itemData.otros_ingresos + extraIng).toFixed(2));
+              itemData.detalles_json.conceptos_ingresos.push(...customIng);
+            }
+            if (customDesc.length > 0) {
+              const extraDesc = customDesc.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
+              itemData.otros_descuentos = Number((itemData.otros_descuentos + extraDesc).toFixed(2));
+              itemData.detalles_json.conceptos_descuentos.push(...customDesc);
+            }
+            if (customIng.length > 0 || customDesc.length > 0) {
+              itemData.total_ingresos = Number((
+                itemData.salario_fijo + itemData.comisiones + itemData.feriados +
+                itemData.horas_extras + (itemData.descanso || 0) + itemData.otros_ingresos
+              ).toFixed(2));
+              itemData.total_descuentos = Number((
+                itemData.tss + itemData.servicios + itemData.prestamos +
+                itemData.ausencias + itemData.tardanzas + itemData.otros_descuentos
+              ).toFixed(2));
+              itemData.neto_pagar = Number(Math.max(0, itemData.total_ingresos - itemData.total_descuentos).toFixed(2));
+            }
+          } catch (e) { }
+        }
       }
 
       if (ex) {
@@ -1912,6 +2027,8 @@ function createPayrollRouter(pool) {
 
         // Auditoría: Detectar campos modificados
         const prev = currentMap[it.id];
+        let hasModifiedFields = false;
+        const modifiedFieldsList = [];
         if (prev) {
           const fieldsToCheck = [
             'salario_fijo', 'comisiones', 'feriados', 'horas_extras', 'descanso', 'otros_ingresos',
@@ -1922,10 +2039,37 @@ function createPayrollRouter(pool) {
             const oldVal = parseFloat(prev[f] || 0);
             const newVal = parseFloat(it[f] || 0);
             if (Math.abs(oldVal - newVal) > 0.009) {
+              hasModifiedFields = true;
+              modifiedFieldsList.push(f);
               await conn.query(`
                 INSERT INTO payroll_audit_logs (payroll_id, employee_id, employee_name, field_name, old_value, new_value, action_type, reason, user_name)
                 VALUES (?, ?, ?, ?, ?, ?, 'Edición Manual', ?, ?)
               `, [payroll_id, it.employee_id, it.employee_name, f, oldVal.toFixed(2), newVal.toFixed(2), reason, user_name]);
+            }
+          }
+        }
+
+        let detObj = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
+        if (hasModifiedFields || detObj.manually_adjusted || detObj.manual_override) {
+          detObj.manually_adjusted = true;
+          detObj.manual_override = true;
+          detObj.manual_fields = Array.from(new Set([...(detObj.manual_fields || []), ...modifiedFieldsList]));
+
+          if (detObj.conceptos_descuentos) {
+            const ausC = detObj.conceptos_descuentos.find(c => c.id === 'd4' || c.label?.toLowerCase().includes('ausencia'));
+            if (ausC) ausC.monto = parseFloat(it.ausencias || 0);
+            const tarC = detObj.conceptos_descuentos.find(c => c.id === 'd5' || c.label?.toLowerCase().includes('tardanza'));
+            if (tarC) tarC.monto = parseFloat(it.tardanzas || 0);
+          }
+          if (detObj.desglose_descuentos) {
+            if (parseFloat(it.ausencias || 0) === 0 && detObj.desglose_descuentos.ausencias) {
+              detObj.desglose_descuentos.ausencias.items = [];
+              detObj.desglose_descuentos.ausencias.total_monto = 0;
+            }
+            if (parseFloat(it.tardanzas || 0) === 0 && detObj.desglose_descuentos.tardanzas) {
+              detObj.desglose_descuentos.tardanzas.items = [];
+              detObj.desglose_descuentos.tardanzas.total_monto = 0;
+              detObj.desglose_descuentos.tardanzas.total_minutos = 0;
             }
           }
         }
@@ -1940,7 +2084,7 @@ function createPayrollRouter(pool) {
         `, [
           it.salario_fijo, it.comisiones, it.feriados, it.horas_extras, (it.descanso || 0), it.otros_ingresos, totalIngresos,
           it.tss, it.servicios, it.prestamos, it.ausencias, it.tardanzas, it.otros_descuentos, totalDescuentos,
-          netoPagar, typeof it.detalles_json === 'object' ? JSON.stringify(it.detalles_json) : it.detalles_json,
+          netoPagar, JSON.stringify(detObj),
           it.id, payroll_id
         ]);
       }

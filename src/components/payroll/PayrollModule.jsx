@@ -745,7 +745,43 @@ export default function PayrollModule({ initialTab }) {
     // Guardar estado previo para Deshacer
     setUndoStack(prev => [...prev, JSON.parse(JSON.stringify(items))]);
 
-    const updatedItems = items.map(it => it.id === editingItem.id ? editingItem : it);
+    // Marcar como ajuste manual explícito
+    const itemToSave = JSON.parse(JSON.stringify(editingItem));
+    if (!itemToSave.detalles_json) itemToSave.detalles_json = {};
+    if (typeof itemToSave.detalles_json === 'string') {
+      try { itemToSave.detalles_json = JSON.parse(itemToSave.detalles_json); } catch(e) { itemToSave.detalles_json = {}; }
+    }
+    itemToSave.detalles_json.manually_adjusted = true;
+    itemToSave.detalles_json.manual_override = true;
+    itemToSave.detalles_json.manual_fields = [
+      'salario_fijo', 'comisiones', 'feriados', 'horas_extras', 'descanso', 'otros_ingresos',
+      'tss', 'servicios', 'prestamos', 'ausencias', 'tardanzas', 'otros_descuentos'
+    ];
+
+    // Limpiar desglose en caso de eliminación de tardanzas o ausencias
+    if (parseFloat(itemToSave.ausencias || 0) === 0) {
+      if (itemToSave.detalles_json.desglose_descuentos?.ausencias) {
+        itemToSave.detalles_json.desglose_descuentos.ausencias.items = [];
+        itemToSave.detalles_json.desglose_descuentos.ausencias.total_monto = 0;
+      }
+      if (itemToSave.detalles_json.conceptos_descuentos) {
+        const ausC = itemToSave.detalles_json.conceptos_descuentos.find(c => c.id === 'd4' || c.label?.toLowerCase().includes('ausencia'));
+        if (ausC) ausC.monto = 0;
+      }
+    }
+    if (parseFloat(itemToSave.tardanzas || 0) === 0) {
+      if (itemToSave.detalles_json.desglose_descuentos?.tardanzas) {
+        itemToSave.detalles_json.desglose_descuentos.tardanzas.items = [];
+        itemToSave.detalles_json.desglose_descuentos.tardanzas.total_monto = 0;
+        itemToSave.detalles_json.desglose_descuentos.tardanzas.total_minutos = 0;
+      }
+      if (itemToSave.detalles_json.conceptos_descuentos) {
+        const tarC = itemToSave.detalles_json.conceptos_descuentos.find(c => c.id === 'd5' || c.label?.toLowerCase().includes('tardanza'));
+        if (tarC) tarC.monto = 0;
+      }
+    }
+
+    const updatedItems = items.map(it => it.id === itemToSave.id ? itemToSave : it);
     setItems(updatedItems);
     setShowEmployeeModal(false);
 
@@ -755,10 +791,10 @@ export default function PayrollModule({ initialTab }) {
         payroll_id: currentPeriod.id,
         items: updatedItems,
         status: currentPeriod.status || 'En preparación',
-        reason: editReason || `Ajuste manual individual en ${editingItem.employee_name}`,
+        reason: editReason || `Ajuste manual individual en ${itemToSave.employee_name}`,
         user_name: 'Administrador'
       });
-      showNotification(`Cambios guardados y auditados para ${editingItem.employee_name}`, 'success');
+      showNotification(`Cambios guardados y auditados para ${itemToSave.employee_name}`, 'success');
       loadPeriodDetail(currentPeriod.id);
     } catch (err) {
       showNotification('Error al guardar cambios: ' + err.message, 'error');

@@ -179,7 +179,21 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         ],
         chart: {
           type: 'sales_evolution',
-          data: [
+          data: timeGrain === 'weekly' ? [
+            { label: 'Sem 40', total: 162390 },
+            { label: 'Sem 41', total: 258340 },
+            { label: 'Sem 42', total: 379052 },
+            { label: 'Sem 43', total: 381960 },
+            { label: 'Sem 44', total: 303510 }
+          ] : timeGrain === 'monthly' ? [
+            { label: 'Ago 2026', total: 1100000 },
+            { label: 'Sep 2026', total: 1250000 },
+            { label: 'Oct 2026', total: 1485000 }
+          ] : timeGrain === 'yearly' ? [
+            { label: '2024', total: 9800000 },
+            { label: '2025', total: 12400000 },
+            { label: '2026', total: 14800000 }
+          ] : [
             { label: '1 oct', total: 25000 },
             { label: '2 oct', total: 34000 },
             { label: '3 oct', total: 41000 },

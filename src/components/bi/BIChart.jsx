@@ -441,33 +441,105 @@ export const BIChart = ({
       boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
       marginBottom: '1.5rem'
     }}>
-      <h3 style={{ margin: '0 0 1rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
+      <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
         {chartConfig.title || 'Análisis Gráfico'}
       </h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         {items.map((item, idx) => {
           const val = Number(item.value || item.amount || item.count || 0);
-          const pct = Math.max(8, Math.round((val / maxBar) * 100));
+          const rawPct = Math.round((val / maxBar) * 100);
+          const pct = Math.max(10, rawPct);
+
+          // Extract quantity and percentage
+          let quantityText = '';
+          let percentageText = '';
+
+          if (item.percentage) {
+            percentageText = String(item.percentage).includes('%') ? item.percentage : `${item.percentage}%`;
+            quantityText = item.count != null 
+              ? Number(item.count).toLocaleString('es-DO')
+              : item.value != null 
+                ? (typeof item.value === 'number' ? item.value.toLocaleString('es-DO') : String(item.value))
+                : '';
+          } else if (item.displayValue && typeof item.displayValue === 'string') {
+            const match = item.displayValue.match(/^(.+?)\s*\(([\d.,]+%)\)$/);
+            if (match) {
+              quantityText = match[1].trim();
+              percentageText = match[2].trim();
+            } else {
+              quantityText = item.displayValue;
+            }
+          } else {
+            quantityText = val > 0 ? (item.isCurrency ? `RD$ ${val.toLocaleString('es-DO')}` : val.toLocaleString('es-DO')) : '0';
+          }
+
+          if (/^\d+$/.test(quantityText)) {
+            quantityText = Number(quantityText).toLocaleString('es-DO');
+          }
 
           return (
             <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{ width: '160px', fontSize: '0.85rem', fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div 
+                style={{ 
+                  width: '180px', 
+                  fontSize: '0.85rem', 
+                  fontWeight: 600, 
+                  color: '#334155', 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis', 
+                  whiteSpace: 'nowrap' 
+                }} 
+                title={item.label || item.name}
+              >
                 {item.label || item.name}
               </div>
-              <div style={{ flex: 1, height: '24px', background: '#f8fafc', borderRadius: '4px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+
+              <div style={{ 
+                flex: 1, 
+                height: '28px', 
+                background: '#f8fafc', 
+                borderRadius: '6px', 
+                overflow: 'hidden', 
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center'
+              }}>
                 <div style={{
                   width: `${pct}%`,
+                  minWidth: percentageText ? '96px' : '48px',
                   height: '100%',
-                  background: '#2563eb',
-                  borderRadius: '3px',
+                  background: 'linear-gradient(90deg, #1d4ed8 0%, #2563eb 100%)',
+                  borderRadius: '5px',
                   display: 'flex',
                   alignItems: 'center',
-                  paddingLeft: '0.5rem',
+                  justifyContent: percentageText ? 'space-between' : 'flex-start',
+                  padding: '0 0.65rem',
                   color: '#ffffff',
-                  fontSize: '0.75rem',
-                  fontWeight: 600
+                  fontSize: '0.78rem',
+                  boxSizing: 'border-box',
+                  transition: 'width 0.3s ease',
+                  boxShadow: '0 1px 2px rgba(37, 99, 235, 0.15)'
                 }}>
-                  {item.displayValue || `RD$ ${val.toLocaleString('es-DO')}`}
+                  {/* Cantidad al inicio de la barra azul */}
+                  <span style={{ fontWeight: 700, whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>
+                    {quantityText}
+                  </span>
+
+                  {/* Porcentaje al final del color azul */}
+                  {percentageText && (
+                    <span style={{ 
+                      fontWeight: 700,
+                      fontSize: '0.73rem',
+                      color: '#ffffff',
+                      background: 'rgba(0, 0, 0, 0.18)',
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      whiteSpace: 'nowrap',
+                      marginLeft: '0.4rem'
+                    }}>
+                      {percentageText}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

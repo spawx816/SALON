@@ -93,14 +93,19 @@ async function handleBIReport(pool, params) {
       if (timeGrain === 'weekly') {
         chartQuery = `
           SELECT 
-            YEARWEEK(v.visited_at, 1) as raw_date,
-            CONCAT('Sem ', WEEK(v.visited_at, 1)) as label,
-            COALESCE(SUM(v.total), 0) as total
-          FROM visits v
-          WHERE v.visited_at >= ? AND v.visited_at <= ? 
-            AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
-            ${salonFilterVis}
-          GROUP BY YEARWEEK(v.visited_at, 1), WEEK(v.visited_at, 1)
+            raw_date,
+            CONCAT('Sem ', CAST(RIGHT(raw_date, 2) AS UNSIGNED)) as label,
+            total
+          FROM (
+            SELECT 
+              YEARWEEK(v.visited_at, 1) as raw_date,
+              COALESCE(SUM(v.total), 0) as total
+            FROM visits v
+            WHERE v.visited_at >= ? AND v.visited_at <= ? 
+              AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
+              ${salonFilterVis}
+            GROUP BY YEARWEEK(v.visited_at, 1)
+          ) sub
           ORDER BY raw_date ASC
         `;
       } else if (timeGrain === 'monthly') {
@@ -333,6 +338,8 @@ async function handleBIReport(pool, params) {
           data: rowsList.slice(0, 10).map(s => ({
             label: s.servicio,
             value: s.cantidad,
+            count: s.cantidad,
+            percentage: s.participacion,
             displayValue: `${s.cantidad} (${s.participacion})`
           }))
         },
@@ -1023,6 +1030,8 @@ async function handleBIReport(pool, params) {
           data: tableRows.map(r => ({
             label: r.estado.split('(')[0].trim(),
             value: r.cantidad,
+            count: r.cantidad,
+            percentage: r.participacion,
             displayValue: `${r.cantidad} (${r.participacion})`
           }))
         },
