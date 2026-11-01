@@ -477,25 +477,39 @@ export const BIChart = ({
             quantityText = Number(quantityText).toLocaleString('es-DO');
           }
 
+          const fullLabel = item.label || item.name || '';
           return (
-            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div 
+              key={idx} 
+              style={{ 
+                display: 'flex', 
+                flexDirection: 'row',
+                alignItems: 'center', 
+                gap: '1rem',
+                flexWrap: 'wrap',
+                padding: '0.25rem 0'
+              }}
+            >
               <div 
                 style={{ 
-                  width: '180px', 
+                  flex: '0 1 260px',
+                  minWidth: '180px',
+                  maxWidth: '340px',
                   fontSize: '0.85rem', 
                   fontWeight: 600, 
                   color: '#334155', 
-                  overflow: 'hidden', 
-                  textOverflow: 'ellipsis', 
-                  whiteSpace: 'nowrap' 
+                  lineHeight: '1.3',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere'
                 }} 
-                title={item.label || item.name}
+                title={fullLabel}
               >
-                {item.label || item.name}
+                {fullLabel}
               </div>
 
               <div style={{ 
-                flex: 1, 
+                flex: '1 1 240px', 
+                minWidth: '200px',
                 height: '28px', 
                 background: '#f8fafc', 
                 borderRadius: '6px', 

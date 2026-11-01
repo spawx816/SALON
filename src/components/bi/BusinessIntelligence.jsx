@@ -454,7 +454,6 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     cancellationReason, 
     selectedEmployee, 
     selectedMembership, 
-    interactiveSelectedGroup, 
     timeGrain,
     startDate,
     endDate
@@ -464,6 +463,31 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     if (e) e.preventDefault();
     loadReport();
   };
+
+  // Active frequency bin for dynamic group filtering (RF-03)
+  const activeFrequencyBin = useMemo(() => {
+    if (selectedReportId !== 'visit_frequency') return null;
+    const chartData = reportData?.chart?.data || [];
+    return chartData.find(b => b.key === interactiveSelectedGroup || b.label === interactiveSelectedGroup)
+      || (reportData?.clientBins && reportData.clientBins[interactiveSelectedGroup])
+      || chartData[0]
+      || null;
+  }, [selectedReportId, reportData, interactiveSelectedGroup]);
+
+  // Dynamic table data: updates immediately when clicking frequency bars (RF-03)
+  const displayedTable = useMemo(() => {
+    if (selectedReportId === 'visit_frequency' && activeFrequencyBin) {
+      const rows = activeFrequencyBin.clients || [];
+      return {
+        title: `Clientes con ${activeFrequencyBin.label} (Haz clic en las barras para cambiar grupo)`,
+        badgeText: `${rows.length} ${rows.length === 1 ? 'cliente' : 'clientes'}`,
+        columns: reportData?.table?.columns || [],
+        rows: rows,
+        footerNote: reportData?.table?.footerNote
+      };
+    }
+    return reportData?.table;
+  }, [selectedReportId, activeFrequencyBin, reportData?.table]);
 
   if (viewMode === 'classic') {
     return (
@@ -671,7 +695,10 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             <div style={{ position: 'relative' }}>
               <select
                 value={selectedReportId}
-                onChange={(e) => setSelectedReportId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedReportId(e.target.value);
+                  setInteractiveSelectedGroup('0_visits');
+                }}
                 style={{
                   width: '100%',
                   padding: '0.55rem 2rem 0.55rem 0.85rem',
@@ -1201,11 +1228,11 @@ export const BusinessIntelligence = ({ standalone = true }) => {
 
       {/* 8. Detail Data Table */}
       <BIDetailTable
-        title={reportData?.table?.title || 'Detalle de registros'}
-        badgeText={reportData?.table?.badgeText}
-        columns={reportData?.table?.columns || []}
-        rows={reportData?.table?.rows || []}
-        footerNote={reportData?.table?.footerNote}
+        title={displayedTable?.title || 'Detalle de registros'}
+        badgeText={displayedTable?.badgeText}
+        columns={displayedTable?.columns || []}
+        rows={displayedTable?.rows || []}
+        footerNote={displayedTable?.footerNote}
         pageSize={10}
       />
     </div>

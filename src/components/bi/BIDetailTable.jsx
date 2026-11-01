@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Search, ChevronLeft, ChevronRight, MessageCircle, ExternalLink, X } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Search, ChevronLeft, ChevronRight, MessageCircle, ExternalLink, X, User } from 'lucide-react';
 
 const normalizeText = (text) => {
   return String(text || '')
@@ -18,9 +19,23 @@ export const BIDetailTable = ({
   emptyMessage = 'No hay registros disponibles para los filtros aplicados.',
   pageSize = 10
 }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [rowsPerPage, setRowsPerPage] = useState(pageSize);
+
+  // Helper to navigate to client profile
+  const handleViewProfile = (clientId, clientName) => {
+    if (!clientId) return;
+    navigate(`/clientes?id=${encodeURIComponent(clientId)}`, {
+      state: {
+        from: location.pathname + location.search,
+        clientName: clientName || ''
+      }
+    });
+  };
 
   // Filter rows based on search term with diacritic / accent normalization
   const filteredRows = useMemo(() => {
@@ -221,33 +236,96 @@ export const BIDetailTable = ({
                   {columns.map((col, cIdx) => {
                     const val = row[col.key];
 
-                    // WhatsApp contact action column
-                    if (col.key === 'contacto') {
+                    // Client profile direct link
+                    if ((col.key === 'cliente' || col.key === 'client_name') && row.client_id) {
                       return (
                         <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'left' }}>
                           <button
                             type="button"
-                            onClick={() => handleWhatsAppClick(row.telefono || row.phone, row.cliente || row.client_name)}
+                            onClick={() => handleViewProfile(row.client_id, val)}
+                            title={`Abrir perfil de ${val}`}
                             style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              margin: 0,
+                              font: 'inherit',
+                              fontWeight: 700,
+                              color: '#1d4ed8',
+                              textAlign: 'left',
+                              cursor: 'pointer',
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '0.4rem',
-                              background: '#ecfdf5',
-                              color: '#059669',
-                              border: '1px solid #a7f3d0',
-                              borderRadius: '0.375rem',
-                              padding: '0.3rem 0.65rem',
-                              fontSize: '0.78rem',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease'
+                              gap: '0.35rem',
+                              textDecoration: 'none'
                             }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = '#d1fae5'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = '#ecfdf5'}
+                            onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
+                            onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
                           >
-                            <MessageCircle size={14} color="#059669" />
-                            <span>Contactar</span>
+                            <span>{val}</span>
+                            <ExternalLink size={12} color="#93c5fd" />
                           </button>
+                        </td>
+                      );
+                    }
+
+                    // Contact / Actions column
+                    if (col.key === 'contacto' || col.key === 'acciones') {
+                      return (
+                        <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'left' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: col.align === 'center' ? 'center' : 'flex-start', gap: '0.45rem', flexWrap: 'wrap' }}>
+                            {row.client_id && (
+                              <button
+                                type="button"
+                                onClick={() => handleViewProfile(row.client_id, row.cliente || row.client_name)}
+                                title={`Abrir perfil de ${row.cliente || row.client_name || 'la clienta'}`}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  background: '#eff6ff',
+                                  color: '#1d4ed8',
+                                  border: '1px solid #bfdbfe',
+                                  borderRadius: '0.375rem',
+                                  padding: '0.3rem 0.6rem',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#dbeafe'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#eff6ff'}
+                              >
+                                <User size={13} color="#1d4ed8" />
+                                <span>Perfil</span>
+                              </button>
+                            )}
+                            {(row.telefono || row.phone) && (
+                              <button
+                                type="button"
+                                onClick={() => handleWhatsAppClick(row.telefono || row.phone, row.cliente || row.client_name)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.4rem',
+                                  background: '#ecfdf5',
+                                  color: '#059669',
+                                  border: '1px solid #a7f3d0',
+                                  borderRadius: '0.375rem',
+                                  padding: '0.3rem 0.65rem',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#d1fae5'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#ecfdf5'}
+                              >
+                                <MessageCircle size={14} color="#059669" />
+                                <span>Contactar</span>
+                              </button>
+                            )}
+                          </div>
                         </td>
                       );
                     }

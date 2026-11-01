@@ -1112,6 +1112,7 @@ async function handleBIReport(pool, params) {
 
         bins[binKey].count += 1;
         bins[binKey].clients.push({
+          client_id: m.id,
           cliente: m.nombre || 'Socia Plan Beauty',
           client_name: m.nombre || 'Socia Plan Beauty',
           membresia: 'Plan Beauty',
@@ -1128,7 +1129,8 @@ async function handleBIReport(pool, params) {
         key: b.key,
         label: b.label,
         count: b.count,
-        percentage: totalMembers > 0 ? Number(((b.count / totalMembers) * 100).toFixed(1)) : 0
+        percentage: totalMembers > 0 ? Number(((b.count / totalMembers) * 100).toFixed(1)) : 0,
+        clients: b.clients
       }));
 
       const withVisits = totalMembers - bins['0_visits'].count;
@@ -1138,6 +1140,7 @@ async function handleBIReport(pool, params) {
         title: 'Frecuencia de visitas',
         periodText: `Clientes activas en período · ${start} al ${end}`,
         alertInfo: 'Solo cuenta Lavado sencillo. Una visita cuenta una sola vez, aunque incluya varios servicios. Contabiliza a toda clienta activa en el período, aun si luego fue suspendida o cancelada.',
+        clientBins: bins,
         kpis: [
           { label: 'Clientes Analizadas', value: totalMembers.toString(), subtext: 'Base activa en el período', icon: 'users', color: 'blue' },
           { label: 'Con Visitas', value: withVisits.toString(), subtext: `${totalMembers > 0 ? Math.round((withVisits / totalMembers) * 100) : 0}% con consumo`, icon: 'user_check', color: 'emerald' },
@@ -1180,12 +1183,12 @@ async function handleBIReport(pool, params) {
           COALESCE(s.name, 'San Vicente') as sucursal,
           v.salon_id,
           COUNT(v.id) as canjes_totales,
-          COALESCE(SUM(CASE WHEN LOWER(v.metodo_pago) = 'plan beauty' THEN 600 ELSE v.total END), 0) as valor_servicios
+          COALESCE(SUM(CASE WHEN LOWER(v.metodo_pago) LIKE '%plan beauty%' THEN 600 ELSE v.total END), 0) as valor_servicios
         FROM visits v
         LEFT JOIN salons s ON v.salon_id = s.id
         WHERE v.visited_at >= ? AND v.visited_at <= ?
-          AND v.status NOT IN ('Anulado', 'Anulada')
-          AND (LOWER(v.metodo_pago) = 'plan beauty' OR v.servicios LIKE '%Lavado%')
+          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
+          AND (v.items_detail LIKE '%"isPlanWash":true%' OR LOWER(v.metodo_pago) LIKE '%plan beauty%')
           ${salonFilterVis}
         GROUP BY v.salon_id, s.name
       `, visParams);
@@ -1219,31 +1222,33 @@ async function handleBIReport(pool, params) {
       // 2. Detalle por cliente
       const [clientRedemptions] = await pool.query(`
         SELECT 
+          COALESCE(cl.id, v.client_id) as client_id,
           COALESCE(v.client_name, cl.nombre, 'Cliente') as cliente,
           COALESCE(s.name, 'San Vicente') as sucursal,
           COUNT(v.id) as canjes_hechos,
-          COALESCE(ct.contract_price, 2400) as cobro_membresia
+          COALESCE(ct.contract_price, 1950) as cobro_membresia
         FROM visits v
         LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
-        LEFT JOIN contracts ct ON cl.id = ct.client_id
+        LEFT JOIN contracts ct ON cl.id = ct.client_id AND ct.status != 'Cancelled'
         LEFT JOIN salons s ON (COALESCE(v.salon_id, cl.salon_id, 1) = s.id)
         WHERE v.visited_at >= ? AND v.visited_at <= ?
-          AND v.status NOT IN ('Anulado', 'Anulada')
-          AND (LOWER(v.metodo_pago) = 'plan beauty' OR v.servicios LIKE '%Lavado%')
+          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
+          AND (v.items_detail LIKE '%"isPlanWash":true%' OR LOWER(v.metodo_pago) LIKE '%plan beauty%')
           ${salonFilterVis}
-        GROUP BY v.client_id, v.client_name, cl.nombre, s.name, ct.contract_price
+        GROUP BY COALESCE(cl.id, v.client_id), v.client_name, cl.nombre, s.name, ct.contract_price
         ORDER BY canjes_hechos DESC
         LIMIT 150
       `, visParams);
 
       const clientRows = clientRedemptions.map(r => {
         const hechos = Number(r.canjes_hechos || 0);
-        const disponibles = 4; // Cupo mensual oficial por ciclo
+        const disponibles = 4; // Cupo mensual oficial por ciclo (regla GEMINI.md)
         const pendientes = Math.max(0, disponibles - hechos);
-        const cobros = Number(r.cobro_membresia || 2400);
+        const cobros = Number(r.cobro_membresia || 1950);
         const precioLavado = hechos > 0 ? Math.round(cobros / hechos) : 0;
 
         return {
+          client_id: r.client_id,
           cliente: r.cliente,
           sucursal: r.sucursal,
           canjes_hechos: hechos,
@@ -1327,35 +1332,22 @@ async function handleBIReport(pool, params) {
       `, salonId !== 'all' ? [salonId] : []);
 
       // Cross with visits to check if they used birthday discount
-      const [bdayVisits] = await pool.query(`
-        SELECT v.client_id, v.visited_at, v.total, v.items_detail
+      const [allBdayVisits] = await pool.query(`
+        SELECT v.id, v.client_id, v.visited_at, v.total, v.items_detail
         FROM visits v
-        WHERE v.status NOT IN ('Anulado', 'Anulada')
-          AND (v.items_detail LIKE '%cumple%' OR v.items_detail LIKE '%descuento%' OR v.descuento_admin_autorizado = 1)
+        WHERE v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
+          AND v.client_id IS NOT NULL
+        ORDER BY v.visited_at DESC
       `);
 
-      const bdayVisitMap = {};
-      bdayVisits.forEach(v => {
-        let precioBase = Number(v.total || 0);
-        let precioPagado = Number(v.total || 0);
-        try {
-          if (v.items_detail) {
-            const items = JSON.parse(v.items_detail);
-            items.forEach(it => {
-              if (it.precioBase) precioBase = Number(it.precioBase);
-              if (it.precioAplicado) precioPagado = Number(it.precioAplicado);
-            });
-          }
-        } catch (e) {}
-
-        bdayVisitMap[v.client_id] = {
-          uso_descuento: 'Sí (15% Cumpleaños)',
-          cuanto_hacia: precioBase,
-          cuanto_pago: precioPagado
-        };
+      const clientVisitsMap = {};
+      allBdayVisits.forEach(v => {
+        if (!clientVisitsMap[v.client_id]) clientVisitsMap[v.client_id] = [];
+        clientVisitsMap[v.client_id].push(v);
       });
 
       const today = new Date();
+
       const enriched = birthdayClients.map(c => {
         const bdate = new Date(c.fecha_nacimiento);
         const bMonth = bdate.getMonth() + 1;
@@ -1366,23 +1358,69 @@ async function handleBIReport(pool, params) {
         if (nextBday < today) nextBday.setFullYear(today.getFullYear() + 1);
         const daysDiff = Math.ceil((nextBday - today) / (1000 * 60 * 60 * 24));
 
-        const usage = bdayVisitMap[c.id] || {
-          uso_descuento: 'No utilizado',
-          cuanto_hacia: 0,
-          cuanto_pago: 0
-        };
+        const visits = clientVisitsMap[c.id] || [];
+        let benefitVisit = null;
+        const lastVisit = visits[0] || null;
+
+        for (const v of visits) {
+          if (!v.items_detail) continue;
+          try {
+            const items = JSON.parse(v.items_detail);
+            let hasBdayDesc = false;
+            let base = 0;
+            let desc = 0;
+            items.forEach(it => {
+              const qty = Number(it.cantidad || 1);
+              const unit = Number(it.precioBase != null && Number(it.precioBase) > 0 ? it.precioBase : (it.precioAplicado || 0));
+              const itDesc = Number(it.descuento || 0);
+              base += unit * qty;
+              desc += itDesc;
+              const p = Number(it.descuentoPercent || 0);
+              if (p === 15 || String(it.descuentoPercent || '').includes('15') || (itDesc > 0 && String(it.nombre || '').toLowerCase().includes('cumple'))) {
+                hasBdayDesc = true;
+              }
+            });
+
+            if (desc > 0 && hasBdayDesc) {
+              benefitVisit = {
+                visitId: v.id,
+                visited_at: v.visited_at,
+                precioBase: base,
+                precioPagado: Math.max(0, base - desc),
+                descuento: desc
+              };
+              break;
+            }
+          } catch (e) {}
+        }
+
+        let usoDescuento = 'No utilizado';
+        let cuantoHacia = 0;
+        let cuantoPago = 0;
+        let fechaVisita = 'Sin visita';
+
+        if (benefitVisit) {
+          usoDescuento = 'Sí (15% Cumpleaños)';
+          cuantoHacia = benefitVisit.precioBase;
+          cuantoPago = benefitVisit.precioPagado;
+          fechaVisita = formatDO(benefitVisit.visited_at);
+        } else if (lastVisit) {
+          fechaVisita = formatDO(lastVisit.visited_at);
+        }
 
         return {
+          client_id: c.id,
           cliente: c.nombre,
           telefono: c.telefono || 'N/D',
           sucursal: c.sucursal,
           fecha_nacimiento: formatDO(c.fecha_nacimiento),
+          fecha_visita: fechaVisita,
           mes_cumpleanos: bMonth,
           dias_faltantes: daysDiff,
           es_mes_actual: bMonth === currentMonth,
-          descuento_usado: usage.uso_descuento,
-          cuanto_hacia: usage.cuanto_hacia,
-          cuanto_pago: usage.cuanto_pago
+          descuento_usado: usoDescuento,
+          cuanto_hacia: cuantoHacia,
+          cuanto_pago: cuantoPago
         };
       }).sort((a, b) => a.dias_faltantes - b.dias_faltantes);
 
@@ -1414,13 +1452,13 @@ async function handleBIReport(pool, params) {
             { key: 'telefono', label: 'Teléfono' },
             { key: 'sucursal', label: 'Sucursal' },
             { key: 'fecha_nacimiento', label: 'Fecha Cumpleaños' },
-            { key: 'dias_faltantes', label: 'Días Restantes', align: 'center' },
+            { key: 'fecha_visita', label: 'Fecha de Visita', align: 'center' },
             { key: 'descuento_usado', label: '¿Usó Descuento 15%?', align: 'center' },
             { key: 'cuanto_hacia', label: 'Precio Base (Hacía)', isCurrency: true },
             { key: 'cuanto_pago', label: 'Precio Pagado', isCurrency: true }
           ],
           rows: enriched,
-          footerNote: 'Arriba los más próximos a cumplir. Muestra total del mes que cumplen y quién usó el descuento de cumpleaños, cuánto hacía y cuánto pagó.'
+          footerNote: 'Arriba los más próximos a cumplir. Muestra total del mes que cumplen y quién usó el descuento de cumpleaños, fecha real de visita, cuánto hacía y cuánto pagó.'
         }
       };
     } catch (e) {
@@ -1437,8 +1475,8 @@ async function handleBIReport(pool, params) {
       const [cancelledRows] = await pool.query(`
         SELECT 
           ct.id,
-          ct.signed_at,
-          ct.last_billed_date,
+          ct.client_id,
+          COALESCE(bc.cancelled_at, ct.last_billed_date, ct.signed_at) AS effective_cancel_date,
           COALESCE(cl.nombre, 'Socia Plan Beauty') as cliente,
           COALESCE(cl.telefono, 'N/D') as telefono,
           COALESCE(s.name, 'San Vicente') as sucursal,
@@ -1446,11 +1484,17 @@ async function handleBIReport(pool, params) {
           'Cancelación solicitada por clienta' as motivo,
           'Administrador' as usuario_cancelo
         FROM contracts ct
+        LEFT JOIN (
+          SELECT contract_id, MAX(created_at) as cancelled_at 
+          FROM billing_codes 
+          WHERE action_type = 'cancellation' AND is_used = 1 
+          GROUP BY contract_id
+        ) bc ON ct.id = bc.contract_id
         LEFT JOIN clients cl ON ct.client_id = cl.id
         LEFT JOIN salons s ON (COALESCE(ct.salon_id, cl.salon_id, 1) = s.id)
         WHERE ct.status IN ('Cancelled', 'Cancelado')
         ${salonId !== 'all' ? 'AND ct.salon_id = ?' : ''}
-        ORDER BY ct.signed_at DESC
+        ORDER BY effective_cancel_date DESC
         LIMIT 100
       `, salonId !== 'all' ? [salonId] : []);
 
@@ -1479,7 +1523,7 @@ async function handleBIReport(pool, params) {
           title: 'Cancelaciones de Membresía por Sucursal',
           data: chartData.length > 0 ? chartData : [
             { label: 'San Vicente', value: 0, displayValue: '0 cancelaciones' },
-            { label: 'Villa Mella', value: 0, displayValue: '0 cancelaciones' }
+            { label: 'Sirena Villa Mella', value: 0, displayValue: '0 cancelaciones' }
           ]
         },
         summaryTable: {
@@ -1509,7 +1553,8 @@ async function handleBIReport(pool, params) {
             { key: 'motivo', label: 'Motivo de Cancelación' }
           ],
           rows: cancelledRows.map(r => ({
-            fecha: formatDO(r.last_billed_date || r.signed_at),
+            client_id: r.client_id,
+            fecha: formatDO(r.effective_cancel_date),
             cliente: r.cliente,
             telefono: r.telefono,
             sucursal: r.sucursal,
@@ -1517,7 +1562,7 @@ async function handleBIReport(pool, params) {
             usuario: r.usuario_cancelo,
             motivo: r.motivo
           })),
-          footerNote: 'Reporte por sucursal y detallado con la fecha visible de cancelación y el usuario responsable.'
+          footerNote: 'Reporte ordenado por fecha efectiva de cancelación (más reciente primero) con trazabilidad de auditoría.'
         }
       };
     } catch (e) {
@@ -1552,6 +1597,7 @@ async function handleBIReport(pool, params) {
         const last = r.last_visit ? new Date(r.last_visit) : null;
         const diffDays = last ? Math.floor((now - last) / (1000 * 60 * 60 * 24)) : 999;
         return {
+          client_id: r.id,
           cliente: r.nombre || 'Cliente General',
           telefono: r.telefono || 'N/D',
           sucursal: r.salon_name,

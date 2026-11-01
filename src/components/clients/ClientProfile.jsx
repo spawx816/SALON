@@ -143,14 +143,31 @@ const ClientProfile = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const searchVal = params.get('cedula') || params.get('search') || params.get('id');
-    if (searchVal) {
+    const clientId = params.get('id');
+    const cedula = params.get('cedula');
+    const searchVal = params.get('search');
+
+    if (clientId) {
+      dataService.getClientById(clientId).then(found => {
+        if (found) {
+          selectClient(found);
+          setSearchTerm(found.cedula || found.nombre || '');
+        }
+      }).catch(err => console.error('Error auto-loading client by ID:', err));
+    } else if (cedula) {
+      setSearchTerm(cedula);
+      dataService.findClientByCedula(cedula).then(found => {
+        if (found) {
+          selectClient(found);
+        }
+      }).catch(err => console.error('Error auto-loading client by cedula:', err));
+    } else if (searchVal) {
       setSearchTerm(searchVal);
       dataService.findClientByCedula(searchVal).then(found => {
         if (found) {
           selectClient(found);
         }
-      }).catch(err => console.error('Error auto-loading client:', err));
+      }).catch(err => console.error('Error auto-loading client by search:', err));
     }
   }, [location.search]);
 
@@ -996,15 +1013,27 @@ const ClientProfile = () => {
         <div>
           {/* Barra Superior al Consultar un Cliente */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', background: 'white', padding: '0.85rem 1.25rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 2px 6px rgba(0,0,0,0.02)', flexWrap: 'wrap', gap: '1rem' }}>
-            <button 
-              type="button" 
-              className="btn-secondary" 
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: '10px', padding: '0.55rem 1.1rem', fontWeight: 800, fontSize: '0.82rem' }}
-              onClick={() => { setClient(null); setSearchTerm(''); }}
-            >
-              <ArrowLeft size={16} />
-              <span>Volver al Listado de Clientes</span>
-            </button>
+            {location.state?.from ? (
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: '10px', padding: '0.55rem 1.1rem', fontWeight: 800, fontSize: '0.82rem', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}
+                onClick={() => navigate(location.state.from)}
+              >
+                <ArrowLeft size={16} />
+                <span>Volver al Reporte</span>
+              </button>
+            ) : (
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: '10px', padding: '0.55rem 1.1rem', fontWeight: 800, fontSize: '0.82rem' }}
+                onClick={() => { setClient(null); setSearchTerm(''); }}
+              >
+                <ArrowLeft size={16} />
+                <span>Volver al Listado de Clientes</span>
+              </button>
+            )}
             
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Expediente activo:</span>
