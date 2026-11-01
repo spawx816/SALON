@@ -1055,11 +1055,14 @@ async function handleBIReport(pool, params) {
   // ==========================================
   // 10. CLIENTES: FRECUENCIA DE VISITAS (#2)
   // Valida cantidad real de clientes que estuvieron activas o usaron servicio en el período
-  // (Incluso si fueron suspendidas o canceladas posteriormente)
+  // Excluye perfiles que nunca se han activado y contratos cancelados antes del período
   // ==========================================
   if (reportId === 'visit_frequency' || reportId === 'frequency') {
     try {
-      // Clientes que tuvieron contrato O visitaron en el período
+      const memberParams = salonId !== 'all'
+        ? [startDateTime, startDateTime, endDateTime, salonId]
+        : [startDateTime, startDateTime, endDateTime];
+
       const [members] = await pool.query(`
         SELECT DISTINCT
           c.id, c.nombre, c.telefono, c.salon_id,
@@ -1067,9 +1070,17 @@ async function handleBIReport(pool, params) {
         FROM clients c
         LEFT JOIN contracts ct ON c.id = ct.client_id
         LEFT JOIN salons s ON c.salon_id = s.id
-        WHERE (ct.id IS NOT NULL OR c.id IN (SELECT DISTINCT client_id FROM visits WHERE visited_at >= ? AND visited_at <= ?))
+        WHERE (
+          ct.status IN ('Active', 'Pending_Retry')
+          OR (ct.status = 'Cancelled' AND COALESCE(ct.last_billed_date, ct.signed_at) >= ?)
+          OR c.id IN (SELECT DISTINCT client_id FROM visits WHERE visited_at >= ? AND visited_at <= ?)
+        )
+        AND NOT (
+          (ct.status = 'Cancelled' OR ct.status IS NULL)
+          AND (SELECT COUNT(*) FROM visits v WHERE v.client_id = c.id) = 0
+        )
         ${salonId !== 'all' ? 'AND c.salon_id = ?' : ''}
-      `, salonId !== 'all' ? [startDateTime, endDateTime, salonId] : [startDateTime, endDateTime]);
+      `, memberParams);
 
       const [visitCounts] = await pool.query(`
         SELECT 
