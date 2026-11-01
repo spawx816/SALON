@@ -2979,7 +2979,7 @@ const VisitRecorder = () => {
 
       // Check for Employee Payroll Consumption
       const empItem = activePayments.find(p => p.method === 'Consumo Empleado' || p.method === 'Nomina' || p.method === 'Descuento Nómina');
-      if (empItem || isEmployeeClient || (clientFound && clientFound.isEmployee)) {
+      if (empItem) {
         const rawEmpId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(clientFound?.id || '').replace('EMP-', '') || selectedEmployeeForConsumption;
         const empObj = employees.find(e => String(e.id) === String(rawEmpId) || e.nombre === (clientFound?.nombre || clientFound?.name));
         empCons = {

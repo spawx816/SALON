@@ -547,7 +547,9 @@ function createVisitsRouter(pool, deps = {}) {
       // Record employee consumption for payroll deduction if applicable
       const isNominaPayment = metodo_pago === 'Nomina' || (Array.isArray(applied_payments) && applied_payments.some(p => p.method === 'Nomina' || p.method === 'Consumo Empleado' || p.method === 'Descuento Nómina'));
 
-      if ((employee_consumption && employee_consumption.employee_id) || isNominaPayment) {
+      // CRÍTICO: SOLO registrar consumo/descuento a nómina si el método de pago elegido fue explícitamente Nómina.
+      // Si la empleada pagó en Efectivo, Tarjeta, etc., es una venta normal cobrada en caja y NUNCA se descuenta de nómina.
+      if (isNominaPayment) {
         const [vRows] = await pool.query('SELECT ticket_number, salon_id FROM visits WHERE id = ?', [id]);
         const ticketNum = vRows[0]?.ticket_number || `TK-${id}`;
         const branchId = salon_id || vRows[0]?.salon_id || 1;
@@ -578,7 +580,10 @@ function createVisitsRouter(pool, deps = {}) {
 
         const servicesStr = serviceNames.join(', ');
         const discountNotes = `Factura #${ticketNum}${servicesStr ? ` - Servicios: ${servicesStr}` : ''}`;
-        const discountAmount = parseFloat(employee_consumption?.monto || total || 0);
+        const nominaPart = Array.isArray(applied_payments) 
+          ? applied_payments.find(p => p.method === 'Nomina' || p.method === 'Consumo Empleado' || p.method === 'Descuento Nómina' || p.method === 'Descuento Nmina')?.amount 
+          : null;
+        const discountAmount = parseFloat(nominaPart || employee_consumption?.monto || total || 0);
 
         const consumptionId = 'CONS-' + Date.now();
         try {
