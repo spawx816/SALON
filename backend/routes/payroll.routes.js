@@ -361,6 +361,119 @@ function createPayrollRouter(pool) {
   }
 
   /**
+   * Sincroniza de forma 100% matemática y libre de duplicados los conceptos de ingresos,
+   * conceptos de descuentos y desgloses de un item de nómina con los valores reales de sus columnas.
+   */
+  function syncDetallesJsonWithItem(item) {
+    let det = typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {});
+    det = det || {};
+    det.conceptos_ingresos = Array.isArray(det.conceptos_ingresos) ? det.conceptos_ingresos : [];
+    det.conceptos_descuentos = Array.isArray(det.conceptos_descuentos) ? det.conceptos_descuentos : [];
+    det.desglose_descuentos = det.desglose_descuentos || {
+      tardanzas: { items: [], total_minutos: 0, valor_minuto: 0, total_monto: 0 },
+      ausencias: { items: [], total_monto: 0 },
+      servicios: { items: [], total_monto: 0 },
+      prestamos: { items: [], total_monto: 0 }
+    };
+
+    const salFijo = Number(parseFloat(item.salario_fijo || 0).toFixed(2));
+    const comm = Number(parseFloat(item.comisiones || 0).toFixed(2));
+    const fer = Number(parseFloat(item.feriados || 0).toFixed(2));
+    const ext = Number(parseFloat(item.horas_extras || 0).toFixed(2));
+    const desc = Number(parseFloat(item.descanso || 0).toFixed(2));
+    const otrosIng = Number(parseFloat(item.otros_ingresos || 0).toFixed(2));
+
+    const tss = Number(parseFloat(item.tss || 0).toFixed(2));
+    const serv = Number(parseFloat(item.servicios || 0).toFixed(2));
+    const prest = Number(parseFloat(item.prestamos || 0).toFixed(2));
+    const aus = Number(parseFloat(item.ausencias || 0).toFixed(2));
+    const tard = Number(parseFloat(item.tardanzas || 0).toFixed(2));
+    const otrosDesc = Number(parseFloat(item.otros_descuentos || 0).toFixed(2));
+
+    // 1. Conceptos de Ingresos
+    const seenCustomIds = new Set();
+    const customIngresos = [];
+    for (const c of det.conceptos_ingresos) {
+      if (c && c.custom && c.id && !seenCustomIds.has(c.id)) {
+        seenCustomIds.add(c.id);
+        customIngresos.push({ ...c, monto: Number(parseFloat(c.monto || 0).toFixed(2)) });
+      }
+    }
+    let sumCustomIng = Number(customIngresos.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0).toFixed(2));
+    if (sumCustomIng > otrosIng && customIngresos.length > 0) {
+      const match = customIngresos.find(c => Math.abs(parseFloat(c.monto) - otrosIng) < 0.01);
+      if (match) {
+        customIngresos.length = 0;
+        customIngresos.push(match);
+        sumCustomIng = match.monto;
+      }
+    }
+
+    const c5Monto = Number(Math.max(0, otrosIng - sumCustomIng).toFixed(2));
+    const c4Prev = det.conceptos_ingresos.find(c => c.id === 'c4');
+    const cDescPrev = det.conceptos_ingresos.find(c => c.id === 'c_descanso');
+
+    det.conceptos_ingresos = [
+      { id: 'c1', label: 'Salario fijo', monto: salFijo },
+      { id: 'c2', label: 'Comisiones', monto: comm },
+      { id: 'c3', label: 'Feriados', monto: fer },
+      { id: 'c4', label: ext > 0 ? (c4Prev?.label && c4Prev.label.includes('(') ? c4Prev.label : 'Horas extras') : 'Horas extras', monto: ext },
+      { id: 'c_descanso', label: desc > 0 ? (cDescPrev?.label && cDescPrev.label.includes('(') ? cDescPrev.label : 'Descanso laborado') : 'Descanso', monto: desc },
+      ...(c5Monto > 0 || customIngresos.length === 0 ? [{ id: 'c5', label: 'Otros ingresos / Bonos', monto: c5Monto }] : []),
+      ...customIngresos
+    ];
+
+    // 2. Conceptos de Descuentos
+    const seenCustomDescIds = new Set();
+    const customDescuentos = [];
+    for (const d of det.conceptos_descuentos) {
+      if (d && d.custom && d.id && !seenCustomDescIds.has(d.id)) {
+        seenCustomDescIds.add(d.id);
+        customDescuentos.push({ ...d, monto: Number(parseFloat(d.monto || 0).toFixed(2)) });
+      }
+    }
+    const sumCustomDesc = Number(customDescuentos.reduce((s, d) => s + (parseFloat(d.monto) || 0), 0).toFixed(2));
+    const d6Monto = Number(Math.max(0, otrosDesc - sumCustomDesc).toFixed(2));
+
+    const d1Prev = det.conceptos_descuentos.find(d => d.id === 'd1');
+    const d5Prev = det.conceptos_descuentos.find(d => d.id === 'd5');
+    const dIsr = det.conceptos_descuentos.find(d => d.id === 'd_isr');
+
+    det.conceptos_descuentos = [
+      { id: 'd1', label: d1Prev?.label || 'TSS (Ley 5.91%)', monto: tss },
+      ...(dIsr ? [dIsr] : []),
+      { id: 'd2', label: 'Servicios de Salón', monto: serv },
+      { id: 'd3', label: 'Préstamos / Adelantos', monto: prest },
+      { id: 'd4', label: 'Ausencias', monto: aus },
+      { id: 'd5', label: tard > 0 ? (d5Prev?.label && d5Prev.label.includes('(') ? d5Prev.label : 'Tardanzas') : 'Tardanzas', monto: tard },
+      ...(d6Monto > 0 || customDescuentos.length === 0 ? [{ id: 'd6', label: 'Otros descuentos', monto: d6Monto }] : []),
+      ...customDescuentos
+    ];
+
+    // 3. Limpiar o ajustar desgloses si se eliminaron a 0
+    if (aus === 0 && det.desglose_descuentos?.ausencias) {
+      det.desglose_descuentos.ausencias.items = [];
+      det.desglose_descuentos.ausencias.total_monto = 0;
+    }
+    if (tard === 0 && det.desglose_descuentos?.tardanzas) {
+      det.desglose_descuentos.tardanzas.items = [];
+      det.desglose_descuentos.tardanzas.total_monto = 0;
+      det.desglose_descuentos.tardanzas.total_minutos = 0;
+    }
+    if (serv === 0 && det.desglose_descuentos?.servicios) {
+      det.desglose_descuentos.servicios.items = [];
+      det.desglose_descuentos.servicios.total_monto = 0;
+    }
+    if (prest === 0 && det.desglose_descuentos?.prestamos) {
+      det.desglose_descuentos.prestamos.items = [];
+      det.desglose_descuentos.prestamos.total_monto = 0;
+    }
+
+    item.detalles_json = det;
+    return item;
+  }
+
+  /**
    * Punto 5: Sincroniza automáticamente en tiempo real un período de nómina en preparación
    * sin alterar jamás períodos aprobados/cerrados (is_immutable = 1 o status = 'Aprobada').
    * Conserva los IDs de payroll_items y cualquier concepto manual (custom: true).
@@ -473,31 +586,11 @@ function createPayrollRouter(pool) {
 
           for (const f of fieldsToCheck) {
             const isFieldOverridden = (empAuditSet && empAuditSet.has(f)) ||
-              (exDet.manual_fields && exDet.manual_fields.includes(f)) ||
-              exDet.manual_override;
+              (exDet.manual_fields && exDet.manual_fields.includes(f));
 
             if (isFieldOverridden && ex[f] !== undefined && ex[f] !== null) {
               itemData[f] = parseFloat(ex[f]) || 0;
             }
-          }
-
-          // Si ausencias o tardanzas fueron puestas en 0 manualmente, limpiar su desglose en el volante
-          if (parseFloat(itemData.ausencias || 0) === 0 && itemData.detalles_json?.desglose_descuentos?.ausencias) {
-            itemData.detalles_json.desglose_descuentos.ausencias.items = [];
-            itemData.detalles_json.desglose_descuentos.ausencias.total_monto = 0;
-          }
-          if (parseFloat(itemData.tardanzas || 0) === 0 && itemData.detalles_json?.desglose_descuentos?.tardanzas) {
-            itemData.detalles_json.desglose_descuentos.tardanzas.items = [];
-            itemData.detalles_json.desglose_descuentos.tardanzas.total_monto = 0;
-            itemData.detalles_json.desglose_descuentos.tardanzas.total_minutos = 0;
-          }
-
-          // Actualizar conceptos_descuentos correspondientes
-          if (itemData.detalles_json?.conceptos_descuentos) {
-            const ausC = itemData.detalles_json.conceptos_descuentos.find(c => c.id === 'd4' || c.label?.toLowerCase().includes('ausencia'));
-            if (ausC) ausC.monto = parseFloat(itemData.ausencias || 0);
-            const tarC = itemData.detalles_json.conceptos_descuentos.find(c => c.id === 'd5' || c.label?.toLowerCase().includes('tardanza'));
-            if (tarC) tarC.monto = parseFloat(itemData.tardanzas || 0);
           }
 
           // Preservar conceptos manuales personalizados si los tenía
@@ -525,7 +618,6 @@ function createPayrollRouter(pool) {
           }
 
           itemData.detalles_json.manually_adjusted = true;
-          itemData.detalles_json.manual_override = true;
           itemData.detalles_json.manual_fields = Array.from(new Set([
             ...(exDet.manual_fields || []),
             ...(empAuditSet ? Array.from(empAuditSet) : [])
@@ -550,20 +642,31 @@ function createPayrollRouter(pool) {
           ).toFixed(2));
 
           itemData.neto_pagar = Number(Math.max(0, itemData.total_ingresos - itemData.total_descuentos).toFixed(2));
+          syncDetallesJsonWithItem(itemData);
         } else if (ex.detalles_json) {
           // Preservar conceptos manuales personalizados (custom: true) si fueron agregados en el borrador
           try {
             const customIng = (exDet.conceptos_ingresos || []).filter(c => c && c.custom);
             const customDesc = (exDet.conceptos_descuentos || []).filter(c => c && c.custom);
             if (customIng.length > 0) {
+              itemData.detalles_json.conceptos_ingresos = itemData.detalles_json.conceptos_ingresos || [];
+              for (const ci of customIng) {
+                if (!itemData.detalles_json.conceptos_ingresos.some(x => x.id === ci.id)) {
+                  itemData.detalles_json.conceptos_ingresos.push(ci);
+                }
+              }
               const extraIng = customIng.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
-              itemData.otros_ingresos = Number((itemData.otros_ingresos + extraIng).toFixed(2));
-              itemData.detalles_json.conceptos_ingresos.push(...customIng);
+              itemData.otros_ingresos = Number((parseFloat(itemData.otros_ingresos || 0) + extraIng).toFixed(2));
             }
             if (customDesc.length > 0) {
+              itemData.detalles_json.conceptos_descuentos = itemData.detalles_json.conceptos_descuentos || [];
+              for (const cd of customDesc) {
+                if (!itemData.detalles_json.conceptos_descuentos.some(x => x.id === cd.id)) {
+                  itemData.detalles_json.conceptos_descuentos.push(cd);
+                }
+              }
               const extraDesc = customDesc.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0);
-              itemData.otros_descuentos = Number((itemData.otros_descuentos + extraDesc).toFixed(2));
-              itemData.detalles_json.conceptos_descuentos.push(...customDesc);
+              itemData.otros_descuentos = Number((parseFloat(itemData.otros_descuentos || 0) + extraDesc).toFixed(2));
             }
             if (customIng.length > 0 || customDesc.length > 0) {
               itemData.total_ingresos = Number((
@@ -576,7 +679,10 @@ function createPayrollRouter(pool) {
               ).toFixed(2));
               itemData.neto_pagar = Number(Math.max(0, itemData.total_ingresos - itemData.total_descuentos).toFixed(2));
             }
+            syncDetallesJsonWithItem(itemData);
           } catch (e) { }
+        } else {
+          syncDetallesJsonWithItem(itemData);
         }
       }
 
@@ -1756,7 +1862,7 @@ function createPayrollRouter(pool) {
     const totalDescuentos = Number((tss + serviciosConsumo + prestamosMonto + ausenciasMonto + tardanzasMonto + otrosDescuentos).toFixed(2));
     const netoPagar = Number(Math.max(0, totalIngresos - totalDescuentos).toFixed(2));
 
-    return {
+    return syncDetallesJsonWithItem({
       employee_id: empId,
       employee_name: empName,
       posicion: posicion,
@@ -1794,8 +1900,7 @@ function createPayrollRouter(pool) {
           { id: 'd3', label: 'Préstamos / Adelantos', monto: prestamosMonto },
           { id: 'd4', label: 'Ausencias', monto: ausenciasMonto },
           { id: 'd5', label: totalNetLatenessMins > 0 ? `Tardanzas netas (${totalNetLatenessMins}m)` : 'Tardanzas', monto: tardanzasMonto },
-          { id: 'd6', label: 'Otros descuentos', monto: otrosDescuentos },
-          ...descuentosItemsList.filter(d => d.id !== 'd_isr_dgii')
+          { id: 'd6', label: 'Otros descuentos', monto: otrosDescuentos }
         ],
         desglose_descuentos: {
           tardanzas: {
@@ -1818,7 +1923,7 @@ function createPayrollRouter(pool) {
           }
         }
       }
-    };
+    });
   }
 
   // 3. Generar / Procesar Nómina Automática con Datos Reales (Con Transacción ACID)
@@ -2050,29 +2155,12 @@ function createPayrollRouter(pool) {
         }
 
         let detObj = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
-        if (hasModifiedFields || detObj.manually_adjusted || detObj.manual_override) {
+        if (hasModifiedFields || detObj.manually_adjusted || (detObj.manual_fields && detObj.manual_fields.length > 0)) {
           detObj.manually_adjusted = true;
-          detObj.manual_override = true;
           detObj.manual_fields = Array.from(new Set([...(detObj.manual_fields || []), ...modifiedFieldsList]));
-
-          if (detObj.conceptos_descuentos) {
-            const ausC = detObj.conceptos_descuentos.find(c => c.id === 'd4' || c.label?.toLowerCase().includes('ausencia'));
-            if (ausC) ausC.monto = parseFloat(it.ausencias || 0);
-            const tarC = detObj.conceptos_descuentos.find(c => c.id === 'd5' || c.label?.toLowerCase().includes('tardanza'));
-            if (tarC) tarC.monto = parseFloat(it.tardanzas || 0);
-          }
-          if (detObj.desglose_descuentos) {
-            if (parseFloat(it.ausencias || 0) === 0 && detObj.desglose_descuentos.ausencias) {
-              detObj.desglose_descuentos.ausencias.items = [];
-              detObj.desglose_descuentos.ausencias.total_monto = 0;
-            }
-            if (parseFloat(it.tardanzas || 0) === 0 && detObj.desglose_descuentos.tardanzas) {
-              detObj.desglose_descuentos.tardanzas.items = [];
-              detObj.desglose_descuentos.tardanzas.total_monto = 0;
-              detObj.desglose_descuentos.tardanzas.total_minutos = 0;
-            }
-          }
         }
+        it.detalles_json = detObj;
+        syncDetallesJsonWithItem(it);
 
         await conn.query(`
           UPDATE payroll_items
@@ -2208,6 +2296,15 @@ function createPayrollRouter(pool) {
 
           const netoPagar = Number((totalIng - totalDesc).toFixed(2));
 
+          item.total_ingresos = totalIng;
+          item.total_descuentos = totalDesc;
+          item.neto_pagar = netoPagar;
+          item.detalles_json = details;
+          item.detalles_json.manually_adjusted = true;
+          const affectedField = concept_key || (concept_type === 'Ingreso' ? 'otros_ingresos' : 'otros_descuentos');
+          item.detalles_json.manual_fields = Array.from(new Set([...(item.detalles_json.manual_fields || []), affectedField]));
+          syncDetallesJsonWithItem(item);
+
           await conn.query(`
             UPDATE payroll_items
             SET 
@@ -2218,7 +2315,7 @@ function createPayrollRouter(pool) {
           `, [
             item.salario_fijo, item.comisiones, item.feriados, item.horas_extras, (item.descanso || 0), item.otros_ingresos, totalIng,
             item.tss, item.servicios, item.prestamos, item.ausencias, item.tardanzas, item.otros_descuentos, totalDesc,
-            netoPagar, JSON.stringify(details), itemId
+            netoPagar, JSON.stringify(item.detalles_json), itemId
           ]);
 
           // Registrar en auditoría
@@ -2307,8 +2404,13 @@ function createPayrollRouter(pool) {
         WHERE id = ?
       `, [approved_by, JSON.stringify(snapshot), payroll_id]);
 
-      // B. Saldar automáticamente todos los descuentos aplicados en este período (Servicios, Préstamos, etc.)
-      if (startDate && endDate) {
+      // B. Saldar automáticamente todos los descuentos aplicados en este período para los colaboradores de la nómina
+      if (startDate && endDate && items.length > 0) {
+        const empIds = items.map(it => String(it.employee_id)).filter(Boolean);
+        const empCodes = items.map(it => `EMP-${it.employee_id}`);
+        const empNames = items.map(it => it.employee_name).filter(Boolean);
+        const allEmpKeys = Array.from(new Set([...empIds, ...empCodes, ...empNames]));
+
         await conn.query(`
           UPDATE employee_discounts 
           SET status = 'Saldado', 
@@ -2319,16 +2421,18 @@ function createPayrollRouter(pool) {
           WHERE date BETWEEN ? AND ? 
             AND (status != 'Anulado' OR status IS NULL) 
             AND status != 'Saldado'
-        `, [payroll_id, payroll_id, startDate, endDate]);
+            AND (employee_id IN (?) OR employee_name IN (?))
+        `, [payroll_id, payroll_id, startDate, endDate, allEmpKeys, empNames]);
 
-        // C. Marcar comisiones del período como Pagadas
+        // C. Marcar comisiones del período como Pagadas para los colaboradores de la nómina
         await conn.query(`
           UPDATE employee_commissions_log 
           SET status = 'Pagada'
           WHERE created_at >= ? AND created_at <= ? 
             AND (status != 'Anulada' OR status IS NULL) 
             AND status != 'Pagada'
-        `, [`${startDate} 00:00:00`, `${endDate} 23:59:59`]);
+            AND (employee_id IN (?) OR employee_name IN (?))
+        `, [`${startDate} 00:00:00`, `${endDate} 23:59:59`, allEmpKeys, empNames]);
       }
 
       // D. Registrar en auditoría

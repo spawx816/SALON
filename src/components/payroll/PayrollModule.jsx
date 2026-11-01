@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Printer, 
   Sliders, ArrowUpRight, ArrowDownRight, Edit2, Trash2, Eye, 
   Settings, FileText, Check, X, RefreshCw, Layers, PieChart as PieIcon, 
-  CreditCard, Sparkles, Building2, Briefcase, ChevronDown, CheckSquare, Square,
+  CreditCard, Sparkles, Building2, Briefcase, ChevronDown, ChevronUp, CheckSquare, Square,
   RotateCcw, History, ShieldAlert, Lock, Info, FileSpreadsheet, UserCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -74,6 +74,7 @@ export default function PayrollModule({ initialTab }) {
   const [editingItem, setEditingItem] = useState(null);
   const [editReason, setEditReason] = useState('');
   const [newConceptForm, setNewConceptForm] = useState({ show: false, type: 'ingreso', label: '', amount: '' });
+  const [modalExpandedDiscount, setModalExpandedDiscount] = useState(null);
 
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [summaryTab, setSummaryTab] = useState('ingresos'); // 'ingresos' | 'descuentos' | 'distribucion'
@@ -621,10 +622,13 @@ export default function PayrollModule({ initialTab }) {
 
   // Abrir modal de empleado individual
   const handleOpenEmployeeModal = (item, indexInFiltered) => {
-    setEditingItem(JSON.parse(JSON.stringify(item)));
+    const copy = JSON.parse(JSON.stringify(item));
+    syncItemDetalles(copy);
+    setEditingItem(copy);
     setActiveEmployeeIndex(indexInFiltered);
     setEditReason('');
     setNewConceptForm({ show: false, type: 'ingreso', label: '', amount: '' });
+    setModalExpandedDiscount(null);
     setShowEmployeeModal(true);
   };
 
@@ -633,9 +637,119 @@ export default function PayrollModule({ initialTab }) {
     if (nextIdx < 0) nextIdx = filteredItems.length - 1;
     if (nextIdx >= filteredItems.length) nextIdx = 0;
     setActiveEmployeeIndex(nextIdx);
-    setEditingItem(JSON.parse(JSON.stringify(filteredItems[nextIdx])));
+    const copy = JSON.parse(JSON.stringify(filteredItems[nextIdx]));
+    syncItemDetalles(copy);
+    setEditingItem(copy);
     setEditReason('');
     setNewConceptForm({ show: false, type: 'ingreso', label: '', amount: '' });
+    setModalExpandedDiscount(null);
+  };
+
+  // Sincronizar conceptos y desgloses de un item con los valores de sus columnas
+  const syncItemDetalles = (it) => {
+    let det = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
+    det = det || {};
+    det.conceptos_ingresos = Array.isArray(det.conceptos_ingresos) ? det.conceptos_ingresos : [];
+    det.conceptos_descuentos = Array.isArray(det.conceptos_descuentos) ? det.conceptos_descuentos : [];
+    det.desglose_descuentos = det.desglose_descuentos || {
+      tardanzas: { items: [], total_minutos: 0, valor_minuto: 0, total_monto: 0 },
+      ausencias: { items: [], total_monto: 0 },
+      servicios: { items: [], total_monto: 0 },
+      prestamos: { items: [], total_monto: 0 }
+    };
+
+    const salFijo = Number(parseFloat(it.salario_fijo || 0).toFixed(2));
+    const comm = Number(parseFloat(it.comisiones || 0).toFixed(2));
+    const fer = Number(parseFloat(it.feriados || 0).toFixed(2));
+    const ext = Number(parseFloat(it.horas_extras || 0).toFixed(2));
+    const desc = Number(parseFloat(it.descanso || 0).toFixed(2));
+    const otrosIng = Number(parseFloat(it.otros_ingresos || 0).toFixed(2));
+
+    const tss = Number(parseFloat(it.tss || 0).toFixed(2));
+    const serv = Number(parseFloat(it.servicios || 0).toFixed(2));
+    const prest = Number(parseFloat(it.prestamos || 0).toFixed(2));
+    const aus = Number(parseFloat(it.ausencias || 0).toFixed(2));
+    const tard = Number(parseFloat(it.tardanzas || 0).toFixed(2));
+    const otrosDesc = Number(parseFloat(it.otros_descuentos || 0).toFixed(2));
+
+    const seenCustomIds = new Set();
+    const customIngresos = [];
+    for (const c of det.conceptos_ingresos) {
+      if (c && c.custom && c.id && !seenCustomIds.has(c.id)) {
+        seenCustomIds.add(c.id);
+        customIngresos.push({ ...c, monto: Number(parseFloat(c.monto || 0).toFixed(2)) });
+      }
+    }
+    let sumCustomIng = Number(customIngresos.reduce((s, c) => s + (parseFloat(c.monto) || 0), 0).toFixed(2));
+    if (sumCustomIng > otrosIng && customIngresos.length > 0) {
+      const match = customIngresos.find(c => Math.abs(parseFloat(c.monto) - otrosIng) < 0.01);
+      if (match) {
+        customIngresos.length = 0;
+        customIngresos.push(match);
+        sumCustomIng = match.monto;
+      }
+    }
+
+    const c5Monto = Number(Math.max(0, otrosIng - sumCustomIng).toFixed(2));
+    const c4Prev = det.conceptos_ingresos.find(c => c.id === 'c4');
+    const cDescPrev = det.conceptos_ingresos.find(c => c.id === 'c_descanso');
+
+    det.conceptos_ingresos = [
+      { id: 'c1', label: 'Salario fijo', monto: salFijo },
+      { id: 'c2', label: 'Comisiones', monto: comm },
+      { id: 'c3', label: 'Feriados', monto: fer },
+      { id: 'c4', label: ext > 0 ? (c4Prev?.label && c4Prev.label.includes('(') ? c4Prev.label : 'Horas extras') : 'Horas extras', monto: ext },
+      { id: 'c_descanso', label: desc > 0 ? (cDescPrev?.label && cDescPrev.label.includes('(') ? cDescPrev.label : 'Descanso laborado') : 'Descanso', monto: desc },
+      ...(c5Monto > 0 || customIngresos.length === 0 ? [{ id: 'c5', label: 'Otros ingresos / Bonos', monto: c5Monto }] : []),
+      ...customIngresos
+    ];
+
+    const seenCustomDescIds = new Set();
+    const customDescuentos = [];
+    for (const d of det.conceptos_descuentos) {
+      if (d && d.custom && d.id && !seenCustomDescIds.has(d.id)) {
+        seenCustomDescIds.add(d.id);
+        customDescuentos.push({ ...d, monto: Number(parseFloat(d.monto || 0).toFixed(2)) });
+      }
+    }
+    const sumCustomDesc = Number(customDescuentos.reduce((s, d) => s + (parseFloat(d.monto) || 0), 0).toFixed(2));
+    const d6Monto = Number(Math.max(0, otrosDesc - sumCustomDesc).toFixed(2));
+
+    const d1Prev = det.conceptos_descuentos.find(d => d.id === 'd1');
+    const d5Prev = det.conceptos_descuentos.find(d => d.id === 'd5');
+    const dIsr = det.conceptos_descuentos.find(d => d.id === 'd_isr');
+
+    det.conceptos_descuentos = [
+      { id: 'd1', label: d1Prev?.label || 'TSS (Ley 5.91%)', monto: tss },
+      ...(dIsr ? [dIsr] : []),
+      { id: 'd2', label: 'Servicios de Salón', monto: serv },
+      { id: 'd3', label: 'Préstamos / Adelantos', monto: prest },
+      { id: 'd4', label: 'Ausencias', monto: aus },
+      { id: 'd5', label: tard > 0 ? (d5Prev?.label && d5Prev.label.includes('(') ? d5Prev.label : 'Tardanzas') : 'Tardanzas', monto: tard },
+      ...(d6Monto > 0 || customDescuentos.length === 0 ? [{ id: 'd6', label: 'Otros descuentos', monto: d6Monto }] : []),
+      ...customDescuentos
+    ];
+
+    if (aus === 0 && det.desglose_descuentos?.ausencias) {
+      det.desglose_descuentos.ausencias.items = [];
+      det.desglose_descuentos.ausencias.total_monto = 0;
+    }
+    if (tard === 0 && det.desglose_descuentos?.tardanzas) {
+      det.desglose_descuentos.tardanzas.items = [];
+      det.desglose_descuentos.tardanzas.total_monto = 0;
+      det.desglose_descuentos.tardanzas.total_minutos = 0;
+    }
+    if (serv === 0 && det.desglose_descuentos?.servicios) {
+      det.desglose_descuentos.servicios.items = [];
+      det.desglose_descuentos.servicios.total_monto = 0;
+    }
+    if (prest === 0 && det.desglose_descuentos?.prestamos) {
+      det.desglose_descuentos.prestamos.items = [];
+      det.desglose_descuentos.prestamos.total_monto = 0;
+    }
+
+    it.detalles_json = det;
+    return it;
   };
 
   // Actualizar un concepto estándar en el modal de edición
@@ -672,7 +786,60 @@ export default function PayrollModule({ initialTab }) {
     copy.total_descuentos = Number(totalDesc.toFixed(2));
     copy.neto_pagar = Number((totalIng - totalDesc).toFixed(2));
 
+    syncItemDetalles(copy);
     setEditingItem(copy);
+  };
+
+  // Eliminar un concepto personalizado de un empleado
+  const handleDeleteCustomConcept = (conceptId, type) => {
+    if (!editingItem) return;
+    const copy = JSON.parse(JSON.stringify(editingItem));
+    let det = copy.detalles_json || {};
+    if (typeof det === 'string') {
+      try { det = JSON.parse(det); } catch(e) { det = {}; }
+    }
+
+    if (type === 'ingreso' && det.conceptos_ingresos) {
+      const idx = det.conceptos_ingresos.findIndex(c => c.id === conceptId);
+      if (idx >= 0) {
+        const amt = parseFloat(det.conceptos_ingresos[idx].monto || 0);
+        det.conceptos_ingresos.splice(idx, 1);
+        copy.otros_ingresos = Number(Math.max(0, (parseFloat(copy.otros_ingresos || 0) - amt)).toFixed(2));
+      }
+    } else if (type === 'descuento' && det.conceptos_descuentos) {
+      const idx = det.conceptos_descuentos.findIndex(d => d.id === conceptId);
+      if (idx >= 0) {
+        const amt = parseFloat(det.conceptos_descuentos[idx].monto || 0);
+        det.conceptos_descuentos.splice(idx, 1);
+        copy.otros_descuentos = Number(Math.max(0, (parseFloat(copy.otros_descuentos || 0) - amt)).toFixed(2));
+      }
+    }
+
+    const totalIng = (
+      parseFloat(copy.salario_fijo || 0) +
+      parseFloat(copy.comisiones || 0) +
+      parseFloat(copy.feriados || 0) +
+      parseFloat(copy.horas_extras || 0) +
+      parseFloat(copy.descanso || 0) +
+      parseFloat(copy.otros_ingresos || 0)
+    );
+
+    const totalDesc = (
+      parseFloat(copy.tss || 0) +
+      parseFloat(copy.servicios || 0) +
+      parseFloat(copy.prestamos || 0) +
+      parseFloat(copy.ausencias || 0) +
+      parseFloat(copy.tardanzas || 0) +
+      parseFloat(copy.otros_descuentos || 0)
+    );
+
+    copy.total_ingresos = Number(totalIng.toFixed(2));
+    copy.total_descuentos = Number(totalDesc.toFixed(2));
+    copy.neto_pagar = Number((totalIng - totalDesc).toFixed(2));
+    copy.detalles_json = det;
+    syncItemDetalles(copy);
+    setEditingItem(copy);
+    showNotification('Concepto personalizado eliminado', 'info');
   };
 
   // Agregar un concepto personalizado a un empleado individual
@@ -729,6 +896,7 @@ export default function PayrollModule({ initialTab }) {
     copy.total_descuentos = Number(totalDesc.toFixed(2));
     copy.neto_pagar = Number((totalIng - totalDesc).toFixed(2));
 
+    syncItemDetalles(copy);
     setEditingItem(copy);
     setNewConceptForm({ show: false, type: 'ingreso', label: '', amount: '' });
     showNotification(`Concepto "${newConceptForm.label}" agregado`, 'success');
@@ -745,40 +913,27 @@ export default function PayrollModule({ initialTab }) {
     // Guardar estado previo para Deshacer
     setUndoStack(prev => [...prev, JSON.parse(JSON.stringify(items))]);
 
-    // Marcar como ajuste manual explícito
+    const originalItem = items.find(it => it.id === editingItem.id);
     const itemToSave = JSON.parse(JSON.stringify(editingItem));
-    if (!itemToSave.detalles_json) itemToSave.detalles_json = {};
-    if (typeof itemToSave.detalles_json === 'string') {
-      try { itemToSave.detalles_json = JSON.parse(itemToSave.detalles_json); } catch(e) { itemToSave.detalles_json = {}; }
-    }
-    itemToSave.detalles_json.manually_adjusted = true;
-    itemToSave.detalles_json.manual_override = true;
-    itemToSave.detalles_json.manual_fields = [
+    syncItemDetalles(itemToSave);
+
+    const fieldsToCheck = [
       'salario_fijo', 'comisiones', 'feriados', 'horas_extras', 'descanso', 'otros_ingresos',
       'tss', 'servicios', 'prestamos', 'ausencias', 'tardanzas', 'otros_descuentos'
     ];
-
-    // Limpiar desglose en caso de eliminación de tardanzas o ausencias
-    if (parseFloat(itemToSave.ausencias || 0) === 0) {
-      if (itemToSave.detalles_json.desglose_descuentos?.ausencias) {
-        itemToSave.detalles_json.desglose_descuentos.ausencias.items = [];
-        itemToSave.detalles_json.desglose_descuentos.ausencias.total_monto = 0;
-      }
-      if (itemToSave.detalles_json.conceptos_descuentos) {
-        const ausC = itemToSave.detalles_json.conceptos_descuentos.find(c => c.id === 'd4' || c.label?.toLowerCase().includes('ausencia'));
-        if (ausC) ausC.monto = 0;
+    const actuallyChangedFields = [];
+    for (const f of fieldsToCheck) {
+      if (originalItem && Math.abs(parseFloat(itemToSave[f] || 0) - parseFloat(originalItem[f] || 0)) > 0.009) {
+        actuallyChangedFields.push(f);
       }
     }
-    if (parseFloat(itemToSave.tardanzas || 0) === 0) {
-      if (itemToSave.detalles_json.desglose_descuentos?.tardanzas) {
-        itemToSave.detalles_json.desglose_descuentos.tardanzas.items = [];
-        itemToSave.detalles_json.desglose_descuentos.tardanzas.total_monto = 0;
-        itemToSave.detalles_json.desglose_descuentos.tardanzas.total_minutos = 0;
-      }
-      if (itemToSave.detalles_json.conceptos_descuentos) {
-        const tarC = itemToSave.detalles_json.conceptos_descuentos.find(c => c.id === 'd5' || c.label?.toLowerCase().includes('tardanza'));
-        if (tarC) tarC.monto = 0;
-      }
+
+    if (actuallyChangedFields.length > 0) {
+      itemToSave.detalles_json.manually_adjusted = true;
+      itemToSave.detalles_json.manual_fields = Array.from(new Set([
+        ...(itemToSave.detalles_json.manual_fields || []),
+        ...actuallyChangedFields
+      ]));
     }
 
     const updatedItems = items.map(it => it.id === itemToSave.id ? itemToSave : it);
@@ -930,6 +1085,11 @@ export default function PayrollModule({ initialTab }) {
       copy.total_ingresos = Number(totalIng.toFixed(2));
       copy.total_descuentos = Number(totalDesc.toFixed(2));
       copy.neto_pagar = Number((totalIng - totalDesc).toFixed(2));
+
+      copy.detalles_json = typeof copy.detalles_json === 'string' ? JSON.parse(copy.detalles_json || '{}') : (copy.detalles_json || {});
+      copy.detalles_json.manually_adjusted = true;
+      copy.detalles_json.manual_fields = Array.from(new Set([...(copy.detalles_json.manual_fields || []), 'tss']));
+      syncItemDetalles(copy);
 
       return copy;
     });
@@ -2640,236 +2800,529 @@ export default function PayrollModule({ initialTab }) {
               </div>
 
               {/* DOS COLUMNAS: INGRESOS Y DESCUENTOS */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                
-                {/* COLUMNA 1: INGRESOS (VERDE) */}
-                <div style={{ background: '#fafcfa', border: '1px solid #e2ece2', borderRadius: '18px', padding: '1.25rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #e8f3e8', paddingBottom: '0.75rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#16a34a', fontWeight: 800 }}>
-                      <ArrowUpRight size={18} />
-                      <span>Ingresos</span>
-                    </div>
-                    {currentPeriod?.status !== 'Aprobada' && (
-                      <button 
-                        onClick={() => setNewConceptForm({ show: true, type: 'ingreso', label: '', amount: '' })}
-                        style={{ background: '#ffffff', border: '1px solid #d1e7dd', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <Plus size={13} /> Agregar ingreso
-                      </button>
-                    )}
-                  </div>
+              {(() => {
+                const detObj = typeof editingItem.detalles_json === 'string'
+                  ? (() => { try { return JSON.parse(editingItem.detalles_json || '{}'); } catch(e) { return {}; } })()
+                  : (editingItem.detalles_json || {});
+                const customIngresos = (detObj.conceptos_ingresos || []).filter(c => c.custom || (c.id && String(c.id).startsWith('custom_')));
+                const customDescuentos = (detObj.conceptos_descuentos || []).filter(d => d.custom || (d.id && String(d.id).startsWith('custom_')));
+                const desglose = detObj.desglose_descuentos || {};
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {[
-                      { label: 'Salario Fijo (Quincenal)', key: 'salario_fijo' },
-                      { label: 'Comisiones por Servicios', key: 'comisiones' },
-                      { label: 'Feriados Trabajados', key: 'feriados' },
-                      { label: 'Horas Extras', key: 'horas_extras' },
-                      { label: 'Día de Descanso Laborado', key: 'descanso' },
-                      { label: 'Otros Ingresos / Bonos', key: 'otros_ingresos' }
-                    ].map(field => (
-                      <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
-                            <input 
-                              type="number"
-                              step="0.01"
-                              disabled={currentPeriod?.status === 'Aprobada'}
-                              value={editingItem[field.key] || 0}
-                              onChange={(e) => handleUpdateConceptValue('ingreso', field.key, e.target.value)}
-                              style={{
-                                width: '110px',
-                                textAlign: 'right',
-                                padding: '0.4rem 0.6rem',
-                                borderRadius: '8px',
-                                border: '1px solid #d8e2dc',
-                                background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
-                                fontWeight: 700,
-                                fontSize: '0.85rem'
-                              }}
-                            />
-                          </div>
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                    
+                    {/* COLUMNA 1: INGRESOS (VERDE) */}
+                    <div style={{ background: '#fafcfa', border: '1px solid #e2ece2', borderRadius: '18px', padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #e8f3e8', paddingBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#16a34a', fontWeight: 800 }}>
+                          <ArrowUpRight size={18} />
+                          <span>Ingresos</span>
                         </div>
-                        {field.key === 'horas_extras' && currentPeriod?.status !== 'Aprobada' && (
-                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 700 }}>+35% (RD$ {(calcConfig.tarifa_hora_extra || 130.45).toFixed(2)}/h):</span>
-                            {[1, 2, 4].map(h => (
-                              <button
-                                key={h}
-                                type="button"
-                                onClick={() => {
-                                  const rate = parseFloat(calcConfig.tarifa_hora_extra || 130.45);
-                                  const curr = parseFloat(editingItem.horas_extras || 0);
-                                  handleUpdateConceptValue('ingreso', 'horas_extras', (curr + h * rate).toFixed(2));
-                                }}
-                                style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                              >
-                                +{h}h
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {field.key === 'descanso' && currentPeriod?.status !== 'Aprobada' && (
-                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.68rem', color: '#0891b2', fontWeight: 700 }}>Hora Regular (100%):</span>
-                            {[4, 8].map(h => (
-                              <button
-                                key={h}
-                                type="button"
-                                onClick={() => {
-                                  const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
-                                  const curr = parseFloat(editingItem.descanso || 0);
-                                  handleUpdateConceptValue('ingreso', 'descanso', (curr + h * rate).toFixed(2));
-                                }}
-                                style={{ background: '#ecfeff', border: '1px solid #a5f3fc', color: '#0e7490', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                              >
-                                +{h}h
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {field.key === 'feriados' && currentPeriod?.status !== 'Aprobada' && (
-                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>Hora Regular (RD$ {(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63).toFixed(2)}/h):</span>
-                            {[4, 8].map(h => (
-                              <button
-                                key={h}
-                                type="button"
-                                onClick={() => {
-                                  const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
-                                  const curr = parseFloat(editingItem.feriados || 0);
-                                  handleUpdateConceptValue('ingreso', 'feriados', (curr + h * rate).toFixed(2));
-                                }}
-                                style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                              >
-                                +{h}h
-                              </button>
-                            ))}
-                          </div>
+                        {currentPeriod?.status !== 'Aprobada' && (
+                          <button 
+                            onClick={() => setNewConceptForm({ show: true, type: 'ingreso', label: '', amount: '' })}
+                            style={{ background: '#ffffff', border: '1px solid #d1e7dd', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <Plus size={13} /> Agregar ingreso
+                          </button>
                         )}
                       </div>
-                    ))}
-                  </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #d1e7dd' }}>
-                    <span style={{ fontWeight: 800, color: '#166534', fontSize: '0.9rem' }}>Total ingresos</span>
-                    <span style={{ fontWeight: 900, color: '#16a34a', fontSize: '1.25rem' }}>
-                      RD$ {parseFloat(editingItem.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
-
-                {/* COLUMNA 2: DESCUENTOS (ROJO) */}
-                <div style={{ background: '#fdfbfa', border: '1px solid #f2e6e2', borderRadius: '18px', padding: '1.25rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f8e8e4', paddingBottom: '0.75rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 800 }}>
-                      <ArrowDownRight size={18} />
-                      <span>Descuentos</span>
-                    </div>
-                    {currentPeriod?.status !== 'Aprobada' && (
-                      <button 
-                        onClick={() => setNewConceptForm({ show: true, type: 'descuento', label: '', amount: '' })}
-                        style={{ background: '#ffffff', border: '1px solid #fcd5ce', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <Plus size={13} /> Agregar descuento
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {[
-                      { label: 'TSS (AFP 2.87% + SFS 3.04%)', key: 'tss' },
-                      { label: 'Servicios de salón consumidos', key: 'servicios' },
-                      { label: 'Préstamos y Anticipos', key: 'prestamos' },
-                      { label: 'Ausencias no justificadas', key: 'ausencias' },
-                      { label: 'Tardanzas', key: 'tardanzas' },
-                      { label: 'Otros descuentos', key: 'otros_descuentos' }
-                    ].map(field => (
-                      <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
-                            <input 
-                              type="number"
-                              step="0.01"
-                              disabled={currentPeriod?.status === 'Aprobada'}
-                              value={editingItem[field.key] || 0}
-                              onChange={(e) => handleUpdateConceptValue('descuento', field.key, e.target.value)}
-                              style={{
-                                width: '110px',
-                                textAlign: 'right',
-                                padding: '0.4rem 0.6rem',
-                                borderRadius: '8px',
-                                border: '1px solid #f0ded9',
-                                background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
-                                fontWeight: 700,
-                                fontSize: '0.85rem'
-                              }}
-                            />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {[
+                          { label: 'Salario Fijo (Quincenal)', key: 'salario_fijo' },
+                          { label: 'Comisiones por Servicios', key: 'comisiones' },
+                          { label: 'Feriados Trabajados', key: 'feriados' },
+                          { label: 'Horas Extras', key: 'horas_extras' },
+                          { label: 'Día de Descanso Laborado', key: 'descanso' },
+                          { label: 'Otros Ingresos / Bonos', key: 'otros_ingresos' }
+                        ].map(field => (
+                          <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+                              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
+                                <input 
+                                  type="number"
+                                  step="0.01"
+                                  disabled={currentPeriod?.status === 'Aprobada'}
+                                  value={editingItem[field.key] || 0}
+                                  onChange={(e) => handleUpdateConceptValue('ingreso', field.key, e.target.value)}
+                                  style={{
+                                    width: '110px',
+                                    textAlign: 'right',
+                                    padding: '0.4rem 0.6rem',
+                                    borderRadius: '8px',
+                                    border: '1px solid #d8e2dc',
+                                    background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
+                                    fontWeight: 700,
+                                    fontSize: '0.85rem'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            {field.key === 'horas_extras' && currentPeriod?.status !== 'Aprobada' && (
+                              <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 700 }}>+35% (RD$ {(calcConfig.tarifa_hora_extra || 130.45).toFixed(2)}/h):</span>
+                                {[1, 2, 4].map(h => (
+                                  <button
+                                    key={h}
+                                    type="button"
+                                    onClick={() => {
+                                      const rate = parseFloat(calcConfig.tarifa_hora_extra || 130.45);
+                                      const curr = parseFloat(editingItem.horas_extras || 0);
+                                      handleUpdateConceptValue('ingreso', 'horas_extras', (curr + h * rate).toFixed(2));
+                                    }}
+                                    style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                  >
+                                    +{h}h
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {field.key === 'descanso' && currentPeriod?.status !== 'Aprobada' && (
+                              <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.68rem', color: '#0891b2', fontWeight: 700 }}>Hora Regular (100%):</span>
+                                {[4, 8].map(h => (
+                                  <button
+                                    key={h}
+                                    type="button"
+                                    onClick={() => {
+                                      const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
+                                      const curr = parseFloat(editingItem.descanso || 0);
+                                      handleUpdateConceptValue('ingreso', 'descanso', (curr + h * rate).toFixed(2));
+                                    }}
+                                    style={{ background: '#ecfeff', border: '1px solid #a5f3fc', color: '#0e7490', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                  >
+                                    +{h}h
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {field.key === 'feriados' && currentPeriod?.status !== 'Aprobada' && (
+                              <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>Hora Regular (RD$ {(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63).toFixed(2)}/h):</span>
+                                {[4, 8].map(h => (
+                                  <button
+                                    key={h}
+                                    type="button"
+                                    onClick={() => {
+                                      const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
+                                      const curr = parseFloat(editingItem.feriados || 0);
+                                      handleUpdateConceptValue('ingreso', 'feriados', (curr + h * rate).toFixed(2));
+                                    }}
+                                    style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                  >
+                                    +{h}h
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
+                        ))}
+                      </div>
+
+                      {/* CONCEPTOS PERSONALIZADOS DE INGRESO */}
+                      {customIngresos.length > 0 && (
+                        <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #e2ece2', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Conceptos adicionales (+):
+                          </span>
+                          {customIngresos.map(c => (
+                            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f0fdf4', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#166534' }}>{c.label}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#15803d' }}>
+                                  + RD$ {parseFloat(c.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </span>
+                                {currentPeriod?.status !== 'Aprobada' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteCustomConcept(c.id, 'ingreso')}
+                                    title="Eliminar concepto adicional"
+                                    style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                        {field.key === 'ausencias' && currentPeriod?.status !== 'Aprobada' && (
-                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const rate8 = parseFloat(calcConfig.descuento_ausencia_dia_completo || 773.02);
-                                const curr = parseFloat(editingItem.ausencias || 0);
-                                handleUpdateConceptValue('descuento', 'ausencias', (curr + rate8).toFixed(2));
-                              }}
-                              title="Sumar ausencia de día completo (8 horas estándar)"
-                              style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                            >
-                              + Día Completo 8h (RD$ {(calcConfig.descuento_ausencia_dia_completo || 773.02).toFixed(2)})
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const rate4 = parseFloat(calcConfig.descuento_ausencia_medio_dia || 386.51);
-                                const curr = parseFloat(editingItem.ausencias || 0);
-                                handleUpdateConceptValue('descuento', 'ausencias', (curr + rate4).toFixed(2));
-                              }}
-                              title="Sumar ausencia de medio día / turno parcial (4 horas)"
-                              style={{ background: '#fef3c7', border: '1px solid #fde047', color: '#b45309', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                            >
-                              + Medio Día 4h (RD$ {(calcConfig.descuento_ausencia_medio_dia || 386.51).toFixed(2)})
-                            </button>
-                          </div>
-                        )}
-                        {field.key === 'tardanzas' && currentPeriod?.status !== 'Aprobada' && (
-                          <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>Minutos (RD$ {(calcConfig.salario_minuto || 1.6105).toFixed(2)}/min):</span>
-                            {[15, 30, 60].map(m => (
-                              <button
-                                key={m}
-                                type="button"
-                                onClick={() => {
-                                  const rateMin = parseFloat(calcConfig.salario_minuto || 1.6105);
-                                  const curr = parseFloat(editingItem.tardanzas || 0);
-                                  handleUpdateConceptValue('descuento', 'tardanzas', (curr + m * rateMin).toFixed(2));
-                                }}
-                                style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                              >
-                                +{m}m
-                              </button>
-                            ))}
-                          </div>
+                      )}
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #d1e7dd' }}>
+                        <span style={{ fontWeight: 800, color: '#166534', fontSize: '0.9rem' }}>Total ingresos</span>
+                        <span style={{ fontWeight: 900, color: '#16a34a', fontSize: '1.25rem' }}>
+                          RD$ {parseFloat(editingItem.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* COLUMNA 2: DESCUENTOS (ROJO) */}
+                    <div style={{ background: '#fdfbfa', border: '1px solid #f2e6e2', borderRadius: '18px', padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f8e8e4', paddingBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 800 }}>
+                          <ArrowDownRight size={18} />
+                          <span>Descuentos</span>
+                        </div>
+                        {currentPeriod?.status !== 'Aprobada' && (
+                          <button 
+                            onClick={() => setNewConceptForm({ show: true, type: 'descuento', label: '', amount: '' })}
+                            style={{ background: '#ffffff', border: '1px solid #fcd5ce', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <Plus size={13} /> Agregar descuento
+                          </button>
                         )}
                       </div>
-                    ))}
-                  </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #fcd5ce' }}>
-                    <span style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.9rem' }}>Total descuentos</span>
-                    <span style={{ fontWeight: 900, color: '#dc2626', fontSize: '1.25rem' }}>
-                      RD$ {parseFloat(editingItem.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {[
+                          { label: 'TSS (AFP 2.87% + SFS 3.04%)', key: 'tss' },
+                          { label: 'Servicios de salón consumidos', key: 'servicios' },
+                          { label: 'Préstamos y Anticipos', key: 'prestamos' },
+                          { label: 'Ausencias no justificadas', key: 'ausencias' },
+                          { label: 'Tardanzas', key: 'tardanzas' },
+                          { label: 'Otros descuentos', key: 'otros_descuentos' }
+                        ].map(field => {
+                          const hasBreakdown = ['servicios', 'prestamos', 'ausencias', 'tardanzas'].includes(field.key);
+                          const breakdownItems = desglose[field.key]?.items || [];
+                          const isExpanded = modalExpandedDiscount === field.key;
+
+                          return (
+                            <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
+                                  {hasBreakdown && breakdownItems.length > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setModalExpandedDiscount(isExpanded ? null : field.key)}
+                                      style={{
+                                        border: 'none',
+                                        background: isExpanded ? '#fee2e2' : '#f1f5f9',
+                                        color: isExpanded ? '#b91c1c' : '#475569',
+                                        padding: '1px 6px',
+                                        borderRadius: '5px',
+                                        fontSize: '0.68rem',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '2px'
+                                      }}
+                                      title="Ver desglose detallado (Punto 6)"
+                                    >
+                                      {breakdownItems.length} {breakdownItems.length === 1 ? 'det' : 'dets'}
+                                      {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                    </button>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
+                                  <input 
+                                    type="number"
+                                    step="0.01"
+                                    disabled={currentPeriod?.status === 'Aprobada'}
+                                    value={editingItem[field.key] || 0}
+                                    onChange={(e) => handleUpdateConceptValue('descuento', field.key, e.target.value)}
+                                    style={{
+                                      width: '110px',
+                                      textAlign: 'right',
+                                      padding: '0.4rem 0.6rem',
+                                      borderRadius: '8px',
+                                      border: '1px solid #f0ded9',
+                                      background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
+                                      fontWeight: 700,
+                                      fontSize: '0.85rem'
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* ACCIONES RÁPIDAS */}
+                              {field.key === 'ausencias' && currentPeriod?.status !== 'Aprobada' && (
+                                <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const rate8 = parseFloat(calcConfig.descuento_ausencia_dia_completo || 773.02);
+                                      const curr = parseFloat(editingItem.ausencias || 0);
+                                      handleUpdateConceptValue('descuento', 'ausencias', (curr + rate8).toFixed(2));
+                                    }}
+                                    title="Sumar ausencia de día completo (8 horas estándar)"
+                                    style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                  >
+                                    + Día Completo 8h (RD$ {(calcConfig.descuento_ausencia_dia_completo || 773.02).toFixed(2)})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const rate4 = parseFloat(calcConfig.descuento_ausencia_medio_dia || 386.51);
+                                      const curr = parseFloat(editingItem.ausencias || 0);
+                                      handleUpdateConceptValue('descuento', 'ausencias', (curr + rate4).toFixed(2));
+                                    }}
+                                    title="Sumar ausencia de medio día / turno parcial (4 horas)"
+                                    style={{ background: '#fef3c7', border: '1px solid #fde047', color: '#b45309', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                  >
+                                    + Medio Día 4h (RD$ {(calcConfig.descuento_ausencia_medio_dia || 386.51).toFixed(2)})
+                                  </button>
+                                </div>
+                              )}
+                              {field.key === 'tardanzas' && currentPeriod?.status !== 'Aprobada' && (
+                                <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>Minutos (RD$ {(calcConfig.salario_minuto || 1.6105).toFixed(2)}/min):</span>
+                                  {[15, 30, 60].map(m => (
+                                    <button
+                                      key={m}
+                                      type="button"
+                                      onClick={() => {
+                                        const rateMin = parseFloat(calcConfig.salario_minuto || 1.6105);
+                                        const curr = parseFloat(editingItem.tardanzas || 0);
+                                        handleUpdateConceptValue('descuento', 'tardanzas', (curr + m * rateMin).toFixed(2));
+                                      }}
+                                      style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                    >
+                                      +{m}m
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* PUNTO 6: DESGLOSE EXPANDIBLE DE DESCUENTOS EN EL MODAL */}
+                              {isExpanded && (
+                                <div style={{
+                                  background: '#ffffff',
+                                  border: '1px solid #fed7aa',
+                                  borderRadius: '10px',
+                                  padding: '0.6rem 0.75rem',
+                                  marginTop: '0.35rem',
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                                  fontSize: '0.74rem'
+                                }}>
+                                  {field.key === 'tardanzas' && (
+                                    <div>
+                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                        Desglose diario de tardanzas y salidas anticipadas:
+                                      </div>
+                                      {breakdownItems.length > 0 ? (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                          <thead>
+                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Minutos</th>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Valor/min</th>
+                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {breakdownItems.map((t, idx) => (
+                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>
+                                                  <div>{t.fecha}</div>
+                                                  {t.horario && <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{t.horario}</div>}
+                                                </td>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#ea580c', fontWeight: 700 }}>
+                                                  {t.minutos_descontados} min
+                                                  {t.detalle_minutos && <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>{t.detalle_minutos}</div>}
+                                                </td>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>
+                                                  RD$ {Number(t.valor_minuto || 0).toFixed(2)}
+                                                </td>
+                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                  RD$ {Number(t.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                          <tfoot>
+                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                              <td colSpan="3" style={{ padding: '0.35rem 0.3rem' }}>
+                                                Total Tardanzas ({desglose.tardanzas?.total_minutos || 0} min)
+                                              </td>
+                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                RD$ {Number(editingItem.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                              </td>
+                                            </tr>
+                                          </tfoot>
+                                        </table>
+                                      ) : (
+                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin tardanzas registradas en este período.</div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {field.key === 'ausencias' && (
+                                    <div>
+                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                        Desglose de ausencias descontadas:
+                                      </div>
+                                      {breakdownItems.length > 0 ? (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                          <thead>
+                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Jornada</th>
+                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {breakdownItems.map((a, idx) => (
+                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>{a.fecha}</td>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>{a.tipo || `${a.horas || 8} hrs`}</td>
+                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                  RD$ {Number(a.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                          <tfoot>
+                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                              <td colSpan="2" style={{ padding: '0.35rem 0.3rem' }}>Total Ausencias</td>
+                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                RD$ {Number(editingItem.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                              </td>
+                                            </tr>
+                                          </tfoot>
+                                        </table>
+                                      ) : (
+                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin ausencias descontadas en este período.</div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {field.key === 'servicios' && (
+                                    <div>
+                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                        Desglose de consumos y servicios de salón:
+                                      </div>
+                                      {breakdownItems.length > 0 ? (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                          <thead>
+                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Servicio / Producto</th>
+                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {breakdownItems.map((s, idx) => (
+                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>{s.fecha}</td>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>{s.servicio_producto || s.descripcion}</td>
+                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                  RD$ {Number(s.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                          <tfoot>
+                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                              <td colSpan="2" style={{ padding: '0.35rem 0.3rem' }}>Total Servicios</td>
+                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                RD$ {Number(editingItem.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                              </td>
+                                            </tr>
+                                          </tfoot>
+                                        </table>
+                                      ) : (
+                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin consumos registrados en este período.</div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {field.key === 'prestamos' && (
+                                    <div>
+                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                        Desglose de préstamos y cuotas de anticipos:
+                                      </div>
+                                      {breakdownItems.length > 0 ? (
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                          <thead>
+                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                              <th style={{ padding: '0.2rem 0.3rem' }}>Concepto</th>
+                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Cuota desc.</th>
+                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Saldo pend.</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {breakdownItems.map((p, idx) => (
+                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>
+                                                  <div>{p.concepto || `Préstamo #${p.prestamo_id || idx + 1}`}</div>
+                                                  {p.fecha && <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{p.fecha}</div>}
+                                                </td>
+                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                  RD$ {Number(p.cuota_descontada || p.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', color: '#d97706', fontWeight: 700 }}>
+                                                  RD$ {Number(p.saldo_pendiente || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                          <tfoot>
+                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                              <td style={{ padding: '0.35rem 0.3rem' }}>Total Cuotas</td>
+                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                RD$ {Number(editingItem.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                              </td>
+                                              <td></td>
+                                            </tr>
+                                          </tfoot>
+                                        </table>
+                                      ) : (
+                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin cuotas ni préstamos pendientes en este período.</div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* CONCEPTOS PERSONALIZADOS DE DESCUENTO */}
+                      {customDescuentos.length > 0 && (
+                        <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #f2e6e2', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Descuentos adicionales (-):
+                          </span>
+                          {customDescuentos.map(d => (
+                            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fef2f2', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#991b1b' }}>{d.label}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#b91c1c' }}>
+                                  - RD$ {parseFloat(d.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                </span>
+                                {currentPeriod?.status !== 'Aprobada' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteCustomConcept(d.id, 'descuento')}
+                                    title="Eliminar descuento adicional"
+                                    style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #fcd5ce' }}>
+                        <span style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.9rem' }}>Total descuentos</span>
+                        <span style={{ fontWeight: 900, color: '#dc2626', fontSize: '1.25rem' }}>
+                          RD$ {parseFloat(editingItem.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* FORMULARIO INLINE PARA AGREGAR CONCEPTO DINÁMICO */}
               {newConceptForm.show && (
