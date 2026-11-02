@@ -186,9 +186,10 @@ export const BI_REPORTS_BY_CATEGORY = {
     {
       id: 'contracts_upcoming_renewal',
       name: 'Membresías próximas a renovación',
-      chartType: 'table_only',
-      hasHorizonFilter: true,
-      description: 'Identifica contratos próximos a renovarse automáticamente (próximos 30, 60 o 90 días).'
+      chartType: 'bar',
+      hasPlanFilter: true,
+      description: 'Identifica contratos activos y en reintento próximos a renovarse en el período, con distribución por sucursal y detalle por clienta.',
+      note: 'Días restantes calculados respecto a la fecha actual del sistema. Excluye membresías canceladas o suspendidas.'
     }
   ],
 

@@ -270,7 +270,7 @@ export const BIDetailTable = ({
                     }
 
                     // Contact / Actions column
-                    if (col.key === 'contacto' || col.key === 'acciones') {
+                    if (col.key === 'contacto' || col.key === 'acciones' || col.key === 'accion') {
                       return (
                         <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'left' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: col.align === 'center' ? 'center' : 'flex-start', gap: '0.45rem', flexWrap: 'wrap' }}>
@@ -300,10 +300,11 @@ export const BIDetailTable = ({
                                 <span>Perfil</span>
                               </button>
                             )}
-                            {(row.telefono || row.phone) && (
+                            {(row.telefono || row.phone) && col.key !== 'accion' && (
                               <button
                                 type="button"
                                 onClick={() => handleWhatsAppClick(row.telefono || row.phone, row.cliente || row.client_name)}
+                                title={`Abrir WhatsApp con ${row.cliente || row.client_name || 'la clienta'}`}
                                 style={{
                                   display: 'inline-flex',
                                   alignItems: 'center',
@@ -339,19 +340,53 @@ export const BIDetailTable = ({
                       );
                     }
 
-                    // Status badge
-                    if (col.isBadge) {
-                      const isPositive = ['Facturado', 'Aprobado', 'Activo', 'Regresó'].includes(val);
-                      const isNegative = ['Cancelado', 'Anulado', 'Rechazado', 'No regresó'].includes(val);
+                    // Días restantes badge
+                    if (col.key === 'dias_restantes') {
+                      const diasNum = row.dias_num !== undefined ? Number(row.dias_num) : null;
+                      const isExpiredOrToday = diasNum !== null && diasNum <= 0;
+                      const isSoon = diasNum !== null && diasNum > 0 && diasNum <= 3;
+                      const bg = isExpiredOrToday ? '#fef2f2' : isSoon ? '#fffbeb' : '#f8fafc';
+                      const textCol = isExpiredOrToday ? '#b91c1c' : isSoon ? '#b45309' : '#334155';
+                      const borderCol = isExpiredOrToday ? '#fecaca' : isSoon ? '#fde68a' : '#e2e8f0';
+
                       return (
                         <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'center' }}>
                           <span style={{
-                            padding: '0.2rem 0.55rem',
+                            display: 'inline-block',
+                            padding: '0.25rem 0.65rem',
+                            borderRadius: '9999px',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            background: bg,
+                            color: textCol,
+                            border: `1px solid ${borderCol}`
+                          }}>
+                            {val}
+                          </span>
+                        </td>
+                      );
+                    }
+
+                    // Status badge (includes estado column)
+                    if (col.key === 'estado' || col.isBadge) {
+                      const isPositive = ['Facturado', 'Aprobado', 'Activo', 'Regresó'].includes(val);
+                      const isPending = ['Reintento Pendiente', 'Pending_Retry', 'Cobro Pendiente'].includes(val);
+                      const isNegative = ['Cancelado', 'Anulado', 'Rechazado', 'No regresó'].includes(val);
+
+                      const bg = isPositive ? '#ecfdf5' : isPending ? '#fffbeb' : isNegative ? '#fff1f2' : '#f1f5f9';
+                      const textCol = isPositive ? '#059669' : isPending ? '#b45309' : isNegative ? '#e11d48' : '#475569';
+                      const borderCol = isPositive ? '#a7f3d0' : isPending ? '#fde68a' : isNegative ? '#fecdd3' : '#e2e8f0';
+
+                      return (
+                        <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'center' }}>
+                          <span style={{
+                            padding: '0.2rem 0.6rem',
                             borderRadius: '9999px',
                             fontSize: '0.75rem',
-                            fontWeight: 600,
-                            background: isPositive ? '#ecfdf5' : isNegative ? '#fff1f2' : '#f1f5f9',
-                            color: isPositive ? '#059669' : isNegative ? '#e11d48' : '#475569'
+                            fontWeight: 700,
+                            background: bg,
+                            color: textCol,
+                            border: `1px solid ${borderCol}`
                           }}>
                             {val || 'N/D'}
                           </span>

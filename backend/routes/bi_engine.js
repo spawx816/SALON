@@ -17,6 +17,8 @@ async function handleBIReport(pool, params) {
     startDate,
     endDate,
     salonId = 'all',
+    planId = 'all',
+    membership = 'all',
     daysInactive = 15,
     cancellationReason = 'Todos los motivos',
     timeGrain = 'daily'
@@ -1780,7 +1782,144 @@ async function handleBIReport(pool, params) {
   }
 
   // ==========================================
-  // 17. GENERADOR UNIVERSAL DINÁMICO (Para cualquier otro reporte)
+  // 17. MEMBRESÍAS: PRÓXIMAS A RENOVACIÓN (RF-07)
+  // Contratos activos y reintentos con fecha de renovación en el período
+  // Distribución por sucursal y tabla detallada con días restantes y estatus
+  // ==========================================
+  if (reportId === 'contracts_upcoming_renewal') {
+    try {
+      const whereConditions = [
+        "ct.status IN ('Active', 'Pending_Retry')",
+        "ct.next_billing_date >= ?",
+        "ct.next_billing_date <= ?"
+      ];
+      const queryParams = [startDateTime, endDateTime];
+
+      if (salonId !== 'all') {
+        whereConditions.push("(ct.salon_id = ? OR (ct.salon_id IS NULL AND cl.salon_id = ?) OR s.name LIKE ?)");
+        queryParams.push(salonId, salonId, `%${salonId}%`);
+      }
+
+      const effectivePlan = (planId && planId !== 'all') ? planId : (membership && membership !== 'all' ? membership : null);
+      if (effectivePlan) {
+        whereConditions.push("(ct.plan_id = ? OR p.title = ?)");
+        queryParams.push(effectivePlan, effectivePlan);
+      }
+
+      const whereSql = whereConditions.join(" AND ");
+
+      // 1. Detalle de contratos próximos a renovación ordenados por fecha ascendente
+      const [rows] = await pool.query(`
+        SELECT 
+          ct.id as contract_id,
+          ct.client_id,
+          cl.nombre as cliente,
+          cl.telefono,
+          COALESCE(p.title, 'Plan Beauty') as plan,
+          COALESCE(s.name, 'Abatte Peluquería San Vicente') as sucursal,
+          ct.status as estado_contrato,
+          ct.next_billing_date,
+          DATEDIFF(DATE(ct.next_billing_date), CURRENT_DATE()) as dias_restantes_num
+        FROM contracts ct
+        JOIN clients cl ON ct.client_id = cl.id
+        LEFT JOIN plans p ON ct.plan_id = p.id
+        LEFT JOIN salons s ON COALESCE(ct.salon_id, cl.salon_id, 1) = s.id
+        WHERE ${whereSql}
+        ORDER BY ct.next_billing_date ASC
+      `, queryParams);
+
+      // 2. Agrupación por sucursal
+      const [salonAgg] = await pool.query(`
+        SELECT 
+          COALESCE(s.name, 'Abatte Peluquería San Vicente') as sucursal,
+          COUNT(ct.id) as cantidad
+        FROM contracts ct
+        JOIN clients cl ON ct.client_id = cl.id
+        LEFT JOIN plans p ON ct.plan_id = p.id
+        LEFT JOIN salons s ON COALESCE(ct.salon_id, cl.salon_id, 1) = s.id
+        WHERE ${whereSql}
+        GROUP BY COALESCE(s.name, 'Abatte Peluquería San Vicente')
+        ORDER BY cantidad DESC
+      `, queryParams);
+
+      const totalContracts = rows.length;
+      const activeCount = rows.filter(r => r.estado_contrato === 'Active').length;
+      const pendingCount = rows.filter(r => r.estado_contrato === 'Pending_Retry').length;
+
+      // Generar chartData con barras horizontales
+      const chartData = salonAgg.map(s => {
+        const count = Number(s.cantidad || 0);
+        const pct = totalContracts > 0 ? Number(((count / totalContracts) * 100).toFixed(1)) : 0;
+        return {
+          label: s.sucursal,
+          value: count,
+          count: count,
+          percentage: pct,
+          displayValue: `${count} (${pct}%)`
+        };
+      });
+
+      // Formatear filas de la tabla
+      const tableRows = rows.map(r => {
+        let diasText = '';
+        if (r.dias_restantes_num === 0) diasText = 'Hoy';
+        else if (r.dias_restantes_num === 1) diasText = '1 día';
+        else if (r.dias_restantes_num > 1) diasText = `${r.dias_restantes_num} días`;
+        else diasText = `Vencido hace ${Math.abs(r.dias_restantes_num)} días`;
+
+        const estadoVisual = r.estado_contrato === 'Pending_Retry' ? 'Reintento Pendiente' : 'Activo';
+
+        return {
+          client_id: r.client_id,
+          cliente: r.cliente || 'Socia Plan Beauty',
+          plan: r.plan,
+          sucursal: r.sucursal,
+          fecha_renovacion: formatDO(r.next_billing_date),
+          dias_restantes: diasText,
+          dias_num: r.dias_restantes_num,
+          estado: estadoVisual,
+          telefono: r.telefono || '',
+          accion: 'Perfil'
+        };
+      });
+
+      return {
+        title: 'Membresías próximas a renovación',
+        periodText: `${start} al ${end}`,
+        alertInfo: 'Muestra contratos de membresía activos y en reintento cuya próxima fecha de renovación cae dentro del período seleccionado. Ordenados cronológicamente por proximidad.',
+        kpis: [
+          { label: 'Membresías por renovar', value: totalContracts.toString(), subtext: 'Total en el período', icon: 'credit_card', color: 'blue' },
+          { label: 'Activas al día', value: activeCount.toString(), subtext: `${totalContracts > 0 ? Math.round((activeCount / totalContracts) * 100) : 0}% al día`, icon: 'check', color: 'emerald' },
+          { label: 'Cobro en Reintento', value: pendingCount.toString(), subtext: pendingCount > 0 ? 'Requiere seguimiento' : 'Sin pendientes', icon: 'alert', color: pendingCount > 0 ? 'amber' : 'gray' }
+        ],
+        chart: {
+          type: 'bar',
+          title: 'Distribución por Sucursal',
+          data: chartData
+        },
+        table: {
+          title: 'Detalle de membresías por renovar',
+          badgeText: `${totalContracts} membresías`,
+          columns: [
+            { key: 'cliente', label: 'Cliente' },
+            { key: 'plan', label: 'Plan' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'fecha_renovacion', label: 'Fecha Renovación', align: 'center' },
+            { key: 'dias_restantes', label: 'Días Restantes', align: 'center' },
+            { key: 'estado', label: 'Estado', align: 'center' },
+            { key: 'accion', label: 'Acción', align: 'center' }
+          ],
+          rows: tableRows,
+          footerNote: 'El cálculo de días restantes se realiza respecto a la fecha actual. Los contratos cancelados y suspendidos están excluidos.'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in contracts_upcoming_renewal:', e.message);
+    }
+  }
+
+  // ==========================================
+  // 18. GENERADOR UNIVERSAL DINÁMICO (Para cualquier otro reporte)
   // Garantiza que NUNCA devuelva null ni rompa la UI
   // ==========================================
   try {

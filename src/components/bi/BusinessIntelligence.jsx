@@ -23,6 +23,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   const [viewMode, setViewMode] = useState('executive');
   const [salons, setSalons] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
 
@@ -31,6 +32,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(1)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedSalon, setSelectedSalon] = useState('all');
+  const [selectedPlan, setSelectedPlan] = useState('all');
   
   // Dynamic contextual filters
   const [selectedMembership, setSelectedMembership] = useState('all');
@@ -65,16 +67,18 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     }
   };
 
-  // Load initial salons and employees
+  // Load initial salons, employees, and plans
   useEffect(() => {
     const fetchMetadata = async () => {
       try {
-        const [salonsList, staffList] = await Promise.all([
+        const [salonsList, staffList, plansList] = await Promise.all([
           dataService.getSalons ? dataService.getSalons() : [],
-          dataService.getStaff ? dataService.getStaff() : []
+          dataService.getStaff ? dataService.getStaff() : [],
+          dataService.getPlans ? dataService.getPlans() : []
         ]);
         setSalons(salonsList || []);
         setEmployees(staffList || []);
+        setPlans(plansList || []);
       } catch (err) {
         console.warn('Error loading metadata for BI:', err);
       }
@@ -134,7 +138,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         startDate,
         endDate,
         salonId: selectedSalon,
-        membership: selectedMembership,
+        planId: selectedPlan,
+        membership: selectedPlan !== 'all' ? selectedPlan : selectedMembership,
         daysInactive,
         reason: cancellationReason,
         employeeId: selectedEmployee,
@@ -407,7 +412,48 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       return;
     }
 
-    // 6. Generic report renderer for any of the 30 approved catalog reports
+    // 6. Membresías próximas a renovación (RF-07)
+    if (selectedReportId === 'contracts_upcoming_renewal') {
+      setReportData({
+        title: 'Membresías próximas a renovación',
+        periodText: `${startDate} al ${endDate}`,
+        alertInfo: 'Muestra contratos de membresía activos y en reintento cuya próxima fecha de renovación cae dentro del período seleccionado.',
+        kpis: [
+          { label: 'Membresías por renovar', value: '55', subtext: 'Total en el período', icon: 'credit_card', color: 'blue' },
+          { label: 'Activas al día', value: '54', subtext: '98% al día', icon: 'check', color: 'emerald' },
+          { label: 'Cobro en Reintento', value: '1', subtext: 'Requiere seguimiento', icon: 'alert', color: 'amber' }
+        ],
+        chart: {
+          type: 'bar',
+          title: 'Distribución por Sucursal',
+          data: [
+            { label: 'Abatte Peluquería San Vicente', value: 33, count: 33, percentage: 60, displayValue: '33 (60%)' },
+            { label: 'Abatte Peluquería Sirena Villa Mella', value: 22, count: 22, percentage: 40, displayValue: '22 (40%)' }
+          ]
+        },
+        table: {
+          title: 'Detalle de membresías por renovar',
+          badgeText: '55 membresías',
+          columns: [
+            { key: 'cliente', label: 'Cliente' },
+            { key: 'plan', label: 'Plan' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'fecha_renovacion', label: 'Fecha Renovación', align: 'center' },
+            { key: 'dias_restantes', label: 'Días Restantes', align: 'center' },
+            { key: 'estado', label: 'Estado', align: 'center' },
+            { key: 'accion', label: 'Acción', align: 'center' }
+          ],
+          rows: [
+            { client_id: '1779920871902', cliente: 'Melissa Pérez', plan: 'Plan Beauty', sucursal: 'Abatte Peluquería San Vicente', fecha_renovacion: '1 nov de 2026', dias_restantes: 'Hoy', dias_num: 0, estado: 'Reintento Pendiente', accion: 'Perfil' },
+            { client_id: '1780161656207', cliente: 'Johana Diaz', plan: 'Plan Beauty', sucursal: 'Abatte Peluquería San Vicente', fecha_renovacion: '2 nov de 2026', dias_restantes: '1 día', dias_num: 1, estado: 'Activo', accion: 'Perfil' }
+          ],
+          footerNote: 'El cálculo de días restantes se realiza respecto a la fecha actual. Los contratos cancelados y suspendidos están excluidos.'
+        }
+      });
+      return;
+    }
+
+    // 7. Generic report renderer for any of the 30 approved catalog reports
     setReportData({
       title: currentReportConfig.name || 'Reporte de Inteligencia',
       periodText: `${startDate} al ${endDate}`,
@@ -753,8 +799,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             </div>
           </div>
 
-          {/* Custom Date Pickers when period === 'custom' */}
-          {period === 'custom' && (
+          {/* Custom Date Pickers when period === 'custom' or contracts_upcoming_renewal */}
+          {(period === 'custom' || currentReportConfig.id === 'contracts_upcoming_renewal') && (
             <>
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
@@ -825,6 +871,42 @@ export const BusinessIntelligence = ({ standalone = true }) => {
               <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
             </div>
           </div>
+
+          {/* Contextual Dynamic Filter: Plan */}
+          {(currentReportConfig.hasPlanFilter || currentReportConfig.id === 'contracts_upcoming_renewal') && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Plan
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={selectedPlan}
+                  onChange={(e) => setSelectedPlan(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
+                    fontSize: '0.88rem',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">Todos los planes</option>
+                  {plans.map(p => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+                  {plans.length === 0 && (
+                    <option value="Plan Beauty">Plan Beauty</option>
+                  )}
+                </select>
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+          )}
 
           {/* Contextual Dynamic Filter 1: Membresía */}
           {currentReportConfig.hasMembershipFilter && (
