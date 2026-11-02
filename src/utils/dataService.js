@@ -1,5 +1,10 @@
 const API_URL = '/api';
 
+// In-memory cache for plans catalog (CL-12)
+let _plansCache = null;
+let _plansCacheExpiry = 0;
+const PLANS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
+
 const ensureArray = (field) => {
   if (!field) return [];
   
@@ -69,7 +74,9 @@ export const dataService = {
 
   getContractByClient: async (clientIdOrName) => {
     try {
+      if (!clientIdOrName) return [];
       const clean = encodeURIComponent(String(clientIdOrName).trim());
+      if (!clean || clean === 'null' || clean === 'undefined') return [];
       const res = await fetch(`${API_URL}/contracts/client/${clean}`);
       if (!res.ok) return [];
       return await res.json();
@@ -79,16 +86,7 @@ export const dataService = {
     }
   },
 
-  getPlans: async () => {
-    try {
-      const res = await fetch(`${API_URL}/plans`);
-      if (!res.ok) return [];
-      return await res.json();
-    } catch (e) {
-      console.error("Error en getPlans:", e);
-      return [];
-    }
-  },
+  // Plans catalog: single canonical definition with caching defined below
 
   getVisitsByClient: async (clientIdOrName) => {
     try {
@@ -1004,11 +1002,14 @@ export const dataService = {
     return await res.json();
   },
 
-  // Plans
-  getPlans: async () => {
+  // Plans (CL-12: Single canonical definition with in-memory caching and TTL)
+  getPlans: async (forceRefresh = false) => {
     try {
+      if (!forceRefresh && _plansCache && Date.now() < _plansCacheExpiry) {
+        return _plansCache;
+      }
       const res = await fetch(`${API_URL}/plans`);
-      if (!res.ok) return [];
+      if (!res.ok) return _plansCache || [];
       let plans = await res.json();
       plans = plans.map(p => {
         const peeledUsage = (data) => {
@@ -1030,18 +1031,23 @@ export const dataService = {
           usage_limits: peeledUsage(p.usage_limits)
         };
       });
-      return plans.length > 0 ? plans : [
+      const resolvedPlans = plans.length > 0 ? plans : [
         { 
           id: '1', title: 'Plan Diamante', price: '8500.00', discount: 15,
           services: ['Lavado Ilimitado', '4 Secados', '2 Manicuras', 'Tratamiento Especial'],
           color: '#d4af37', location: 'Sede Central'
         }
       ];
-    } catch { return []; }
+      _plansCache = resolvedPlans;
+      _plansCacheExpiry = Date.now() + PLANS_CACHE_TTL_MS;
+      return resolvedPlans;
+    } catch { return _plansCache || []; }
   },
 
   savePlans: async (plans, applyToExisting = false) => {
     try {
+      _plansCache = null;
+      _plansCacheExpiry = 0;
       const res = await fetch(`${API_URL}/plans`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1187,22 +1193,7 @@ export const dataService = {
     } catch { return null; }
   },
 
-  // Contracts
-  getContracts: async () => {
-    try {
-      const res = await fetch(`${API_URL}/contracts`);
-      return res.ok ? await res.json() : [];
-    } catch { return []; }
-  },
-
-  getContractByClient: async (clientId) => {
-    try {
-      if (!clientId) return [];
-      const res = await fetch(`${API_URL}/contracts/client/${encodeURIComponent(clientId)}`);
-      if (res.ok) return await res.json();
-      return [];
-    } catch { return []; }
-  },
+  // Contracts (single canonical implementations defined above)
 
   getContractById: async (id) => {
     try {

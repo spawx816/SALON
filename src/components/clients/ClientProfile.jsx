@@ -27,6 +27,21 @@ const getWhatsAppUrl = (phone, clientName) => {
   return `https://wa.me/${cleanNumber}?text=${msg}`;
 };
 
+// Skeleton Loader Box for asynchronous sections (CL-09)
+const SkeletonBox = ({ width = '100%', height = '20px', borderRadius = '8px', style = {} }) => (
+  <div 
+    style={{
+      width,
+      height,
+      borderRadius,
+      background: 'linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 50%, #f1f5f9 100%)',
+      backgroundSize: '200% 100%',
+      animation: 'pulse 1.5s ease-in-out infinite',
+      ...style
+    }}
+  />
+);
+
 const isBirthdayThisWeek = (birthdayStr) => {
   if (!birthdayStr) return false;
   try {
@@ -54,6 +69,9 @@ const ClientProfile = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [visitsCurrentPage, setVisitsCurrentPage] = useState(1);
+  const VISITS_PER_PAGE = 10;
   const [client, setClient] = useState(null);
   const [allClients, setAllClients] = useState([]);
   const [visits, setVisits] = useState([]);
@@ -136,9 +154,18 @@ const ClientProfile = () => {
         console.error("Error fetching salons:", err);
       }
     };
+    const fetchPlans = async () => {
+      try {
+        const data = await dataService.getPlans();
+        setAllPlansList(data || []);
+      } catch (err) {
+        console.error("Error fetching plans catalog in Profile:", err);
+      }
+    };
     fetchAll();
     fetchEmployees();
     fetchSalons();
+    fetchPlans();
   }, []); // Load once on mount
 
   useEffect(() => {
@@ -227,20 +254,21 @@ const ClientProfile = () => {
   const [isProcessingCard, setIsProcessingCard] = useState(false);
   const [useSimulatedModal, setUseSimulatedModal] = useState(false);
 
-  useEffect(() => {
-    const loadSalons = async () => {
-      try {
-        const data = await dataService.getSalons();
-        setSalonsList(data || []);
-      } catch (e) {
-        console.error('Error fetching salons in ClientProfile:', e);
-      }
-    };
-    loadSalons();
-  }, []);
+  // Salons list is initialized once on mount in the primary useEffect (fetchSalons)
 
   const selectClient = async (found) => {
     setCardInfo(null); // Reset state before new fetch
+    setIsLoadingDetails(true);
+    setVisitsCurrentPage(1);
+
+    // Clear previous client sub-data immediately to prevent residual stale data (CL-09)
+    setContracts([]);
+    setActivePlans([]);
+    setVisits([]);
+    setPayments([]);
+    setGiftCards([]);
+    setAllCards([]);
+    setPendingSurvey(null);
     const formattedFound = {
       ...found,
       nombre: formatName(found.nombre)
@@ -290,7 +318,7 @@ const ClientProfile = () => {
         dataService.getGiftsByClient(found.id).catch(() => []),
         dataService.getPaymentProfilesByClient(found.id).catch(() => []),
         dataService.getContractByClient(found.id).catch(() => []),
-        dataService.getPlans().catch(() => []),
+        (allPlansList && allPlansList.length > 0) ? Promise.resolve(allPlansList) : dataService.getPlans().catch(() => []),
         dataService.getPendingSurvey(found.id).catch(() => null)
       ]);
 
@@ -317,6 +345,8 @@ const ClientProfile = () => {
       setPendingSurvey(pendingSurveyData);
     } catch (e) {
       console.error("Error loading client details in parallel:", e);
+    } finally {
+      setIsLoadingDetails(false);
     }
 
     // Clear search to show the current selected one
@@ -1470,7 +1500,18 @@ const ClientProfile = () => {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {activePlans.length > 0 ? (
+                {isLoadingDetails ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.5rem 0' }}>
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                      <SkeletonBox width="60%" height="18px" style={{ marginBottom: '0.5rem' }} />
+                      <SkeletonBox width="40%" height="12px" />
+                    </div>
+                    <div style={{ background: 'var(--bg-canvas)', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--border-subtle)' }}>
+                      <SkeletonBox width="50%" height="14px" style={{ marginBottom: '0.5rem' }} />
+                      <SkeletonBox width="100%" height="8px" />
+                    </div>
+                  </div>
+                ) : activePlans.length > 0 ? (
                   activePlans.map(plan => {
                     const contract = contracts.find(c => c.plan_id === plan.id);
                     
@@ -1801,7 +1842,14 @@ const ClientProfile = () => {
                     )}
                   </div>
                   
-                  {allCards.length > 0 ? (
+                  {isLoadingDetails ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ background: 'var(--bg-canvas)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-subtle)' }}>
+                        <SkeletonBox width="45%" height="16px" style={{ marginBottom: '0.4rem' }} />
+                        <SkeletonBox width="30%" height="12px" />
+                      </div>
+                    </div>
+                  ) : allCards.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       {allCards.map(card => {
                         const isCurrentPrimary = card.IsPrimary || (cardInfo && (String(card.PaymentProfileId) === String(cardInfo.PaymentProfileId) || (card.Last4 === cardInfo.Last4 && card.Brand === cardInfo.Brand)));
@@ -2030,23 +2078,105 @@ const ClientProfile = () => {
                   <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 800, marginBottom: '1.5rem' }}>
                     <Calendar size={18} /> {t('profile.history')}
                   </h4>
-                  <div className="history-list" style={{ maxHeight: '450px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                    {displayVisits.length > 0 ? (
-                      displayVisits.map((v, i) => (
-                        <div key={i} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                          <div style={{ width: '10px', height: '10px', background: '#cbd5e1', borderRadius: '50%', marginTop: '0.3rem', flexShrink: 0 }}></div>
-                          <div>
-                            <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', marginBottom: '0.2rem' }}>{new Date(v.visited_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}</p>
-                            <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#09090b', lineHeight: 1.3 }}>{v.displayServices}</p>
-                          </div>
+                  {(() => {
+                    const totalVisitsCount = displayVisits.length;
+                    const totalVisitsPages = Math.max(1, Math.ceil(totalVisitsCount / VISITS_PER_PAGE));
+                    const validVisitsPage = Math.min(Math.max(1, visitsCurrentPage), totalVisitsPages);
+                    const paginatedVisits = displayVisits.slice((validVisitsPage - 1) * VISITS_PER_PAGE, validVisitsPage * VISITS_PER_PAGE);
+
+                    return (
+                      <>
+                        <div className="history-list" style={{ maxHeight: '450px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                          {isLoadingDetails ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.5rem 0' }}>
+                              {[1, 2, 3, 4].map(idx => (
+                                <div key={idx} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                                  <SkeletonBox width="10px" height="10px" borderRadius="50%" style={{ marginTop: '0.3rem', flexShrink: 0 }} />
+                                  <div style={{ flex: 1 }}>
+                                    <SkeletonBox width="35%" height="12px" style={{ marginBottom: '0.35rem' }} />
+                                    <SkeletonBox width="80%" height="14px" />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : paginatedVisits.length > 0 ? (
+                            paginatedVisits.map((v, i) => {
+                              const vDate = v.visited_at ? new Date(v.visited_at) : null;
+                              const formattedDate = vDate && !isNaN(vDate.getTime())
+                                ? vDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()
+                                : 'FECHA NO REGISTRADA';
+                              return (
+                                <div key={v.id || i} style={{ padding: '0.75rem 0', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                                  <div style={{ width: '10px', height: '10px', background: '#cbd5e1', borderRadius: '50%', marginTop: '0.3rem', flexShrink: 0 }}></div>
+                                  <div>
+                                    <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', marginBottom: '0.2rem' }}>{formattedDate}</p>
+                                    <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#09090b', lineHeight: 1.3 }}>{v.displayServices}</p>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                              {t('profile.history.empty')}
+                            </div>
+                          )}
                         </div>
-                      ))
-                    ) : (
-                      <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                        {t('profile.history.empty')}
-                      </div>
-                    )}
-                  </div>
+
+                        {/* Controles de Paginación del Historial de Visitas (CL-11) */}
+                        {!isLoadingDetails && totalVisitsPages > 1 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9' }}>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>
+                              Pág. {validVisitsPage} de {totalVisitsPages} ({totalVisitsCount} visitas)
+                            </span>
+                            <div style={{ display: 'flex', gap: '0.4rem' }}>
+                              <button
+                                type="button"
+                                onClick={() => setVisitsCurrentPage(prev => Math.max(prev - 1, 1))}
+                                disabled={validVisitsPage === 1}
+                                style={{
+                                  padding: '0.35rem 0.65rem',
+                                  borderRadius: '8px',
+                                  border: '1px solid #e2e8f0',
+                                  background: validVisitsPage === 1 ? '#f8fafc' : 'white',
+                                  color: validVisitsPage === 1 ? '#94a3b8' : '#0f172a',
+                                  fontWeight: 700,
+                                  fontSize: '0.75rem',
+                                  cursor: validVisitsPage === 1 ? 'not-allowed' : 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.2rem'
+                                }}
+                              >
+                                <ChevronLeft size={14} />
+                                <span>Ant.</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setVisitsCurrentPage(prev => Math.min(prev + 1, totalVisitsPages))}
+                                disabled={validVisitsPage === totalVisitsPages}
+                                style={{
+                                  padding: '0.35rem 0.65rem',
+                                  borderRadius: '8px',
+                                  border: '1px solid #e2e8f0',
+                                  background: validVisitsPage === totalVisitsPages ? '#f8fafc' : 'white',
+                                  color: validVisitsPage === totalVisitsPages ? '#94a3b8' : '#0f172a',
+                                  fontWeight: 700,
+                                  fontSize: '0.75rem',
+                                  cursor: validVisitsPage === totalVisitsPages ? 'not-allowed' : 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.2rem'
+                                }}
+                              >
+                                <span>Sig.</span>
+                                <ChevronRight size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Behavioral Analytics */}
@@ -2233,7 +2363,16 @@ const ClientProfile = () => {
               {/* Payments History List */}
               <h4 style={{ fontSize: '0.875rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Historial de Transacciones</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                {payments.length > 0 ? payments.map((p, i) => {
+                {isLoadingDetails ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {[1, 2].map(idx => (
+                      <div key={idx} style={{ padding: '1rem', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '12px' }}>
+                        <SkeletonBox width="55%" height="16px" style={{ marginBottom: '0.4rem' }} />
+                        <SkeletonBox width="35%" height="12px" />
+                      </div>
+                    ))}
+                  </div>
+                ) : payments.length > 0 ? payments.map((p, i) => {
                   const isCash = p.method && p.method.includes('Efectivo');
                   return (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '12px' }}>
