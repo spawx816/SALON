@@ -1782,18 +1782,28 @@ async function handleBIReport(pool, params) {
   }
 
   // ==========================================
-  // 17. MEMBRESÍAS: PRÓXIMAS A RENOVACIÓN (RF-07)
-  // Contratos activos y reintentos con fecha de renovación en el período
-  // Distribución por sucursal y tabla detallada con días restantes y estatus
+  // 17. CONTRATOS: RENOVACIÓN ANUAL (RF-07)
+  // Identifica membresías próximas a cumplir su vigencia anual y devengar el cargo
+  // de RD$ 800 de manera totalmente independiente de la cuota mensual recurrente.
+  // Utiliza aniversarios de calendario exactos sobre signed_at, incluyendo bisiestos.
   // ==========================================
   if (reportId === 'contracts_upcoming_renewal') {
     try {
-      const whereConditions = [
-        "ct.status IN ('Active', 'Pending_Retry')",
-        "ct.next_billing_date >= ?",
-        "ct.next_billing_date <= ?"
-      ];
-      const queryParams = [startDateTime, endDateTime];
+      // 1. Obtener renewal_fee dinámico desde contract_settings (con fallback a 800.00)
+      let renewalFee = 800;
+      try {
+        const [csRows] = await pool.query('SELECT renewal_fee FROM contract_settings WHERE id = 1');
+        if (csRows.length > 0 && csRows[0].renewal_fee) {
+          const parsed = parseFloat(csRows[0].renewal_fee);
+          if (!isNaN(parsed) && parsed > 0) renewalFee = parsed;
+        }
+      } catch (csErr) {
+        console.warn('[RF-07] Error fetching contract_settings, using default fee 800:', csErr.message);
+      }
+
+      // 2. Filtros de base
+      const whereConditions = ["ct.status IN ('Active', 'Pending_Retry')"];
+      const queryParams = [];
 
       if (salonId !== 'all') {
         whereConditions.push("(ct.salon_id = ? OR (ct.salon_id IS NULL AND cl.salon_id = ?) OR s.name LIKE ?)");
@@ -1808,113 +1818,366 @@ async function handleBIReport(pool, params) {
 
       const whereSql = whereConditions.join(" AND ");
 
-      // 1. Detalle de contratos próximos a renovación ordenados por fecha ascendente
-      const [rows] = await pool.query(`
+      // 3. Consultar contratos elegibles
+      const [contracts] = await pool.query(`
         SELECT 
           ct.id as contract_id,
           ct.client_id,
           cl.nombre as cliente,
           cl.telefono,
           COALESCE(p.title, 'Plan Beauty') as plan,
+          COALESCE(ct.contract_price, p.price, 1950.00) as plan_price,
           COALESCE(s.name, 'Abatte Peluquería San Vicente') as sucursal,
+          ct.salon_id,
+          cl.salon_id as client_salon_id,
           ct.status as estado_contrato,
-          ct.next_billing_date,
-          DATEDIFF(DATE(ct.next_billing_date), CURRENT_DATE()) as dias_restantes_num
+          ct.signed_at,
+          ct.last_annual_fee_date
         FROM contracts ct
         JOIN clients cl ON ct.client_id = cl.id
         LEFT JOIN plans p ON ct.plan_id = p.id
         LEFT JOIN salons s ON COALESCE(ct.salon_id, cl.salon_id, 1) = s.id
         WHERE ${whereSql}
-        ORDER BY ct.next_billing_date ASC
+        ORDER BY ct.signed_at ASC
       `, queryParams);
 
-      // 2. Agrupación por sucursal
-      const [salonAgg] = await pool.query(`
-        SELECT 
-          COALESCE(s.name, 'Abatte Peluquería San Vicente') as sucursal,
-          COUNT(ct.id) as cantidad
-        FROM contracts ct
-        JOIN clients cl ON ct.client_id = cl.id
-        LEFT JOIN plans p ON ct.plan_id = p.id
-        LEFT JOIN salons s ON COALESCE(ct.salon_id, cl.salon_id, 1) = s.id
-        WHERE ${whereSql}
-        GROUP BY COALESCE(s.name, 'Abatte Peluquería San Vicente')
-        ORDER BY cantidad DESC
-      `, queryParams);
+      // 4. Consultar sucursales para asegurar consistencia del gráfico
+      let salonsList = [];
+      try {
+        const [sRows] = await pool.query('SELECT id, name FROM salons ORDER BY name ASC');
+        salonsList = sRows || [];
+      } catch (sErr) {
+        console.warn('[RF-07] Error fetching salons:', sErr.message);
+      }
 
-      const totalContracts = rows.length;
-      const activeCount = rows.filter(r => r.estado_contrato === 'Active').length;
-      const pendingCount = rows.filter(r => r.estado_contrato === 'Pending_Retry').length;
+      // 5. Consultar pagos aprobados para validación cruzada financiera
+      const clientIds = [...new Set(contracts.map(c => c.client_id).filter(Boolean))];
+      const paymentsByClient = new Map();
+      if (clientIds.length > 0) {
+        try {
+          const [paymentRows] = await pool.query(`
+            SELECT id, client_id, plan_id, amount, method, status, gateway_ref, description, created_at, salon_id
+            FROM payments
+            WHERE client_id IN (?) AND status = 'Aprobado'
+            ORDER BY created_at ASC
+          `, [clientIds]);
 
-      // Generar chartData con barras horizontales
-      const chartData = salonAgg.map(s => {
-        const count = Number(s.cantidad || 0);
-        const pct = totalContracts > 0 ? Number(((count / totalContracts) * 100).toFixed(1)) : 0;
-        return {
-          label: s.sucursal,
-          value: count,
-          count: count,
-          percentage: pct,
-          displayValue: `${count} (${pct}%)`
-        };
+          for (const p of paymentRows) {
+            const cid = String(p.client_id);
+            if (!paymentsByClient.has(cid)) paymentsByClient.set(cid, []);
+            paymentsByClient.get(cid).push(p);
+          }
+        } catch (pErr) {
+          console.warn('[RF-07] Error fetching payments for cross-validation:', pErr.message);
+        }
+      }
+
+      // Mapear contratos por socia para control estricto de múltiple contratación
+      const contractsCountByClient = new Map();
+      for (const ct of contracts) {
+        const cid = String(ct.client_id);
+        contractsCountByClient.set(cid, (contractsCountByClient.get(cid) || 0) + 1);
+      }
+
+      // 6. Helpers de cálculo de aniversario de calendario y formateo sin drift de zona horaria
+      const isLeap = (yr) => (yr % 4 === 0 && yr % 100 !== 0) || (yr % 400 === 0);
+
+      const getAnnivDateStr = (signedDateStr, cycleYears) => {
+        if (!signedDateStr) return null;
+        const raw = typeof signedDateStr === 'string' ? signedDateStr : (new Date(signedDateStr)).toISOString();
+        const parts = raw.split('T')[0].split('-');
+        if (parts.length < 3) return null;
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+
+        const targetYear = y + cycleYears;
+        let targetDay = d;
+        if (m === 2 && d === 29) {
+          targetDay = isLeap(targetYear) ? 29 : 28;
+        }
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${targetYear}-${pad(m)}-${pad(targetDay)}`;
+      };
+
+      const formatCalDate = (dStr) => {
+        if (!dStr) return 'N/D';
+        const raw = typeof dStr === 'string' ? dStr.split('T')[0] : (new Date(dStr)).toISOString().split('T')[0];
+        const parts = raw.split('-');
+        if (parts.length !== 3) return formatDO(dStr);
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+        return `${d} ${months[m]} ${y}`;
+      };
+
+      // Fecha actual en hora de República Dominicana (UTC-4)
+      const drFormatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Santo_Domingo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
       });
+      const todayStr = drFormatter.format(new Date());
 
-      // Formatear filas de la tabla
-      const tableRows = rows.map(r => {
-        let diasText = '';
-        if (r.dias_restantes_num === 0) diasText = 'Hoy';
-        else if (r.dias_restantes_num === 1) diasText = '1 día';
-        else if (r.dias_restantes_num > 1) diasText = `${r.dias_restantes_num} días`;
-        else diasText = `Vencido hace ${Math.abs(r.dias_restantes_num)} días`;
+      // 7. Motor de evaluación de aniversarios y estados
+      const allUpcomingPending = [];
+      const allPaidInPeriod = [];
+      const allOverdueContracts = new Set();
+      const periodRows = [];
 
-        const estadoVisual = r.estado_contrato === 'Pending_Retry' ? 'Reintento Pendiente' : 'Activo';
+      for (const ct of contracts) {
+        if (!ct.signed_at) {
+          periodRows.push({
+            contract_id: ct.contract_id,
+            client_id: ct.client_id,
+            cliente: ct.cliente || 'Socia Plan Beauty',
+            telefono: ct.telefono || '',
+            plan: ct.plan,
+            sucursal: ct.sucursal,
+            fecha_firma: 'N/D',
+            fecha_renovacion: 'N/D',
+            fecha_renovacion_raw: '9999-12-31',
+            importe: `RD$ ${renewalFee.toLocaleString('es-DO')}`,
+            importe_num: renewalFee,
+            dias_restantes: 'Inconsistente',
+            dias_num: 9999,
+            estado: 'Requiere revisión',
+            accion: 'Perfil'
+          });
+          continue;
+        }
 
-        return {
-          client_id: r.client_id,
-          cliente: r.cliente || 'Socia Plan Beauty',
-          plan: r.plan,
-          sucursal: r.sucursal,
-          fecha_renovacion: formatDO(r.next_billing_date),
-          dias_restantes: diasText,
-          dias_num: r.dias_restantes_num,
-          estado: estadoVisual,
-          telefono: r.telefono || '',
-          accion: 'Perfil'
-        };
-      });
+        const signedIso = new Date(ct.signed_at).toISOString().split('T')[0];
+        const signedYear = parseInt(signedIso.split('-')[0], 10);
+        const currentYear = parseInt(todayStr.split('-')[0], 10);
+        const maxYears = Math.max(2, (currentYear - signedYear) + 2);
+
+        const clientPayments = paymentsByClient.get(String(ct.client_id)) || [];
+        const contractSuffix = ct.contract_id ? String(ct.contract_id).slice(-4) : '';
+        const planPrice = parseFloat(ct.plan_price || 1950);
+        const expectedCombined = planPrice + renewalFee;
+
+        let earliestPendingFound = false;
+
+        for (let k = 1; k <= maxYears; k++) {
+          const annivDateStr = getAnnivDateStr(signedIso, k);
+          if (!annivDateStr) break;
+
+          const annivDateObj = new Date(`${annivDateStr}T00:00:00Z`);
+          // Ventana de verificación de pago: hasta 20 días antes (cubre adelanto del cron de 365 días) y hasta 60 días después
+          const minPayDate = new Date(annivDateObj.getTime() - (20 * 24 * 60 * 60 * 1000));
+          const maxPayDate = new Date(annivDateObj.getTime() + (60 * 24 * 60 * 60 * 1000));
+
+          const isMultiContractClient = (contractsCountByClient.get(String(ct.client_id)) || 1) > 1;
+
+          let unambiguousPayment = null;
+          let ambiguousPaymentFound = false;
+
+          for (const p of clientPayments) {
+            const pDate = new Date(p.created_at);
+            if (isNaN(pDate.getTime()) || pDate < minPayDate || pDate > maxPayDate) continue;
+
+            // Verificar si el pago tiene identificador explícito de contrato
+            let paymentHasContractId = false;
+            let paymentMatchesThisContract = false;
+
+            if (p.gateway_ref && p.gateway_ref.includes('AUTO-') && ct.contract_id) {
+              const refSuffix = p.gateway_ref.replace(/.*AUTO-/, '');
+              const refNum = parseInt(refSuffix, 10);
+              const ctNum = parseInt(ct.contract_id, 10);
+              if (!isNaN(refNum) && !isNaN(ctNum)) {
+                paymentHasContractId = true;
+                if (refNum === ctNum) paymentMatchesThisContract = true;
+                else continue; // Pertenece inequívocamente a OTRO contrato
+              }
+            }
+            if (p.id && p.id.includes('PAY-AUTO-') && ct.contract_id) {
+              const idParts = p.id.split('-');
+              const idSuffix = idParts[idParts.length - 1];
+              const idNum = parseInt(idSuffix, 10);
+              const ctNum = parseInt(ct.contract_id, 10);
+              if (!isNaN(idNum) && !isNaN(ctNum)) {
+                paymentHasContractId = true;
+                if (idNum === ctNum) paymentMatchesThisContract = true;
+                else continue; // Pertenece inequívocamente a OTRO contrato
+              }
+            }
+
+            const amt = parseFloat(p.amount);
+            const desc = (p.description || '').toLowerCase();
+            const hasRenovDesc = desc.includes('renovación anual') || desc.includes('renovacion anual') || desc.includes('cuota anual');
+            const hasCombinedAmt = Math.abs(amt - expectedCombined) < 1.0;
+            const hasFeeAmt = Math.abs(amt - renewalFee) < 1.0;
+
+            // Descartar cobros de salón no relacionados (ej. RD$ 800 de mostrador sin descripción de suscripción ni referencia AUTO)
+            if (hasFeeAmt && !hasRenovDesc && !paymentHasContractId) {
+              continue;
+            }
+
+            if (!hasRenovDesc && !hasCombinedAmt && !hasFeeAmt) {
+              continue;
+            }
+
+            // Si la socia tiene más de un contrato y el pago carece de identificador de contrato inequívoco:
+            if (isMultiContractClient && !paymentHasContractId) {
+              ambiguousPaymentFound = true;
+              continue;
+            }
+
+            // Identificador y prueba confiable confirmada
+            if (paymentMatchesThisContract || (!isMultiContractClient && (hasRenovDesc || hasCombinedAmt))) {
+              unambiguousPayment = p;
+              break;
+            }
+          }
+
+          const hasUnambiguousPayment = !!unambiguousPayment;
+          let hasLastAnnualEvidence = false;
+          if (ct.last_annual_fee_date) {
+            const lastAnnual = new Date(ct.last_annual_fee_date);
+            if (!isNaN(lastAnnual.getTime()) && lastAnnual >= minPayDate) {
+              hasLastAnnualEvidence = true;
+            }
+          }
+
+          let cycleState = 'Pendiente';
+          if (hasUnambiguousPayment && hasLastAnnualEvidence) {
+            cycleState = 'Pagada';
+          } else if (hasLastAnnualEvidence && !hasUnambiguousPayment) {
+            // Marcador en contrato pero falta comprobante bancario inequívoco
+            cycleState = 'Requiere revisión';
+          } else if (hasUnambiguousPayment && !hasLastAnnualEvidence) {
+            // Pago confirmado por pasarela con identificador inequívoco
+            cycleState = 'Pagada';
+          } else if (ambiguousPaymentFound) {
+            // Existe pago en el período pero falta identificador inequívoco de contrato -> Requiere revisión
+            cycleState = 'Requiere revisión';
+          } else {
+            if (annivDateStr < todayStr) {
+              cycleState = 'Vencida';
+              allOverdueContracts.add(ct.contract_id);
+            } else {
+              cycleState = 'Pendiente';
+            }
+          }
+
+          // Días restantes respecto a la fecha actual de RD
+          const diffMs = new Date(`${annivDateStr}T00:00:00Z`).getTime() - new Date(`${todayStr}T00:00:00Z`).getTime();
+          const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+          let diasText = '';
+          if (diffDays === 0) diasText = 'Hoy';
+          else if (diffDays === 1) diasText = '1 día';
+          else if (diffDays > 1) diasText = `${diffDays} días`;
+          else diasText = `Vencido hace ${Math.abs(diffDays)} días`;
+
+          const rowData = {
+            contract_id: ct.contract_id,
+            client_id: ct.client_id,
+            cliente: ct.cliente || 'Socia Plan Beauty',
+            telefono: ct.telefono || '',
+            plan: ct.plan,
+            sucursal: ct.sucursal,
+            fecha_firma: formatCalDate(ct.signed_at),
+            fecha_renovacion: formatCalDate(annivDateStr),
+            fecha_renovacion_raw: annivDateStr,
+            importe: `RD$ ${renewalFee.toLocaleString('es-DO')}`,
+            importe_num: renewalFee,
+            dias_restantes: diasText,
+            dias_num: diffDays,
+            estado: cycleState,
+            ciclo: k,
+            accion: 'Perfil'
+          };
+
+          // Seguimiento para KPIs
+          if (cycleState === 'Pendiente' && !earliestPendingFound) {
+            earliestPendingFound = true;
+            if (annivDateStr >= start && annivDateStr <= end) {
+              allUpcomingPending.push(rowData);
+            }
+          }
+
+          if (cycleState === 'Pagada' && annivDateStr >= start && annivDateStr <= end) {
+            allPaidInPeriod.push(rowData);
+          }
+
+          // Incluir en la tabla si cae dentro del rango consultado
+          if (annivDateStr >= start && annivDateStr <= end) {
+            periodRows.push(rowData);
+          }
+        }
+      }
+
+      // Ordenar filas cronológicamente por fecha de renovación más próxima
+      periodRows.sort((a, b) => a.fecha_renovacion_raw.localeCompare(b.fecha_renovacion_raw) || a.dias_num - b.dias_num);
+
+      // 8. Construcción de KPIs
+      const totalPendientes = allUpcomingPending.length;
+      const totalImportePrevisto = totalPendientes * renewalFee;
+      const totalVencidas = allOverdueContracts.size;
+      const totalPagadas = allPaidInPeriod.length;
+
+      // 9. Agrupación por sucursal (Conciliada estrictamente con KPI 1)
+      const sucursalMap = new Map();
+      salonsList.forEach(s => sucursalMap.set(s.name, 0));
+
+      for (const item of allUpcomingPending) {
+        const suc = item.sucursal || 'Abatte Peluquería San Vicente';
+        sucursalMap.set(suc, (sucursalMap.get(suc) || 0) + 1);
+      }
+
+      const chartData = Array.from(sucursalMap.entries())
+        .map(([label, count]) => {
+          const pct = totalPendientes > 0 ? Number(((count / totalPendientes) * 100).toFixed(1)) : 0;
+          return {
+            label,
+            value: count,
+            count,
+            percentage: pct,
+            displayValue: `${count} (${pct}%)`
+          };
+        })
+        .sort((a, b) => b.value - a.value);
 
       return {
-        title: 'Membresías próximas a renovación',
+        title: 'Renovación anual de contratos',
         periodText: `${start} al ${end}`,
-        alertInfo: 'Muestra contratos de membresía activos y en reintento cuya próxima fecha de renovación cae dentro del período seleccionado. Ordenados cronológicamente por proximidad.',
+        alertInfo: 'Identifica las membresías cuyos contratos están próximos a cumplir su vigencia anual y devengar el cargo de renovación de RD$ 800, de forma independiente a la cuota mensual.',
         kpis: [
-          { label: 'Membresías por renovar', value: totalContracts.toString(), subtext: 'Total en el período', icon: 'credit_card', color: 'blue' },
-          { label: 'Activas al día', value: activeCount.toString(), subtext: `${totalContracts > 0 ? Math.round((activeCount / totalContracts) * 100) : 0}% al día`, icon: 'check', color: 'emerald' },
-          { label: 'Cobro en Reintento', value: pendingCount.toString(), subtext: pendingCount > 0 ? 'Requiere seguimiento' : 'Sin pendientes', icon: 'alert', color: pendingCount > 0 ? 'amber' : 'gray' }
+          { label: 'Renovaciones próximas pendientes', value: totalPendientes.toString(), subtext: 'En el período seleccionado', icon: 'credit_card', color: 'blue' },
+          { label: 'Importe previsto por renovaciones anuales', value: `RD$ ${totalImportePrevisto.toLocaleString('es-DO')}`, subtext: `Calculado a RD$ ${renewalFee} c/u`, icon: 'dollar', color: 'emerald' },
+          { label: 'Renovaciones anuales vencidas', value: totalVencidas.toString(), subtext: totalVencidas > 0 ? 'Cartera anual en mora' : 'Sin morosidad anual', icon: 'alert', color: totalVencidas > 0 ? 'red' : 'slate' },
+          { label: 'Renovaciones anuales pagadas', value: totalPagadas.toString(), subtext: 'Confirmadas en el período', icon: 'check', color: 'emerald' }
         ],
         chart: {
           type: 'bar',
-          title: 'Distribución por Sucursal',
+          title: 'Distribución por Sucursal (Próximas a Renovar)',
           data: chartData
         },
         table: {
-          title: 'Detalle de membresías por renovar',
-          badgeText: `${totalContracts} membresías`,
+          title: 'Detalle de renovaciones anuales',
+          badgeText: `${periodRows.length} contratos`,
+          total_count: periodRows.length,
           columns: [
             { key: 'cliente', label: 'Cliente' },
             { key: 'plan', label: 'Plan' },
             { key: 'sucursal', label: 'Sucursal' },
-            { key: 'fecha_renovacion', label: 'Fecha Renovación', align: 'center' },
+            { key: 'fecha_firma', label: 'Fecha de Firma', align: 'center' },
+            { key: 'fecha_renovacion', label: 'Fecha Aniversario Anual', align: 'center' },
+            { key: 'importe', label: 'Cargo Renovación', align: 'right', isCurrency: true },
             { key: 'dias_restantes', label: 'Días Restantes', align: 'center' },
             { key: 'estado', label: 'Estado', align: 'center' },
             { key: 'accion', label: 'Acción', align: 'center' }
           ],
-          rows: tableRows,
-          footerNote: 'El cálculo de días restantes se realiza respecto a la fecha actual. Los contratos cancelados y suspendidos están excluidos.'
+          rows: periodRows,
+          footerNote: 'El cargo de renovación anual (RD$ 800) es independiente de los cobros mensuales recurrentes. Los días restantes se calculan respecto a la fecha actual.'
         }
       };
     } catch (e) {
       console.warn('DB error in contracts_upcoming_renewal:', e.message);
+      throw e;
     }
   }
 

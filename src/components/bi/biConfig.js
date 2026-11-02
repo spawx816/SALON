@@ -185,11 +185,12 @@ export const BI_REPORTS_BY_CATEGORY = {
     },
     {
       id: 'contracts_upcoming_renewal',
-      name: 'Membresías próximas a renovación',
+      name: 'Renovación anual de contratos',
       chartType: 'bar',
       hasPlanFilter: true,
-      description: 'Identifica contratos activos y en reintento próximos a renovarse en el período, con distribución por sucursal y detalle por clienta.',
-      note: 'Días restantes calculados respecto a la fecha actual del sistema. Excluye membresías canceladas o suspendidas.'
+      defaultPeriod: 'next_365_days',
+      description: 'Identifica las membresías próximas a cumplir su aniversario contractual, con el cargo anual de renovación y el seguimiento de estados de pago.',
+      note: 'Aniversarios calculados por año de calendario sobre la firma original. El cargo de renovación anual es independiente de la cuota mensual.'
     }
   ],
 
@@ -241,6 +242,14 @@ export const PERIOD_OPTIONS = [
   { id: 'custom', label: 'Personalizado' }
 ];
 
+export const FUTURE_PERIOD_OPTIONS = [
+  { id: 'next_365_days', label: 'Próximos 365 días (1 año)' },
+  { id: 'next_90_days', label: 'Próximos 90 días' },
+  { id: 'next_60_days', label: 'Próximos 60 días' },
+  { id: 'next_30_days', label: 'Próximos 30 días' },
+  { id: 'custom', label: 'Personalizado' }
+];
+
 export const CANCELLATION_REASONS = [
   'Todos los motivos',
   'Precio / Costo',
@@ -250,4 +259,64 @@ export const CANCELLATION_REASONS = [
   'Finanzas personales',
   'Otro motivo'
 ];
+
+export const getDateRangeForPeriod = (periodKey, baseDate = new Date()) => {
+  const pad = (n) => String(n).padStart(2, '0');
+  const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = new Date(baseDate);
+
+  if (periodKey === 'today') {
+    const d = format(today);
+    return { startDate: d, endDate: d };
+  }
+  if (periodKey === 'yesterday') {
+    const y = new Date(today);
+    y.setDate(today.getDate() - 1);
+    const d = format(y);
+    return { startDate: d, endDate: d };
+  }
+  if (periodKey === 'this_week') {
+    const first = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay() + 1);
+    return { startDate: format(first), endDate: format(today) };
+  }
+  if (periodKey === 'this_month') {
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    return { startDate: format(first), endDate: format(today) };
+  }
+  if (periodKey === 'last_month') {
+    const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const last = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { startDate: format(first), endDate: format(last) };
+  }
+  if (periodKey === 'last_30_days') {
+    const past = new Date(today);
+    past.setDate(today.getDate() - 30);
+    return { startDate: format(past), endDate: format(today) };
+  }
+  if (periodKey === 'this_year') {
+    const first = new Date(today.getFullYear(), 0, 1);
+    return { startDate: format(first), endDate: format(today) };
+  }
+  if (periodKey === 'next_30_days') {
+    const future = new Date(today);
+    future.setDate(today.getDate() + 30);
+    return { startDate: format(today), endDate: format(future) };
+  }
+  if (periodKey === 'next_60_days') {
+    const future = new Date(today);
+    future.setDate(today.getDate() + 60);
+    return { startDate: format(today), endDate: format(future) };
+  }
+  if (periodKey === 'next_90_days') {
+    const future = new Date(today);
+    future.setDate(today.getDate() + 90);
+    return { startDate: format(today), endDate: format(future) };
+  }
+  if (periodKey === 'next_365_days') {
+    const future = new Date(today);
+    future.setDate(today.getDate() + 365);
+    return { startDate: format(today), endDate: format(future) };
+  }
+  return null;
+};
 

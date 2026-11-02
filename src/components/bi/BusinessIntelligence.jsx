@@ -7,31 +7,51 @@ import {
   BI_CATEGORIES, 
   BI_REPORTS_BY_CATEGORY, 
   PERIOD_OPTIONS, 
-  CANCELLATION_REASONS 
+  FUTURE_PERIOD_OPTIONS,
+  CANCELLATION_REASONS,
+  getDateRangeForPeriod
 } from './biConfig';
 import { BIKpiCards } from './BIKpiCards';
 import { BIChart } from './BIChart';
 import { BIDetailTable } from './BIDetailTable';
 import { exportReportToExcel, exportReportToCSV, triggerPrintReport } from './biExport';
 import { dataService } from '../../utils/dataService';
+import { useSearchParams } from 'react-router-dom';
 import ServiceAnalytics from '../admin/ServiceAnalytics';
 
 export const BusinessIntelligence = ({ standalone = true }) => {
+  const [searchParams] = useSearchParams();
+  const urlCategory = searchParams ? searchParams.get('category') : null;
+  const urlReport = searchParams ? searchParams.get('report') : null;
+  const urlPeriod = searchParams ? searchParams.get('period') : null;
+  const urlStart = searchParams ? searchParams.get('start') : null;
+  const urlEnd = searchParams ? searchParams.get('end') : null;
+  const urlSalon = searchParams ? searchParams.get('salon') : null;
+
+  const initialCategory = urlCategory || 'sales';
+  const initialReportId = urlReport || 'sales_summary';
+  const initialPeriod = urlPeriod || (initialReportId === 'contracts_upcoming_renewal' ? 'next_365_days' : 'this_month');
+  const initialDates = getDateRangeForPeriod(initialPeriod) || {
+    startDate: new Date(new Date().setDate(1)).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0]
+  };
+
   // 1. Navigation & State
-  const [activeCategory, setActiveCategory] = useState('sales');
-  const [selectedReportId, setSelectedReportId] = useState('sales_summary');
+  const [activeCategory, setActiveCategory] = useState(initialCategory);
+  const [selectedReportId, setSelectedReportId] = useState(initialReportId);
   const [viewMode, setViewMode] = useState('executive');
   const [salons, setSalons] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState(null);
+  const [reportError, setReportError] = useState(null);
 
   // 2. Filter states
-  const [period, setPeriod] = useState('this_month');
-  const [startDate, setStartDate] = useState(new Date(new Date().setDate(1)).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedSalon, setSelectedSalon] = useState('all');
+  const [period, setPeriod] = useState(initialPeriod);
+  const [startDate, setStartDate] = useState(urlStart || initialDates.startDate);
+  const [endDate, setEndDate] = useState(urlEnd || initialDates.endDate);
+  const [selectedSalon, setSelectedSalon] = useState(urlSalon || 'all');
   const [selectedPlan, setSelectedPlan] = useState('all');
   
   // Dynamic contextual filters
@@ -55,15 +75,48 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     return availableReports.find(r => r.id === selectedReportId) || availableReports[0] || {};
   }, [availableReports, selectedReportId]);
 
+  // Handle report change with synchronized period and date range updates
+  const handleReportChange = (newReportId) => {
+    setSelectedReportId(newReportId);
+    setInteractiveSelectedGroup('0_visits');
+
+    if (newReportId === 'contracts_upcoming_renewal') {
+      const nextP = 'next_365_days';
+      setPeriod(nextP);
+      const range = getDateRangeForPeriod(nextP);
+      if (range) {
+        setStartDate(range.startDate);
+        setEndDate(range.endDate);
+      }
+    } else if (['next_30_days', 'next_60_days', 'next_90_days', 'next_365_days'].includes(period)) {
+      const nextP = 'this_month';
+      setPeriod(nextP);
+      const range = getDateRangeForPeriod(nextP);
+      if (range) {
+        setStartDate(range.startDate);
+        setEndDate(range.endDate);
+      }
+    }
+  };
+
+  // Handle period change with synchronized date range updates
+  const handlePeriodChange = (newPeriod) => {
+    setPeriod(newPeriod);
+    if (newPeriod !== 'custom') {
+      const range = getDateRangeForPeriod(newPeriod);
+      if (range) {
+        setStartDate(range.startDate);
+        setEndDate(range.endDate);
+      }
+    }
+  };
+
   // On category change, auto-select first report of that category
   const handleCategoryChange = (categoryId) => {
     setActiveCategory(categoryId);
     const firstReport = BI_REPORTS_BY_CATEGORY[categoryId]?.[0];
     if (firstReport) {
-      setSelectedReportId(firstReport.id);
-      if (firstReport.id === 'visit_frequency') {
-        setInteractiveSelectedGroup('0_visits');
-      }
+      handleReportChange(firstReport.id);
     }
   };
 
@@ -86,50 +139,21 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     fetchMetadata();
   }, []);
 
-  // Calculate actual date ranges when period selector changes
+  // Synchronize date ranges when period changes
   useEffect(() => {
-    const today = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-    if (period === 'today') {
-      const d = format(today);
-      setStartDate(d);
-      setEndDate(d);
-    } else if (period === 'yesterday') {
-      const y = new Date();
-      y.setDate(today.getDate() - 1);
-      const d = format(y);
-      setStartDate(d);
-      setEndDate(d);
-    } else if (period === 'this_week') {
-      const first = new Date(today.setDate(today.getDate() - today.getDay() + 1));
-      setStartDate(format(first));
-      setEndDate(format(new Date()));
-    } else if (period === 'this_month') {
-      const first = new Date(today.getFullYear(), today.getMonth(), 1);
-      setStartDate(format(first));
-      setEndDate(format(new Date()));
-    } else if (period === 'last_month') {
-      const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const last = new Date(today.getFullYear(), today.getMonth(), 0);
-      setStartDate(format(first));
-      setEndDate(format(last));
-    } else if (period === 'last_30_days') {
-      const past = new Date();
-      past.setDate(today.getDate() - 30);
-      setStartDate(format(past));
-      setEndDate(format(new Date()));
-    } else if (period === 'this_year') {
-      const first = new Date(today.getFullYear(), 0, 1);
-      setStartDate(format(first));
-      setEndDate(format(new Date()));
+    if (period !== 'custom') {
+      const range = getDateRangeForPeriod(period);
+      if (range && (range.startDate !== startDate || range.endDate !== endDate)) {
+        setStartDate(range.startDate);
+        setEndDate(range.endDate);
+      }
     }
   }, [period]);
 
   // Load Report Data
   const loadReport = async () => {
     setLoading(true);
+    setReportError(null);
     try {
       const params = {
         category: activeCategory,
@@ -147,23 +171,36 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       };
 
       let res = null;
+      let callError = null;
       try {
         if (dataService && typeof dataService.getBIReport === 'function') {
           res = await dataService.getBIReport(params);
         }
       } catch (callErr) {
+        callError = callErr;
         console.warn('dataService.getBIReport caught error:', callErr);
       }
 
       if (res && Array.isArray(res.kpis)) {
         setReportData(res);
+        setReportError(null);
+      } else if (selectedReportId === 'contracts_upcoming_renewal') {
+        // En producción para RF-07: cero datos simulados.
+        // Si no se reciben KPIs válidos desde el backend, reflejar error formal y no fallback a mock.
+        setReportError(callError?.message || 'No se pudo obtener la información de renovaciones anuales desde el servidor.');
+        setReportData(null);
       } else {
         // Fallback generator adhering strictly to developer specs and mockups
         generateMockReport(params);
       }
     } catch (err) {
       console.error('Error fetching BI report:', err);
-      generateMockReport({ category: activeCategory, reportId: selectedReportId });
+      if (selectedReportId === 'contracts_upcoming_renewal') {
+        setReportError(err?.message || 'Error de conexión al cargar renovaciones anuales.');
+        setReportData(null);
+      } else {
+        generateMockReport({ category: activeCategory, reportId: selectedReportId });
+      }
     } finally {
       setLoading(false);
     }
@@ -407,47 +444,6 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             { cliente: 'Dilenia Corporán', telefono: '8095557788', tipo: 'Regular', ultima_visita: '28 ago 2026', dias_ausente: 45 }
           ],
           footerNote: 'Al pulsar "Contactar" se abre el canal de WhatsApp sin enviar mensajes de forma no autorizada.'
-        }
-      });
-      return;
-    }
-
-    // 6. Membresías próximas a renovación (RF-07)
-    if (selectedReportId === 'contracts_upcoming_renewal') {
-      setReportData({
-        title: 'Membresías próximas a renovación',
-        periodText: `${startDate} al ${endDate}`,
-        alertInfo: 'Muestra contratos de membresía activos y en reintento cuya próxima fecha de renovación cae dentro del período seleccionado.',
-        kpis: [
-          { label: 'Membresías por renovar', value: '55', subtext: 'Total en el período', icon: 'credit_card', color: 'blue' },
-          { label: 'Activas al día', value: '54', subtext: '98% al día', icon: 'check', color: 'emerald' },
-          { label: 'Cobro en Reintento', value: '1', subtext: 'Requiere seguimiento', icon: 'alert', color: 'amber' }
-        ],
-        chart: {
-          type: 'bar',
-          title: 'Distribución por Sucursal',
-          data: [
-            { label: 'Abatte Peluquería San Vicente', value: 33, count: 33, percentage: 60, displayValue: '33 (60%)' },
-            { label: 'Abatte Peluquería Sirena Villa Mella', value: 22, count: 22, percentage: 40, displayValue: '22 (40%)' }
-          ]
-        },
-        table: {
-          title: 'Detalle de membresías por renovar',
-          badgeText: '55 membresías',
-          columns: [
-            { key: 'cliente', label: 'Cliente' },
-            { key: 'plan', label: 'Plan' },
-            { key: 'sucursal', label: 'Sucursal' },
-            { key: 'fecha_renovacion', label: 'Fecha Renovación', align: 'center' },
-            { key: 'dias_restantes', label: 'Días Restantes', align: 'center' },
-            { key: 'estado', label: 'Estado', align: 'center' },
-            { key: 'accion', label: 'Acción', align: 'center' }
-          ],
-          rows: [
-            { client_id: '1779920871902', cliente: 'Melissa Pérez', plan: 'Plan Beauty', sucursal: 'Abatte Peluquería San Vicente', fecha_renovacion: '1 nov de 2026', dias_restantes: 'Hoy', dias_num: 0, estado: 'Reintento Pendiente', accion: 'Perfil' },
-            { client_id: '1780161656207', cliente: 'Johana Diaz', plan: 'Plan Beauty', sucursal: 'Abatte Peluquería San Vicente', fecha_renovacion: '2 nov de 2026', dias_restantes: '1 día', dias_num: 1, estado: 'Activo', accion: 'Perfil' }
-          ],
-          footerNote: 'El cálculo de días restantes se realiza respecto a la fecha actual. Los contratos cancelados y suspendidos están excluidos.'
         }
       });
       return;
@@ -741,10 +737,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             <div style={{ position: 'relative' }}>
               <select
                 value={selectedReportId}
-                onChange={(e) => {
-                  setSelectedReportId(e.target.value);
-                  setInteractiveSelectedGroup('0_visits');
-                }}
+                onChange={(e) => handleReportChange(e.target.value)}
                 style={{
                   width: '100%',
                   padding: '0.55rem 2rem 0.55rem 0.85rem',
@@ -777,7 +770,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             <div style={{ position: 'relative' }}>
               <select
                 value={period}
-                onChange={(e) => setPeriod(e.target.value)}
+                onChange={(e) => handlePeriodChange(e.target.value)}
                 style={{
                   width: '100%',
                   padding: '0.55rem 2rem 0.55rem 0.85rem',
@@ -791,7 +784,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   cursor: 'pointer'
                 }}
               >
-                {PERIOD_OPTIONS.map(opt => (
+                {(currentReportConfig.id === 'contracts_upcoming_renewal' ? FUTURE_PERIOD_OPTIONS : PERIOD_OPTIONS).map(opt => (
                   <option key={opt.id} value={opt.id}>{opt.label}</option>
                 ))}
               </select>
@@ -799,8 +792,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             </div>
           </div>
 
-          {/* Custom Date Pickers when period === 'custom' or contracts_upcoming_renewal */}
-          {(period === 'custom' || currentReportConfig.id === 'contracts_upcoming_renewal') && (
+          {/* Custom Date Pickers when period === 'custom' */}
+          {period === 'custom' && (
             <>
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
@@ -1100,6 +1093,45 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         </div>
       )}
 
+      {/* Error Banner with Retry */}
+      {reportError && (
+        <div style={{
+          background: '#fff1f2',
+          border: '1px solid #fecdd3',
+          borderRadius: '0.75rem',
+          padding: '1rem 1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          marginBottom: '1.5rem',
+          color: '#9f1239',
+          fontSize: '0.88rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <AlertCircle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
+            <span>{reportError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadReport}
+            style={{
+              padding: '0.4rem 0.85rem',
+              background: '#e11d48',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '0.375rem',
+              fontWeight: 600,
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
       {/* 4. Report Header & Actions (Title, Date, Export, Print) */}
       <div style={{
         display: 'flex',
@@ -1315,6 +1347,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         columns={displayedTable?.columns || []}
         rows={displayedTable?.rows || []}
         footerNote={displayedTable?.footerNote}
+        emptyMessage={currentReportConfig.id === 'contracts_upcoming_renewal' ? 'No hay renovaciones anuales para el período seleccionado' : 'No hay registros disponibles para los filtros aplicados.'}
         pageSize={10}
       />
     </div>

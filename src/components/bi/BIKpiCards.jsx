@@ -22,10 +22,12 @@ const ICON_MAP = {
 
 const COLOR_MAP = {
   emerald: { bg: '#ecfdf5', iconBg: '#d1fae5', text: '#059669', badgeBg: '#d1fae5' },
+  green: { bg: '#ecfdf5', iconBg: '#d1fae5', text: '#059669', badgeBg: '#d1fae5' },
   blue: { bg: '#eff6ff', iconBg: '#dbeafe', text: '#2563eb', badgeBg: '#dbeafe' },
   purple: { bg: '#f5f3ff', iconBg: '#ede9fe', text: '#7c3aed', badgeBg: '#ede9fe' },
   amber: { bg: '#fffbeb', iconBg: '#fef3c7', text: '#d97706', badgeBg: '#fef3c7' },
   rose: { bg: '#fff1f2', iconBg: '#ffe4e6', text: '#e11d48', badgeBg: '#ffe4e6' },
+  red: { bg: '#fff1f2', iconBg: '#ffe4e6', text: '#e11d48', badgeBg: '#ffe4e6' },
   slate: { bg: '#f8fafc', iconBg: '#f1f5f9', text: '#475569', badgeBg: '#f1f5f9' }
 };
 

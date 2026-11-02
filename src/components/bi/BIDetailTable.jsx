@@ -333,9 +333,10 @@ export const BIDetailTable = ({
 
                     // Format amounts
                     if (col.isCurrency) {
+                      const numericVal = typeof val === 'number' ? val : (parseFloat(String(val || '').replace(/[^0-9.-]+/g, '')) || 0);
                       return (
                         <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'right', fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
-                          RD$ {Number(val || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          RD$ {numericVal.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                       );
                     }
@@ -369,13 +370,25 @@ export const BIDetailTable = ({
 
                     // Status badge (includes estado column)
                     if (col.key === 'estado' || col.isBadge) {
-                      const isPositive = ['Facturado', 'Aprobado', 'Activo', 'Regresó'].includes(val);
+                      const isPositive = ['Facturado', 'Aprobado', 'Activo', 'Regresó', 'Pagada'].includes(val);
+                      const isAnnualPending = val === 'Pendiente';
                       const isPending = ['Reintento Pendiente', 'Pending_Retry', 'Cobro Pendiente'].includes(val);
-                      const isNegative = ['Cancelado', 'Anulado', 'Rechazado', 'No regresó'].includes(val);
+                      const isReview = ['Requiere revisión', 'Requiere Revision'].includes(val);
+                      const isNegative = ['Cancelado', 'Anulado', 'Rechazado', 'No regresó', 'Vencida'].includes(val);
 
-                      const bg = isPositive ? '#ecfdf5' : isPending ? '#fffbeb' : isNegative ? '#fff1f2' : '#f1f5f9';
-                      const textCol = isPositive ? '#059669' : isPending ? '#b45309' : isNegative ? '#e11d48' : '#475569';
-                      const borderCol = isPositive ? '#a7f3d0' : isPending ? '#fde68a' : isNegative ? '#fecdd3' : '#e2e8f0';
+                      let bg = '#f1f5f9';
+                      let textCol = '#475569';
+                      let borderCol = '#e2e8f0';
+
+                      if (isPositive) {
+                        bg = '#ecfdf5'; textCol = '#059669'; borderCol = '#a7f3d0';
+                      } else if (isAnnualPending) {
+                        bg = '#eff6ff'; textCol = '#1d4ed8'; borderCol = '#bfdbfe';
+                      } else if (isPending || isReview) {
+                        bg = '#fffbeb'; textCol = '#b45309'; borderCol = '#fde68a';
+                      } else if (isNegative) {
+                        bg = '#fff1f2'; textCol = '#e11d48'; borderCol = '#fecdd3';
+                      }
 
                       return (
                         <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'center' }}>
