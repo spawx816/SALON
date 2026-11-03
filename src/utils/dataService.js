@@ -2894,6 +2894,28 @@ export const dataService = {
   },
 
   // === MÓDULO DE EGRESOS CONTABLES ===
+  getExpensesStatus: async () => {
+    try {
+      const res = await fetch(`${API_URL}/expenses/status`);
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 503 || data.code === 'MIGRATION_PENDING') {
+        return {
+          ready: false,
+          code: 'MIGRATION_PENDING',
+          error: data.error || 'Módulo pendiente de activación en base de datos.',
+          missingTables: data.missingTables || []
+        };
+      }
+      if (!res.ok) {
+        return { ready: false, code: 'ERROR', error: data.error };
+      }
+      return data;
+    } catch (e) {
+      console.error('Error in getExpensesStatus:', e);
+      return { ready: false, code: 'NETWORK_ERROR', error: e.message };
+    }
+  },
+
   getExpenses: async (params = {}) => {
     try {
       const query = new URLSearchParams();
@@ -2909,14 +2931,24 @@ export const dataService = {
       const res = await fetch(`${API_URL}/expenses?${query.toString()}`, {
         headers: {
           'x-user-role': user?.role || user?.role_name || 'admin',
-          'x-user-name': user?.nombre || user?.name || 'Administrador'
+          'x-user-name': user?.nombre || user?.name || 'Administrador',
+          'x-user-salon-id': user?.salon_id ? String(user.salon_id) : ''
         }
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Error ${res.status} al obtener egresos`);
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 503 || data.code === 'MIGRATION_PENDING') {
+        return {
+          records: [],
+          count: 0,
+          total_amount: 0,
+          migrationPending: true,
+          error: data.error || 'Módulo pendiente de activación en base de datos.'
+        };
       }
-      return await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || `Error ${res.status} al obtener egresos`);
+      }
+      return data;
     } catch (e) {
       console.error('Error in getExpenses:', e);
       throw e;

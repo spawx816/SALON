@@ -126,11 +126,5 @@ INSERT IGNORE INTO expense_accounts (name, account_number, type) VALUES
 
 -- 9. Inserción de préstamos iniciales registrados
 INSERT IGNORE INTO expense_loans (id, bank_id, bank_name, loan_name, reference_number, salon_id, salon_name, total_amount, currency, status) VALUES
-(1, 1, 'Banco Popular', 'Local San Vicente', '001234', 1, 'San Vicente', 500000.00, 'DOP', 'Activo'),
-(2, 1, 'Banco Popular', 'Equipos', '005678', 1, 'San Vicente', 350000.00, 'DOP', 'Activo');
-
--- 10. Inserción de egresos iniciales de muestra (Octubre 2026)
-INSERT IGNORE INTO expenses (id, concept_name, payment_date, period, amount, payment_method, account_name, salon_id, salon_name, reference, attachment_name, observation, is_loan, bank_name, loan_id, loan_name, loan_ref, loan_period, breakdown_capital, breakdown_interest, breakdown_charges, status, created_by) VALUES
-(1, 'Préstamos', '2026-10-30', '2026-10', 24000.00, 'Transferencia', 'Cuenta operativa · 5678', 1, 'San Vicente', 'TRX-00321', 'recibo_popular_001234.pdf', 'Pago cuota mensual préstamo local', 1, 'Banco Popular', 1, 'Local San Vicente', '001234', 'Octubre 2026', 18500.00, 4500.00, 1000.00, 'Completado', 'Administrador'),
-(2, 'Préstamos', '2026-10-29', '2026-10', 18000.00, 'Transferencia', 'Cuenta operativa · 5678', 1, 'San Vicente', 'TRX-00318', 'recibo_equipos_005678.pdf', 'Pago cuota préstamo equipamiento', 1, 'Banco Popular', 2, 'Equipos', '005678', 'Octubre 2026', 14000.00, 3200.00, 800.00, 'Completado', 'Administrador'),
-(3, 'TSS', '2026-10-28', '2026-10', 21500.00, 'Transferencia', 'Cuenta operativa · 5678', 1, 'San Vicente', 'TSS-OCT-2026', 'comprobante_tss_oct2026.pdf', 'Aporte patronal y laboral mes de octubre', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Completado', 'Administrador');
+(1, (SELECT id FROM expense_banks WHERE name = 'Banco Popular' LIMIT 1), 'Banco Popular', 'Local San Vicente', '001234', 1, 'San Vicente', 500000.00, 'DOP', 'Activo'),
+(2, (SELECT id FROM expense_banks WHERE name = 'Banco Popular' LIMIT 1), 'Banco Popular', 'Equipos', '005678', 1, 'San Vicente', 350000.00, 'DOP', 'Activo');

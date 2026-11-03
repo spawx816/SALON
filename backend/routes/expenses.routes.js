@@ -50,6 +50,48 @@ function createExpensesRouter(pool) {
     }
   };
 
+  // Helper centralizado para capturar ausencia de tablas sin exponer errores SQL internos
+  const handleSqlError = (err, res, defaultMessage) => {
+    if (err.code === 'ER_NO_SUCH_TABLE' || err.errno === 1146 || (err.message && err.message.toLowerCase().includes("doesn't exist"))) {
+      return res.status(503).json({
+        error: 'El módulo de Egresos requiere activación en base de datos. Se requiere ejecutar la migración 20261103_create_expenses_tables.sql en MySQL.',
+        code: 'MIGRATION_PENDING',
+        details: err.message
+      });
+    }
+    console.error(`[EXPENSES] ${defaultMessage}:`, err.message);
+    return res.status(500).json({ error: err.message || defaultMessage });
+  };
+
+  // =========================================================================
+  // 0. ESTADO DE ACTIVACIÓN DEL MÓDULO (MySQL)
+  // =========================================================================
+  router.get('/status', async (req, res) => {
+    if (!ensurePool(res)) return;
+    try {
+      const [rows] = await pool.query(`
+        SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME IN ('expense_concepts', 'expense_banks', 'expense_loans', 'expense_accounts', 'expenses')
+      `);
+      const existingTables = rows.map(r => Object.values(r)[0]);
+      const requiredTables = ['expense_concepts', 'expense_banks', 'expense_loans', 'expense_accounts', 'expenses'];
+      const missingTables = requiredTables.filter(t => !existingTables.includes(t));
+      const ready = missingTables.length === 0;
+
+      return res.status(ready ? 200 : 503).json({
+        ready,
+        code: ready ? 'READY' : 'MIGRATION_PENDING',
+        error: ready ? null : 'Módulo pendiente de activación en base de datos. Ejecute la migración 20261103_create_expenses_tables.sql.',
+        existingTables,
+        missingTables,
+        migrationFile: 'backend/migrations/20261103_create_expenses_tables.sql'
+      });
+    } catch (err) {
+      return handleSqlError(err, res, 'Error consultando estado de migración');
+    }
+  });
+
   // =========================================================================
   // 1. CONCEPTOS DE EGRESO (MySQL)
   // =========================================================================
@@ -61,14 +103,7 @@ function createExpensesRouter(pool) {
       );
       return res.json(rows);
     } catch (err) {
-      console.error('[EXPENSES] Error en GET /concepts:', err.message);
-      if (err.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(503).json({
-          error: 'La tabla expense_concepts no existe en MySQL. Ejecute la migración 20261103_create_expenses_tables.sql.',
-          code: 'MIGRATION_PENDING'
-        });
-      }
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en GET /concepts');
     }
   });
 
@@ -105,8 +140,7 @@ function createExpensesRouter(pool) {
         is_active: 1
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en POST /concepts:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en POST /concepts');
     }
   });
 
@@ -121,14 +155,7 @@ function createExpensesRouter(pool) {
       );
       return res.json(rows);
     } catch (err) {
-      console.error('[EXPENSES] Error en GET /banks:', err.message);
-      if (err.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(503).json({
-          error: 'La tabla expense_banks no existe en MySQL.',
-          code: 'MIGRATION_PENDING'
-        });
-      }
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en GET /banks');
     }
   });
 
@@ -161,8 +188,7 @@ function createExpensesRouter(pool) {
         is_active: 1
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en POST /banks:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en POST /banks');
     }
   });
 
@@ -185,14 +211,7 @@ function createExpensesRouter(pool) {
       const [rows] = await pool.query(sql, params);
       return res.json(rows);
     } catch (err) {
-      console.error('[EXPENSES] Error en GET /loans:', err.message);
-      if (err.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(503).json({
-          error: 'La tabla expense_loans no existe en MySQL.',
-          code: 'MIGRATION_PENDING'
-        });
-      }
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en GET /loans');
     }
   });
 
@@ -241,8 +260,7 @@ function createExpensesRouter(pool) {
         status: 'Activo'
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en POST /loans:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en POST /loans');
     }
   });
 
@@ -257,14 +275,7 @@ function createExpensesRouter(pool) {
       );
       return res.json(rows);
     } catch (err) {
-      console.error('[EXPENSES] Error en GET /accounts:', err.message);
-      if (err.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(503).json({
-          error: 'La tabla expense_accounts no existe en MySQL.',
-          code: 'MIGRATION_PENDING'
-        });
-      }
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en GET /accounts');
     }
   });
 
@@ -290,8 +301,7 @@ function createExpensesRouter(pool) {
         is_active: 1
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en POST /accounts:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en POST /accounts');
     }
   });
 
@@ -359,17 +369,7 @@ function createExpensesRouter(pool) {
         period: period || 'all'
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en GET /:', err.message);
-      if (err.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(503).json({
-          error: 'La tabla expenses no existe en la base de datos MySQL. Ejecute la migración 20261103_create_expenses_tables.sql.',
-          code: 'MIGRATION_PENDING',
-          records: [],
-          count: 0,
-          total_amount: 0
-        });
-      }
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en GET /');
     }
   });
 
@@ -416,6 +416,21 @@ function createExpensesRouter(pool) {
         return res.status(400).json({ error: 'El importe pagado debe ser mayor a RD$ 0.00.' });
       }
 
+      const isLoanFlag = (concept_name.toLowerCase() === 'préstamos' || concept_name.toLowerCase() === 'prestamos' || Boolean(is_loan)) ? 1 : 0;
+
+      // Validación de desglose para préstamos
+      if (isLoanFlag) {
+        const cap = parseFloat(breakdown_capital) || 0;
+        const int = parseFloat(breakdown_interest) || 0;
+        const chg = parseFloat(breakdown_charges) || 0;
+        const sumBd = Math.round((cap + int + chg) * 100) / 100;
+        if (sumBd > 0 && Math.abs(sumBd - numAmount) > 0.05) {
+          return res.status(400).json({
+            error: `El importe pagado (RD$ ${numAmount.toFixed(2)}) debe coincidir con la suma del desglose: Capital RD$ ${cap.toFixed(2)} + Interés RD$ ${int.toFixed(2)} + Cargos RD$ ${chg.toFixed(2)} = RD$ ${sumBd.toFixed(2)}.`
+          });
+        }
+      }
+
       // Validación de soporte documental (tamaño y tipo de archivo)
       if (attachment_data) {
         if (typeof attachment_data === 'string' && attachment_data.length > 7.5 * 1024 * 1024) {
@@ -428,7 +443,6 @@ function createExpensesRouter(pool) {
       }
 
       const period = payment_date.slice(0, 7);
-      const isLoanFlag = (concept_name.toLowerCase() === 'préstamos' || concept_name.toLowerCase() === 'prestamos' || Boolean(is_loan)) ? 1 : 0;
       const createdBy = getUserName(req);
 
       const [result] = await pool.query(
@@ -481,14 +495,7 @@ function createExpensesRouter(pool) {
       const [createdRows] = await pool.query('SELECT * FROM expenses WHERE id = ?', [newExpenseId]);
       return res.status(201).json(createdRows[0] || { id: newExpenseId });
     } catch (err) {
-      console.error('[EXPENSES] Error en POST /:', err.message);
-      if (err.code === 'ER_NO_SUCH_TABLE') {
-        return res.status(503).json({
-          error: 'La tabla expenses no existe en MySQL. Ejecute la migración correspondiente.',
-          code: 'MIGRATION_PENDING'
-        });
-      }
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en POST /');
     }
   });
 
@@ -505,8 +512,7 @@ function createExpensesRouter(pool) {
       }
       return res.json(rows[0]);
     } catch (err) {
-      console.error('[EXPENSES] Error en GET /:id:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en GET /:id');
     }
   });
 
@@ -552,6 +558,19 @@ function createExpensesRouter(pool) {
       const numAmount = amount ? parseFloat(amount) : undefined;
       const period = payment_date ? payment_date.slice(0, 7) : undefined;
       const isLoanFlag = concept_name ? (concept_name.toLowerCase() === 'préstamos' || concept_name.toLowerCase() === 'prestamos' || Boolean(is_loan) ? 1 : 0) : undefined;
+
+      // Validación de desglose para préstamos en edición
+      if (isLoanFlag && numAmount !== undefined) {
+        const cap = parseFloat(breakdown_capital !== undefined ? breakdown_capital : existing[0].breakdown_capital) || 0;
+        const int = parseFloat(breakdown_interest !== undefined ? breakdown_interest : existing[0].breakdown_interest) || 0;
+        const chg = parseFloat(breakdown_charges !== undefined ? breakdown_charges : existing[0].breakdown_charges) || 0;
+        const sumBd = Math.round((cap + int + chg) * 100) / 100;
+        if (sumBd > 0 && Math.abs(sumBd - numAmount) > 0.05) {
+          return res.status(400).json({
+            error: `El importe pagado (RD$ ${numAmount.toFixed(2)}) debe coincidir con la suma del desglose: Capital RD$ ${cap.toFixed(2)} + Interés RD$ ${int.toFixed(2)} + Cargos RD$ ${chg.toFixed(2)} = RD$ ${sumBd.toFixed(2)}.`
+          });
+        }
+      }
 
       // Validación de soporte documental al editar
       if (attachment_data) {
@@ -623,8 +642,7 @@ function createExpensesRouter(pool) {
       const [updatedRows] = await pool.query('SELECT * FROM expenses WHERE id = ?', [id]);
       return res.json(updatedRows[0]);
     } catch (err) {
-      console.error('[EXPENSES] Error en PUT /:id:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en PUT /:id');
     }
   });
 
@@ -673,8 +691,7 @@ function createExpensesRouter(pool) {
         expense: updatedRows[0]
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en voidHandler:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en anulación de egreso');
     }
   };
 
@@ -728,8 +745,7 @@ function createExpensesRouter(pool) {
         mime: record.attachment_mime || 'application/pdf'
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en GET /:id/attachment:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en descarga de soporte');
     }
   });
 
@@ -903,8 +919,7 @@ function createExpensesRouter(pool) {
         }
       });
     } catch (err) {
-      console.error('[EXPENSES] Error en conciliación JSON -> MySQL:', err.message);
-      return res.status(500).json({ error: err.message });
+      return handleSqlError(err, res, 'Error en conciliación JSON -> MySQL');
     }
   });
 

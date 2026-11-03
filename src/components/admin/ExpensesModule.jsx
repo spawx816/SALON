@@ -20,6 +20,7 @@ export default function ExpensesModule() {
   const [loans, setLoans] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [salons, setSalons] = useState([]);
+  const [migrationPending, setMigrationPending] = useState(false);
 
   // Período y filtros (por defecto Octubre 2026 alineado con la línea base y datos del boceto)
   const [selectedYear, setSelectedYear] = useState('2026');
@@ -132,13 +133,20 @@ export default function ExpensesModule() {
   // Cargar datos iniciales
   const loadInitialCatalogs = async () => {
     try {
-      const [cList, bList, lList, aList, sList] = await Promise.all([
-        dataService.getExpenseConcepts(),
-        dataService.getExpenseBanks(),
-        dataService.getExpenseLoans(),
-        dataService.getExpenseAccounts(),
+      const [statusRes, cList, bList, lList, aList, sList] = await Promise.all([
+        dataService.getExpensesStatus().catch(() => ({ ready: false, code: 'ERROR' })),
+        dataService.getExpenseConcepts().catch(() => []),
+        dataService.getExpenseBanks().catch(() => []),
+        dataService.getExpenseLoans().catch(() => []),
+        dataService.getExpenseAccounts().catch(() => []),
         dataService.getSalons().catch(() => [])
       ]);
+
+      if (statusRes && (statusRes.code === 'MIGRATION_PENDING' || statusRes.ready === false)) {
+        setMigrationPending(true);
+      } else {
+        setMigrationPending(false);
+      }
 
       setConcepts(cList || []);
       setBanks(bList || []);
@@ -170,10 +178,19 @@ export default function ExpensesModule() {
       if (filterConcept !== 'all') params.concept = filterConcept;
 
       const res = await dataService.getExpenses(params);
+      if (res.migrationPending) {
+        setMigrationPending(true);
+        setExpenses([]);
+        return;
+      }
       setExpenses(res.records || []);
     } catch (err) {
       console.error('Error cargando egresos:', err);
-      showNotification('Error al cargar egresos', 'error');
+      if (err.message && (err.message.includes('MIGRATION_PENDING') || err.message.includes('activación') || err.message.includes("doesn't exist"))) {
+        setMigrationPending(true);
+      } else {
+        showNotification('Error al cargar egresos', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -233,7 +250,26 @@ export default function ExpensesModule() {
         return;
       }
 
+      if (migrationPending) {
+        showNotification('Módulo pendiente de activación. Ejecute la migración SQL en MySQL antes de guardar.', 'warning');
+        return;
+      }
+
       const isLoan = formData.concept_name.toLowerCase() === 'préstamos' || formData.concept_name.toLowerCase() === 'prestamos';
+
+      if (isLoan) {
+        const cap = parseFloat(formData.breakdown_capital) || 0;
+        const int = parseFloat(formData.breakdown_interest) || 0;
+        const chg = parseFloat(formData.breakdown_charges) || 0;
+        const sumBd = Math.round((cap + int + chg) * 100) / 100;
+        if (sumBd > 0 && Math.abs(sumBd - numAmount) > 0.05) {
+          showNotification(
+            `El importe total (RD$ ${numAmount.toFixed(2)}) debe coincidir con la suma del desglose: Capital RD$ ${cap.toFixed(2)} + Interés RD$ ${int.toFixed(2)} + Cargos RD$ ${chg.toFixed(2)} = RD$ ${sumBd.toFixed(2)}.`,
+            'error'
+          );
+          return;
+        }
+      }
 
       const payload = {
         ...formData,
@@ -1124,15 +1160,17 @@ export default function ExpensesModule() {
             <button
               type="button"
               onClick={() => handleSaveExpense(false)}
+              disabled={loading || migrationPending}
+              title={migrationPending ? 'Módulo pendiente de activación en base de datos' : ''}
               style={{
                 padding: '0.65rem 1.5rem',
                 borderRadius: '10px',
                 border: '1px solid #cbd5e1',
-                background: '#ffffff',
-                color: '#0f172a',
+                background: migrationPending ? '#f1f5f9' : '#ffffff',
+                color: migrationPending ? '#94a3b8' : '#0f172a',
                 fontSize: '0.9rem',
                 fontWeight: 800,
-                cursor: 'pointer'
+                cursor: migrationPending ? 'not-allowed' : 'pointer'
               }}
             >
               {editingId ? 'Actualizar' : 'Guardar'}
@@ -1142,16 +1180,18 @@ export default function ExpensesModule() {
               <button
                 type="button"
                 onClick={() => handleSaveExpense(true)}
+                disabled={loading || migrationPending}
+                title={migrationPending ? 'Módulo pendiente de activación en base de datos' : ''}
                 style={{
                   padding: '0.65rem 1.5rem',
                   borderRadius: '10px',
                   border: 'none',
-                  background: '#0284c7',
+                  background: migrationPending ? '#94a3b8' : '#0284c7',
                   color: '#ffffff',
                   fontSize: '0.9rem',
                   fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
+                  cursor: migrationPending ? 'not-allowed' : 'pointer',
+                  boxShadow: migrationPending ? 'none' : '0 2px 8px rgba(2, 132, 199, 0.25)'
                 }}
               >
                 Guardar y agregar otro

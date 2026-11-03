@@ -2,7 +2,7 @@ const http = require('http');
 const express = require('express');
 const createExpensesRouter = require('./routes/expenses.routes');
 
-function createTestMySqlPool() {
+function createTestMySqlPool(simulateMissingTables = false) {
   const store = {
     expense_concepts: [
       { id: 1, name: 'TSS', description: 'Tesorería de la Seguridad Social', is_system: 1, is_active: 1 },
@@ -70,8 +70,30 @@ function createTestMySqlPool() {
   };
 
   return {
+    _store: store,
     async query(sql, params = []) {
       const cleanSql = sql.replace(/\s+/g, ' ').trim();
+
+      if (simulateMissingTables) {
+        if (/FROM information_schema\.TABLES/i.test(cleanSql)) {
+          return [[]]; // Ninguna tabla existe
+        }
+        const err = new Error("Table 'test_db.expense_banks' doesn't exist");
+        err.code = 'ER_NO_SUCH_TABLE';
+        err.errno = 1146;
+        throw err;
+      }
+
+      if (/FROM information_schema\.TABLES/i.test(cleanSql)) {
+        return [[
+          { TABLE_NAME: 'expense_concepts' },
+          { TABLE_NAME: 'expense_banks' },
+          { TABLE_NAME: 'expense_loans' },
+          { TABLE_NAME: 'expense_accounts' },
+          { TABLE_NAME: 'expenses' }
+        ]];
+      }
+
       let table = null;
       if (/expense_concepts/i.test(cleanSql)) table = 'expense_concepts';
       else if (/expense_banks/i.test(cleanSql)) table = 'expense_banks';
@@ -111,8 +133,8 @@ function createTestMySqlPool() {
         if (table === 'expenses' && /WHERE 1=1/i.test(cleanSql)) {
           let paramIdx = 0;
           if (/AND period = \?/i.test(cleanSql)) {
-            const p = params[paramIdx++];
-            items = items.filter(r => (r.period || '').slice(0, 7) === p.slice(0, 7));
+            const p = String(params[paramIdx++] || '');
+            items = items.filter(r => String(r.period || '').slice(0, 7) === p.slice(0, 7));
           }
           items.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date) || b.id - a.id);
           return [items];
@@ -210,63 +232,102 @@ function createTestMySqlPool() {
       }
 
       return [[]];
-    },
-    _store: store
+    }
   };
 }
 
-async function runRegressionSuite() {
+async function runTests() {
   console.log('=== VERIFICACIÓN INTEGRAL DE CIERRE — MÓDULO EGRESOS ===\n');
 
-  const mockPool = createTestMySqlPool();
-  const app = express();
-  app.use(express.json({ limit: '10mb' }));
+  // A. SIMULACIÓN DE TABLAS INEXISTENTES (Comportamiento elegante 503 MIGRATION_PENDING)
+  console.log('A. [Activación] Simulando base de datos sin tablas creadas (ER_NO_SUCH_TABLE)...');
+  const missingPool = createTestMySqlPool(true);
+  const missingApp = express();
+  missingApp.use(express.json());
+  missingApp.use('/', createExpensesRouter(missingPool));
+  const missingServer = http.createServer(missingApp);
+  await new Promise(r => missingServer.listen(0, r));
+  const missingPort = missingServer.address().port;
 
-  app.use((req, res, next) => {
-    const userRole = (req.headers['x-user-role'] || '').toLowerCase();
-    if (userRole === 'client' || userRole === 'cliente') {
-      return res.status(403).json({ error: 'Acceso estrictamente denegado: Esta operación requiere privilegios de administración del sistema.' });
-    }
-    next();
-  });
-
-  const expensesRouter = createExpensesRouter(mockPool);
-  app.use('/api/expenses', expensesRouter);
-
-  const server = app.listen(0);
-  const port = server.address().port;
-  const baseUrl = `http://127.0.0.1:${port}/api/expenses`;
-
-  const request = (path, options = {}) => {
+  const checkPending = async (path, opts = {}) => {
     return new Promise((resolve, reject) => {
-      const url = `${baseUrl}${path}`;
-      const parsedUrl = new URL(url);
-      const reqOpts = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port,
-        path: parsedUrl.pathname + parsedUrl.search,
-        method: options.method || 'GET',
+      const req = http.request(`http://127.0.0.1:${missingPort}${path}`, {
+        method: opts.method || 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': options.role || 'admin',
-          'x-user-name': options.userName || 'Auditor General',
-          ...(options.headers || {})
+          'x-user-role': 'admin',
+          'x-user-name': 'Administrador'
         }
-      };
-
-      const req = http.request(reqOpts, (res) => {
+      }, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
           try {
-            const parsed = data ? JSON.parse(data) : {};
-            resolve({ status: res.statusCode, body: parsed, headers: res.headers, raw: data });
+            resolve({ status: res.statusCode, body: JSON.parse(data) });
           } catch (e) {
-            resolve({ status: res.statusCode, headers: res.headers, raw: data });
+            resolve({ status: res.statusCode, body: data });
           }
         });
       });
+      req.on('error', reject);
+      if (opts.body) req.write(JSON.stringify(opts.body));
+      req.end();
+    });
+  };
 
+  const statusPending = await checkPending('/status');
+  if (statusPending.status !== 503 || statusPending.body.code !== 'MIGRATION_PENDING') {
+    throw new Error(`Fallo: /status no retornó 503 MIGRATION_PENDING ante ausencia de tablas (recibió ${statusPending.status})`);
+  }
+  console.log('   OK: /status reporta 503 con { code: "MIGRATION_PENDING" } y lista de tablas faltantes.');
+
+  const banksPending = await checkPending('/banks');
+  if (banksPending.status !== 503 || banksPending.body.code !== 'MIGRATION_PENDING') {
+    throw new Error('Fallo: /banks no retornó 503 controlado');
+  }
+  console.log('   OK: /banks captura ER_NO_SUCH_TABLE y retorna 503 limpio sin error SQL interno.');
+
+  const expensesPending = await checkPending('/');
+  if (expensesPending.status !== 503 || expensesPending.body.code !== 'MIGRATION_PENDING') {
+    throw new Error('Fallo: GET / no retornó 503 controlado');
+  }
+  console.log('   OK: GET / captura ER_NO_SUCH_TABLE y responde 503 MIGRATION_PENDING.');
+
+  missingServer.close();
+
+  // B. BASE DE DATOS ACTIVADA Y FUNCIONAMIENTO COMPLETO
+  const mockPool = createTestMySqlPool(false);
+  const app = express();
+  app.use(express.json({ limit: '10mb' }));
+  app.use('/', createExpensesRouter(mockPool));
+
+  const server = http.createServer(app);
+  await new Promise(r => server.listen(0, r));
+  const port = server.address().port;
+
+  const request = (path, options = {}) => {
+    return new Promise((resolve, reject) => {
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-user-role': options.role || 'admin',
+        'x-user-name': options.userName || 'Auditor General'
+      };
+      const req = http.request(`http://127.0.0.1:${port}${path}`, {
+        method: options.method || 'GET',
+        headers
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          let parsed;
+          try {
+            parsed = JSON.parse(data);
+          } catch (_) {
+            parsed = data;
+          }
+          resolve({ status: res.statusCode, headers: res.headers, body: parsed });
+        });
+      });
       req.on('error', reject);
       if (options.body) req.write(JSON.stringify(options.body));
       req.end();
@@ -274,30 +335,57 @@ async function runRegressionSuite() {
   };
 
   try {
-    // 1. Seguridad reconcile-json: Rechazar sin rol admin
-    console.log('1. [Seguridad] Verificando bloqueo de reconcile-json sin rol admin...');
+    // 1. Verificación de Status cuando está activo
+    console.log('\nB. [Ciclo Completo] Verificando módulo con tablas activadas...');
+    const statusReady = await request('/status');
+    if (statusReady.status !== 200 || statusReady.body.code !== 'READY') {
+      throw new Error('Fallo: /status no retornó 200 READY');
+    }
+    console.log('1. [Estado] /status reporta 200 READY con las 5 tablas existentes.');
+
+    // 2. Seguridad reconcile-json: Bloqueo a no-admin
+    console.log('2. [Seguridad] Verificando bloqueo de reconcile-json sin rol admin...');
     const recNoAuth = await request('/reconcile-json', { method: 'POST', role: 'reception', body: { confirm: true } });
     if (recNoAuth.status !== 403) throw new Error(`Fallo: esperó 403 y recibió ${recNoAuth.status}`);
     console.log('   OK: Rechazado con 403 a usuarios no administradores.');
 
-    // 2. Seguridad reconcile-json: Rechazar sin confirmación explícita
-    console.log('2. [Seguridad] Verificando protección contra ejecución accidental en reconcile-json...');
+    // 3. Seguridad reconcile-json: Rechazar sin confirmación explícita
+    console.log('3. [Seguridad] Verificando protección contra ejecución accidental en reconcile-json...');
     const recNoConfirm = await request('/reconcile-json', { method: 'POST', role: 'admin', body: {} });
     if (recNoConfirm.status !== 400 || !recNoConfirm.body.error.includes('confirmación')) {
-      throw new Error(`Fallo: esperó 400 con mensaje de confirmación requerida y recibió ${recNoConfirm.status}`);
+      throw new Error(`Fallo: esperó 400 con mensaje de confirmación requerida`);
     }
     console.log('   OK: Bloqueado con 400 requiriendo { "confirm": true }.');
 
-    // 3. Idempotencia de reconcile-json
-    console.log('3. [Idempotencia] Ejecutando conciliación confirmada...');
+    // 4. Idempotencia de reconcile-json
+    console.log('4. [Idempotencia] Ejecutando conciliación confirmada...');
     const recSuccess = await request('/reconcile-json', { method: 'POST', role: 'admin', body: { confirm: true } });
     if (recSuccess.status !== 200 || !recSuccess.body.success) {
       throw new Error('Fallo en conciliación autorizada');
     }
     console.log('   OK: Conciliación ejecutada sin errores.');
 
-    // 4. Seguridad de soportes: Rechazar archivos no permitidos
-    console.log('4. [Seguridad] Verificando rechazo de tipos de archivo maliciosos/no permitidos (.exe, .html)...');
+    // 5. Integridad financiera: Rechazar desglose de préstamo que no cuadre con el total
+    console.log('5. [Integridad] Verificando rechazo de préstamo con desglose que no concilie con el total...');
+    const mismatchLoan = await request('/', {
+      method: 'POST',
+      body: {
+        concept_name: 'Préstamos',
+        payment_date: '2026-10-31',
+        amount: 25000.00,
+        payment_method: 'Transferencia',
+        breakdown_capital: 10000.00,
+        breakdown_interest: 5000.00,
+        breakdown_charges: 1000.00 // Suma: 16,000 != 25,000
+      }
+    });
+    if (mismatchLoan.status !== 400 || !mismatchLoan.body.error.includes('coincidir')) {
+      throw new Error('Fallo: no rechazó desglose que no concilia');
+    }
+    console.log('   OK: Desglose no conciliado rechazado con 400.');
+
+    // 6. Seguridad de soportes: Rechazar archivos no permitidos
+    console.log('6. [Seguridad] Verificando rechazo de tipos de archivo maliciosos (.exe, .html)...');
     const badFileRes = await request('/', {
       method: 'POST',
       body: {
@@ -310,12 +398,12 @@ async function runRegressionSuite() {
         attachment_mime: 'application/x-msdownload'
       }
     });
-    if (badFileRes.status !== 400) throw new Error(`Fallo: esperó 400 por MIME malicioso y recibió ${badFileRes.status}`);
+    if (badFileRes.status !== 400) throw new Error(`Fallo: esperó 400 por MIME malicioso`);
     console.log('   OK: Archivos no autorizados rechazados con código 400.');
 
-    // 5. Seguridad de soportes: Rechazar archivos que excedan 5MB
-    console.log('5. [Seguridad] Verificando rechazo de archivos > 5MB...');
-    const largePayload = 'A'.repeat(8 * 1024 * 1024); // 8MB
+    // 7. Seguridad de soportes: Rechazar archivos que excedan 5MB
+    console.log('7. [Seguridad] Verificando rechazo de archivos > 5MB...');
+    const largePayload = 'A'.repeat(8 * 1024 * 1024);
     const largeFileRes = await request('/', {
       method: 'POST',
       body: {
@@ -328,11 +416,11 @@ async function runRegressionSuite() {
         attachment_mime: 'application/pdf'
       }
     });
-    if (largeFileRes.status !== 400) throw new Error(`Fallo: esperó 400 por tamaño excesivo y recibió ${largeFileRes.status}`);
+    if (largeFileRes.status !== 400) throw new Error(`Fallo: esperó 400 por tamaño excesivo`);
     console.log('   OK: Archivos mayores a 5MB rechazados con código 400.');
 
-    // 6. Registro de egreso legítimo con soporte PDF
-    console.log('6. [Persistencia] Registrando egreso válido con soporte PDF y desglose...');
+    // 8. Registro de egreso legítimo con soporte PDF
+    console.log('8. [Persistencia] Registrando egreso válido con soporte PDF y desglose conciliado...');
     const validExpRes = await request('/', {
       method: 'POST',
       body: {
@@ -359,8 +447,32 @@ async function runRegressionSuite() {
     const createdId = validExpRes.body.id;
     console.log(`   OK: Egreso creado con ID ${createdId}.`);
 
-    // 7. Descarga segura y headers de soporte
-    console.log('7. [Seguridad] Verificando headers de descarga de soporte (X-Content-Type-Options: nosniff)...');
+    // 9. Consulta de detalle de egreso por ID (GET /:id)
+    console.log('9. [Consulta] Consultando egreso por ID...');
+    const getByIdRes = await request(`/${createdId}`);
+    if (getByIdRes.status !== 200 || String(getByIdRes.body.id) !== String(createdId)) {
+      throw new Error('Fallo consultando egreso por ID');
+    }
+    console.log(`   OK: Detalle recuperado correctamente para egreso #${createdId}.`);
+
+    // 10. Modificación de egreso (PUT /:id)
+    console.log('10. [Edición] Modificando egreso...');
+    const updateRes = await request(`/${createdId}`, {
+      method: 'PUT',
+      body: {
+        concept_name: 'Préstamos',
+        amount: 25000.00,
+        reference: 'TRX-VALID-MODIFIED',
+        breakdown_capital: 19000.00,
+        breakdown_interest: 5000.00,
+        breakdown_charges: 1000.00
+      }
+    });
+    if (updateRes.status !== 200) throw new Error('Fallo al actualizar egreso');
+    console.log('   OK: Egreso actualizado exitosamente.');
+
+    // 11. Descarga segura y headers de soporte
+    console.log('11. [Seguridad] Verificando headers de descarga de soporte (X-Content-Type-Options: nosniff)...');
     const attachRes = await request(`/${createdId}/attachment`);
     if (attachRes.status !== 200) throw new Error('Fallo recuperando soporte');
     if (attachRes.headers['x-content-type-options'] !== 'nosniff') {
@@ -368,15 +480,15 @@ async function runRegressionSuite() {
     }
     console.log('   OK: Soporte servido con X-Content-Type-Options: nosniff y Content-Disposition sanitizado.');
 
-    // 8. Trazabilidad de Auditoría (audit_logs)
-    console.log('8. [Auditoría] Verificando eventos en audit_logs...');
+    // 12. Trazabilidad de Auditoría (audit_logs)
+    console.log('12. [Auditoría] Verificando eventos en audit_logs...');
     const auditLogs = mockPool._store.audit_logs;
     const createEvent = auditLogs.find(a => a.action === 'CREATE_EXPENSE' && String(a.entity_id) === String(createdId));
     if (!createEvent) throw new Error('No se encontró evento CREATE_EXPENSE en audit_logs');
     console.log(`   OK: Evento CREATE_EXPENSE registrado por "${createEvent.user_name}".`);
 
-    // 9. Integridad de totales y anulación
-    console.log('9. [Integridad] Verificando anulación y exclusión estricta de totales...');
+    // 13. Integridad de totales y anulación
+    console.log('13. [Integridad] Verificando anulación y exclusión estricta de totales...');
     const listBeforeVoid = await request('/?period=2026-10');
     const totalBefore = listBeforeVoid.body.total_amount;
 
@@ -396,26 +508,27 @@ async function runRegressionSuite() {
     }
     console.log(`   OK: Total recalculado de RD$ ${totalBefore} a RD$ ${listAfterVoid.body.total_amount} (sustracción exacta de RD$ 25,000.00).`);
 
-    // 10. Evento VOID_EXPENSE en auditoría
+    // 14. Evento VOID_EXPENSE en auditoría
+    console.log('14. [Auditoría] Verificando evento VOID_EXPENSE en audit_logs...');
     const voidEvent = auditLogs.find(a => a.action === 'VOID_EXPENSE' && String(a.entity_id) === String(createdId));
     if (!voidEvent || voidEvent.reason !== 'Error en fecha de aplicación contable') {
       throw new Error('Evento VOID_EXPENSE no contiene la justificación requerida');
     }
     console.log(`   OK: Evento VOID_EXPENSE registrado en audit_logs con motivo: "${voidEvent.reason}".`);
 
-    // 11. RBAC estricto a clientes
-    console.log('11. [RBAC] Comprobando denegación total a clientes...');
+    // 15. RBAC estricto a clientes
+    console.log('15. [RBAC] Comprobando denegación total a clientes...');
     const clientBlocked = await request(`/${createdId}/attachment`, { role: 'client' });
     if (clientBlocked.status !== 403) throw new Error('Fallo: cliente no recibió 403');
     console.log('   OK: Acceso denegado con 403 a usuarios con rol client/cliente.');
 
-    console.log('\n=== CIERRE Y VALIDACIÓN COMPLETADA CON ÉXITO: 11/11 PRUEBAS APROBADAS ===');
+    console.log('\n=== CIERRE Y VALIDACIÓN COMPLETADA CON ÉXITO: 15/15 PRUEBAS APROBADAS ===');
   } finally {
     server.close();
   }
 }
 
-runRegressionSuite().catch(err => {
-  console.error('\nERROR EN REGRESIÓN DE CIERRE:', err);
+runTests().catch(err => {
+  console.error('\nERROR EN PRUEBAS:', err);
   process.exit(1);
 });
