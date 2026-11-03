@@ -165,9 +165,11 @@ const AppContent = () => {
 
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
+  const isAccountant = user?.role?.toLowerCase() === 'contador' || user?.role_name?.toLowerCase() === 'contador';
   const isReceptionProfile = Boolean(
     !isAdmin &&
     !isClient &&
+    !isAccountant &&
     (
       user?.role?.toLowerCase()?.includes('recep') ||
       user?.role_name?.toLowerCase()?.includes('recep') ||
@@ -390,11 +392,15 @@ const AppContent = () => {
             </>
           ) : (
             <>
-              <p className="nav-group-title">{t('menu.principal')}</p>
-              <SidebarLink to="/" icon={LayoutDashboard} label={t('menu.dashboard')} active={location.pathname === '/'} onClick={closeMobileMenu} />
+              {!isAccountant && (
+                <>
+                  <p className="nav-group-title">{t('menu.principal')}</p>
+                  <SidebarLink to="/" icon={LayoutDashboard} label={t('menu.dashboard')} active={location.pathname === '/'} onClick={closeMobileMenu} />
+                </>
+              )}
               
               {/* Menú Desplegable Ventas */}
-              {(isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits || user.permissions.manage_salons || user.permissions.manage_services))) && (
+              {!isAccountant && (isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits || user.permissions.manage_salons || user.permissions.manage_services))) && (
                 <div style={{ margin: '0.2rem 0' }}>
                   <button
                     type="button"
@@ -471,7 +477,7 @@ const AppContent = () => {
               )}
 
               {/* Menú Desplegable Suscripciones */}
-              {(isAdmin || (user?.permissions && (
+              {!isAccountant && (isAdmin || (user?.permissions && (
                 user.permissions.manage_clients || 
                 user.permissions.view_contracts || 
                 user.permissions.process_payments || 
@@ -600,7 +606,7 @@ const AppContent = () => {
               )}
 
               {/* Menú Desplegable Equipo */}
-              {(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_attendance || user?.role_name?.toLowerCase()?.includes('recep')))) && (
+              {!isAccountant && (isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_attendance || user?.role_name?.toLowerCase()?.includes('recep')))) && (
                 <div style={{ margin: '0.2rem 0' }}>
                   <button
                     type="button"
@@ -651,7 +657,7 @@ const AppContent = () => {
             </>
           )}
 
-          {(isAdmin || 
+          {!isAccountant && (isAdmin || 
             user?.permissions?.manage_staff || 
             user?.permissions?.view_analytics || 
             user?.permissions?.manage_salons || 
@@ -841,8 +847,9 @@ const AppContent = () => {
                 </div>
               )}
               
-              {isAdmin && (
+              {(isAdmin || isAccountant) && (
                 <>
+                  {isAccountant && <p className="nav-group-title">Módulo Contable</p>}
                   {/* Menú Desplegable Contabilidad */}
                   <div style={{ margin: '0.2rem 0' }}>
                     <button
@@ -948,13 +955,13 @@ const AppContent = () => {
               }}
             >
               <Routes location={location}>
-                <Route path="/" element={isClient ? <ClientDashboard /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)} />
+                <Route path="/" element={isClient ? <ClientDashboard /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />))} />
                 <Route path="/registro-cliente" element={isClient ? <Navigate to="/" /> : <ClientRegistration />} />
                 <Route path="/lista-clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
                 <Route path="/clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
-                <Route path="/visitas" element={isClient ? <Navigate to="/" /> : <VisitRecorder />} />
-                <Route path="/cajas" element={(isAdmin || (user?.permissions && user.permissions.process_payments)) ? <CashRegistersModule /> : <Navigate to="/" />} />
-                <Route path="/facturas" element={isAdmin ? <InvoiceHistory /> : <Navigate to="/" />} />
+                <Route path="/visitas" element={isAccountant ? <Navigate to="/egresos" replace /> : (isClient ? <Navigate to="/" /> : <VisitRecorder />)} />
+                <Route path="/cajas" element={isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || (user?.permissions && user.permissions.process_payments)) ? <CashRegistersModule /> : <Navigate to="/" />)} />
+                <Route path="/facturas" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <InvoiceHistory /> : <Navigate to="/" />)} />
                 <Route path="/descuentos-empleados" element={(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) ? <EmployeeDiscountsModule /> : <Navigate to="/" />} />
                 <Route path="/servicios" element={isClient ? <Navigate to="/" /> : <ServiceManagement />} />
                 <Route path="/comisiones" element={isClient ? <Navigate to="/" /> : <CommissionManagement />} />
@@ -963,11 +970,11 @@ const AppContent = () => {
                 <Route path="/regalar" element={<GiftCertificates />} />
                 <Route path="/mis-servicios" element={<ClientServices />} />
                 <Route path="/activar" element={<ActivateAccount />} />
-                <Route path="/equipo" element={isAdmin ? <StaffModule /> : <Navigate to="/" />} />
-                <Route path="/nomina" element={isAdmin ? <PayrollModule /> : <Navigate to="/" />} />
+                <Route path="/equipo" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <StaffModule /> : <Navigate to="/" />)} />
+                <Route path="/nomina" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <PayrollModule /> : <Navigate to="/" />)} />
                 <Route path="/nomina/historial" element={isAdmin ? <PayrollModule initialTab="historical" /> : <Navigate to="/" />} />
                 <Route path="/nomina/regalias" element={isAdmin ? <PayrollModule initialTab="regalias" /> : <Navigate to="/" />} />
-                <Route path="/seguridad" element={isAdmin ? <SecurityModule /> : <Navigate to="/" />} />
+                <Route path="/seguridad" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <SecurityModule /> : <Navigate to="/" />)} />
                 <Route path="/sucursales" element={isAdmin ? <SalonsModule /> : <Navigate to="/" />} />
                 <Route path="/planes" element={isAdmin ? <PlansModule /> : <Navigate to="/" />} />
                 <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />
@@ -975,16 +982,16 @@ const AppContent = () => {
                 <Route path="/analitica" element={(isAdmin || user?.permissions?.view_analytics) ? <ServiceAnalytics /> : <Navigate to="/" />} />
                 <Route path="/bi" element={(isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />} />
                 <Route path="/inteligencia-negocios" element={(isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />} />
-                <Route path="/contabilidad" element={isAdmin ? <Navigate to="/contabilidad/reporte-607" replace /> : <Navigate to="/" />} />
-                <Route path="/secuencias-dgii" element={isAdmin ? <DgiiSequencesModule /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/notas-credito" element={isAdmin ? <CreditNotesModule /> : <Navigate to="/" />} />
-                <Route path="/notas-credito" element={isAdmin ? <CreditNotesModule /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/reporte-607" element={isAdmin ? <Reporte607Module /> : <Navigate to="/" />} />
-                <Route path="/reporte-607" element={isAdmin ? <Reporte607Module /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/reporte-606" element={isAdmin ? <Reporte606Module /> : <Navigate to="/" />} />
-                <Route path="/reporte-606" element={isAdmin ? <Reporte606Module /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/egresos" element={isAdmin ? <ExpensesModule /> : <Navigate to="/" />} />
-                <Route path="/egresos" element={isAdmin ? <ExpensesModule /> : <Navigate to="/" />} />
+                <Route path="/contabilidad" element={(isAdmin || isAccountant) ? <Navigate to="/egresos" replace /> : <Navigate to="/" />} />
+                <Route path="/secuencias-dgii" element={(isAdmin || isAccountant) ? <DgiiSequencesModule /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/notas-credito" element={(isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />} />
+                <Route path="/notas-credito" element={(isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/reporte-607" element={(isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />} />
+                <Route path="/reporte-607" element={(isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/reporte-606" element={(isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />} />
+                <Route path="/reporte-606" element={(isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/egresos" element={(isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />} />
+                <Route path="/egresos" element={(isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />} />
                 <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />
                 <Route path="/contratos" element={isClient ? <Navigate to="/" /> : <DigitalContract />} />
                 <Route path="/admin/asistencia" element={(isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />} />

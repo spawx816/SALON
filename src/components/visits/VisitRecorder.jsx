@@ -288,7 +288,7 @@ const VisitRecorder = () => {
     )
   );
 
-  const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && activePlans && activePlans.length > 0);
+  const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && !isPendingPayment && activePlans && activePlans.length > 0);
 
   // Birthday discount tracking
   const [birthdayDiscountActive, setBirthdayDiscountActive] = useState(false);
@@ -965,12 +965,63 @@ const VisitRecorder = () => {
       });
     }
 
+    // Lifetime check for welcome promo gifts (Opción A: Lavado extra, Opción B: Tratamiento profundo)
+    const contractStartTime = parseDate(contract?.signed_at || contract?.created_at);
+    const allContractVisits = contractStartTime > 0 
+      ? visitsSource.filter(v => parseDate(v.visited_at) >= (contractStartTime - 60000))
+      : visitsSource;
+
+    let lifetimePromoUsed = 0;
+    allContractVisits.forEach(v => {
+      let visitPromoCount = 0;
+      let sList = v.servicios || [];
+      if (typeof sList === 'string') {
+        try { sList = JSON.parse(sList); } catch { sList = sList.split(',').map(x => x.trim()); }
+      }
+      if (Array.isArray(sList) && sList.length > 0) {
+        sList.forEach(s => {
+          if (typeof s === 'string' && (s.toLowerCase().includes('promo') || s.toLowerCase().includes('regalo'))) {
+            visitPromoCount++;
+          }
+        });
+      }
+      try {
+        if (v.items_detail) {
+          const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+          if (Array.isArray(parsed)) {
+            parsed.forEach(i => {
+              const iName = (i.nombre || i.servicio || '').toLowerCase();
+              if (i.isPromoGift || iName.includes('regalo plan beauty') || iName.includes('plan beauty promo') || (i.service_id && String(i.service_id).includes('promo'))) {
+                visitPromoCount += (Number(i.cantidad) || 1);
+              }
+            });
+          }
+        }
+      } catch (_) {}
+      lifetimePromoUsed += visitPromoCount;
+    });
+
+    // In-cart promo gifts in current lineItems
+    const inCartPromoCount = (lineItems || []).filter(i => i.isPromoGift || (i.nombre && i.nombre.includes('Regalo Plan Beauty'))).length;
+
     // Excess washes beyond base quota also consume promo wash
     const excessWashes = Math.max(0, totalCycleWashesUsed - totalAllowedWashes);
-    promoUsed = Math.max(promoUsed, totalCyclePromoUsed, excessWashes);
+    promoUsed = Math.max(promoUsed, totalCyclePromoUsed, lifetimePromoUsed, excessWashes);
 
-    const remainingPromoServices = Math.max(0, totalPromoAllowed - promoUsed);
-    const totalBenefitsAvailable = remainingBaseWashes + remainingPromoServices;
+    const remainingPromoServices = Math.max(0, totalPromoAllowed - promoUsed - inCartPromoCount);
+    const totalBenefitsAvailable = isPendingPayment ? 0 : (remainingBaseWashes + remainingPromoServices);
+
+    if (isPendingPayment) {
+      return {
+        totalBenefitsAvailable: 0,
+        regularWashesCount: 0,
+        extraBenefitsCount: 0,
+        totalAllowedWashes,
+        baseUsed,
+        promoUsed,
+        isPromoActive
+      };
+    }
 
     return {
       totalBenefitsAvailable,
@@ -1594,9 +1645,14 @@ const VisitRecorder = () => {
 
       setClientContracts(contractsFound || []);
 
-      // Filter only Active / Pending_Retry contracts
+      // Filter strictly Active contracts (exclude Pending_Payment, Pending_Retry, Past_Due, Suspended)
       const activeContracts = (Array.isArray(contractsFound) ? contractsFound : []).filter(
-        c => c.status === 'Active' || c.status === 'Activo' || c.status === 'Pending_Retry'
+        c => (c.status === 'Active' || c.status === 'Activo') && 
+             c.status !== 'Pending_Retry' && 
+             c.status !== 'Pending_Payment' && 
+             c.status !== 'Past_Due' && 
+             c.status !== 'Suspended' && 
+             c.status !== 'Suspendido'
       );
 
       let pastVisits = [];
@@ -2128,8 +2184,13 @@ const VisitRecorder = () => {
     }
   };
 
-  // Plan Beauty Wash Direct Redemption (RD$ 0.00 Included)
-  const addPlanWashToTicket = () => {
+  // Plan Beauty Wash Direct Redemption (RD$ 0.00 Included) & Welcome Promo Gift
+  const addPlanWashToTicket = (isPromoTreatment = false) => {
+    if (isPendingPayment) {
+      alert('Membresía con cobro pendiente. Regularice el pago para utilizar sus beneficios.');
+      return;
+    }
+
     const regWashes = getRegularWashesCount();
     const extraWashes = getExtraBenefitsCount();
     const totalAvail = getBenefitsCount();
@@ -2138,15 +2199,38 @@ const VisitRecorder = () => {
       alert('El cliente no tiene beneficios disponibles en su Plan Beauty para este ciclo.');
       return;
     }
-    const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
+    const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && (i.nombre.includes('Plan Beauty') || i.nombre.includes('Regalo Plan Beauty'))));
     if (alreadyHasPlanWash) {
-      alert('ℹ️ Ya se ha incluido el beneficio del Plan Beauty en esta factura.');
+      alert('ℹ️ Ya se ha incluido un beneficio de Plan Beauty en esta factura.');
+      return;
+    }
+
+    if (isPromoTreatment) {
+      if (extraWashes <= 0) {
+        alert('ℹ️ No tiene disponibles tratamientos profundos de regalo en su membresía.');
+        return;
+      }
+      const newPromoTreatmentItem = {
+        id: Date.now() + Math.random(),
+        service_id: 'plan-beauty-treatment-promo',
+        nombre: 'Tratamiento Profundo (Regalo Plan Beauty)',
+        precioBase: 0,
+        precioAplicado: 0,
+        descuento: 0,
+        cantidad: 1,
+        empleado: '',
+        empleado_id: '',
+        empleado_nombre: '',
+        isPlanWash: true,
+        isPromoGift: true
+      };
+      setLineItems([newPromoTreatmentItem, ...lineItems]);
       return;
     }
 
     const isExtra = regWashes <= 0 && extraWashes > 0;
     const washTitle = isExtra 
-      ? 'Lavado Extra / Tratamiento Profundo (Plan Beauty Promo)'
+      ? 'Lavado Extra (Regalo Plan Beauty)'
       : 'Lavado y Secado (Plan Beauty)';
 
     const newWashItem = {
@@ -2160,7 +2244,8 @@ const VisitRecorder = () => {
       empleado: '',
       empleado_id: '',
       empleado_nombre: '',
-      isPlanWash: true
+      isPlanWash: true,
+      isPromoGift: isExtra
     };
 
     setLineItems([newWashItem, ...lineItems]);
@@ -7138,18 +7223,54 @@ const VisitRecorder = () => {
             </div>
 
             {/* MODAL FOOTER */}
-            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: (hasActivePlan && getBenefitsCount() > 0) ? 'space-between' : 'flex-end', alignItems: 'center', gap: '0.75rem' }}>
-              {hasActivePlan && getBenefitsCount() > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    addPlanWashToTicket();
-                    setShowPlanDetailsModal(false);
-                  }}
-                  style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                >
-                  <span>+ Canjear {getRegularWashesCount() > 0 ? 'Lavado' : 'Beneficio Extra'}</span>
-                </button>
+            <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: (hasActivePlan && getBenefitsCount() > 0) ? 'space-between' : 'flex-end', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              {isPendingPayment ? (
+                <div style={{ color: '#b45309', fontWeight: 800, fontSize: '0.85rem' }}>
+                  ⚠️ Membresía con cobro pendiente. Regularice el pago para utilizar sus beneficios.
+                </div>
+              ) : (
+                hasActivePlan && (
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {getRegularWashesCount() > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          addPlanWashToTicket(false);
+                          setShowPlanDetailsModal(false);
+                        }}
+                        style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      >
+                        <span>+ Canjear Lavado</span>
+                      </button>
+                    )}
+                    {getExtraBenefitsCount() > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addPlanWashToTicket(true);
+                            setShowPlanDetailsModal(false);
+                          }}
+                          style={{ background: '#7c3aed', color: '#ffffff', border: 'none', padding: '0.65rem 1rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                        >
+                          <span>🎁 Regalo: Tratamiento</span>
+                        </button>
+                        {getRegularWashesCount() <= 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              addPlanWashToTicket(false);
+                              setShowPlanDetailsModal(false);
+                            }}
+                            style={{ background: '#ca8a04', color: '#ffffff', border: 'none', padding: '0.65rem 1rem', borderRadius: '12px', fontSize: '0.825rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                          >
+                            <span>🎁 Regalo: Lavado Extra</span>
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
               )}
               <button
                 type="button"

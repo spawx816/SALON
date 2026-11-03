@@ -10,6 +10,27 @@ const nodemailer = require('nodemailer');
 function createAttendanceRouter(pool) {
   const router = express.Router();
 
+  function isScheduleComplete(emp) {
+    if (!emp) return false;
+    if (emp.dias_laborables && typeof emp.dias_laborables === 'string' && emp.dias_laborables.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(emp.dias_laborables);
+        const keys = Object.keys(parsed);
+        if (keys.length > 0) {
+          return keys.some(k => parsed[k] && parsed[k].entrada && parsed[k].salida);
+        }
+      } catch (e) {}
+      return false;
+    }
+    const he = String(emp.hora_entrada || '').trim();
+    const hs = String(emp.hora_salida || '').trim();
+    const dl = String(emp.dias_laborables || '').trim();
+    if (!he || he === '00:00:00') return false;
+    if (!hs || hs === '00:00:00') return false;
+    if (!dl || dl === '[]' || dl === '""' || dl === "''") return false;
+    return true;
+  }
+
 // === ATTENDANCE / PONCHEO ===
 
 // PUT /api/users/:id/profile-photo - Save profile photo (base64) for facial recognition
@@ -581,6 +602,12 @@ router.post('/punch', async (req, res) => {
       }
     }
 
+    // Si falta cualquier componente obligatorio del horario, no generar tardanzas automáticas
+    if (!isScheduleComplete(emp) && overrides.length === 0) {
+      baseHoraEntrada = null;
+      baseHoraSalida = null;
+    }
+
     const effectiveHoraEntrada = overrides.length > 0 ? overrides[0].new_hora_entrada : baseHoraEntrada;
     const effectiveHoraSalida = overrides.length > 0 ? overrides[0].new_hora_salida : baseHoraSalida;
     
@@ -622,10 +649,10 @@ router.post('/punch', async (req, res) => {
       if (checkins.length > 0) {
         const checkinDRString = new Date(checkins[0].timestamp).toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' });
         actualCheckinDate = new Date(checkinDRString);
-      } else if (effectiveHoraEntrada) {
-        const [entH, entM, entS] = effectiveHoraEntrada.split(':').map(Number);
-        actualCheckinDate = new Date(nowDRString);
-        actualCheckinDate.setHours(entH, entM, entS || 0, 0);
+      } else {
+        // Ponche de salida sin entrada registrada hoy
+        status = 'Salida Sin Entrada';
+        console.warn(`⚠️ [ASISTENCIA]: Empleado ${employeeId} registró Salida sin ponche de Entrada previo hoy.`);
       }
 
       // Punto 2: Nueva regla de entradas anticipadas:
@@ -886,9 +913,14 @@ router.get('/history', async (req, res) => {
             console.error("Error parsing daily schedule JSON for employee", emp.id, e.message);
           }
         } else {
-          const workingDays = (emp.dias_laborables || '').split(',');
-          const normalizedDay = normalizeDayName(dayName);
-          isWorkingDay = emp.dias_laborables && workingDays.some(d => normalizeDayName(d) === normalizedDay);
+          // Si el empleado no tiene horario completo (falta hora_entrada, hora_salida o dias_laborables), NUNCA marcar como día laboral
+          if (!isScheduleComplete(emp)) {
+            isWorkingDay = false;
+          } else {
+            const workingDays = (emp.dias_laborables || '').split(',');
+            const normalizedDay = normalizeDayName(dayName);
+            isWorkingDay = workingDays.some(d => normalizeDayName(d) === normalizedDay);
+          }
         }
 
         const lookupKey = `${emp.id}:${dateStr}`;
@@ -1163,9 +1195,13 @@ router.get('/pending', async (req, res) => {
             }
           } catch (e) {}
         } else {
-          const workingDays = (emp.dias_laborables || '').split(',');
-          const normalizedDay = normalizeDayName(dayName);
-          isWorkingDay = emp.dias_laborables && workingDays.some(d => normalizeDayName(d) === normalizedDay);
+          if (!isScheduleComplete(emp)) {
+            isWorkingDay = false;
+          } else {
+            const workingDays = (emp.dias_laborables || '').split(',');
+            const normalizedDay = normalizeDayName(dayName);
+            isWorkingDay = workingDays.some(d => normalizeDayName(d) === normalizedDay);
+          }
         }
 
         // Apply override if active
@@ -1440,7 +1476,128 @@ router.post('/adjust', async (req, res) => {
       }
     }
 
-    res.json({ success: true, message: 'Registro de asistencia regularizado con éxito.' });
+    // 4. Recálculo automático integral del día (Horas trabajadas, descansos, tardanzas, extras)
+    const [finalPunches] = await pool.query(
+      "SELECT id, type, timestamp, status, lateness_minutes, extra_minutes FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? ORDER BY timestamp ASC",
+      [employeeId, date]
+    );
+
+    const checkInPunch = finalPunches.find(p => p.type === 'Check-In');
+    const checkOutPunch = [...finalPunches].reverse().find(p => p.type === 'Check-Out');
+
+    let recalculatedSummary = {
+      employeeId,
+      date,
+      hasCheckIn: Boolean(checkInPunch),
+      hasCheckOut: Boolean(checkOutPunch),
+      workedMinutes: 0,
+      workedHours: 0,
+      breakMinutes: 0,
+      latenessMinutes: checkInPunch ? Number(checkInPunch.lateness_minutes || 0) : 0,
+      extraMinutes: checkOutPunch ? Number(checkOutPunch.extra_minutes || 0) : 0,
+      status: 'Incompleto'
+    };
+
+    if (checkInPunch && checkOutPunch) {
+      const inTime = new Date(checkInPunch.timestamp).getTime();
+      let outTime = new Date(checkOutPunch.timestamp).getTime();
+      
+      // Contemplar turnos nocturnos y jornadas que cruzan la medianoche
+      if (outTime < inTime) {
+        outTime += 24 * 60 * 60 * 1000;
+      }
+
+      const grossMinutes = Math.max(0, Math.floor((outTime - inTime) / (1000 * 60)));
+      
+      // 1. Verificar si existen ponches intermedios de descanso o múltiples turnos en el día
+      let punchedBreakMins = 0;
+      const allIns = finalPunches.filter(p => p.type === 'Check-In').sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+      const allOuts = finalPunches.filter(p => p.type === 'Check-Out').sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+      
+      if (allIns.length > 1 && allOuts.length > 1) {
+        for (let i = 0; i < allOuts.length - 1; i++) {
+          const outT = new Date(allOuts[i].timestamp).getTime();
+          const nextInT = new Date(allIns[i + 1].timestamp).getTime();
+          if (nextInT > outT) {
+            punchedBreakMins += Math.round((nextInT - outT) / 60000);
+          }
+        }
+      }
+      
+      const breakPunches = finalPunches.filter(p => 
+        p.type && (p.type.toLowerCase().includes('descanso') || p.type.toLowerCase().includes('break') || p.type.toLowerCase().includes('almuerzo'))
+      );
+      if (breakPunches.length > 0) {
+        punchedBreakMins += breakPunches.reduce((acc, p) => acc + (Number(p.extra_minutes || p.lateness_minutes || 60)), 0);
+      }
+
+      let breakMins = 0;
+      if (punchedBreakMins > 0) {
+        // Si existen ponches de descanso, se utiliza el descanso ponchado para evitar descontarlo dos veces
+        breakMins = punchedBreakMins;
+      } else if (req.body.breakMinutes !== undefined || req.body.break_minutes !== undefined) {
+        breakMins = Math.max(0, Number(req.body.breakMinutes ?? req.body.break_minutes ?? 0));
+      } else {
+        // Descanso configurado para la jornada o empleado
+        let configuredBreak = 0;
+        let [empRow] = await pool.query('SELECT hora_entrada, hora_salida, dias_laborables FROM staff_records WHERE id = ?', [employeeId]);
+        if (empRow.length === 0) {
+          [empRow] = await pool.query('SELECT hora_entrada, hora_salida, dias_laborables FROM users WHERE id = ?', [employeeId]);
+        }
+        const empData = empRow[0] || {};
+        if (empData.hora_entrada && empData.hora_salida) {
+          const [h1, m1] = empData.hora_entrada.split(':').map(Number);
+          const [h2, m2] = empData.hora_salida.split(':').map(Number);
+          let schedMins = (h2 * 60 + m2) - (h1 * 60 + m1);
+          if (schedMins < 0) schedMins += 1440;
+          if (schedMins > 480) {
+            configuredBreak = schedMins - 480; // Diferencia respecto a jornada estándar de 8h (ej. 540-480 = 60 min)
+          }
+        }
+        if (configuredBreak > 0) {
+          breakMins = grossMinutes > 300 ? configuredBreak : 0;
+        } else {
+          breakMins = grossMinutes > 300 ? 60 : 0;
+        }
+      }
+
+      const netMinutes = Math.max(0, grossMinutes - breakMins);
+      const netHours = parseFloat((netMinutes / 60).toFixed(2));
+
+      let overallStatus = 'Normal';
+      if (checkInPunch.status === 'Tardanza') {
+        overallStatus = 'Tardanza';
+      } else if (checkOutPunch.status === 'Salida Temprana') {
+        overallStatus = 'Salida Temprana';
+      } else {
+        overallStatus = 'Completado';
+      }
+
+      recalculatedSummary = {
+        employeeId,
+        date,
+        hasCheckIn: true,
+        hasCheckOut: true,
+        grossMinutes,
+        workedMinutes: netMinutes,
+        workedHours: netHours,
+        breakMinutes: breakMins,
+        latenessMinutes: checkInPunch.lateness_minutes || 0,
+        extraMinutes: checkOutPunch.extra_minutes || 0,
+        status: overallStatus
+      };
+
+      await pool.query(
+        "UPDATE attendance SET status = ?, modification_reason = CONCAT(COALESCE(modification_reason, ''), ' [Recalculado: ', ?, ' hrs netas, descanso: ', ?, ' min]') WHERE id IN (?, ?)",
+        [overallStatus, netHours, breakMins, checkInPunch.id, checkOutPunch.id]
+      );
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Registro de asistencia regularizado y recalculado con éxito.',
+      summary: recalculatedSummary
+    });
   } catch (err) {
     console.error('[ATTENDANCE ADJUST ERROR]:', err.message);
     res.status(500).json({ error: err.message });

@@ -311,10 +311,14 @@ function createAuthRouter(pool, helpers = {}) {
         await pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
 
         const sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+        const computedRole = (user.role_name === 'Administrador' || user.role_name === 'admin')
+          ? 'admin'
+          : ((user.role_name && user.role_name.toLowerCase() === 'contador') ? 'contador' : 'employee');
+
         await pool.query(`
           INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
-        `, [sessionId, user.id, user.nombre, user.role_name === 'Administrador' ? 'admin' : 'employee', user.salon_id || null, clientIp, ua, deviceInfo]);
+        `, [sessionId, user.id, user.nombre, computedRole, user.salon_id || null, clientIp, ua, deviceInfo]);
 
         await pool.query('DELETE FROM account_lockouts WHERE account_identifier = ?', [email]);
         await pool.query("DELETE FROM login_attempts WHERE email_or_cedula = ? AND status = 'failed'", [email]);
@@ -326,7 +330,7 @@ function createAuthRouter(pool, helpers = {}) {
           sessionId,
           nombre: user.nombre,
           email: user.email,
-          role: user.role_name === 'Administrador' ? 'admin' : 'employee',
+          role: (user.role_name === 'Administrador' || user.role_name === 'admin') ? 'admin' : ((user.role_name && user.role_name.toLowerCase() === 'contador') ? 'contador' : 'employee'),
           role_id: user.role_id,
           role_name: user.role_name,
           salon_id: user.salon_id,

@@ -452,6 +452,20 @@ router.post('/credit-notes/retransmit/:id', async (req, res) => {
     if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
     const visit = visits[0];
 
+    const originalNcf = (visit.ncf || '').trim();
+    const isFiscalNcf = originalNcf && originalNcf !== 'NONE' && (
+      originalNcf.startsWith('E31') || 
+      originalNcf.startsWith('E32') || 
+      originalNcf.startsWith('E34') || 
+      originalNcf.startsWith('B')
+    );
+    if (!isFiscalNcf) {
+      return res.status(400).json({ 
+        error: 'Esta factura no posee un comprobante fiscal válido emitido (es no fiscal o canje interno). No requiere ni admite Nota de Crédito Electrónica.',
+        code: 'NO_FISCAL_NCF_ON_INVOICE'
+      });
+    }
+
     const voidReason = visit.nota_credito_motivo || visit.void_reason || 'Anulación Total de Factura';
         const encf = await generateAndTransmitNotaCredito(visit, voidReason, visit.voided_by || 'Administrador');
     const encfCode = (typeof encf === 'object' && encf?.encf) ? encf.encf : String(encf || '');
@@ -907,6 +921,10 @@ router.get('/sequences', async (req, res) => {
 
 // POST /api/dgii/sequences - Add new authorized sequence batch from DGII
 router.post('/sequences', async (req, res) => {
+  const callerRole = (req.headers['x-user-role'] || '').toLowerCase();
+  if (callerRole === 'contador') {
+    return res.status(403).json({ error: 'Permiso denegado: El rol Contador puede consultar secuencias pero no crear nuevos lotes.', code: 'FORBIDDEN_CONTADOR' });
+  }
   try {
     const {
       tipo_comprobante,
@@ -1013,6 +1031,10 @@ router.put('/sequences/:id', async (req, res) => {
 
 // DELETE /api/dgii/sequences/:id - Delete a sequence batch
 router.delete('/sequences/:id', async (req, res) => {
+  const callerRole = (req.headers['x-user-role'] || '').toLowerCase();
+  if (callerRole === 'contador') {
+    return res.status(403).json({ error: 'Permiso denegado: El rol Contador no puede eliminar lotes de secuencias fiscales.', code: 'FORBIDDEN_CONTADOR' });
+  }
   try {
     const { id } = req.params;
     await pool.query('DELETE FROM dgii_ncf_sequences WHERE id = ?', [id]);

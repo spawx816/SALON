@@ -1417,21 +1417,23 @@ function createPayrollRouter(pool) {
               return { secs: 0, hrs: 0, isWorking: false, entrada: null, salida: null };
             }
           } catch (e) { }
-        } else if (emp.hora_entrada && emp.hora_salida) {
+        } else if (emp.hora_entrada && emp.hora_salida && emp.dias_laborables && emp.dias_laborables !== '[]') {
           const workingDays = (emp.dias_laborables || '').split(',').map(s => normalizeDay(s));
-          const isWorking = workingDays.length === 0 || workingDays.some(w => w.slice(0, 3) === normDName.slice(0, 3)) || (!emp.dias_laborables && normDName !== 'domingo');
+          const isWorking = workingDays.length > 0 && workingDays.some(w => w.slice(0, 3) === normDName.slice(0, 3));
           if (isWorking) {
             const [h1, m1] = emp.hora_entrada.split(':').map(Number);
             const [h2, m2] = emp.hora_salida.split(':').map(Number);
             let secs = (h2 * 3600 + m2 * 60) - (h1 * 3600 + m1 * 60);
             if (secs <= 0) secs += 86400;
-            return { secs, hrs: secs / 3600, isWorking: true, entrada: emp.hora_entrada, salida: emp.hora_salida };
+            return { secs, hrs: secs / 3600, isWorking: true, hasSchedule: true, entrada: emp.hora_entrada, salida: emp.hora_salida };
           } else {
-            return { secs: 0, hrs: 0, isWorking: false, entrada: null, salida: null };
+            return { secs: 0, hrs: 0, isWorking: false, hasSchedule: true, entrada: null, salida: null };
           }
         }
 
-        return { secs: horasDiaCompleto * 3600, hrs: horasDiaCompleto, isWorking: normDName !== 'domingo', entrada: '08:00', salida: '17:00' };
+        // Si falta cualquier componente obligatorio del horario (hora_entrada, hora_salida, dias_laborables),
+        // marcar explícitamente sin horario para no generar ausencias ni tardanzas automáticas.
+        return { secs: 0, hrs: 0, isWorking: false, hasSchedule: false, entrada: null, salida: null };
       };
 
       let attPunches = [];
@@ -1651,7 +1653,9 @@ function createPayrollRouter(pool) {
           // CRÍTICO: SOLO computar ausencia si NO existe NINGÚN ponche real (ni entrada ni salida)
           const hasRealPunch = ins.length > 0 || outs.length > 0;
 
-          if (daySched.isWorking && !hasRealPunch) {
+          // Empleados sin horario asignado o con horario incompleto NO generan ausencias automáticas ni descuentos
+          const hasEmployeeSchedule = (daySched.hasSchedule !== false) && Boolean(emp.hora_entrada && emp.hora_salida && emp.dias_laborables && emp.dias_laborables !== '[]');
+          if (daySched.isWorking && hasEmployeeSchedule && !hasRealPunch) {
             // Punto 4: Confirmar ausencias durante un turno abierto:
             // Mientras la jornada de hoy siga abierta (nowDRMins < scheduledSalMins), la ausencia es provisional
             // y NO debe consolidarse todavía como descuento definitivo para pago.

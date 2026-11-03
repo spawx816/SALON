@@ -324,7 +324,38 @@ ${itemsXml}
   }
 
   async function generateAndTransmitNotaCredito(visit, voidReasonText, userWhoVoided) {
-    if (!visit || !visit.ncf) return null;
+    if (!visit) return null;
+
+    if (typeof visit === 'string' || typeof visit === 'number') {
+      const [rows] = await pool.query('SELECT * FROM visits WHERE id = ?', [visit]);
+      visit = rows[0];
+      if (!visit) return null;
+    }
+
+    // Validación Fiscal 1: No generar nota de crédito para facturas sin comprobante o no fiscales
+    const originalNcf = (visit.ncf || '').trim();
+    const isFiscalNcf = originalNcf && originalNcf !== 'NONE' && (
+      originalNcf.startsWith('E31') || 
+      originalNcf.startsWith('E32') || 
+      originalNcf.startsWith('E34') || 
+      originalNcf.startsWith('B')
+    );
+    if (!isFiscalNcf) {
+      console.warn(`⚠️ [DGII NOTA CREDITO OMITIDA]: La visita ${visit.id} no posee e-NCF fiscal válido (NCF='${originalNcf}'). No se emite Nota de Crédito E34.`);
+      return null;
+    }
+
+    // Validación Fiscal 2: Prevención de doble emisión de Nota de Crédito para la misma factura
+    if (visit.ncf_nota_credito) {
+      console.warn(`ℹ️ [DGII NOTA CREDITO EXISTENTE]: La visita ${visit.id} ya posee Nota de Crédito emitida (${visit.ncf_nota_credito}). Reutilizando registro sin consumir secuencia adicional.`);
+      return Object.assign(new String(visit.ncf_nota_credito), {
+        encf: visit.ncf_nota_credito,
+        trackId: visit.nota_credito_track_id || null,
+        signedXml: visit.nota_credito_xml || null,
+        alreadyIssued: true
+      });
+    }
+
     try {
       const encfE34 = await allocateNextDgiiSequence('E34');
       if (!encfE34) {

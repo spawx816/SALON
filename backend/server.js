@@ -103,10 +103,49 @@ const ADMIN_PROTECTED_ROUTES = [
 ];
 
 app.use((req, res, next) => {
+  const userRole = (req.headers['x-user-role'] || '').toLowerCase().trim();
+
+  // Rol Contador: acceso exclusivo a contabilidad, egresos y reportes fiscales; bloqueo de endpoints operativos ajenos
+  if (userRole === 'contador') {
+    const isAllowedForContador = 
+      req.path.startsWith('/api/expenses') ||
+      req.path.startsWith('/api/reports/607') ||
+      req.path.startsWith('/api/reports/606') ||
+      req.path.startsWith('/api/reports/fiscal') ||
+      req.path.startsWith('/api/credit-notes') ||
+      req.path.startsWith('/api/invoices') ||
+      req.path.startsWith('/api/auth') ||
+      req.path.startsWith('/api/health') ||
+      req.path.startsWith('/api/ping') ||
+      req.path.startsWith('/api/status') ||
+      (req.path.startsWith('/api/salons') && req.method === 'GET') ||
+      (req.path.startsWith('/api/dgii') && req.method === 'GET');
+
+    const isForeignOperational = 
+      req.path.startsWith('/api/visits') ||
+      req.path.startsWith('/api/cash-registers') ||
+      req.path.startsWith('/api/contracts') ||
+      req.path.startsWith('/api/payroll') ||
+      req.path.startsWith('/api/attendance') ||
+      req.path.startsWith('/api/security') ||
+      req.path.startsWith('/api/users') ||
+      req.path.startsWith('/api/roles') ||
+      req.path.startsWith('/api/settings') ||
+      req.path.startsWith('/api/marketing') ||
+      req.path.startsWith('/api/cardnet') ||
+      ((req.path.startsWith('/api/clients') || req.path.startsWith('/api/services') || req.path.startsWith('/api/salons') || req.path.startsWith('/api/dgii')) && req.method !== 'GET');
+
+    if (!isAllowedForContador || isForeignOperational) {
+      return res.status(403).json({
+        error: 'Acceso estrictamente denegado: El rol Contador únicamente tiene acceso autorizado al módulo de contabilidad.',
+        code: 'FORBIDDEN_CONTADOR'
+      });
+    }
+  }
+
   const isProtected = ADMIN_PROTECTED_ROUTES.some(route => req.path.startsWith(route));
   if (isProtected) {
-    const userRole = req.headers['x-user-role'];
-    if (userRole && (userRole.toLowerCase() === 'client' || userRole.toLowerCase() === 'cliente')) {
+    if (userRole && (userRole === 'client' || userRole === 'cliente')) {
       const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || req.ip || '127.0.0.1';
       console.warn(`[SECURITY ALERT] Intento no autorizado bloqueado desde IP ${clientIp} con rol cliente intentando acceder a ${req.method} ${req.path}`);
       return res.status(403).json({ error: 'Acceso estrictamente denegado: Esta operación requiere privilegios de administración del sistema.' });

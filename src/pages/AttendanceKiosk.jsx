@@ -898,7 +898,24 @@ const AttendanceKiosk = () => {
                         setCommissionMode(false);
                         const empPunches = todayPunches.filter(p => String(p.employee_id) === String(emp.id));
                         const lastPunch = empPunches[empPunches.length - 1];
-                        const nextType = (!lastPunch || lastPunch.type === 'Check-Out') ? 'Check-In' : 'Check-Out';
+                        
+                        // Reconocimiento inteligente de horario (sin hora fija):
+                        let nextType = 'Check-In';
+                        if (lastPunch && lastPunch.type === 'Check-In') {
+                          nextType = 'Check-Out';
+                        } else if (!lastPunch && emp.hora_entrada && emp.hora_salida) {
+                          const now = new Date();
+                          const nowMins = now.getHours() * 60 + now.getMinutes();
+                          const [inH, inM] = emp.hora_entrada.split(':').map(Number);
+                          const [outH, outM] = emp.hora_salida.split(':').map(Number);
+                          let schedInMins = inH * 60 + inM;
+                          let schedOutMins = outH * 60 + outM;
+                          if (schedOutMins < schedInMins) schedOutMins += 1440; // Turno nocturno
+                          const midpoint = schedInMins + (schedOutMins - schedInMins) / 2;
+                          if (nowMins >= midpoint) {
+                            nextType = 'Check-Out';
+                          }
+                        }
                         setPunchType(nextType);
                         setStep(3);
                         setMatchingStatus('matching');
@@ -1101,19 +1118,42 @@ const AttendanceKiosk = () => {
               <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedEmployee.nombre}</span>
             </div>
 
-            {/* Mode badge — completely automated based on state */}
-            {(() => {
-              if (punchType === 'Check-Out') return (
-                <div style={{ flexShrink: 0, background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '0.45rem 1rem', borderRadius: '50px', border: '1px solid rgba(245,158,11,0.3)', fontSize: '0.75rem', fontWeight: 900, letterSpacing: '0.03em' }}>
-                  🚪 Salida
-                </div>
-              );
-              return (
-                <div style={{ flexShrink: 0, background: 'rgba(16,185,129,0.15)', color: '#10b981', padding: '0.45rem 1rem', borderRadius: '50px', border: '1px solid rgba(16,185,129,0.3)', fontSize: '0.75rem', fontWeight: 900, letterSpacing: '0.03em' }}>
-                  ✅ Entrada
-                </div>
-              );
-            })()}
+            {/* Selector interactivo de Entrada / Salida ante ambigüedades */}
+            <div style={{
+              display: 'flex', gap: '0.35rem',
+              background: 'rgba(0,0,0,0.5)', padding: '4px',
+              borderRadius: '50px', border: '1px solid rgba(255,255,255,0.12)',
+              flexShrink: 0
+            }}>
+              <button
+                type="button"
+                onClick={() => setPunchType('Check-In')}
+                style={{
+                  background: punchType === 'Check-In' ? '#10b981' : 'transparent',
+                  color: punchType === 'Check-In' ? '#ffffff' : '#94a3b8',
+                  border: 'none', borderRadius: '50px',
+                  padding: '0.4rem 0.85rem',
+                  fontSize: '0.75rem', fontWeight: 900,
+                  cursor: 'pointer', transition: 'all 0.15s ease'
+                }}
+              >
+                ✅ Entrada
+              </button>
+              <button
+                type="button"
+                onClick={() => setPunchType('Check-Out')}
+                style={{
+                  background: punchType === 'Check-Out' ? '#f59e0b' : 'transparent',
+                  color: punchType === 'Check-Out' ? '#ffffff' : '#94a3b8',
+                  border: 'none', borderRadius: '50px',
+                  padding: '0.4rem 0.85rem',
+                  fontSize: '0.75rem', fontWeight: 900,
+                  cursor: 'pointer', transition: 'all 0.15s ease'
+                }}
+              >
+                🚪 Salida
+              </button>
+            </div>
           </div>
 
           {/* Camera frame */}

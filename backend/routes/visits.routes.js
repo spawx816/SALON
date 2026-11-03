@@ -617,6 +617,105 @@ function createVisitsRouter(pool, deps = {}) {
         (metodo_pago.toLowerCase().includes('plan') || metodo_pago.toLowerCase().includes('canje') || metodo_pago.toLowerCase().includes('membresía') || metodo_pago.toLowerCase().includes('membresia'))
       );
 
+      // --- VALIDACIONES OPERATIVAS DE MEMBRESÍAS Y BENEFICIOS ---
+      const hasPlanBenefitInItems = Array.isArray(items_detail) && items_detail.some(i => {
+        const name = (i.nombre || i.name || '').toLowerCase();
+        const sId = String(i.service_id || '').toLowerCase();
+        const isFree = Number(i.precioAplicado ?? i.price ?? 0) === 0;
+        const isPlanFlag = Boolean(i.isPlanWash || i.isPromoGift || i.isPlanBenefit);
+        const hasPlanKeyword = name.includes('plan beauty') || name.includes('regalo') || name.includes('tratamiento') || name.includes('lavado extra') || sId.includes('plan') || sId.includes('promo');
+        return isFree && (isPlanFlag || hasPlanKeyword);
+      });
+      const hasPlanServiceInList = Array.isArray(servicios) && servicios.some(s => {
+        const str = (typeof s === 'string' ? s : (s?.name || s?.nombre || '')).toLowerCase();
+        return str.includes('plan beauty') || str.includes('regalo') || str.includes('tratamiento') || str.includes('lavado extra');
+      });
+      const isAttemptingCanje = isPlanBeautyCanje || hasPlanBenefitInItems || (
+        totalNum === 0 && (hasPlanServiceInList || (metodo_pago && (
+          metodo_pago.toLowerCase().includes('plan') || 
+          metodo_pago.toLowerCase().includes('canje') || 
+          metodo_pago.toLowerCase().includes('membres')
+        )))
+      );
+
+      // Punto 1 & 4: Bloquear canje si la membresía tiene cobro pendiente (protege TODOS los beneficios: lavado, secado, tratamiento, regalo)
+      let promoLockAcquired = false;
+      let promoLockKey = null;
+
+      if (isAttemptingCanje && client_id && client_id !== 'INVITADO') {
+        const [contracts] = await pool.query(
+          "SELECT id, status, retry_count, contract_promo_services FROM contracts WHERE client_id = ? ORDER BY id DESC",
+          [client_id]
+        );
+        const pendingContract = contracts.find(c => 
+          c.status === 'Pending_Payment' || 
+          c.status === 'Pending_Retry' || 
+          c.status === 'Past_Due' || 
+          c.status === 'Suspended' || 
+          c.status === 'Suspendido' || 
+          c.status === 'Pendiente'
+        );
+        const hasActiveContract = contracts.some(c => c.status === 'Active' || c.status === 'Activo');
+
+        if (pendingContract || (!hasActiveContract && contracts.length > 0)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Membresía con cobro pendiente. Regularice el pago para utilizar sus beneficios.',
+            code: 'MEMBERSHIP_PAYMENT_PENDING'
+          });
+        }
+
+        // Punto 4: Prevención atómica de doble canje del regalo de bienvenida (Lavado extra o Tratamiento profundo) ante solicitudes simultáneas
+        const hasPromoGiftItem = (Array.isArray(items_detail) && items_detail.some(i => {
+          const name = (i.nombre || i.name || '').toLowerCase();
+          const sId = String(i.service_id || '').toLowerCase();
+          const isFree = Number(i.precioAplicado ?? i.price ?? 0) === 0;
+          return isFree && (i.isPromoGift || name.includes('regalo') || name.includes('tratamiento profundo') || name.includes('lavado extra') || sId.includes('promo'));
+        })) || (hasPlanServiceInList && (servicios.some(s => {
+          const str = (typeof s === 'string' ? s : (s?.name || s?.nombre || '')).toLowerCase();
+          return str.includes('regalo') || str.includes('tratamiento profundo') || str.includes('lavado extra');
+        })));
+
+        if (hasPromoGiftItem) {
+          promoLockKey = `promo_gift_claim_${client_id}`;
+          try {
+            const [lockRows] = await pool.query("SELECT GET_LOCK(?, 10) as acquired", [promoLockKey]);
+            promoLockAcquired = lockRows && lockRows[0] && lockRows[0].acquired === 1;
+          } catch (e) {
+            console.warn('[PROMO LOCK WARNING]:', e.message);
+          }
+
+          const [pastPromoVisits] = await pool.query(
+            `SELECT id FROM visits 
+             WHERE client_id = ? 
+               AND status != 'Anulado' 
+               AND (
+                 items_detail LIKE '%Regalo Plan Beauty%' 
+                 OR items_detail LIKE '%plan-beauty-promo%' 
+                 OR items_detail LIKE '%plan-beauty-treatment-promo%'
+                 OR items_detail LIKE '%Tratamiento Profundo%'
+                 OR items_detail LIKE '%Lavado Extra%'
+                 OR servicios LIKE '%Regalo Plan Beauty%'
+                 OR servicios LIKE '%Tratamiento Profundo%'
+                 OR servicios LIKE '%Lavado Extra%'
+               ) 
+               AND id != ?`,
+            [client_id, id]
+          );
+          if (pastPromoVisits.length > 0) {
+            if (promoLockAcquired && promoLockKey) {
+              try { await pool.query("SELECT RELEASE_LOCK(?)", [promoLockKey]); } catch (_) {}
+              promoLockAcquired = false;
+            }
+            return res.status(400).json({
+              success: false,
+              error: 'El regalo de bienvenida ya fue canjeado previamente para esta membresía.',
+              code: 'PROMO_GIFT_ALREADY_REDEEMED'
+            });
+          }
+        }
+      }
+
       let effectiveNcfType = 'E32';
       if (!isCommercialSale) {
         effectiveNcfType = 'NONE';
@@ -1028,6 +1127,11 @@ function createVisitsRouter(pool, deps = {}) {
         }
       })().catch(e => console.error('[UNHANDLED CHECKOUT SURVEY ERROR]:', e));
 
+      if (promoLockAcquired && promoLockKey) {
+        try { await pool.query("SELECT RELEASE_LOCK(?)", [promoLockKey]); } catch (_) {}
+        promoLockAcquired = false;
+      }
+
       res.json({ 
         success: true, 
         ticketNumber: ticketNum || id,
@@ -1038,6 +1142,9 @@ function createVisitsRouter(pool, deps = {}) {
         qr_code_url: dgiiResult?.qr_code_url || fv.qr_code_url || null
       });
     } catch (err) {
+      if (typeof promoLockAcquired !== 'undefined' && promoLockAcquired && promoLockKey) {
+        try { await pool.query("SELECT RELEASE_LOCK(?)", [promoLockKey]); } catch (_) {}
+      }
       try {
         await pool.query("UPDATE visits SET status = 'Pendiente' WHERE id = ? AND status = 'Procesando'", [id]);
       } catch (_) {}
