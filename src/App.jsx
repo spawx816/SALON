@@ -6,7 +6,7 @@ import {
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
   Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
   Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft, Shield, DollarSign, History,
-  Crown, ShoppingCart, UserCheck, Key, BarChart2, BarChart3, Banknote
+  Crown, ShoppingCart, UserCheck, Key, BarChart2, BarChart3, Banknote, ArrowDownCircle
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -49,6 +49,7 @@ import DgiiSequencesModule from './components/admin/DgiiSequencesModule';
 import CreditNotesModule from './components/admin/CreditNotesModule';
 import Reporte607Module from './components/admin/Reporte607Module';
 import Reporte606Module from './components/admin/Reporte606Module';
+import ExpensesModule from './components/admin/ExpensesModule';
 import PayrollModule from './components/payroll/PayrollModule';
 import SecurityModule from './components/admin/SecurityModule';
 import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
@@ -158,7 +159,7 @@ const AppContent = () => {
   const isSubscriptionsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/contratos') || location.pathname.startsWith('/pagos') || location.pathname.startsWith('/encuesta') || location.pathname.startsWith('/planes') || location.pathname.startsWith('/sucursales') || location.pathname.startsWith('/regalos');
   const isTeamActive = location.pathname.startsWith('/equipo') || location.pathname.startsWith('/admin/asistencia');
   const isAdministrationActive = location.pathname.startsWith('/seguridad') || location.pathname.startsWith('/configuracion');
-  const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607') || location.pathname.startsWith('/reporte-606');
+  const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607') || location.pathname.startsWith('/reporte-606') || location.pathname.startsWith('/egresos');
   const isBiActive = location.pathname.startsWith('/analitica');
   const isPayrollActive = location.pathname.startsWith('/nomina') || location.pathname.startsWith('/comisiones') || location.pathname.startsWith('/descuentos-empleados');
 
@@ -889,12 +890,19 @@ const AppContent = () => {
                           active={location.pathname === '/contabilidad/reporte-607' || location.pathname === '/reporte-607'} 
                           onClick={closeMobileMenu} 
                         />
-                        <SidebarLink 
-                          to="/contabilidad/reporte-606" 
-                          icon={FileSpreadsheet} 
-                          label="Reporte 606 DGII" 
-                          active={location.pathname === '/contabilidad/reporte-606' || location.pathname === '/reporte-606'} 
-                          onClick={closeMobileMenu} 
+                        <SidebarLink
+                          to="/contabilidad/reporte-606"
+                          icon={FileSpreadsheet}
+                          label="Reporte 606 DGII"
+                          active={location.pathname === '/contabilidad/reporte-606' || location.pathname === '/reporte-606'}
+                          onClick={closeMobileMenu}
+                        />
+                        <SidebarLink
+                          to="/contabilidad/egresos"
+                          icon={ArrowDownCircle}
+                          label="Egresos"
+                          active={location.pathname === '/contabilidad/egresos' || location.pathname === '/egresos'}
+                          onClick={closeMobileMenu}
                         />
                       </div>
                     )}
@@ -975,6 +983,8 @@ const AppContent = () => {
                 <Route path="/reporte-607" element={isAdmin ? <Reporte607Module /> : <Navigate to="/" />} />
                 <Route path="/contabilidad/reporte-606" element={isAdmin ? <Reporte606Module /> : <Navigate to="/" />} />
                 <Route path="/reporte-606" element={isAdmin ? <Reporte606Module /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/egresos" element={isAdmin ? <ExpensesModule /> : <Navigate to="/" />} />
+                <Route path="/egresos" element={isAdmin ? <ExpensesModule /> : <Navigate to="/" />} />
                 <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />
                 <Route path="/contratos" element={isClient ? <Navigate to="/" /> : <DigitalContract />} />
                 <Route path="/admin/asistencia" element={(isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />} />

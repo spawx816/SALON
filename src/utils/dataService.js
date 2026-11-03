@@ -2891,6 +2891,276 @@ export const dataService = {
 
   getReporte606TxtUrl: (periodo) => {
     return `${API_URL}/dgii/report-606/export-txt?periodo=${encodeURIComponent(periodo || '')}`;
+  },
+
+  // === MÓDULO DE EGRESOS CONTABLES ===
+  getExpenses: async (params = {}) => {
+    try {
+      const query = new URLSearchParams();
+      if (params.period) query.append('period', params.period);
+      if (params.salon_id) query.append('salon_id', params.salon_id);
+      if (params.salon_name) query.append('salon_name', params.salon_name);
+      if (params.concept) query.append('concept', params.concept);
+      if (params.search) query.append('search', params.search);
+
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses?${query.toString()}`, {
+        headers: {
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Error ${res.status} al obtener egresos`);
+      }
+      return await res.json();
+    } catch (e) {
+      console.error('Error in getExpenses:', e);
+      throw e;
+    }
+  },
+
+  getExpenseById: async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/expenses/${id}`);
+      if (!res.ok) throw new Error('Egreso no encontrado');
+      return await res.json();
+    } catch (e) {
+      console.error('Error in getExpenseById:', e);
+      throw e;
+    }
+  },
+
+  createExpense: async (expenseData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(expenseData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al registrar egreso');
+      return data;
+    } catch (e) {
+      console.error('Error in createExpense:', e);
+      throw e;
+    }
+  },
+
+  updateExpense: async (id, expenseData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(expenseData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar egreso');
+      return data;
+    } catch (e) {
+      console.error('Error in updateExpense:', e);
+      throw e;
+    }
+  },
+
+  voidExpense: async (id, reason) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses/${id}/void`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify({ reason })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al anular egreso');
+      return data;
+    } catch (e) {
+      console.error('Error in voidExpense:', e);
+      throw e;
+    }
+  },
+
+  getExpenseConcepts: async () => {
+    try {
+      const res = await fetch(`${API_URL}/expenses/concepts`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error in getExpenseConcepts:', e);
+      return [];
+    }
+  },
+
+  createExpenseConcept: async (conceptData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses/concepts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(conceptData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al crear concepto');
+      return data;
+    } catch (e) {
+      console.error('Error in createExpenseConcept:', e);
+      throw e;
+    }
+  },
+
+  getExpenseBanks: async () => {
+    try {
+      const res = await fetch(`${API_URL}/expenses/banks`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error in getExpenseBanks:', e);
+      return [];
+    }
+  },
+
+  createExpenseBank: async (bankData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses/banks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(bankData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al crear banco');
+      return data;
+    } catch (e) {
+      console.error('Error in createExpenseBank:', e);
+      throw e;
+    }
+  },
+
+  getExpenseLoans: async (bankName) => {
+    try {
+      const query = bankName ? `?bank_name=${encodeURIComponent(bankName)}` : '';
+      const res = await fetch(`${API_URL}/expenses/loans${query}`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error in getExpenseLoans:', e);
+      return [];
+    }
+  },
+
+  createExpenseLoan: async (loanData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses/loans`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(loanData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al registrar préstamo');
+      return data;
+    } catch (e) {
+      console.error('Error in createExpenseLoan:', e);
+      throw e;
+    }
+  },
+
+  getExpenseAccounts: async () => {
+    try {
+      const res = await fetch(`${API_URL}/expenses/accounts`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Error in getExpenseAccounts:', e);
+      return [];
+    }
+  },
+
+  reconcileExpensesJson: async () => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses/reconcile-json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify({ confirm: true })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al conciliar JSON con MySQL');
+      return data;
+    } catch (e) {
+      console.error('Error in reconcileExpensesJson:', e);
+      throw e;
+    }
+  },
+
+  createExpenseAccount: async (accountData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/expenses/accounts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(accountData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al crear cuenta');
+      return data;
+    } catch (e) {
+      console.error('Error in createExpenseAccount:', e);
+      throw e;
+    }
   }
 };
 
