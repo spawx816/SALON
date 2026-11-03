@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   DollarSign, TrendingUp, CreditCard, Receipt, Users, UserCheck, 
   Calendar, AlertCircle, Percent, Clock, Tag, ShoppingBag, ShieldAlert,
-  ArrowUpRight, ArrowDownRight
+  ArrowUpRight, ArrowDownRight, RotateCw, FileText
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -17,17 +17,19 @@ const ICON_MAP = {
   clock: Clock,
   tag: Tag,
   bag: ShoppingBag,
-  alert: ShieldAlert
+  alert: ShieldAlert,
+  refresh: RotateCw,
+  file_alert: FileText
 };
 
 const COLOR_MAP = {
-  emerald: { bg: '#ecfdf5', iconBg: '#d1fae5', text: '#059669', badgeBg: '#d1fae5' },
-  green: { bg: '#ecfdf5', iconBg: '#d1fae5', text: '#059669', badgeBg: '#d1fae5' },
-  blue: { bg: '#eff6ff', iconBg: '#dbeafe', text: '#2563eb', badgeBg: '#dbeafe' },
-  purple: { bg: '#f5f3ff', iconBg: '#ede9fe', text: '#7c3aed', badgeBg: '#ede9fe' },
+  emerald: { bg: '#ecfdf5', iconBg: '#dcfce7', text: '#16a34a', badgeBg: '#dcfce7' },
+  green: { bg: '#ecfdf5', iconBg: '#dcfce7', text: '#16a34a', badgeBg: '#dcfce7' },
+  blue: { bg: '#eff6ff', iconBg: '#e0f2fe', text: '#0284c7', badgeBg: '#e0f2fe' },
+  purple: { bg: '#f5f3ff', iconBg: '#f3e8ff', text: '#9333ea', badgeBg: '#f3e8ff' },
   amber: { bg: '#fffbeb', iconBg: '#fef3c7', text: '#d97706', badgeBg: '#fef3c7' },
-  rose: { bg: '#fff1f2', iconBg: '#ffe4e6', text: '#e11d48', badgeBg: '#ffe4e6' },
-  red: { bg: '#fff1f2', iconBg: '#ffe4e6', text: '#e11d48', badgeBg: '#ffe4e6' },
+  rose: { bg: '#fff1f2', iconBg: '#fee2e2', text: '#ef4444', badgeBg: '#fee2e2' },
+  red: { bg: '#fff1f2', iconBg: '#fee2e2', text: '#ef4444', badgeBg: '#fee2e2' },
   slate: { bg: '#f8fafc', iconBg: '#f1f5f9', text: '#475569', badgeBg: '#f1f5f9' }
 };
 
@@ -42,8 +44,30 @@ export const BIKpiCards = ({ kpis = [] }) => {
       marginBottom: '1.5rem'
     }}>
       {kpis.map((kpi, idx) => {
-        const theme = COLOR_MAP[kpi.color] || COLOR_MAP.blue;
-        const IconComponent = ICON_MAP[kpi.icon] || TrendingUp;
+        let theme = COLOR_MAP[kpi.color] || COLOR_MAP.blue;
+        let IconComponent = ICON_MAP[kpi.icon] || TrendingUp;
+
+        // Adaptación homologada de iconos y títulos según diseño normado
+        const lowerLabel = (kpi.label || '').toLowerCase();
+        let displayLabel = kpi.label;
+
+        if (lowerLabel.includes('éxito') || lowerLabel.includes('exito')) {
+          displayLabel = 'Éxito al primer intento';
+          IconComponent = CreditCard;
+          theme = COLOR_MAP.green;
+        } else if (lowerLabel.includes('recuperación') || lowerLabel.includes('recuperacion')) {
+          displayLabel = 'Recuperación tras rechazo';
+          IconComponent = RotateCw;
+          theme = COLOR_MAP.blue;
+        } else if (lowerLabel.includes('pendiente')) {
+          displayLabel = 'Pendiente de recuperar';
+          IconComponent = FileText;
+          theme = COLOR_MAP.rose;
+        } else if (lowerLabel.includes('tiempo medio')) {
+          displayLabel = 'Tiempo medio de recuperación';
+          IconComponent = Clock;
+          theme = COLOR_MAP.purple;
+        }
 
         return (
           <div
@@ -86,7 +110,7 @@ export const BIKpiCards = ({ kpis = [] }) => {
                 marginBottom: '0.2rem',
                 textTransform: 'none'
               }}>
-                {kpi.label}
+                {displayLabel}
               </div>
 
               <div style={{

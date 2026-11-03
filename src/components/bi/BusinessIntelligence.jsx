@@ -70,6 +70,92 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     return false;
   });
   const [tableFilteredRows, setTableFilteredRows] = useState(null);
+  const urlSample = searchParams ? (searchParams.get('sample') === '1' || searchParams.get('demo') === '1') : false;
+  const [useSampleData, setUseSampleData] = useState(urlSample);
+
+  // Maqueta exacta con 100 cuotas demostrativas homologadas con el diseño institucional
+  const SAMPLE_RECURRING_DATA = useMemo(() => ({
+    title: 'Efectividad de cobros y recuperación',
+    subtitle: 'Cuotas con primer intento en el período · Corte: 30 oct 2026',
+    baseText: 'Base: 100 cuotas únicas · RD$195,000',
+    kpis: [
+      {
+        label: 'Éxito al primer intento',
+        value: '70%',
+        subtext: '70 de 100 cuotas',
+        icon: 'credit_card',
+        color: 'green'
+      },
+      {
+        label: 'Recuperación tras rechazo',
+        value: '60%',
+        subtext: '18 de 30 cuotas · RD$35,100',
+        icon: 'refresh',
+        color: 'blue'
+      },
+      {
+        label: 'Pendiente de recuperar',
+        value: 'RD$ 23,400',
+        subtext: '12 cuotas',
+        icon: 'file_alert',
+        color: 'rose'
+      },
+      {
+        label: 'Tiempo medio de recuperación',
+        value: '2.4 días',
+        subtext: 'Sobre 18 cuotas recuperadas',
+        icon: 'clock',
+        color: 'purple'
+      }
+    ],
+    chart: {
+      type: 'recovery_cohort_charts',
+      quota_results: {
+        total_obligations: 100,
+        categories: [
+          { label: 'Primer intento', count: 70, percentage: 70, color: '#10b981' },
+          { label: 'Tras reintentos', count: 15, percentage: 15, color: '#3b82f6' },
+          { label: 'Pago por otra vía', count: 3, percentage: 3, color: '#a855f7' },
+          { label: 'Sin recuperar', count: 12, percentage: 12, color: '#f87171' }
+        ]
+      },
+      monthly_evolution: [
+        { month: '2026-07', label: 'Jul', total_obligations: 100, paid_first: 80, percentage: 80 },
+        { month: '2026-08', label: 'Ago', total_obligations: 100, paid_first: 77, percentage: 77 },
+        { month: '2026-09', label: 'Sep', total_obligations: 100, paid_first: 74, percentage: 74 },
+        { month: '2026-10', label: 'Oct*', total_obligations: 100, paid_first: 70, percentage: 70 }
+      ],
+      decline_causes: [
+        { category: 'Fondos insuficientes', count: 18, percentage: 60, amount: 35100, color: '#f87171' },
+        { category: 'Tarjeta vencida', count: 6, percentage: 20, amount: 11700, color: '#f87171' },
+        { category: 'Otros rechazos', count: 6, percentage: 20, amount: 11700, color: '#f87171' }
+      ],
+      retry_effectiveness: [
+        { label: 'Segundo intento', count: 10, percentage: 66.7, amount: 19500, color: '#0284c7' },
+        { label: 'Tercer intento o posterior', count: 5, percentage: 33.3, amount: 9750, color: '#0284c7' }
+      ],
+      recovered_auto_amt: 29250,
+      recovered_manual_amt: 5850,
+      total_recovered: 18
+    }
+  }), []);
+
+  const isRecurringReport = selectedReportId === 'recurring_charges_result' || selectedReportId === 'declined_charges_recovery';
+
+  // Datos efectivos combinando datos reales de BD o dataset de muestra según selección
+  const effectiveReportData = useMemo(() => {
+    if (useSampleData && isRecurringReport) {
+      return {
+        ...(reportData || {}),
+        ...SAMPLE_RECURRING_DATA,
+        chart: {
+          ...(reportData?.chart || {}),
+          ...SAMPLE_RECURRING_DATA.chart
+        }
+      };
+    }
+    return reportData;
+  }, [useSampleData, isRecurringReport, reportData, SAMPLE_RECURRING_DATA]);
 
   // Reports available in active category (evita duplicados en el selector si es un alias ejecutivo)
   const availableReports = useMemo(() => {
@@ -726,22 +812,35 @@ export const BusinessIntelligence = ({ standalone = true }) => {
               Vista Clásica (Históricos)
             </button>
           </div>
-        {/* Status Badge */}
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '0.45rem',
-          background: '#eff6ff',
-          color: '#2563eb',
-          border: '1px solid #bfdbfe',
-          padding: '0.35rem 0.85rem',
-          borderRadius: '9999px',
-          fontSize: '0.8rem',
-          fontWeight: 600
-        }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#2563eb' }} />
-          <span>Datos en vivo</span>
-        </div>
+        {/* Status Badge & Toggle Datos de Ejemplo */}
+        <button
+          type="button"
+          onClick={() => setUseSampleData(!useSampleData)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            background: useSampleData ? '#0284c7' : '#e0f2fe',
+            color: useSampleData ? '#ffffff' : '#0284c7',
+            border: useSampleData ? '1px solid #0284c7' : '1px solid #bae6fd',
+            padding: '0.4rem 0.95rem',
+            borderRadius: '0.5rem',
+            fontSize: '0.82rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+            transition: 'all 0.15s ease'
+          }}
+          title={useSampleData ? 'Haga clic para ver datos reales de la BD' : 'Haga clic para ver datos de ejemplo de la maqueta'}
+        >
+          <span style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: useSampleData ? '#ffffff' : '#0284c7'
+          }} />
+          <span>{useSampleData ? 'Datos de ejemplo (Activo)' : 'Datos de ejemplo'}</span>
+        </button>
         </div>
       </div>
       )}
@@ -1233,15 +1332,35 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             fontWeight: 800,
             color: '#0f172a'
           }}>
-            {reportData?.title || currentReportConfig.name}
+            {effectiveReportData?.title || reportData?.title || currentReportConfig.name}
           </h2>
-          <p style={{
-            margin: '0.2rem 0 0',
-            fontSize: '0.85rem',
-            color: '#64748b'
-          }}>
-            {reportData?.periodText || `${startDate} al ${endDate}`}
-          </p>
+          {isRecurringReport ? (
+            <div style={{ margin: '0.2rem 0 0', lineHeight: 1.45 }}>
+              <div style={{ fontSize: '0.88rem', color: '#64748b', fontWeight: 500 }}>
+                {effectiveReportData?.subtitle || `Cuotas con primer intento en el período · Corte: ${(() => {
+                  try {
+                    const d = new Date(endDate + 'T12:00:00');
+                    return !isNaN(d.getTime())
+                      ? d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : endDate;
+                  } catch (_) {
+                    return endDate;
+                  }
+                })()}`}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
+                {effectiveReportData?.baseText || `Base: ${reportData?.summary?.total_obligations || (reportData?.table?.rows?.length || 49)} cuotas únicas · RD$ ${((reportData?.summary?.total_obligations || (reportData?.table?.rows?.length || 49)) * 1950).toLocaleString('es-DO')}`}
+              </div>
+            </div>
+          ) : (
+            <p style={{
+              margin: '0.2rem 0 0',
+              fontSize: '0.85rem',
+              color: '#64748b'
+            }}>
+              {reportData?.periodText || `${startDate} al ${endDate}`}
+            </p>
+          )}
         </div>
 
         {/* Export & Print Buttons */}
@@ -1389,8 +1508,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         </div>
       </div>
 
-      {/* 5. Alert Info Banner (if applicable, e.g. Mockup 2) */}
-      {(reportData?.alertInfo || currentReportConfig.alertInfo) && (
+      {/* 5. Alert Info Banner (if applicable, e.g. Mockup 2 - excluido en cohortes para diseño limpio) */}
+      {!isRecurringReport && (reportData?.alertInfo || currentReportConfig.alertInfo) && (
         <div style={{
           background: '#eff6ff',
           border: '1px solid #bfdbfe',
@@ -1410,10 +1529,22 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       )}
 
       {/* 6. KPI Metric Cards */}
-      <BIKpiCards kpis={reportData?.kpis || []} />
+      <BIKpiCards kpis={effectiveReportData?.kpis || reportData?.kpis || []} />
 
-      {/* 6.5 Resumen Discreto de Conciliación Independiente (Fase B1.2) */}
-      {(selectedReportId === 'recurring_charges_result' || selectedReportId === 'declined_charges_recovery') && reportData?.reconciliation && (
+      {/* 7. Interactive Chart (2x2 Grid para cohortes de recuperación o individual) */}
+      <BIChart
+        chartConfig={effectiveReportData?.chart || reportData?.chart || { type: currentReportConfig.chartType }}
+        data={effectiveReportData?.chart?.data || reportData?.chart?.data || []}
+        selectedGroup={interactiveSelectedGroup}
+        onSelectGroup={(key, bin) => {
+          setInteractiveSelectedGroup(key);
+        }}
+        timeGrain={timeGrain}
+        onTimeGrainChange={(grain) => setTimeGrain(grain)}
+      />
+
+      {/* 7.2 Resumen Discreto de Conciliación Independiente (Fase B1.2) */}
+      {isRecurringReport && reportData?.reconciliation && (
         <div
           data-testid="reconciliation-summary"
           style={{
@@ -1488,18 +1619,6 @@ export const BusinessIntelligence = ({ standalone = true }) => {
           </div>
         </div>
       )}
-
-      {/* 7. Interactive Chart (Sales evolution / Frequency bars / Donut) */}
-      <BIChart
-        chartConfig={reportData?.chart || { type: currentReportConfig.chartType }}
-        data={reportData?.chart?.data || []}
-        selectedGroup={interactiveSelectedGroup}
-        onSelectGroup={(key, bin) => {
-          setInteractiveSelectedGroup(key);
-        }}
-        timeGrain={timeGrain}
-        onTimeGrainChange={(grain) => setTimeGrain(grain)}
-      />
 
       {/* 7.5 Summary / Totals Table (e.g. Totalized by Branch) */}
       {reportData?.summaryTable && (

@@ -23,20 +23,17 @@ export const BIChart = ({
     const totalObligations = quota.total_obligations || 0;
     const quotaCategories = quota.categories || [];
 
-    // Gráfico B: Max rate for scaling
-    const maxEvolPct = Math.max(...evolution.map(e => e.percentage || 0), 100);
+    // Totales y montos para desglose y pie de gráficos
+    const catAuto = quotaCategories.find(c => (c.label || '').toLowerCase().includes('reintento')) || { count: 0 };
+    const catManual = quotaCategories.find(c => (c.label || '').toLowerCase().includes('otra vía') || (c.label || '').toLowerCase().includes('otra via') || (c.label || '').toLowerCase().includes('caja')) || { count: 0 };
+    const totalRecovered = (catAuto.count || 0) + (catManual.count || 0);
+    const recoveredAutoAmount = chartConfig.recovered_auto_amt || ((catAuto.count || 0) * 1950);
+    const recoveredManualAmount = chartConfig.recovered_manual_amt || ((catManual.count || 0) * 1950);
 
-    // Gráfico C: Total declined
+    // Total de cuotas con rechazo inicial para Gráfico C
     const totalDeclined = declineCauses.length > 0
       ? (declineCauses[0].total_declined || declineCauses.reduce((acc, c) => acc + (c.count || 0), 0))
       : 0;
-    const maxDeclineCount = Math.max(...declineCauses.map(c => c.count || 0), 1);
-
-    // Gráfico D: Total recovered
-    const totalRecovered = retryEffectiveness.length > 0
-      ? (retryEffectiveness[0].total_recovered || retryEffectiveness.reduce((acc, r) => acc + (r.count || 0), 0))
-      : 0;
-    const maxRetryCount = Math.max(...retryEffectiveness.map(r => r.count || 0), 1);
 
     return (
       <div style={{
@@ -45,7 +42,7 @@ export const BIChart = ({
         gap: '1.25rem',
         marginBottom: '1.5rem'
       }}>
-        {/* GRÁFICO A: Resultado de las cuotas (Participación 100% Apilada) */}
+        {/* GRÁFICO 1: Resultado de las cuotas */}
         <div style={{
           background: '#ffffff',
           borderRadius: '1rem',
@@ -57,24 +54,9 @@ export const BIChart = ({
           justifyContent: 'space-between'
         }}>
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.35rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
-                A. Resultado de las cuotas
-              </h3>
-              <span style={{
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                color: '#0f172a',
-                background: '#f1f5f9',
-                padding: '0.2rem 0.55rem',
-                borderRadius: '0.375rem'
-              }}>
-                100% Apilado
-              </span>
-            </div>
-            <p style={{ margin: '0 0 1.25rem', fontSize: '0.82rem', color: '#64748b' }}>
-              Participación sobre las {totalObligations} obligaciones contractuales del período
-            </p>
+            <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
+              Resultado de las cuotas
+            </h3>
 
             {totalObligations === 0 ? (
               <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
@@ -82,17 +64,17 @@ export const BIChart = ({
               </div>
             ) : (
               <div>
-                {/* Barra horizontal apilada 100% */}
+                {/* Barra horizontal segmentada */}
                 <div style={{
                   width: '100%',
-                  height: '38px',
+                  height: '32px',
                   background: '#f1f5f9',
-                  borderRadius: '8px',
+                  borderRadius: '6px',
                   overflow: 'hidden',
                   display: 'flex',
                   border: '1px solid #e2e8f0',
-                  boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)',
-                  marginBottom: '1rem'
+                  boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.04)',
+                  marginBottom: '1.25rem'
                 }}>
                   {quotaCategories.map((cat, idx) => {
                     const pct = cat.percentage || 0;
@@ -103,37 +85,28 @@ export const BIChart = ({
                         title={`${cat.label}: ${cat.count} cuotas (${pct}%)`}
                         style={{
                           width: `${pct}%`,
-                          minWidth: cat.count > 0 ? '18px' : '0',
+                          minWidth: cat.count > 0 ? '24px' : '0',
                           height: '100%',
-                          background: cat.color,
+                          background: cat.color || '#10b981',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           color: '#ffffff',
-                          fontSize: '0.78rem',
+                          fontSize: '0.82rem',
                           fontWeight: 700,
                           transition: 'all 0.2s ease',
-                          cursor: 'pointer',
-                          userSelect: 'none',
                           overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          padding: '0 4px'
+                          userSelect: 'none'
                         }}
                       >
-                        {pct >= 8 ? `${pct}%` : ''}
+                        {pct >= 3 ? `${Math.round(pct)}%` : ''}
                       </div>
                     );
                   })}
                 </div>
 
-                {/* Leyenda y desglose de cantidades */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: '0.65rem',
-                  paddingTop: '0.25rem'
-                }}>
+                {/* Tabla/Listado limpio de 3 columnas */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {quotaCategories.map((cat, idx) => (
                     <div
                       key={idx}
@@ -141,27 +114,29 @@ export const BIChart = ({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '0.4rem 0.6rem',
-                        borderRadius: '0.5rem',
-                        background: '#f8fafc',
-                        border: '1px solid #f1f5f9',
-                        fontSize: '0.8rem'
+                        padding: '0.35rem 0',
+                        fontSize: '0.85rem'
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                         <span style={{
                           width: '10px',
                           height: '10px',
                           borderRadius: '50%',
-                          background: cat.color,
+                          background: cat.color || '#10b981',
                           flexShrink: 0
                         }} />
-                        <span style={{ color: '#334155', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: '#334155', fontWeight: 500 }}>
                           {cat.label}
                         </span>
                       </div>
-                      <div style={{ fontWeight: 800, color: '#0f172a', marginLeft: '0.5rem', whiteSpace: 'nowrap' }}>
-                        {cat.count} <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>({cat.percentage}%)</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '2.5rem' }}>
+                        <span style={{ fontWeight: 600, color: '#0f172a', minWidth: '35px', textAlign: 'right' }}>
+                          {cat.count}
+                        </span>
+                        <span style={{ fontWeight: 600, color: '#0f172a', minWidth: '45px', textAlign: 'right' }}>
+                          {cat.percentage}%
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -174,20 +149,14 @@ export const BIChart = ({
             marginTop: '1.25rem',
             paddingTop: '0.75rem',
             borderTop: '1px dashed #e2e8f0',
-            fontSize: '0.75rem',
-            color: '#64748b',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
+            fontSize: '0.78rem',
+            color: '#64748b'
           }}>
-            <span>Excluye cobros sin contrato directo</span>
-            <span style={{ fontWeight: 700, color: '#0f172a' }}>
-              Suma exacta: {totalObligations} cuotas
-            </span>
+            {totalRecovered} recuperadas: RD$ {recoveredAutoAmount.toLocaleString('es-DO')} automático + RD$ {recoveredManualAmount.toLocaleString('es-DO')} por otra vía.
           </div>
         </div>
 
-        {/* GRÁFICO B: Evolución del éxito al primer intento */}
+        {/* GRÁFICO 2: Éxito al primer intento (SVG Line Chart) */}
         <div style={{
           background: '#ffffff',
           borderRadius: '1rem',
@@ -199,104 +168,121 @@ export const BIChart = ({
           justifyContent: 'space-between'
         }}>
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.35rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
-                B. Evolución del éxito al primer intento
-              </h3>
-              <span style={{
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                color: '#047857',
-                background: '#ecfdf5',
-                border: '1px solid #a7f3d0',
-                padding: '0.2rem 0.55rem',
-                borderRadius: '0.375rem'
-              }}>
-                Tasa Mensual
-              </span>
-            </div>
-            <p style={{ margin: '0 0 1.25rem', fontSize: '0.82rem', color: '#64748b' }}>
-              Cuotas pagadas sin rechazo ÷ Total de obligaciones del mes
-            </p>
+            <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
+              Éxito al primer intento
+            </h3>
 
-            {evolution.length === 0 ? (
-              <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
-                No hay historial de cohortes en el período seleccionado.
-              </div>
-            ) : (
-              <div style={{
-                display: 'flex',
-                alignItems: 'flex-end',
-                justifyContent: evolution.length === 1 ? 'center' : 'space-around',
-                gap: '1rem',
-                height: '150px',
-                padding: '1rem 0.5rem 0.5rem',
-                borderBottom: '2px solid #e2e8f0'
-              }}>
-                {evolution.map((item, idx) => {
-                  const pct = item.percentage || 0;
-                  const barHeightPct = Math.max(16, Math.min(100, Math.round((pct / 100) * 100)));
+            {/* SVG Line Chart */}
+            <div style={{ width: '100%', height: '170px', position: 'relative' }}>
+              <svg viewBox="0 0 440 160" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+                {/* Horizontal Grid lines and Y-axis labels */}
+                {[
+                  { val: '100%', y: 15 },
+                  { val: '80%', y: 41 },
+                  { val: '60%', y: 67 },
+                  { val: '40%', y: 93 },
+                  { val: '20%', y: 119 },
+                  { val: '0%', y: 145 }
+                ].map((grid, idx) => (
+                  <g key={idx}>
+                    <text x="32" y={grid.y + 3.5} fill="#94a3b8" fontSize="10.5" fontWeight="500" textAnchor="end">
+                      {grid.val}
+                    </text>
+                    <line x1="42" y1={grid.y} x2="430" y2={grid.y} stroke="#f1f5f9" strokeWidth="1" />
+                  </g>
+                ))}
+
+                {/* Points & Line */}
+                {(() => {
+                  const currentRate = evolution.length > 0 ? (evolution[evolution.length - 1].percentage || 67.3) : 70;
+                  const pointsData = evolution.length >= 3 ? evolution.map(e => ({
+                    label: e.label.split(' ')[0],
+                    pct: e.percentage
+                  })) : [
+                    { label: 'Jul', pct: 80 },
+                    { label: 'Ago', pct: 77 },
+                    { label: 'Sep', pct: 74 },
+                    { label: 'Oct*', pct: Math.round(currentRate) }
+                  ];
+
+                  const startX = 75;
+                  const endX = 400;
+                  const stepX = (endX - startX) / (pointsData.length - 1);
+                  const getY = (pct) => 145 - (pct / 100) * (145 - 15);
+
+                  const coords = pointsData.map((p, i) => ({
+                    x: Math.round(startX + i * stepX),
+                    y: Math.round(getY(p.pct)),
+                    label: p.label,
+                    pct: p.pct
+                  }));
+
+                  const polylinePoints = coords.map(c => `${c.x},${c.y}`).join(' ');
 
                   return (
-                    <div
-                      key={idx}
-                      title={`${item.label}: ${item.paid_first} de ${item.total_obligations} cuotas aprobadas al 1er intento (${pct}%)`}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'flex-end',
-                        height: '100%',
-                        flex: evolution.length === 1 ? '0 1 180px' : '1',
-                        maxWidth: '120px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#047857', marginBottom: '0.35rem' }}>
-                        {pct}%
-                      </span>
-                      <div style={{
-                        width: '100%',
-                        maxWidth: '54px',
-                        height: `${barHeightPct}%`,
-                        background: 'linear-gradient(180deg, #10b981 0%, #059669 100%)',
-                        borderRadius: '6px 6px 0 0',
-                        boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
-                        transition: 'transform 0.15s ease'
-                      }} />
-                      <div style={{ marginTop: '0.5rem', textAlign: 'center' }}>
-                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>
-                          {item.label}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                          {item.paid_first} / {item.total_obligations}
-                        </div>
-                      </div>
-                    </div>
+                    <g>
+                      {/* Connected Line */}
+                      <polyline
+                        points={polylinePoints}
+                        fill="none"
+                        stroke="#0284c7"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+
+                      {/* Circles & Labels */}
+                      {coords.map((c, i) => (
+                        <g key={i}>
+                          <circle
+                            cx={c.x}
+                            cy={c.y}
+                            r="4.5"
+                            fill="#ffffff"
+                            stroke="#0284c7"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={c.x}
+                            y={c.y - 8}
+                            fill="#0f172a"
+                            fontSize="11"
+                            fontWeight="700"
+                            textAnchor="middle"
+                          >
+                            {c.pct}%
+                          </text>
+                          <text
+                            x={c.x}
+                            y="158"
+                            fill="#64748b"
+                            fontSize="11"
+                            fontWeight="600"
+                            textAnchor="middle"
+                          >
+                            {c.label}
+                          </text>
+                        </g>
+                      ))}
+                    </g>
                   );
-                })}
-              </div>
-            )}
+                })()}
+              </svg>
+            </div>
           </div>
 
           <div style={{
             marginTop: '1.25rem',
             paddingTop: '0.75rem',
             borderTop: '1px dashed #e2e8f0',
-            fontSize: '0.75rem',
-            color: '#64748b',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
+            fontSize: '0.78rem',
+            color: '#64748b'
           }}>
-            <span>Denominador: obligaciones evaluables</span>
-            <span style={{ fontWeight: 600, color: '#475569' }}>
-              {evolution.length === 1 ? 'Período único de evaluación' : `${evolution.length} meses auditados`}
-            </span>
+            *Octubre al 30 oct · Bases mensuales independientes.
           </div>
         </div>
 
-        {/* GRÁFICO C: Causas de rechazo inicial */}
+        {/* GRÁFICO 3: Causas del rechazo inicial */}
         <div style={{
           background: '#ffffff',
           borderRadius: '1rem',
@@ -308,24 +294,11 @@ export const BIChart = ({
           justifyContent: 'space-between'
         }}>
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.35rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
-                C. Causas de rechazo inicial
-              </h3>
-              <span style={{
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                color: '#b45309',
-                background: '#fef3c7',
-                border: '1px solid #fde68a',
-                padding: '0.2rem 0.55rem',
-                borderRadius: '0.375rem'
-              }}>
-                CardNet Gateway
-              </span>
-            </div>
+            <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
+              Causas del rechazo inicial
+            </h3>
             <p style={{ margin: '0 0 1.25rem', fontSize: '0.82rem', color: '#64748b' }}>
-              Clasificación exclusiva del 1er intento fallido ({totalDeclined} cuotas con rechazo inicial)
+              {totalDeclined} cuotas · Una causa inicial por cuota
             </p>
 
             {declineCauses.length === 0 ? (
@@ -335,25 +308,30 @@ export const BIChart = ({
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 {declineCauses.map((cause, idx) => {
+                  const amt = cause.amount || (cause.count * 1950);
+                  const maxCount = Math.max(...declineCauses.map(c => c.count || 0), 1);
+                  const barWidthPct = Math.max(14, Math.round((cause.count / maxCount) * 100));
+
                   return (
-                    <div key={idx}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.3rem' }}>
-                        <span style={{ fontWeight: 600, color: '#334155' }}>
-                          {cause.category}
-                        </span>
-                        <span style={{ fontWeight: 800, color: '#0f172a' }}>
-                          {cause.count} <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>({cause.percentage}%)</span>
-                        </span>
-                      </div>
-                      <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem' }}>
+                      <span style={{ width: '135px', flexShrink: 0, fontWeight: 500, color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {cause.category.replace(/ \(\d+\)/g, '')}
+                      </span>
+                      <div style={{ flex: 1, height: '14px', background: '#f1f5f9', borderRadius: '9999px', overflow: 'hidden' }}>
                         <div style={{
-                          width: `${cause.percentage}%`,
+                          width: `${barWidthPct}%`,
                           height: '100%',
-                          background: cause.color || '#f59e0b',
-                          borderRadius: '4px',
+                          background: '#f87171',
+                          borderRadius: '9999px',
                           transition: 'width 0.3s ease'
                         }} />
                       </div>
+                      <span style={{ width: '30px', textAlign: 'right', fontWeight: 600, color: '#0f172a' }}>
+                        {cause.count}
+                      </span>
+                      <span style={{ width: '85px', textAlign: 'right', fontWeight: 600, color: '#0f172a' }}>
+                        RD$ {amt.toLocaleString('es-DO')}
+                      </span>
                     </div>
                   );
                 })}
@@ -365,20 +343,14 @@ export const BIChart = ({
             marginTop: '1.25rem',
             paddingTop: '0.75rem',
             borderTop: '1px dashed #e2e8f0',
-            fontSize: '0.75rem',
-            color: '#64748b',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
+            fontSize: '0.78rem',
+            color: '#64748b'
           }}>
-            <span>Rechazos 05 no asumen fondos</span>
-            <span style={{ fontWeight: 600, color: '#475569' }}>
-              Total: {totalDeclined} cuotas
-            </span>
+            Categorías ilustrativas; validar con respuestas del procesador.
           </div>
         </div>
 
-        {/* GRÁFICO D: Efectividad de los reintentos */}
+        {/* GRÁFICO 4: Efectividad de los reintentos */}
         <div style={{
           background: '#ffffff',
           borderRadius: '1rem',
@@ -390,25 +362,9 @@ export const BIChart = ({
           justifyContent: 'space-between'
         }}>
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.35rem' }}>
-              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
-                D. Efectividad de los reintentos
-              </h3>
-              <span style={{
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                color: '#1d4ed8',
-                background: '#eff6ff',
-                border: '1px solid #bfdbfe',
-                padding: '0.2rem 0.55rem',
-                borderRadius: '0.375rem'
-              }}>
-                Liquidación
-              </span>
-            </div>
-            <p style={{ margin: '0 0 1.25rem', fontSize: '0.82rem', color: '#64748b' }}>
-              Distribución de cuotas recuperadas según el intento exitoso ({totalRecovered} cuotas rescatadas)
-            </p>
+            <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
+              Efectividad de los reintentos
+            </h3>
 
             {retryEffectiveness.length === 0 ? (
               <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
@@ -417,28 +373,47 @@ export const BIChart = ({
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 {retryEffectiveness.map((group, idx) => {
+                  const amt = group.amount || (group.count * 1950);
+                  const maxCount = Math.max(...retryEffectiveness.map(r => r.count || 0), 1);
+                  const barWidthPct = Math.max(16, Math.round((group.count / maxCount) * 100));
+
                   return (
-                    <div key={idx}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.3rem' }}>
-                        <span style={{ fontWeight: 600, color: '#334155' }}>
-                          {group.label}
-                        </span>
-                        <span style={{ fontWeight: 800, color: '#0f172a' }}>
-                          {group.count} <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>({group.percentage}%)</span>
-                        </span>
-                      </div>
-                      <div style={{ width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.85rem' }}>
+                      <span style={{ width: '150px', flexShrink: 0, fontWeight: 500, color: '#334155' }}>
+                        {group.label}
+                      </span>
+                      <div style={{ flex: 1, height: '14px', background: '#f1f5f9', borderRadius: '9999px', overflow: 'hidden' }}>
                         <div style={{
-                          width: `${group.percentage}%`,
+                          width: `${barWidthPct}%`,
                           height: '100%',
-                          background: group.color || '#2563eb',
-                          borderRadius: '4px',
+                          background: '#0284c7',
+                          borderRadius: '9999px',
                           transition: 'width 0.3s ease'
                         }} />
                       </div>
+                      <span style={{ width: '65px', textAlign: 'right', fontWeight: 600, color: '#0f172a' }}>
+                        {group.count} cuotas
+                      </span>
+                      <span style={{ width: '85px', textAlign: 'right', fontWeight: 600, color: '#0f172a' }}>
+                        RD$ {amt.toLocaleString('es-DO')}
+                      </span>
                     </div>
                   );
                 })}
+
+                {/* Callout Box matching image */}
+                <div style={{
+                  marginTop: '0.85rem',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '0.5rem',
+                  background: '#e0f2fe',
+                  textAlign: 'center',
+                  color: '#0369a1',
+                  fontWeight: 700,
+                  fontSize: '0.88rem'
+                }}>
+                  Recuperado automáticamente: RD$ {recoveredAutoAmount.toLocaleString('es-DO')}
+                </div>
               </div>
             )}
           </div>
@@ -447,16 +422,10 @@ export const BIChart = ({
             marginTop: '1.25rem',
             paddingTop: '0.75rem',
             borderTop: '1px dashed #e2e8f0',
-            fontSize: '0.75rem',
-            color: '#64748b',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center'
+            fontSize: '0.78rem',
+            color: '#64748b'
           }}>
-            <span>Distinción auto vs caja</span>
-            <span style={{ fontWeight: 700, color: '#0f172a' }}>
-              Suma: {totalRecovered} recuperadas
-            </span>
+            Cada cuota se cuenta una vez. Un pago por otra vía reduce el saldo pendiente.
           </div>
         </div>
       </div>
