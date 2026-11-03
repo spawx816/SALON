@@ -89,7 +89,9 @@ export const ThermalTicketModal = ({
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Printer size={18} style={{ color: '#be185d' }} />
-            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>Pre-cuenta Impresora Térmica 80mm</span>
+            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>
+              {printableTicketData.isPrecuenta ? 'Precuenta POS (Pendiente de Pago)' : 'Ticket Térmico 80mm'}
+            </span>
           </div>
           <button
             type="button"
@@ -162,6 +164,24 @@ export const ThermalTicketModal = ({
             {/* LÍNEA SEPARADORA PUNTEADA */}
             <div style={{ borderBottom: '1.5px dotted #000000', margin: '5px 0 7px 0' }} />
 
+            {/* BANNER PRECUENTA OBLIGATORIO */}
+            {printableTicketData.isPrecuenta && (
+              <div style={{
+                border: '1.5px solid #000000',
+                background: '#ffffff',
+                padding: '4px 2px',
+                textAlign: 'center',
+                fontWeight: 900,
+                fontSize: '9px',
+                lineHeight: '1.25',
+                margin: '2px 0 6px 0',
+                letterSpacing: '0.4px',
+                boxSizing: 'border-box'
+              }}>
+                PRECUENTA — NO ES FACTURA FISCAL — PENDIENTE DE PAGO
+              </div>
+            )}
+
             {/* 2. METADATOS DEL TICKET */}
             <div style={{ fontSize: '9.5px', lineHeight: '1.35', marginBottom: '5px' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
@@ -192,7 +212,7 @@ export const ThermalTicketModal = ({
                 </span>
               </div>
 
-              {printableTicketData.ncf && (
+              {printableTicketData.ncf && !printableTicketData.isPrecuenta && (
                 <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px', background: '#f8fafc', border: '1px solid #000000', padding: '1px 3px', borderRadius: '2px' }}>
                   <span style={{ fontWeight: 900, minWidth: '50px' }}>e-NCF:</span>
                   <span style={{ fontWeight: 900, fontSize: '11px', letterSpacing: '0.5px' }}>
@@ -340,7 +360,7 @@ export const ThermalTicketModal = ({
                 lineHeight: '1.3',
                 textAlign: 'left'
               }}>
-                {printableTicketData.ncf ? (
+                {printableTicketData.ncf && !printableTicketData.isPrecuenta ? (
                   <>TIMBRE FISCAL<br />DGII OFICIAL</>
                 ) : (
                   <>MENÚ DE<br />SERVICIOS</>

@@ -9,6 +9,138 @@ try { dgiiEcfLib = require('dgii-ecf'); } catch(e) { console.warn('dgii-ecf opti
 const { getCodeSixDigitfromSignature, generateEcfQRCodeURL, generateFcQRCodeURL } = dgiiEcfLib;
 
 /**
+ * Robust, centralized payment method breakdown parser for DGII 607 / e-CF compliance.
+ * Works with integer cents to eliminate floating-point precision issues.
+ *
+ * @param {string|null|undefined} metodoPagoRaw - Legacy string representation of payment method(s)
+ * @param {number|string|null|undefined} totalAmount - Total amount of the transaction
+ * @param {Array|string|null|undefined} appliedPayments - Structured payments array if available
+ * @returns {{
+ *   efectivo: number,
+ *   tarjeta: number,
+ *   transferencia: number,
+ *   bonos: number,
+ *   otras: number,
+ *   sumTotal: number,
+ *   isValid: boolean,
+ *   discrepancyCents: number,
+ *   cents: { efectivo: number, tarjeta: number, transferencia: number, bonos: number, otras: number, total: number }
+ * }}
+ */
+function extractPaymentBreakdown(metodoPagoRaw, totalAmount, appliedPayments = null) {
+  const totalNum = Number(totalAmount || 0);
+  const totalCents = Math.round((isNaN(totalNum) ? 0 : totalNum) * 100);
+
+  let efectivoCents = 0;
+  let tarjetaCents = 0;
+  let transfCents = 0;
+  let bonosCents = 0;
+  let otrasCents = 0;
+
+  // Helper to parse amount string into integer cents
+  const parseAmountToCents = (str) => {
+    if (!str) return 0;
+    const clean = String(str).replace(/,/g, '').trim();
+    const num = parseFloat(clean);
+    return isNaN(num) ? 0 : Math.round(num * 100);
+  };
+
+  // 1. Prioritize structured data if provided
+  let structured = null;
+  if (Array.isArray(appliedPayments) && appliedPayments.length > 0) {
+    structured = appliedPayments;
+  } else if (typeof appliedPayments === 'string' && appliedPayments.trim()) {
+    try {
+      const parsed = JSON.parse(appliedPayments);
+      if (Array.isArray(parsed) && parsed.length > 0) structured = parsed;
+    } catch (_) {}
+  }
+
+  if (structured && structured.length > 0) {
+    for (const p of structured) {
+      const amtCents = Math.round(Number(p.amount || 0) * 100);
+      if (amtCents <= 0) continue;
+      const m = String(p.method || '').toLowerCase();
+      if (m.includes('efectivo') || m.includes('cash')) {
+        efectivoCents += amtCents;
+      } else if (m.includes('tarjeta') || m.includes('card') || m.includes('cardnet') || m.includes('pos') || m.includes('visa') || m.includes('mastercard')) {
+        tarjetaCents += amtCents;
+      } else if (m.includes('transf') || m.includes('transferencia') || m.includes('cheque') || m.includes('deposito')) {
+        transfCents += amtCents;
+      } else if (m.includes('bono') || m.includes('gift') || m.includes('certificado')) {
+        bonosCents += amtCents;
+      } else {
+        otrasCents += amtCents;
+      }
+    }
+  } else {
+    // 2. Parse legacy string
+    const raw = String(metodoPagoRaw || '').trim();
+    const lower = raw.toLowerCase();
+
+    if (!raw || totalCents <= 0) {
+      // Nothing to distribute
+    } else if (lower.includes('mixto')) {
+      // Robust regex for multiple parts
+      const efMatch = raw.match(/Efectivo:\s*RD\$\s*([\d,.]+)/i);
+      const tjMatch = raw.match(/Tarjeta:\s*RD\$\s*([\d,.]+)/i);
+      const trMatch = raw.match(/Transferencia:\s*RD\$\s*([\d,.]+)/i);
+      const bnMatch = raw.match(/(?:Gift\s*Card|Bono|Certificado):\s*RD\$\s*([\d,.]+)/i);
+      const chMatch = raw.match(/Cheque:\s*RD\$\s*([\d,.]+)/i);
+      const otMatch = raw.match(/Otr[ao]s?:\s*RD\$\s*([\d,.]+)/i);
+
+      if (efMatch) efectivoCents += parseAmountToCents(efMatch[1]);
+      if (tjMatch) tarjetaCents += parseAmountToCents(tjMatch[1]);
+      if (trMatch) transfCents += parseAmountToCents(trMatch[1]);
+      if (bnMatch) bonosCents += parseAmountToCents(bnMatch[1]);
+      if (chMatch) transfCents += parseAmountToCents(chMatch[1]);
+      if (otMatch) otrasCents += parseAmountToCents(otMatch[1]);
+    } else {
+      // Direct methods
+      if (lower.includes('efectivo') || lower.includes('cash')) {
+        efectivoCents = totalCents;
+      } else if (lower.includes('tarjeta') || lower.includes('card') || lower.includes('cardnet') || lower.includes('pos')) {
+        tarjetaCents = totalCents;
+      } else if (lower.includes('transf') || lower.includes('transferencia') || lower.includes('cheque') || lower.includes('deposito')) {
+        transfCents = totalCents;
+      } else if (lower.includes('bono') || lower.includes('gift') || lower.includes('certificado')) {
+        bonosCents = totalCents;
+      } else if (lower.includes('plan') || lower.includes('canje') || lower.includes('membres')) {
+        // Canjes de membresía (RD$ 0 o bonos)
+        bonosCents = totalCents;
+      } else {
+        // Condition 7: Do NOT default unknown methods to cash!
+        otrasCents = totalCents;
+      }
+    }
+  }
+
+  const sumCents = efectivoCents + tarjetaCents + transfCents + bonosCents + otrasCents;
+  const discrepancyCents = Math.abs(totalCents - sumCents);
+  const isValid = (discrepancyCents === 0);
+
+  return {
+    efectivo: efectivoCents / 100,
+    tarjeta: tarjetaCents / 100,
+    transferencia: transfCents / 100,
+    bonos: bonosCents / 100,
+    otras: otrasCents / 100,
+    sumTotal: sumCents / 100,
+    isValid,
+    discrepancyCents,
+    cents: {
+      efectivo: efectivoCents,
+      tarjeta: tarjetaCents,
+      transferencia: transfCents,
+      bonos: bonosCents,
+      otras: otrasCents,
+      total: totalCents
+    }
+  };
+}
+
+
+/**
  * DGII Electronic Invoicing, Sequences, Credit Notes & 607 Report Router
  * 
  * @param {import('mysql2/promise').Pool} pool
@@ -321,8 +453,15 @@ router.post('/credit-notes/retransmit/:id', async (req, res) => {
     const visit = visits[0];
 
     const voidReason = visit.nota_credito_motivo || visit.void_reason || 'Anulación Total de Factura';
-    const encf = await generateAndTransmitNotaCredito(visit, voidReason, visit.voided_by || 'Administrador');
-    res.json({ success: true, message: `Nota de Crédito ${encf} transmitida exitosamente a la DGII.`, ncf_nota_credito: encf });
+        const encf = await generateAndTransmitNotaCredito(visit, voidReason, visit.voided_by || 'Administrador');
+    const encfCode = (typeof encf === 'object' && encf?.encf) ? encf.encf : String(encf || '');
+    const trackId = (typeof encf === 'object' && encf?.trackId) ? encf.trackId : null;
+    res.json({ 
+      success: true, 
+      message: `Nota de Crédito ${encfCode} transmitida exitosamente a la DGII.${trackId ? ` TrackID: ${trackId}` : ''}`, 
+      ncf_nota_credito: encfCode,
+      track_id: trackId
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -420,43 +559,13 @@ router.get('/report-607', async (req, res) => {
       else if (cleanRnc.length === 11) tipoId = '2';
 
       const totalAmount = Number(v.total || 0);
-      const paymentMethod = String(v.metodo_pago || 'Efectivo').toLowerCase();
+      const breakdown = extractPaymentBreakdown(v.metodo_pago, totalAmount, v.applied_payments);
 
-      let efectivo = 0;
-      let chequeTransferencia = 0;
-      let tarjeta = 0;
-      let bonos = 0;
-      let otras = 0;
-
-      let applied = [];
-      try {
-        if (typeof v.applied_payments === 'string') applied = JSON.parse(v.applied_payments);
-        else if (Array.isArray(v.applied_payments)) applied = v.applied_payments;
-      } catch (_) {}
-
-      if (applied && applied.length > 0) {
-        for (const p of applied) {
-          const amt = Number(p.amount || 0);
-          const m = String(p.method || '').toLowerCase();
-          if (m.includes('efectivo') || m.includes('cash')) efectivo += amt;
-          else if (m.includes('tarjeta') || m.includes('card') || m.includes('cardnet') || m.includes('pos')) tarjeta += amt;
-          else if (m.includes('transf') || m.includes('cheque') || m.includes('deposito')) chequeTransferencia += amt;
-          else if (m.includes('bono') || m.includes('gift') || m.includes('certificado')) bonos += amt;
-          else otras += amt;
-        }
-      } else {
-        if (paymentMethod.includes('efectivo') || paymentMethod.includes('cash')) {
-          efectivo = totalAmount;
-        } else if (paymentMethod.includes('tarjeta') || paymentMethod.includes('card') || paymentMethod.includes('cardnet') || paymentMethod.includes('pos')) {
-          tarjeta = totalAmount;
-        } else if (paymentMethod.includes('transf') || paymentMethod.includes('cheque') || paymentMethod.includes('deposito')) {
-          chequeTransferencia = totalAmount;
-        } else if (paymentMethod.includes('bono') || paymentMethod.includes('gift') || paymentMethod.includes('certificado')) {
-          bonos = totalAmount;
-        } else {
-          efectivo = totalAmount;
-        }
-      }
+      const efectivo = breakdown.efectivo;
+      const chequeTransferencia = breakdown.transferencia;
+      const tarjeta = breakdown.tarjeta;
+      const bonos = breakdown.bonos;
+      const otras = breakdown.otras;
 
       // Fila de la Factura Original
       const facturaRow = {
@@ -593,11 +702,12 @@ router.get('/report-607/txt', async (req, res) => {
       else if (cleanRnc.length === 11) tipoId = '2';
 
       const total = Number(v.total || 0).toFixed(2);
-      const paymentMethod = String(v.metodo_pago || 'Efectivo').toLowerCase();
-      let efectivo = (paymentMethod.includes('efectivo') || paymentMethod.includes('cash')) ? total : '0.00';
-      let tarjeta = (paymentMethod.includes('tarjeta') || paymentMethod.includes('card') || paymentMethod.includes('cardnet') || paymentMethod.includes('pos')) ? total : '0.00';
-      let transf = (paymentMethod.includes('transf') || paymentMethod.includes('cheque') || paymentMethod.includes('deposito')) ? total : '0.00';
-      let bonos = (paymentMethod.includes('bono') || paymentMethod.includes('gift') || paymentMethod.includes('certificado')) ? total : '0.00';
+      const breakdown = extractPaymentBreakdown(v.metodo_pago, v.total, v.applied_payments);
+      const efectivo = breakdown.efectivo.toFixed(2);
+      const transf = breakdown.transferencia.toFixed(2);
+      const tarjeta = breakdown.tarjeta.toFixed(2);
+      const bonos = breakdown.bonos.toFixed(2);
+      const otras = breakdown.otras.toFixed(2);
 
       // Factura
       lines.push([
@@ -622,7 +732,7 @@ router.get('/report-607/txt', async (req, res) => {
         '0.00',
         bonos,
         '0.00',
-        '0.00'
+        otras
       ].join('|'));
 
       // Nota de Crédito
@@ -666,6 +776,101 @@ router.get('/report-607/txt', async (req, res) => {
 
 // === DGII NCF SEQUENCES MANAGEMENT APIs ===
 // ==========================================
+
+// GET /api/dgii/sequences/availability - Real-time e-NCF sequence availability and threshold alerts
+const getSequenceAvailability = async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT id, tipo_comprobante, nombre_comprobante, numero_desde, numero_hasta, 
+             secuencia_actual, cantidad_aprobada, cantidad_usada, fecha_vencimiento, estado, alerta_minima
+      FROM dgii_ncf_sequences
+      WHERE estado = 'Activo'
+      ORDER BY id ASC
+    `);
+
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    const availability = {
+      E31: { tipo: 'E31', nombre: 'Factura de Crédito Fiscal Electrónico', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [] },
+      E32: { tipo: 'E32', nombre: 'Factura de Consumo Electrónica', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [] },
+      E34: { tipo: 'E34', nombre: 'Nota de Crédito Electrónica', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [] },
+      hasAlerts: false,
+      alerts: []
+    };
+
+    for (const row of rows) {
+      const tipo = row.tipo_comprobante;
+      if (!availability[tipo]) continue;
+
+      const isExpired = row.fecha_vencimiento ? new Date(row.fecha_vencimiento) < now : false;
+      if (isExpired) continue;
+
+      const prefix = tipo || row.numero_desde.slice(0, 3);
+      const startNum = parseInt(row.numero_desde.slice(prefix.length), 10) || 1;
+      const endNum = parseInt(row.numero_hasta.slice(prefix.length), 10) || (startNum + row.cantidad_aprobada - 1);
+      const currentAssignedNum = startNum + row.cantidad_usada;
+
+      if (currentAssignedNum <= endNum && row.cantidad_usada < row.cantidad_aprobada) {
+        const batchAvailable = Math.min(row.cantidad_aprobada - row.cantidad_usada, endNum - currentAssignedNum + 1);
+        availability[tipo].disponibles += Math.max(0, batchAvailable);
+        availability[tipo].batches.push({
+          id: row.id,
+          disponibles: batchAvailable,
+          secuencia_actual: row.secuencia_actual,
+          cantidad_usada: row.cantidad_usada,
+          cantidad_aprobada: row.cantidad_aprobada
+        });
+      }
+    }
+
+    // Compute thresholds for each type (20, 10, 5, 0)
+    for (const tipo of ['E31', 'E32', 'E34']) {
+      const disp = availability[tipo].disponibles;
+      availability[tipo].isExhausted = (disp <= 0);
+
+      let level = 'none';
+      let alertMsg = null;
+
+      if (disp === 0) {
+        level = 'exhausted';
+        alertMsg = `⛔ ALERTA PERSISTENTE: Se agotaron los comprobantes fiscales de ${tipo} (${availability[tipo].nombre}). Facturación bloqueada para este tipo.`;
+      } else if (disp <= 5) {
+        level = 'critical_5';
+        alertMsg = `🚨 Alerta Crítica: Quedan solo ${disp} secuencias autorizadas de ${tipo}. Bloqueo inminente al llegar a cero.`;
+      } else if (disp <= 10) {
+        level = 'warning_10';
+        alertMsg = `⚠️ Advertencia: Quedan solo ${disp} secuencias autorizadas de ${tipo}. Favor notificar al administrador para solicitar nuevas secuencias a la DGII.`;
+      } else if (disp <= 20) {
+        level = 'warning_20';
+        alertMsg = `ℹ️ Aviso: Quedan ${disp} secuencias autorizadas de ${tipo}.`;
+      }
+
+      availability[tipo].alertLevel = level;
+      availability[tipo].message = alertMsg;
+      if (level !== 'none') {
+        availability.hasAlerts = true;
+        availability.alerts.push({
+          tipo,
+          disponibles: disp,
+          level,
+          message: alertMsg
+        });
+      }
+    }
+
+    availability.success = true;
+    availability.sequences = [availability.E31, availability.E32, availability.E34];
+
+    res.json(availability);
+  } catch (err) {
+    console.error('[DGII AVAILABILITY ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+router.get('/sequences/availability', getSequenceAvailability);
+router.getSequenceAvailability = getSequenceAvailability;
 
 // GET /api/dgii/sequences - List all authorized NCF sequence batches
 router.get('/sequences', async (req, res) => {
@@ -822,4 +1027,4 @@ router.delete('/sequences/:id', async (req, res) => {
   return router;
 }
 
-module.exports = { createDgiiRouter };
+module.exports = { createDgiiRouter, extractPaymentBreakdown };

@@ -217,6 +217,22 @@ const VisitRecorder = () => {
   const [newTicketClientName, setNewTicketClientName] = useState('');
   const [selectedEmployeeForTicket, setSelectedEmployeeForTicket] = useState(null);
 
+  // DGII Sequences Availability & Exhaustion Blocking
+  const [sequenceAvailability, setSequenceAvailability] = useState(null);
+  const [showBlockedSequenceModal, setShowBlockedSequenceModal] = useState(false);
+  const [blockedSequenceInfo, setBlockedSequenceInfo] = useState(null);
+
+  const fetchSequenceAvailability = async () => {
+    try {
+      const res = await dataService.getSequenceAvailability();
+      if (res && res.success) {
+        setSequenceAvailability(res);
+      }
+    } catch (err) {
+      console.warn('Error al consultar disponibilidad de secuencias fiscales:', err);
+    }
+  };
+
   // Auto-disparo automático de impresión al abrir el ticket térmico
   useEffect(() => {
     if (showPrintModal && printableTicketData) {
@@ -1043,6 +1059,7 @@ const VisitRecorder = () => {
     fetchActiveRegister();
     fetchClients();
     fetchTopServices();
+    fetchSequenceAvailability();
   }, [salonId]);
 
   const fetchTopServices = async () => {
@@ -2856,6 +2873,52 @@ const VisitRecorder = () => {
     }
   };
 
+    const handleSaveAndPrintPrecuenta = async () => {
+    if (lineItems.length === 0) {
+      alert('⚠️ Agrega al menos un servicio para generar la precuenta.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const ticketIdToUse = selectedTicket?.id || `TKT-${Date.now()}`;
+      const finalClientName = clientFound?.nombre || clientFound?.name || selectedTicket?.client_name || 'Cliente General';
+      const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
+
+      const res = await dataService.savePrecuenta({
+        id: ticketIdToUse,
+        ticketId: ticketIdToUse,
+        total: finalTotalAmount,
+        items_detail: lineItems,
+        client_id: finalClientId,
+        client_name: finalClientName,
+        salon_id: salonId,
+        metodo_pago: 'Precuenta'
+      });
+
+      const ticketNum = res?.ticket_number || selectedTicket?.ticket_number || 'PREC-0001';
+
+      setPrintableTicketData({
+        id: ticketIdToUse,
+        ticket_number: ticketNum,
+        client_name: finalClientName,
+        client_id: finalClientId,
+        items_detail: lineItems,
+        servicios: lineItems.map(i => i.nombre),
+        total: finalTotalAmount,
+        isPrecuenta: true,
+        receptionist: currentUser?.nombre || currentUser?.name || 'Recepción',
+        created_at: new Date().toISOString()
+      });
+
+      setShowPrintModal(true);
+      await fetchPendingTickets();
+    } catch (err) {
+      alert('Error al generar precuenta: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Finalize Billing / Checkout with Strict Validations
   const handleFinalizeCheckout = async () => {
     if (!activeRegister) {
@@ -2958,6 +3021,18 @@ const VisitRecorder = () => {
     const hasPlanWashCheck = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
     const isPlanCanjeCheck = (finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty') || (hasPlanWashCheck && finalTotalAmount === 0)) && !isCreditoFiscal;
     const ncfTypeToUse = isPlanCanjeCheck ? 'NONE' : (isCreditoFiscal ? 'E31' : 'E32');
+
+    // Validación preventiva de agotamiento antes de iniciar el cobro o emitir factura
+    if (ncfTypeToUse !== 'NONE' && sequenceAvailability && sequenceAvailability[ncfTypeToUse]?.isExhausted) {
+      setBlockedSequenceInfo({
+        tipo_comprobante: ncfTypeToUse,
+        nombre_comprobante: ncfTypeToUse === 'E31' ? 'Factura de Crédito Fiscal Electrónico (E31)' : 'Factura de Consumo Electrónica (E32)',
+        message: 'No hay comprobantes fiscales disponibles.\n\nSe agotaron las secuencias autorizadas para este tipo de factura.\n\nFavor de notificar al administrador para agregar nuevas secuencias fiscales.\n\nPuede guardar o imprimir una precuenta, pero no finalizar la factura ni registrar el cobro.'
+      });
+      setShowBlockedSequenceModal(true);
+      return;
+    }
+
     await executeCheckout(null, ncfTypeToUse, isCreditoFiscal ? clientRncInput.trim() : '', isCreditoFiscal ? clientRazonSocialInput.trim() : '');
   };
 
@@ -3036,26 +3111,41 @@ const VisitRecorder = () => {
       const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
       const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
 
-      const checkoutRes = await dataService.checkoutTicket(ticketIdToUse, {
-        total: finalTotalAmount,
-        monto_recibido: finalMontoRecibido,
-        devuelta: finalDevuelta,
-        metodo_pago: finalMetodoPago,
-        items_detail: lineItems,
-        applied_payments: sanitizedAppliedPayments,
-        client_id: finalClientId,
-        client_name: finalClientName,
-        salon_id: salonId,
-        cash_register_id: activeRegister?.id || null,
-        employee_consumption: empCons,
-        gift_card_redemption: gcRedemption,
-        ncf_type: ncfTypeToSend,
-        rnc_cliente: rncToSend,
-        rzn_soc_cliente: razonSocialToSend
-      }).catch(err => {
-        console.warn('Checkout ticket API fallback:', err);
-        return null;
-      });
+      let checkoutRes = null;
+      try {
+        checkoutRes = await dataService.checkoutTicket(ticketIdToUse, {
+          total: finalTotalAmount,
+          monto_recibido: finalMontoRecibido,
+          devuelta: finalDevuelta,
+          metodo_pago: finalMetodoPago,
+          items_detail: lineItems,
+          applied_payments: sanitizedAppliedPayments,
+          client_id: finalClientId,
+          client_name: finalClientName,
+          salon_id: salonId,
+          cash_register_id: activeRegister?.id || null,
+          employee_consumption: empCons,
+          gift_card_redemption: gcRedemption,
+          ncf_type: ncfTypeToSend,
+          rnc_cliente: rncToSend,
+          rzn_soc_cliente: razonSocialToSend
+        });
+      } catch (err) {
+        if (err.status === 409 || err.code === 'FISCAL_SEQUENCES_EXHAUSTED' || (err.data && err.data.code === 'FISCAL_SEQUENCES_EXHAUSTED')) {
+          setBlockedSequenceInfo({
+            tipo_comprobante: err.data?.tipo_comprobante || ncfTypeToSend,
+            nombre_comprobante: err.data?.nombre_comprobante || (ncfTypeToSend === 'E31' ? 'Factura de Crédito Fiscal Electrónico (E31)' : 'Factura de Consumo Electrónica (E32)'),
+            message: err.data?.message || err.message,
+            ticket_id: ticketIdToUse,
+            ticket_number: err.data?.ticket_number || selectedTicket?.ticket_number
+          });
+          setShowBlockedSequenceModal(true);
+          await fetchSequenceAvailability();
+          await fetchPendingTickets();
+          return;
+        }
+        throw err;
+      }
 
       // Refresh active cash register movements immediately
       if (activeRegister?.id) {
@@ -3301,6 +3391,49 @@ const VisitRecorder = () => {
           <span>+ Generar Nuevo Ticket</span>
         </button>
       </div>
+
+      {/* PERSISTENT ADMINISTRATIVE ALERTS FOR DGII SEQUENCES */}
+      {sequenceAvailability?.alerts && sequenceAvailability.alerts.length > 0 && (
+        <div style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', background: '#ffffff', borderBottom: '1px solid #f1f5f9' }}>
+          {sequenceAvailability.alerts.map((al, idx) => {
+            const isExhausted = al.level === 'exhausted';
+            const isCrit5 = al.level === 'critical_5';
+            const bg = isExhausted ? '#fef2f2' : (isCrit5 ? '#fff7ed' : '#fefce8');
+            const border = isExhausted ? '#f87171' : (isCrit5 ? '#fdba74' : '#fde047');
+            const color = isExhausted ? '#991b1b' : (isCrit5 ? '#9a3412' : '#854d0e');
+            const icon = isExhausted ? <ShieldAlert size={18} style={{ color: '#dc2626', flexShrink: 0 }} /> : <AlertTriangle size={18} style={{ color: isCrit5 ? '#ea580c' : '#ca8a04', flexShrink: 0 }} />;
+
+            return (
+              <div
+                key={idx}
+                style={{
+                  background: bg,
+                  border: `1.5px solid ${border}`,
+                  borderRadius: '10px',
+                  padding: '0.55rem 0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.03)'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  {icon}
+                  <span style={{ fontSize: '0.825rem', fontWeight: 800, color: color }}>
+                    {al.message}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 900, background: '#ffffff', color: color, padding: '2px 8px', borderRadius: '6px', border: `1px solid ${border}` }}>
+                    {al.disponibles} restantes
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* MAIN 3-COLUMN LAYOUT WITH SEAMLESS WHITE BACKGROUND & SINGLE DIVIDING LINES */}
       <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr) 340px', gap: 0, alignItems: 'stretch', width: '100%', height: 'calc(100vh - 120px)', minHeight: '620px', boxSizing: 'border-box', background: '#ffffff' }}>
@@ -4504,6 +4637,34 @@ const VisitRecorder = () => {
             >
               <span>› FINALIZAR FACTURA</span>
               <Printer size={17} />
+            </button>
+
+            {/* PRECUENTA BUTTON (NO ES FACTURA FISCAL, PENDIENTE DE PAGO) */}
+            <button
+              type="button"
+              onClick={handleSaveAndPrintPrecuenta}
+              disabled={lineItems.length === 0 || loading}
+              style={{
+                width: '100%',
+                background: '#f8fafc',
+                color: '#334155',
+                border: '1.5px dashed #94a3b8',
+                padding: '0.65rem',
+                borderRadius: '12px',
+                fontWeight: 700,
+                fontSize: '0.825rem',
+                cursor: lineItems.length > 0 && !loading ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.4rem',
+                transition: 'all 0.15s ease',
+                opacity: lineItems.length > 0 ? 1 : 0.6
+              }}
+              title="Guarda la visita como Pendiente e imprime la precuenta sin comprobante fiscal"
+            >
+              <FileText size={16} style={{ color: '#64748b' }} />
+              <span>📄 Precuenta (Pendiente de Pago)</span>
             </button>
 
             {/* CARGAR A NÓMINA — solo visible en tickets de empleado */}
@@ -7103,6 +7264,58 @@ const VisitRecorder = () => {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: SECUENCIAS FISCALES AGOTADAS ================= */}
+      {showBlockedSequenceModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1060, padding: '1.25rem' }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: '540px', borderRadius: '20px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', overflow: 'hidden', border: '2px solid #ef4444' }}>
+            <div style={{ background: '#ef4444', color: '#ffffff', padding: '1.2rem 1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <ShieldAlert size={26} />
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900 }}>BLOQUEO POR AGOTAMIENTO DE SECUENCIAS FISCALES</h3>
+                <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>DGII — e-NCF {blockedSequenceInfo?.tipo_comprobante || 'Fiscal'}</span>
+              </div>
+            </div>
+            <div style={{ padding: '1.5rem', color: '#1e293b' }}>
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', padding: '1rem', marginBottom: '1.25rem' }}>
+                <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: '1.6', fontWeight: 700, color: '#991b1b', whiteSpace: 'pre-line' }}>
+                  {`No hay comprobantes fiscales disponibles.\n\nSe agotaron las secuencias autorizadas para este tipo de factura.\n\nFavor de notificar al administrador para agregar nuevas secuencias fiscales.\n\nPuede guardar o imprimir una precuenta, pero no finalizar la factura ni registrar el cobro.`}
+                </p>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '1.5rem', background: '#f8fafc', padding: '0.75rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span><strong>Tipo de comprobante solicitado:</strong></span>
+                  <span>{blockedSequenceInfo?.nombre_comprobante || blockedSequenceInfo?.tipo_comprobante || 'Factura Fiscal'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span><strong>Estado de venta:</strong></span>
+                  <span style={{ color: '#d97706', fontWeight: 700 }}>Pendiente (No cobrada ni facturada)</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowBlockedSequenceModal(false)}
+                  style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '0.65rem 1.1rem', borderRadius: '10px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}
+                >
+                  Continuar Editando
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowBlockedSequenceModal(false);
+                    await handleSaveAndPrintPrecuenta();
+                  }}
+                  style={{ background: '#be185d', color: '#ffffff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '10px', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 10px rgba(190, 24, 93, 0.3)' }}
+                >
+                  <Printer size={16} />
+                  <span>Imprimir Precuenta</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

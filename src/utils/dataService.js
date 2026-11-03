@@ -210,17 +210,50 @@ export const dataService = {
     }
   },
 
-  checkoutTicket: async (ticketId, checkoutData) => {
+    checkoutTicket: async (ticketId, checkoutData) => {
     try {
       const res = await fetch(`${API_URL}/visits/${ticketId}/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(checkoutData)
       });
-      return await res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        const error = new Error(data.message || data.error || 'Error al procesar checkout.');
+        error.status = res.status;
+        error.code = data.code;
+        error.data = data;
+        throw error;
+      }
+      return data;
     } catch (e) {
       console.error("Error en checkoutTicket:", e);
       throw e;
+    }
+  },
+
+  savePrecuenta: async (precuentaData) => {
+    try {
+      const res = await fetch(`${API_URL}/visits/precuenta`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(precuentaData)
+      });
+      return await res.json();
+    } catch (e) {
+      console.error("Error en savePrecuenta:", e);
+      throw e;
+    }
+  },
+
+  getSequenceAvailability: async () => {
+    try {
+      const res = await fetch(`${API_URL}/dgii/sequences/availability`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      console.warn("Error consultando disponibilidad de secuencias:", e.message);
+      return null;
     }
   },
 

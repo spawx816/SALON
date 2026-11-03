@@ -350,23 +350,37 @@ ${itemsXml}
       const rncEmisor = '131917038';
       const fileName = `${rncEmisor}${encfE34}.xml`;
 
+      let trackId = null;
       if (dgiiPrivateKeyPem && dgiiCertificatePem && ECF) {
-        const ecfClient = new ECF({ key: dgiiPrivateKeyPem, cert: dgiiCertificatePem }, ENVIRONMENT.PROD);
-        await ecfClient.authenticate();
-        const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
-        console.log(`✅ [DGII NOTA DE CRÉDITO TRANSMITIDA]: ${encfE34} modificando ${visit.ncf} -> TrackID: ${resp?.trackId}`);
+        try {
+          const ecfClient = new ECF({ key: dgiiPrivateKeyPem, cert: dgiiCertificatePem }, ENVIRONMENT.PROD);
+          await ecfClient.authenticate();
+          const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
+          trackId = resp?.trackId || null;
+          console.log(`✅ [DGII NOTA DE CRÉDITO TRANSMITIDA]: ${encfE34} modificando ${visit.ncf} -> TrackID: ${trackId}`);
+        } catch (txErr) {
+          console.error(`⚠️ [DGII NOTA DE CRÉDITO TRANSMISIÓN FALLÓ]: ${encfE34}:`, txErr.message);
+        }
       }
 
       await pool.query(
         `UPDATE visits SET 
           ncf_nota_credito = ?, 
           nota_credito_motivo = ?, 
-          nota_credito_fecha = NOW() 
+          nota_credito_fecha = NOW(),
+          nota_credito_track_id = ?,
+          nota_credito_xml = ?
          WHERE id = ?`,
-        [encfE34, voidReasonText, visit.id]
+        [encfE34, voidReasonText, trackId, signedXml, visit.id]
       );
 
-      return encfE34;
+      const result = Object.assign(new String(encfE34), {
+        encf: encfE34,
+        trackId: trackId,
+        signedXml: signedXml
+      });
+
+      return result;
     } catch (err) {
       console.error('❌ [DGII NOTA CREDITO ERROR]:', err);
       return null;

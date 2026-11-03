@@ -2,6 +2,73 @@ const express = require('express');
 const crypto = require('crypto');
 
 /**
+ * Validador de RNC de Personas Jurídicas Dominicanas (9 dígitos)
+ * Algoritmo: Módulo 11 con pesos [7, 9, 8, 6, 5, 4, 3, 2]
+ */
+function isValidRnc(rnc) {
+  const clean = String(rnc || '').replace(/\D/g, '');
+  if (clean.length !== 9) return false;
+  const weights = [7, 9, 8, 6, 5, 4, 3, 2];
+  let sum = 0;
+  for (let i = 0; i < 8; i++) {
+    sum += parseInt(clean[i], 10) * weights[i];
+  }
+  const rem = sum % 11;
+  let digit = 0;
+  if (rem === 0) digit = 2;
+  else if (rem === 1) digit = 1;
+  else digit = 11 - rem;
+  return digit === parseInt(clean[8], 10);
+}
+
+/**
+ * Validador de Cédula de Identidad de Personas Físicas Dominicanas (11 dígitos)
+ * Algoritmo: Módulo 10 alternado (Luhn con pesos [1, 2, 1, 2, 1, 2, 1, 2, 1, 2])
+ */
+function isValidCedula(cedula) {
+  const clean = String(cedula || '').replace(/\D/g, '');
+  if (clean.length !== 11) return false;
+  const weights = [1, 2, 1, 2, 1, 2, 1, 2, 1, 2];
+  let sum = 0;
+  for (let i = 0; i < 10; i++) {
+    let p = parseInt(clean[i], 10) * weights[i];
+    if (p >= 10) p -= 9;
+    sum += p;
+  }
+  const digit = (10 - (sum % 10)) % 10;
+  return digit === parseInt(clean[10], 10);
+}
+
+/**
+ * Valida si un identificador fiscal corresponde a un RNC o Cédula dominicano válido
+ */
+function validateReceptorTaxId(rncOrCedula) {
+  if (!rncOrCedula) return { isValid: false, type: null, error: 'RNC o Cédula no proporcionado' };
+  const clean = String(rncOrCedula).replace(/\D/g, '');
+  if (clean.length === 9) {
+    if (isValidRnc(clean)) return { isValid: true, type: 'RNC', cleanId: clean };
+    return { isValid: false, type: 'RNC', cleanId: clean, error: 'RNC con dígito verificador inválido (Módulo 11)' };
+  } else if (clean.length === 11) {
+    if (isValidCedula(clean)) return { isValid: true, type: 'CEDULA', cleanId: clean };
+    return { isValid: false, type: 'CEDULA', cleanId: clean, error: 'Cédula con dígito verificador inválido (Luhn)' };
+  }
+  return { isValid: false, type: null, cleanId: clean, error: 'Longitud inválida: RNC debe tener 9 dígitos y Cédula 11 dígitos' };
+}
+
+/**
+ * Valida que la Razón Social del receptor no esté vacía ni contenga nombres genéricos
+ */
+function isValidRazonSocial(name) {
+  if (!name || typeof name !== 'string') return false;
+  const clean = name.trim();
+  if (clean.length < 3) return false;
+  const lower = clean.toLowerCase();
+  const genericNames = ['cliente general', 'invitado', 'n/a', 'na', 'consumidor final', 'sin nombre', 'test', 'prueba', 'ninguno', 'cliente'];
+  if (genericNames.includes(lower)) return false;
+  return true;
+}
+
+/**
  * Creates the Visits and POS Ticketing Router
  * 
  * @param {import('mysql2/promise').Pool} pool 
@@ -304,70 +371,76 @@ function createVisitsRouter(pool, deps = {}) {
   // Helper to atomically allocate the next DGII e-NCF sequence for an invoice/visit
   async function assignDgiiSequenceToVisit(visitId, requestedType = null, clientRnc = null, clientRazonSocial = null, totalAmount = 0, metodoPago = 'Efectivo') {
     try {
-      const hasFiscalRnc = clientRnc && String(clientRnc).trim().length >= 9;
-      const isTargetFiscal = (requestedType === 'E31' || requestedType === 'CREDITO_FISCAL' || hasFiscalRnc);
-      const isPureCash = (metodoPago === 'Efectivo' || metodoPago === 'CASH' || metodoPago === 'efectivo');
+      const totalNum = Number(totalAmount || 0);
+      const isCommercialSale = totalNum > 0;
+      const isPlanBeautyCanje = (
+        !isCommercialSale &&
+        metodoPago &&
+        (metodoPago.toLowerCase().includes('plan') || metodoPago.toLowerCase().includes('canje') || metodoPago.toLowerCase().includes('membresía') || metodoPago.toLowerCase().includes('membresia'))
+      );
 
-      const isPlanRedemption = (
-        (metodoPago && (metodoPago.toLowerCase().includes('plan') || metodoPago.toLowerCase().includes('canje') || metodoPago.toLowerCase().includes('membresía') || metodoPago.toLowerCase().includes('membresia'))) ||
-        Number(totalAmount || 0) <= 0 ||
-        requestedType === 'NONE' || requestedType === 'SIN_COMPROBANTE'
-      ) && !isTargetFiscal;
-
-      if (isPlanRedemption) {
-        console.log(`ℹ️ [DGII CANJE PLAN BEAUTY]: Visita ${visitId} por RD$ ${totalAmount} con método '${metodoPago}' registrada SIN comprobante fiscal.`);
+      // Reglas fiscales por tipo de operación y contribuyente:
+      // 1. Operaciones no comerciales / Canjes a costo 0 amparados en suscripción o ajustes internos:
+      if (!isCommercialSale) {
+        const docName = isPlanBeautyCanje ? 'Comprobante de Canje Plan Beauty' : 'Comprobante de Cortesía / Ajuste Interno';
+        console.log(`ℹ️ [DGII OPERACIÓN NO FISCAL]: Visita ${visitId} por RD$ ${totalNum} registrada como '${docName}'.`);
         await pool.query(
-          "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal', codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
-          [visitId]
+          "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = ?, codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
+          [docName, visitId]
         );
-        return null;
+        return { ncf: null, ncf_type: 'NONE', ncf_name: docName };
       }
 
-      if (!isTargetFiscal && isPureCash) {
-        try {
-          await pool.query('UPDATE company_ncf_counters SET cash_counter = cash_counter + 1 WHERE id = 1');
-          const [counterRows] = await pool.query('SELECT cash_counter, cash_ratio FROM company_ncf_counters WHERE id = 1');
-          const count = counterRows[0]?.cash_counter || 1;
-          const ratio = counterRows[0]?.cash_ratio || 4;
-
-          if (count % ratio === 0) {
-            console.log(`ℹ️ [DGII CASH COUNTER]: Factura en Efectivo #${count} emitida SIN comprobante fiscal según regla 1 de cada ${ratio}.`);
-            await pool.query(
-              "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal', codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
-              [visitId]
-            );
-            return null;
-          }
-        } catch (counterErr) {
-          console.warn('⚠️ [DGII CASH COUNTER WARNING]:', counterErr.message);
-        }
+      // 2. Clasificación fiscal del contribuyente para ventas comerciales (total > 0):
+      // - Crédito Fiscal (E31) para empresas/contribuyentes con RNC/Cédula y Razón Social válidos.
+      // - Consumo (E32) para consumidores finales en ventas comerciales generales (nunca se omite comprobante).
+      const hasValidTaxReceptor = validateReceptorTaxId(clientRnc).isValid && isValidRazonSocial(clientRazonSocial);
+      const isTargetFiscal = (requestedType === 'E31' || requestedType === 'CREDITO_FISCAL' || hasValidTaxReceptor);
+      let targetType = 'E32';
+      if (requestedType && String(requestedType).startsWith('TEST_')) {
+        targetType = String(requestedType).toUpperCase();
+      } else if (isTargetFiscal) {
+        targetType = 'E31';
       }
-
-      const targetType = (requestedType || (clientRnc ? 'E31' : 'E32')).toUpperCase();
       
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
 
+        // Bloqueo atómico estricto por tipo de comprobante (SIN sustitución automática entre E31 y E32)
         const [batches] = await connection.query(
           `SELECT * FROM dgii_ncf_sequences 
-           WHERE estado = 'Activo' AND cantidad_usada < cantidad_aprobada 
-           ORDER BY (tipo_comprobante = ?) DESC, (tipo_comprobante = 'E32') DESC, (tipo_comprobante = 'E31') DESC, id ASC 
+           WHERE tipo_comprobante = ?
+             AND estado = 'Activo'
+             AND cantidad_usada < cantidad_aprobada
+             AND (fecha_vencimiento IS NULL OR fecha_vencimiento >= CURDATE())
+           ORDER BY id ASC
            LIMIT 1 FOR UPDATE`,
           [targetType]
         );
 
         if (batches.length === 0) {
           await connection.rollback();
-          console.warn('[DGII NCF] No hay secuencias e-NCF activas con saldo disponible en dgii_ncf_sequences.');
-          return null;
+          console.warn(`⚠️ [DGII NCF AGOTADO]: No hay secuencias ${targetType} activas con saldo disponible en dgii_ncf_sequences.`);
+          const err = new Error(`No hay comprobantes fiscales disponibles. Se agotaron las secuencias autorizadas para ${targetType}.`);
+          err.code = 'FISCAL_SEQUENCES_EXHAUSTED';
+          err.tipo_comprobante = targetType;
+          throw err;
         }
 
         const seq = batches[0];
         const prefix = seq.tipo_comprobante || seq.numero_desde.slice(0, 3);
         const rawSeqStr = seq.numero_desde.slice(prefix.length);
         const startNum = parseInt(rawSeqStr, 10) || 1;
+        const endNum = parseInt(seq.numero_hasta.slice(prefix.length), 10) || (startNum + seq.cantidad_aprobada - 1);
         const currentAssignedNum = startNum + seq.cantidad_usada;
+        if (currentAssignedNum > endNum) {
+          await connection.rollback();
+          const err = new Error(`Rango de secuencia fiscal ${targetType} excedido.`);
+          err.code = 'FISCAL_SEQUENCES_EXHAUSTED';
+          err.tipo_comprobante = targetType;
+          throw err;
+        }
         const encfNumber = prefix + String(currentAssignedNum).padStart(10, '0');
 
         const newCantidadUsada = seq.cantidad_usada + 1;
@@ -418,7 +491,7 @@ function createVisitsRouter(pool, deps = {}) {
       }
     } catch (err) {
       console.error('[DGII NCF ASSIGN ERROR]:', err);
-      return null;
+      return { ncf: null, error: err.message, code: err.code || 'FISCAL_SEQUENCES_EXHAUSTED', tipo_comprobante: err.tipo_comprobante };
     }
   }
 
@@ -432,7 +505,70 @@ function createVisitsRouter(pool, deps = {}) {
         ncf_type, tipo_comprobante, rnc_cliente, rnc, rzn_soc_cliente, applied_payments
       } = req.body;
 
-      const [existing] = await pool.query('SELECT id, ticket_number, servicios, ncf FROM visits WHERE id = ?', [id]);
+      const [existing] = await pool.query('SELECT id, ticket_number, status, servicios, ncf, ncf_type, ncf_name, codigo_seguridad_ecf, qr_code_url FROM visits WHERE id = ?', [id]);
+
+      let ticketNum = existing[0]?.ticket_number;
+      if (!ticketNum) {
+        ticketNum = await getNextTicketNumber(salon_id || 1, 'SD');
+      }
+
+      // Protección contra doble facturación: una precuenta o visita sólo puede facturarse una vez
+      if (existing.length > 0) {
+        if (existing[0]?.status === 'Facturado') {
+          return res.status(409).json({
+            success: false,
+            error: 'Esta visita ya fue facturada previamente.',
+            code: 'VISIT_ALREADY_BILLED',
+            ticketNumber: existing[0].ticket_number,
+            ncf: existing[0].ncf,
+            ncf_type: existing[0].ncf_type,
+            ncf_name: existing[0].ncf_name,
+            codigo_seguridad: existing[0].codigo_seguridad_ecf,
+            qr_code_url: existing[0].qr_code_url,
+            message: `Esta visita ya fue facturada previamente con el comprobante ${existing[0].ncf || 'emitido'}. No se permite doble facturación.`
+          });
+        }
+
+        if (existing[0]?.status === 'Anulado') {
+          return res.status(409).json({
+            success: false,
+            error: 'Esta visita fue anulada previamente.',
+            code: 'VISIT_ALREADY_VOIDED',
+            ticketNumber: existing[0].ticket_number,
+            message: 'Esta visita fue anulada previamente. No se puede facturar una visita anulada.'
+          });
+        }
+
+        // Transición atómica exclusiva de Pendiente -> Procesando para evitar carreras simultáneas sobre la misma visita
+        const [claimResult] = await pool.query(
+          "UPDATE visits SET status = 'Procesando' WHERE id = ? AND status = 'Pendiente'",
+          [id]
+        );
+        if (claimResult.affectedRows === 0) {
+          return res.status(409).json({
+            success: false,
+            error: 'La visita ya está siendo procesada en otra solicitud concurrente o ya fue finalizada.',
+            code: 'CONCURRENT_CHECKOUT_BLOCKED'
+          });
+        }
+      } else {
+        // Nueva visita directa a checkout: inserción atómica con estado Procesando
+        try {
+          await pool.query(
+            "INSERT INTO visits (id, ticket_number, client_id, client_name, total, metodo_pago, status, visited_at) VALUES (?, ?, ?, ?, ?, ?, 'Procesando', NOW())",
+            [id, ticketNum, client_id || 'INVITADO', client_name || 'Cliente General', total || 0, metodo_pago || 'Efectivo']
+          );
+        } catch (insertErr) {
+          if (insertErr.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({
+              success: false,
+              error: 'La visita ya está siendo procesada en otra solicitud concurrente.',
+              code: 'CONCURRENT_CHECKOUT_BLOCKED'
+            });
+          }
+          throw insertErr;
+        }
+      }
 
       let serviceNames = [];
       if (Array.isArray(items_detail) && items_detail.length > 0) {
@@ -447,78 +583,191 @@ function createVisitsRouter(pool, deps = {}) {
         }
       }
 
-      let ticketNum = existing[0]?.ticket_number;
-      if (!ticketNum) {
-        ticketNum = await getNextTicketNumber(salon_id || 1, 'SD');
+      // 1. Validación y clasificación fiscal previa:
+      const requestedNcfType = (ncf_type || tipo_comprobante || '').toUpperCase();
+      const clientTaxId = rnc_cliente || rnc;
+      const clientRazonSocial = rzn_soc_cliente;
+      const totalNum = Number(total || 0);
+      const isCommercialSale = totalNum > 0;
+      const isExplicitCreditoFiscal = (requestedNcfType === 'E31' || requestedNcfType === 'CREDITO_FISCAL' || (clientTaxId && String(clientTaxId).trim().length >= 9));
+
+      // Regla E31: Si se solicita Factura de Crédito Fiscal, validar RNC/Cédula y Razón Social obligatorios
+      if (isExplicitCreditoFiscal) {
+        const taxValidation = validateReceptorTaxId(clientTaxId);
+        if (!taxValidation.isValid) {
+          return res.status(400).json({
+            error: `Identificación fiscal del receptor inválida para Factura de Crédito Fiscal (E31): ${taxValidation.error || 'Verifique el RNC (9 dígitos) o Cédula (11 dígitos)'}`
+          });
+        }
+        if (!isValidRazonSocial(clientRazonSocial)) {
+          return res.status(400).json({
+            error: 'La Razón Social del receptor es obligatoria para Factura de Crédito Fiscal (E31) y no puede ser vacía ni genérica.'
+          });
+        }
       }
 
-      if (existing.length === 0) {
-        await pool.query(
-          `INSERT INTO visits 
-            (id, ticket_number, client_id, client_name, total, monto_recibido, devuelta, metodo_pago, items_detail, servicios, salon_id, status, visited_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
-          [
-            id,
-            ticketNum,
-            client_id || 'INVITADO',
-            client_name || 'Cliente General',
-            total || 0,
-            monto_recibido || 0,
-            devuelta || 0,
-            metodo_pago || 'Efectivo',
-            JSON.stringify(items_detail || []),
-            JSON.stringify(serviceNames || []),
-            salon_id || 1
-          ]
-        );
-      } else {
-        await pool.query(
-          `UPDATE visits SET 
-            status = 'Facturado', 
-            total = ?, 
-            monto_recibido = ?, 
-            devuelta = ?, 
-            metodo_pago = ?, 
-            items_detail = ?, 
-            servicios = ?,
-            visited_at = NOW() 
-           WHERE id = ?`,
-          [total || 0, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), JSON.stringify(serviceNames || []), id]
-        );
-      }
-
-      // Determine if it is a Plan Beauty redemption or zero-charge visit (NO fiscal receipt)
-      const hasFiscalRnc = (rnc_cliente || rnc) && String(rnc_cliente || rnc).trim().length >= 9;
+      // Regla NONE vs E32:
+      // - Las ventas comerciales (total > 0) DEVENGAN COMPROBANTE FISCAL OBLIGATORIO.
+      // - Una simple opción 'NONE' enviada por el frontend NUNCA omitirá el comprobante en una venta comercial.
+      // - Ventas comerciales emiten E31 si cumplen los requisitos fiscales de receptor, o E32 (Consumidor Final) por defecto.
+      // - Solamente transacciones no comerciales (total <= 0) como Canjes de membresía Plan Beauty o ajustes internos pueden omitir comprobante.
       const isPlanBeautyCanje = (
-        (metodo_pago && (metodo_pago.toLowerCase().includes('plan') || metodo_pago.toLowerCase().includes('canje') || metodo_pago.toLowerCase().includes('membresía') || metodo_pago.toLowerCase().includes('membresia'))) ||
-        Number(total || 0) <= 0 ||
-        ncf_type === 'NONE' || tipo_comprobante === 'NONE' || ncf_type === 'SIN_COMPROBANTE'
-      ) && !hasFiscalRnc;
+        !isCommercialSale &&
+        metodo_pago &&
+        (metodo_pago.toLowerCase().includes('plan') || metodo_pago.toLowerCase().includes('canje') || metodo_pago.toLowerCase().includes('membresía') || metodo_pago.toLowerCase().includes('membresia'))
+      );
 
-      const isExplicitNoNcf = isPlanBeautyCanje || (ncf_type === 'NONE' || tipo_comprobante === 'NONE' || ncf_type === 'SIN_COMPROBANTE');
+      let effectiveNcfType = 'E32';
+      if (!isCommercialSale) {
+        effectiveNcfType = 'NONE';
+      } else if (requestedNcfType && requestedNcfType.startsWith('TEST_')) {
+        effectiveNcfType = requestedNcfType;
+      } else if (isExplicitCreditoFiscal) {
+        effectiveNcfType = 'E31';
+      } else {
+        effectiveNcfType = 'E32';
+      }
 
+      // 2. Control de Disponibilidad y Asignación Atómica de e-NCF ANTES de marcar como 'Facturado':
       let dgiiResult = null;
-      if (!existing[0]?.ncf && !isExplicitNoNcf) {
+      if (existing.length > 0 && existing[0]?.ncf) {
+        // Reutilizar de forma consistente el e-NCF ya reservado para evitar consumo duplicado al reintentar tras un error
+        dgiiResult = {
+          ncf: existing[0].ncf,
+          ncf_type: existing[0].ncf_type,
+          ncf_name: existing[0].ncf_name,
+          codigo_seguridad: existing[0].codigo_seguridad_ecf,
+          qr_code_url: existing[0].qr_code_url
+        };
+        console.log(`ℹ️ [DGII REINTENTO]: Reutilizando e-NCF ${existing[0].ncf} ya reservado en visita ${id}.`);
+      } else if (effectiveNcfType !== 'NONE') {
         try {
-          dgiiResult = await assignDgiiSequenceToVisit(
+          const assignSequenceFn = deps.assignDgiiSequenceToVisit || assignDgiiSequenceToVisit;
+          dgiiResult = await assignSequenceFn(
             id,
-            ncf_type || tipo_comprobante,
-            rnc_cliente || rnc,
-            rzn_soc_cliente || client_name,
-            total || 0,
+            effectiveNcfType,
+            clientTaxId,
+            clientRazonSocial || client_name,
+            totalNum,
             metodo_pago || 'Efectivo'
           );
-          if (dgiiResult?.ncf && typeof transmitInvoiceDirectlyToDgii === 'function') {
-            transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
+
+          if (!dgiiResult || !dgiiResult.ncf) {
+            throw Object.assign(new Error(`No hay comprobantes fiscales disponibles para ${effectiveNcfType}.`), {
+              code: 'FISCAL_SEQUENCES_EXHAUSTED',
+              tipo_comprobante: effectiveNcfType
+            });
           }
         } catch (dgiiErr) {
-          console.error('[DGII ASSIGN IN CHECKOUT FAILED]:', dgiiErr);
+          console.error('[DGII ASSIGN IN CHECKOUT FAILED]:', dgiiErr.message);
+
+          // Si existe un cobro previamente autorizado electrónicamente antes de detectar el agotamiento:
+          const hasAuthorizedPayment = (Array.isArray(applied_payments) && applied_payments.some(p =>
+            p.authorization_code || p.authCode || p.remoteId || p.transaction_id ||
+            (String(p.method || '').toLowerCase().includes('tarjeta') && p.reference)
+          )) || req.body?.cardnet_authorization || req.body?.authorization_code;
+
+          if (hasAuthorizedPayment) {
+            try {
+              await pool.query(
+                `INSERT INTO audit_logs (entity_type, entity_id, action, user_name, reason, metadata, created_at)
+                 VALUES ('fiscal_incident', ?, 'COBRO_PREVIO_BLOQUEADO_POR_AGOTAMIENTO', ?, ?, ?, NOW())`,
+                [
+                  id,
+                  req.body?.user_name || 'Cajero',
+                  `Cobro previamente autorizado pero bloqueado por agotamiento de secuencias fiscales ${effectiveNcfType}`,
+                  JSON.stringify({
+                    ticketId: id,
+                    ticketNumber: ticketNum,
+                    total: totalNum,
+                    metodo_pago,
+                    applied_payments,
+                    tipo_comprobante: effectiveNcfType
+                  })
+                ]
+              );
+              console.warn(`⚠️ [INCIDENCIA REGISTRADA]: Cobro previo de visita ${id} bloqueado por agotamiento ${effectiveNcfType}. No se ejecutan nuevos cobros.`);
+            } catch (auditErr) {
+              console.error('[AUDIT INCIDENT ERROR]:', auditErr.message);
+            }
+          }
+
+          // Conservar los servicios, productos, cliente e importes preparados como PRECUENTA / PENDIENTE:
+          await pool.query(
+            `UPDATE visits SET 
+              total = ?, 
+              monto_recibido = ?, 
+              devuelta = ?, 
+              metodo_pago = ?, 
+              items_detail = ?, 
+              servicios = ?,
+              status = 'Pendiente'
+             WHERE id = ?`,
+            [totalNum, monto_recibido || 0, devuelta || 0, metodo_pago || 'Efectivo', JSON.stringify(items_detail || []), JSON.stringify(serviceNames || []), id]
+          );
+
+          // Bloqueo de facturación: Responder HTTP 409 con mensaje exacto requerido
+          return res.status(409).json({
+            success: false,
+            error: 'No hay comprobantes fiscales disponibles.',
+            code: 'FISCAL_SEQUENCES_EXHAUSTED',
+            tipo_comprobante: effectiveNcfType,
+            nombre_comprobante: effectiveNcfType === 'E31' ? 'Factura de Crédito Fiscal Electrónico (E31)' : 'Factura de Consumo Electrónica (E32)',
+            message: 'No hay comprobantes fiscales disponibles.\n\nSe agotaron las secuencias autorizadas para este tipo de factura.\n\nFavor de notificar al administrador para agregar nuevas secuencias fiscales.\n\nPuede guardar o imprimir una precuenta, pero no finalizar la factura ni registrar el cobro.',
+            ticket_id: id,
+            ticket_number: ticketNum,
+            can_print_precuenta: true
+          });
         }
-      } else if (isExplicitNoNcf) {
+      }
+
+      // 3. Si la asignación fiscal fue exitosa o no requería e-NCF, AHORA SÍ registrar como 'Facturado':
+      await pool.query(
+        `UPDATE visits SET 
+          status = 'Facturado', 
+          total = ?, 
+          monto_recibido = ?, 
+          devuelta = ?, 
+          metodo_pago = ?, 
+          items_detail = ?, 
+          servicios = ?,
+          ncf = COALESCE(?, ncf),
+          ncf_type = COALESCE(?, ncf_type),
+          ncf_name = COALESCE(?, ncf_name),
+          rnc_cliente = COALESCE(?, rnc_cliente),
+          rzn_soc_cliente = COALESCE(?, rzn_soc_cliente),
+          codigo_seguridad_ecf = COALESCE(?, codigo_seguridad_ecf),
+          qr_code_url = COALESCE(?, qr_code_url),
+          visited_at = NOW() 
+         WHERE id = ?`,
+        [
+          total || 0,
+          monto_recibido || 0,
+          devuelta || 0,
+          metodo_pago || 'Efectivo',
+          JSON.stringify(items_detail || []),
+          JSON.stringify(serviceNames || []),
+          dgiiResult?.ncf || null,
+          dgiiResult?.ncf_type || null,
+          dgiiResult?.ncf_name || null,
+          rnc_cliente || null,
+          rzn_soc_cliente || null,
+          dgiiResult?.codigo_seguridad || null,
+          dgiiResult?.qr_code_url || null,
+          id
+        ]
+      );
+
+      if (effectiveNcfType === 'NONE') {
+        const docName = isPlanBeautyCanje ? 'Comprobante de Canje Plan Beauty' : 'Comprobante de Cortesía / Ajuste Interno';
         await pool.query(
-          "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = 'Sin Comprobante Fiscal', codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
-          [id]
+          "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = ?, codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
+          [docName, id]
         );
+      }
+
+      if (dgiiResult?.ncf && typeof transmitInvoiceDirectlyToDgii === 'function') {
+        transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
       } else if (existing[0]?.ncf && typeof transmitInvoiceDirectlyToDgii === 'function') {
         transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
       }
@@ -789,6 +1038,9 @@ function createVisitsRouter(pool, deps = {}) {
         qr_code_url: dgiiResult?.qr_code_url || fv.qr_code_url || null
       });
     } catch (err) {
+      try {
+        await pool.query("UPDATE visits SET status = 'Pendiente' WHERE id = ? AND status = 'Procesando'", [id]);
+      } catch (_) {}
       res.status(500).json({ error: err.message });
     }
   }
@@ -851,6 +1103,104 @@ function createVisitsRouter(pool, deps = {}) {
       query += ' ORDER BY v.visited_at ASC';
       const [rows] = await pool.query(query, params);
       res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/stats/fiscal-summary', async (req, res) => {
+    try {
+      const { salon_id, startDate, endDate, periodo } = req.query;
+      let dateCondition = '';
+      const params = [];
+
+      if (periodo && /^\d{6}$/.test(periodo)) {
+        dateCondition = " AND DATE_FORMAT(v.visited_at, '%Y%m') = ?";
+        params.push(periodo);
+      } else if (startDate && endDate) {
+        dateCondition = " AND DATE(v.visited_at) BETWEEN ? AND ?";
+        params.push(startDate, endDate);
+      }
+
+      let salonCondition = '';
+      if (salon_id && salon_id !== 'all') {
+        salonCondition = ' AND v.salon_id = ?';
+        params.push(salon_id);
+      }
+
+      const [rows] = await pool.query(`
+        SELECT
+          COUNT(*) as total_operaciones,
+          COALESCE(SUM(CASE WHEN v.status != 'Anulado' THEN 1 ELSE 0 END), 0) as operaciones_vigentes,
+          COALESCE(SUM(CASE WHEN v.status = 'Anulado' THEN 1 ELSE 0 END), 0) as operaciones_anuladas,
+          COALESCE(SUM(CASE WHEN v.status != 'Anulado' AND v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE' THEN 1 ELSE 0 END), 0) as vigentes_con_comprobante,
+          COALESCE(SUM(CASE WHEN v.status != 'Anulado' AND (v.ncf IS NULL OR TRIM(v.ncf) = '' OR v.ncf = 'NONE') THEN 1 ELSE 0 END), 0) as vigentes_sin_comprobante,
+          COALESCE(SUM(CASE WHEN v.status = 'Anulado' AND v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE' THEN 1 ELSE 0 END), 0) as anuladas_con_comprobante,
+          COALESCE(SUM(CASE WHEN v.status = 'Anulado' AND (v.ncf IS NULL OR TRIM(v.ncf) = '' OR v.ncf = 'NONE') THEN 1 ELSE 0 END), 0) as anuladas_sin_comprobante,
+
+          -- Montos
+          COALESCE(SUM(CASE WHEN v.status != 'Anulado' THEN v.total ELSE 0 END), 0) as monto_vigente,
+          COALESCE(SUM(CASE WHEN v.status = 'Anulado' THEN v.total ELSE 0 END), 0) as monto_anulado,
+
+          -- Desglose por método de pago (Efectivo)
+          COALESCE(SUM(CASE WHEN (v.metodo_pago LIKE '%Efectivo%' OR v.metodo_pago LIKE '%Cash%') THEN 1 ELSE 0 END), 0) as efectivo_total,
+          COALESCE(SUM(CASE WHEN (v.metodo_pago LIKE '%Efectivo%' OR v.metodo_pago LIKE '%Cash%') AND v.status != 'Anulado' THEN 1 ELSE 0 END), 0) as efectivo_vigente,
+          COALESCE(SUM(CASE WHEN (v.metodo_pago LIKE '%Efectivo%' OR v.metodo_pago LIKE '%Cash%') AND v.status != 'Anulado' AND v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE' THEN 1 ELSE 0 END), 0) as efectivo_vigente_con_comprobante,
+          COALESCE(SUM(CASE WHEN (v.metodo_pago LIKE '%Efectivo%' OR v.metodo_pago LIKE '%Cash%') AND v.status != 'Anulado' AND (v.ncf IS NULL OR TRIM(v.ncf) = '' OR v.ncf = 'NONE') THEN 1 ELSE 0 END), 0) as efectivo_vigente_sin_comprobante,
+          COALESCE(SUM(CASE WHEN (v.metodo_pago LIKE '%Efectivo%' OR v.metodo_pago LIKE '%Cash%') AND v.status = 'Anulado' THEN 1 ELSE 0 END), 0) as efectivo_anuladas,
+
+          -- Desglose por método de pago (Tarjeta)
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Tarjeta%' THEN 1 ELSE 0 END), 0) as tarjeta_total,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Tarjeta%' AND v.status != 'Anulado' THEN 1 ELSE 0 END), 0) as tarjeta_vigente,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Tarjeta%' AND v.status != 'Anulado' AND v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE' THEN 1 ELSE 0 END), 0) as tarjeta_vigente_con_comprobante,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Tarjeta%' AND v.status != 'Anulado' AND (v.ncf IS NULL OR TRIM(v.ncf) = '' OR v.ncf = 'NONE') THEN 1 ELSE 0 END), 0) as tarjeta_vigente_sin_comprobante,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Tarjeta%' AND v.status = 'Anulado' THEN 1 ELSE 0 END), 0) as tarjeta_anuladas,
+
+          -- Desglose por método de pago (Transferencia)
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Transferencia%' THEN 1 ELSE 0 END), 0) as transferencia_total,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Transferencia%' AND v.status != 'Anulado' THEN 1 ELSE 0 END), 0) as transferencia_vigente,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Transferencia%' AND v.status != 'Anulado' AND v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE' THEN 1 ELSE 0 END), 0) as transferencia_vigente_con_comprobante,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Transferencia%' AND v.status != 'Anulado' AND (v.ncf IS NULL OR TRIM(v.ncf) = '' OR v.ncf = 'NONE') THEN 1 ELSE 0 END), 0) as transferencia_vigente_sin_comprobante,
+          COALESCE(SUM(CASE WHEN v.metodo_pago LIKE '%Transferencia%' AND v.status = 'Anulado' THEN 1 ELSE 0 END), 0) as transferencia_anuladas
+        FROM visits v
+        WHERE 1=1 ${dateCondition} ${salonCondition}
+      `, params);
+
+      const r = rows[0];
+      return res.json({
+        total_operaciones: Number(r.total_operaciones || 0),
+        operaciones_vigentes: Number(r.operaciones_vigentes || 0),
+        operaciones_anuladas: Number(r.operaciones_anuladas || 0),
+        vigentes_con_comprobante: Number(r.vigentes_con_comprobante || 0),
+        vigentes_sin_comprobante: Number(r.vigentes_sin_comprobante || 0),
+        anuladas_con_comprobante: Number(r.anuladas_con_comprobante || 0),
+        anuladas_sin_comprobante: Number(r.anuladas_sin_comprobante || 0),
+        monto_vigente: Number(r.monto_vigente || 0),
+        monto_anulado: Number(r.monto_anulado || 0),
+        desglose_por_metodo: {
+          efectivo: {
+            total: Number(r.efectivo_total || 0),
+            vigentes: Number(r.efectivo_vigente || 0),
+            con_comprobante: Number(r.efectivo_vigente_con_comprobante || 0),
+            sin_comprobante: Number(r.efectivo_vigente_sin_comprobante || 0),
+            anuladas: Number(r.efectivo_anuladas || 0)
+          },
+          tarjeta: {
+            total: Number(r.tarjeta_total || 0),
+            vigentes: Number(r.tarjeta_vigente || 0),
+            con_comprobante: Number(r.tarjeta_vigente_con_comprobante || 0),
+            sin_comprobante: Number(r.tarjeta_vigente_sin_comprobante || 0),
+            anuladas: Number(r.tarjeta_anuladas || 0)
+          },
+          transferencia: {
+            total: Number(r.transferencia_total || 0),
+            vigentes: Number(r.transferencia_vigente || 0),
+            con_comprobante: Number(r.transferencia_vigente_con_comprobante || 0),
+            sin_comprobante: Number(r.transferencia_vigente_sin_comprobante || 0),
+            anuladas: Number(r.transferencia_anuladas || 0)
+          }
+        }
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -944,6 +1294,68 @@ function createVisitsRouter(pool, deps = {}) {
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // Endpoint explícito de Precuenta (No fiscal, no registra ingresos, no emite e-NCF)
+  const handlePrecuenta = async (req, res) => {
+    try {
+      const id = req.body?.ticketId || req.body?.id || `VIS-${Date.now()}`;
+      const { total, items_detail, client_id, client_name, salon_id, metodo_pago } = req.body;
+
+      const [existing] = await pool.query('SELECT id, ticket_number FROM visits WHERE id = ?', [id]);
+      let ticketNum = existing[0]?.ticket_number;
+      if (!ticketNum) {
+        ticketNum = await getNextTicketNumber(salon_id || 1, 'SD');
+      }
+
+      let serviceNames = [];
+      if (Array.isArray(items_detail) && items_detail.length > 0) {
+        serviceNames = items_detail.map(i => i.nombre || i.servicio || i.name || 'Servicio').filter(Boolean);
+      }
+
+      if (existing.length === 0) {
+        await pool.query(
+          `INSERT INTO visits
+            (id, ticket_number, client_id, client_name, total, metodo_pago, items_detail, servicios, salon_id, status, ncf, ncf_type, ncf_name, visited_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', NULL, 'PRECUENTA', 'Precuenta No Fiscal', NOW())`,
+          [id, ticketNum, client_id || 'INVITADO', client_name || 'Cliente General', total || 0, metodo_pago || 'Pendiente', JSON.stringify(items_detail || []), JSON.stringify(serviceNames || []), salon_id || 1]
+        );
+      } else {
+        await pool.query(
+          `UPDATE visits SET
+            total = ?,
+            metodo_pago = ?,
+            items_detail = ?,
+            servicios = ?,
+            status = 'Pendiente',
+            ncf = NULL,
+            ncf_type = 'PRECUENTA',
+            ncf_name = 'Precuenta No Fiscal'
+           WHERE id = ?`,
+          [total || 0, metodo_pago || 'Pendiente', JSON.stringify(items_detail || []), JSON.stringify(serviceNames || []), id]
+        );
+      }
+
+      res.json({
+        success: true,
+        is_precuenta: true,
+        ticket_id: id,
+        ticket_number: ticketNum,
+        total: total || 0,
+        status: 'Pendiente',
+        message: 'PRECUENTA — NO ES FACTURA FISCAL — PENDIENTE DE PAGO'
+      });
+    } catch (err) {
+      console.error('[API PRECUENTA ERROR]:', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  router.post('/precuenta', handlePrecuenta);
+  router.post('/:id/precuenta', async (req, res) => {
+    req.body = req.body || {};
+    req.body.id = req.params.id;
+    return handlePrecuenta(req, res);
   });
 
   router.post('/checkout', async (req, res) => {
@@ -1054,19 +1466,36 @@ function createVisitsRouter(pool, deps = {}) {
         ]
       );
 
-      let notaCreditoNcf = null;
-      if (visit.ncf && typeof generateAndTransmitNotaCredito === 'function') {
+      // Nota: No se decrementa el contador de operaciones al anular.
+      // Las estadísticas se calculan sobre registros reales (status != 'Anulado')
+      // y la anulación de facturas pasadas no altera la clasificación ni secuencias de nuevas ventas.
+
+      // Distinción de estados fiscales en la anulación:
+      // 1. Facturas con e-NCF emitido: generan Nota de Crédito Electrónica E34 con transmisión y firmado fiscal.
+      // 2. Comprobantes no fiscales / Canjes / Documentos sin e-NCF: se anulan en auditoría sin consumir secuencia E34.
+      const hasFiscalNcf = visit.ncf && visit.ncf !== 'NONE' && (visit.ncf.startsWith('E31') || visit.ncf.startsWith('E32') || visit.ncf.startsWith('E34') || visit.ncf.startsWith('B'));
+      let notaCreditoInfo = null;
+      let fiscalStatusDescription = 'Documento no fiscal / canje interno anulado directamente sin consumo de e-NCF.';
+
+      if (hasFiscalNcf && typeof generateAndTransmitNotaCredito === 'function') {
         try {
-          notaCreditoNcf = await generateAndTransmitNotaCredito(visit, voidReasonText, userWhoVoided);
+          notaCreditoInfo = await generateAndTransmitNotaCredito(visit, voidReasonText, userWhoVoided);
+          const ncNumber = (typeof notaCreditoInfo === 'object' && notaCreditoInfo?.encf) ? notaCreditoInfo.encf : (notaCreditoInfo ? String(notaCreditoInfo) : null);
+          const trackId = (typeof notaCreditoInfo === 'object' && notaCreditoInfo?.trackId) ? notaCreditoInfo.trackId : null;
+          fiscalStatusDescription = `Factura fiscal con e-NCF ${visit.ncf} anulada mediante Nota de Crédito Electrónica ${ncNumber}${trackId ? ` (TrackID: ${trackId})` : ''}.`;
         } catch (ncErr) {
           console.error('[DGII VOID NOTA CREDITO FAILED]:', ncErr);
+          fiscalStatusDescription = `Factura fiscal con e-NCF ${visit.ncf} anulada en base de datos. Error al generar Nota de Crédito: ${ncErr.message}`;
         }
       }
 
       res.json({ 
         success: true, 
         message: 'Factura anulada correctamente con registro de auditoría.',
-        ncf_nota_credito: notaCreditoNcf || null
+        ncf_original: visit.ncf || null,
+        ncf_nota_credito: (typeof notaCreditoInfo === 'object' && notaCreditoInfo?.encf) ? notaCreditoInfo.encf : (notaCreditoInfo || null),
+        track_id_nota_credito: (typeof notaCreditoInfo === 'object' && notaCreditoInfo?.trackId) ? notaCreditoInfo.trackId : null,
+        fiscal_status: fiscalStatusDescription
       });
     } catch (err) {
       console.error('[API VOID VISIT ERROR]:', err);
@@ -1274,7 +1703,7 @@ function createVisitsRouter(pool, deps = {}) {
       const { clientId, clientName, servicios, empleadoPeluquera, empleadoManicurista, proximaFecha, autoReminder, salon_id } = req.body;
       const ticketNumber = await getNextTicketNumber(salon_id || 1, 'SD');
       await pool.query(
-        "INSERT INTO visits (id, ticket_number, client_id, client_name, servicios, empleado_peluquera, empleado_manicurista, proxima_fecha, recordatorio_auto, salon_id, status, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())",
+        "INSERT INTO visits (id, ticket_number, client_id, client_name, servicios, empleado_peluquera, empleado_manicurista, proxima_fecha, recordatorio_auto, salon_id, status, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', NOW())",
         [id, ticketNumber, clientId, clientName, JSON.stringify(servicios || []), empleadoPeluquera, empleadoManicurista, proximaFecha || null, autoReminder ? 1 : 0, salon_id || 1]
       );
 
@@ -1295,9 +1724,24 @@ function createVisitsRouter(pool, deps = {}) {
     }
   });
 
-  return { router, getNextTicketNumber, processVisitCommissions, assignDgiiSequenceToVisit, handleCheckoutVisit };
+  return {
+    router,
+    getNextTicketNumber,
+    processVisitCommissions,
+    assignDgiiSequenceToVisit,
+    handleCheckoutVisit,
+    handlePrecuenta,
+    validateReceptorTaxId,
+    isValidRnc,
+    isValidCedula,
+    isValidRazonSocial
+  };
 }
 
 module.exports = {
-  createVisitsRouter
+  createVisitsRouter,
+  validateReceptorTaxId,
+  isValidRnc,
+  isValidCedula,
+  isValidRazonSocial
 };
