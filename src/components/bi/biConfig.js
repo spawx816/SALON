@@ -172,15 +172,19 @@ export const BI_REPORTS_BY_CATEGORY = {
     },
     {
       id: 'recurring_charges_result',
-      name: 'Resultado de cobros recurrentes',
-      chartType: 'donut',
-      description: 'Muestra cobros aprobados, rechazados y pendientes con tasa de éxito sobre cobros únicos.'
+      name: 'Efectividad de cobros y recuperación',
+      chartType: 'recovery_cohort_charts',
+      hasPlanFilter: true,
+      description: 'Análisis de cohortes por cuotas mensuales únicas: tasas de éxito al primer intento, recuperación tras rechazo y saldo insoluto real al corte.',
+      note: 'Cada obligación representa una cuota contractual mensual individual. Múltiples reintentos diarios se consolidan y los pagos sin atribución se concilian de forma independiente.'
     },
     {
       id: 'declined_charges_recovery',
-      name: 'Cobros rechazados y recuperación',
-      chartType: 'table_only',
-      description: 'Detalla días de atraso, reintentos, código real del procesador y distinción de cobros recuperados vs. pendientes.',
+      name: 'Efectividad de cobros y recuperación',
+      chartType: 'recovery_cohort_charts',
+      hasPlanFilter: true,
+      isCatalogAlias: true,
+      description: 'Auditoría detallada de reintentos, códigos de procesador y recuperación de cuotas rechazadas por reintentos o en caja.',
       note: 'Varios reintentos de una misma cuota representan una sola deuda; no se duplican obligaciones.'
     },
     {

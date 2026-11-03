@@ -6,7 +6,7 @@ const mysql = require('mysql2/promise');
 
 /**
  * Main query dispatcher for BI reports
- * 
+ *
  * @param {import('mysql2/promise').Pool} pool
  * @param {object} params - { category, reportId, period, startDate, endDate, salonId, membership, daysInactive, reason, employeeId, timeGrain }
  */
@@ -38,7 +38,7 @@ async function handleBIReport(pool, params) {
   const salonFilterPay = salonId !== 'all' ? 'AND COALESCE(p.salon_id, cl.salon_id, 1) = ?' : '';
   const visParams = salonId !== 'all' ? [startDateTime, endDateTime, salonId] : [startDateTime, endDateTime];
   const payParams = salonId !== 'all' ? [startDateTime, endDateTime, salonId] : [startDateTime, endDateTime];
-  const combinedParams = salonId !== 'all' 
+  const combinedParams = salonId !== 'all'
     ? [startDateTime, endDateTime, salonId, startDateTime, endDateTime, salonId]
     : [startDateTime, endDateTime, startDateTime, endDateTime];
 
@@ -58,12 +58,12 @@ async function handleBIReport(pool, params) {
   if (reportId === 'sales_summary') {
     try {
       const [salesRows] = await pool.query(`
-        SELECT 
-          COUNT(id) as valid_invoices, 
+        SELECT
+          COUNT(id) as valid_invoices,
           COALESCE(SUM(total), 0) as total_sales,
           COALESCE(AVG(total), 0) as avg_ticket
         FROM visits v
-        WHERE v.visited_at >= ? AND v.visited_at <= ? 
+        WHERE v.visited_at >= ? AND v.visited_at <= ?
           AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
           ${salonFilterVis}
       `, visParams);
@@ -72,7 +72,7 @@ async function handleBIReport(pool, params) {
         SELECT COALESCE(SUM(amount), 0) as total_collected
         FROM payments p
         LEFT JOIN clients cl ON p.client_id = cl.id
-        WHERE p.created_at >= ? AND p.created_at <= ? 
+        WHERE p.created_at >= ? AND p.created_at <= ?
           AND p.status = 'Aprobado'
           ${salonFilterPay}
       `, payParams);
@@ -94,16 +94,16 @@ async function handleBIReport(pool, params) {
       let chartQuery = '';
       if (timeGrain === 'weekly') {
         chartQuery = `
-          SELECT 
+          SELECT
             raw_date,
             CONCAT('Sem ', CAST(RIGHT(raw_date, 2) AS UNSIGNED)) as label,
             total
           FROM (
-            SELECT 
+            SELECT
               YEARWEEK(v.visited_at, 1) as raw_date,
               COALESCE(SUM(v.total), 0) as total
             FROM visits v
-            WHERE v.visited_at >= ? AND v.visited_at <= ? 
+            WHERE v.visited_at >= ? AND v.visited_at <= ?
               AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
               ${salonFilterVis}
             GROUP BY YEARWEEK(v.visited_at, 1)
@@ -112,12 +112,12 @@ async function handleBIReport(pool, params) {
         `;
       } else if (timeGrain === 'monthly') {
         chartQuery = `
-          SELECT 
+          SELECT
             DATE_FORMAT(v.visited_at, '%Y-%m') as raw_date,
             DATE_FORMAT(v.visited_at, '%b %Y') as label,
             COALESCE(SUM(v.total), 0) as total
           FROM visits v
-          WHERE v.visited_at >= ? AND v.visited_at <= ? 
+          WHERE v.visited_at >= ? AND v.visited_at <= ?
             AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
             ${salonFilterVis}
           GROUP BY DATE_FORMAT(v.visited_at, '%Y-%m'), DATE_FORMAT(v.visited_at, '%b %Y')
@@ -125,12 +125,12 @@ async function handleBIReport(pool, params) {
         `;
       } else if (timeGrain === 'yearly') {
         chartQuery = `
-          SELECT 
+          SELECT
             DATE_FORMAT(v.visited_at, '%Y') as raw_date,
             DATE_FORMAT(v.visited_at, '%Y') as label,
             COALESCE(SUM(v.total), 0) as total
           FROM visits v
-          WHERE v.visited_at >= ? AND v.visited_at <= ? 
+          WHERE v.visited_at >= ? AND v.visited_at <= ?
             AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
             ${salonFilterVis}
           GROUP BY DATE_FORMAT(v.visited_at, '%Y')
@@ -139,12 +139,12 @@ async function handleBIReport(pool, params) {
       } else {
         // Daily
         chartQuery = `
-          SELECT 
+          SELECT
             DATE_FORMAT(v.visited_at, '%Y-%m-%d') as raw_date,
             DATE_FORMAT(v.visited_at, '%e %b') as label,
             COALESCE(SUM(v.total), 0) as total
           FROM visits v
-          WHERE v.visited_at >= ? AND v.visited_at <= ? 
+          WHERE v.visited_at >= ? AND v.visited_at <= ?
             AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
             ${salonFilterVis}
           GROUP BY DATE_FORMAT(v.visited_at, '%Y-%m-%d'), DATE_FORMAT(v.visited_at, '%e %b')
@@ -157,7 +157,7 @@ async function handleBIReport(pool, params) {
       // Cuadro totalizado por sucursal:
       // Sucursal, Facturas emitidas, Facturación total, Participación, Ticket promedio, Facturas anuladas, % de participación facturas anuladas
       const [salonStats] = await pool.query(`
-        SELECT 
+        SELECT
           COALESCE(s.name, 'San Vicente') as sucursal,
           v.salon_id,
           COUNT(CASE WHEN v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada') THEN 1 END) as facturas_emitidas,
@@ -371,7 +371,7 @@ async function handleBIReport(pool, params) {
   if (reportId === 'sales_by_client') {
     try {
       const [invoices] = await pool.query(`
-        SELECT 
+        SELECT
           v.id,
           COALESCE(v.ticket_number, CONCAT('TK-', v.id)) as factura,
           v.visited_at as fecha,
@@ -598,8 +598,8 @@ async function handleBIReport(pool, params) {
   if (reportId === 'cancelled_tickets') {
     try {
       const [cancelRows] = await pool.query(`
-        SELECT 
-          v.id, 
+        SELECT
+          v.id,
           COALESCE(v.ticket_number, CONCAT('TK-', v.id)) as ticket_no,
           COALESCE(v.voided_at, v.visited_at) as fecha,
           COALESCE(v.client_name, cl.nombre, 'Cliente General') as cliente,
@@ -705,7 +705,7 @@ async function handleBIReport(pool, params) {
   if (reportId === 'applied_discounts') {
     try {
       const [visitRows] = await pool.query(`
-        SELECT 
+        SELECT
           v.id,
           v.ticket_number,
           v.visited_at,
@@ -827,7 +827,7 @@ async function handleBIReport(pool, params) {
   if (reportId === 'sales_itbis') {
     try {
       const [salonRows] = await pool.query(`
-        SELECT 
+        SELECT
           COALESCE(s.name, 'San Vicente') as sucursal,
           COALESCE(SUM(CASE WHEN v.status NOT IN ('Anulado', 'Anulada') THEN v.total ELSE 0 END), 0) as facturacion_total
         FROM visits v
@@ -1085,8 +1085,8 @@ async function handleBIReport(pool, params) {
       `, memberParams);
 
       const [visitCounts] = await pool.query(`
-        SELECT 
-          v.client_id, 
+        SELECT
+          v.client_id,
           COUNT(DISTINCT DATE(v.visited_at)) as visit_count,
           MAX(v.visited_at) as last_wash_date
         FROM visits v
@@ -1192,7 +1192,7 @@ async function handleBIReport(pool, params) {
     try {
       // 1. Canjes y cobros por sucursal
       const [salonStats] = await pool.query(`
-        SELECT 
+        SELECT
           COALESCE(s.name, 'San Vicente') as sucursal,
           v.salon_id,
           COUNT(v.id) as canjes_totales,
@@ -1208,7 +1208,7 @@ async function handleBIReport(pool, params) {
 
       // Cobros reales de membresías en el período por sucursal
       const [payBySalon] = await pool.query(`
-        SELECT 
+        SELECT
           COALESCE(p.salon_id, cl.salon_id, 1) as salon_id,
           COALESCE(SUM(p.amount), 0) as cobros_totales
         FROM payments p
@@ -1234,7 +1234,7 @@ async function handleBIReport(pool, params) {
 
       // 2. Detalle por cliente
       const [clientRedemptions] = await pool.query(`
-        SELECT 
+        SELECT
           COALESCE(cl.id, v.client_id) as client_id,
           COALESCE(v.client_name, cl.nombre, 'Cliente') as cliente,
           COALESCE(s.name, 'San Vicente') as sucursal,
@@ -1334,7 +1334,7 @@ async function handleBIReport(pool, params) {
       const currentMonth = new Date().getMonth() + 1;
 
       const [birthdayClients] = await pool.query(`
-        SELECT 
+        SELECT
           c.id, c.nombre, c.telefono, c.fecha_nacimiento,
           COALESCE(s.name, 'San Vicente') as sucursal
         FROM clients c
@@ -1486,7 +1486,7 @@ async function handleBIReport(pool, params) {
   if (reportId === 'membership_cancellations') {
     try {
       const [cancelledRows] = await pool.query(`
-        SELECT 
+        SELECT
           ct.id,
           ct.client_id,
           COALESCE(bc.cancelled_at, ct.last_billed_date, ct.signed_at) AS effective_cancel_date,
@@ -1498,9 +1498,9 @@ async function handleBIReport(pool, params) {
           'Administrador' as usuario_cancelo
         FROM contracts ct
         LEFT JOIN (
-          SELECT contract_id, MAX(created_at) as cancelled_at 
-          FROM billing_codes 
-          WHERE action_type = 'cancellation' AND is_used = 1 
+          SELECT contract_id, MAX(created_at) as cancelled_at
+          FROM billing_codes
+          WHERE action_type = 'cancellation' AND is_used = 1
           GROUP BY contract_id
         ) bc ON ct.id = bc.contract_id
         LEFT JOIN clients cl ON ct.client_id = cl.id
@@ -1657,15 +1657,15 @@ async function handleBIReport(pool, params) {
   if (reportId === 'cash_membership_payments' || reportId === 'cash') {
     try {
       const [cashRows] = await pool.query(`
-        SELECT p.id, p.created_at, p.amount, p.method, 
-               COALESCE(cl.nombre, 'Cliente General') as client_name, 
-               COALESCE(s.name, 'San Vicente') as salon_name, 
+        SELECT p.id, p.created_at, p.amount, p.method,
+               COALESCE(cl.nombre, 'Cliente General') as client_name,
+               COALESCE(s.name, 'San Vicente') as salon_name,
                COALESCE(p.applied_by, 'Caja Principal') as applied_by
         FROM payments p
         LEFT JOIN clients cl ON p.client_id = cl.id
         LEFT JOIN salons s ON (COALESCE(p.salon_id, cl.salon_id, 1) = s.id)
-        WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado' 
-          AND (LOWER(p.method) LIKE '%efectivo%' OR LOWER(p.method) LIKE '%cash%') 
+        WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado'
+          AND (LOWER(p.method) LIKE '%efectivo%' OR LOWER(p.method) LIKE '%cash%')
           ${salonFilterPay}
         ORDER BY p.created_at DESC
         LIMIT 200
@@ -1720,7 +1720,7 @@ async function handleBIReport(pool, params) {
   if (reportId === 'voided_invoices') {
     try {
       const [voidRows] = await pool.query(`
-        SELECT 
+        SELECT
           v.id,
           COALESCE(v.ncf, CONCAT('FAC-', v.id)) as ncf,
           COALESCE(v.voided_at, v.visited_at) as fecha,
@@ -1820,7 +1820,7 @@ async function handleBIReport(pool, params) {
 
       // 3. Consultar contratos elegibles
       const [contracts] = await pool.query(`
-        SELECT 
+        SELECT
           ct.id as contract_id,
           ct.client_id,
           cl.nombre as cliente,
@@ -2182,12 +2182,1281 @@ async function handleBIReport(pool, params) {
   }
 
   // ==========================================
-  // 18. GENERADOR UNIVERSAL DINÁMICO (Para cualquier otro reporte)
+  // 18. RESULTADO DE COBROS RECURRENTES Y RECUPERACIÓN (A2)
+  // Reconstrucción determinista de cohortes y obligaciones mensuales individuales
+  // sin depender de next_billing_date mutable ni ventanas fijas de días.
+  // ==========================================
+  if (reportId === 'recurring_charges_result' || reportId === 'declined_charges_recovery') {
+    try {
+      // 1. Filtros de base
+      const whereConditions = [];
+      const queryParams = [];
+
+      if (salonId !== 'all') {
+        whereConditions.push("(ct.salon_id = ? OR (ct.salon_id IS NULL AND cl.salon_id = ?) OR s.name LIKE ?)");
+        queryParams.push(salonId, salonId, `%${salonId}%`);
+      }
+
+      const effectivePlan = (planId && planId !== 'all') ? planId : (membership && membership !== 'all' ? membership : null);
+      if (effectivePlan) {
+        whereConditions.push("(ct.plan_id = ? OR p.title = ?)");
+        queryParams.push(effectivePlan, effectivePlan);
+      }
+
+      const whereSql = whereConditions.length > 0 ? `WHERE ${whereConditions.join(" AND ")}` : '';
+
+      // 2. Consultar contratos (incluye contratos activos, cancelados o suspendidos para preservar historial)
+      const [contracts] = await pool.query(`
+        SELECT
+          ct.id as contract_id,
+          ct.client_id,
+          cl.nombre as cliente,
+          cl.telefono,
+          cl.email,
+          COALESCE(p.title, 'Plan Beauty') as plan,
+          ct.plan_id,
+          COALESCE(ct.contract_price, p.price, 1950.00) as contract_price,
+          COALESCE(ct.salon_id, cl.salon_id, 1) as salon_id,
+          COALESCE(s.name, 'San Vicente') as sucursal,
+          ct.status as estado_contrato,
+          ct.signed_at,
+          ct.next_billing_date,
+          ct.retry_count,
+          ct.last_billed_date
+        FROM contracts ct
+        JOIN clients cl ON ct.client_id = cl.id
+        LEFT JOIN plans p ON ct.plan_id = p.id
+        LEFT JOIN salons s ON COALESCE(ct.salon_id, cl.salon_id, 1) = s.id
+        ${whereSql}
+        ORDER BY ct.signed_at ASC
+      `, queryParams);
+
+      // 3. Consultar todos los pagos históricos con formato de fecha estricto del servidor
+      const [payments] = await pool.query(`
+        SELECT
+          id, client_id, plan_id, amount, method, status, gateway_ref, description, cardnet_raw_response, salon_id,
+          created_at,
+          DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at_str
+        FROM payments
+        ORDER BY created_at ASC
+      `);
+
+      // 4. Mapeo estructurado por cliente y control estricto de deduplicación de pagos
+      const contractsByClientId = new Map();
+      for (const ct of contracts) {
+        if (!contractsByClientId.has(ct.client_id)) contractsByClientId.set(ct.client_id, []);
+        contractsByClientId.get(ct.client_id).push(ct);
+      }
+
+      const paymentsByClient = new Map();
+      for (const p of payments) {
+        if (!paymentsByClient.has(p.client_id)) paymentsByClient.set(p.client_id, []);
+        paymentsByClient.get(p.client_id).push(p);
+      }
+
+      // Helper para clasificar códigos y causas de rechazo CardNet con rigor técnico
+      function classifyDecline(rawResponse, statusText, description) {
+        const isConnError = (statusText && statusText.startsWith('Error_Conexion')) ||
+                            (description && description.toLowerCase().includes('timeout')) ||
+                            (description && description.toLowerCase().includes('conexi')) ||
+                            (description && description.toLowerCase().includes('network'));
+
+        if (isConnError) {
+          return {
+            category: 'Error Conexión',
+            code: 'SYS_TIMEOUT',
+            reason: 'Error de conexión con la pasarela (Timeout / Red)'
+          };
+        }
+
+        let code = null;
+        let rawMsg = '';
+
+        if (rawResponse) {
+          try {
+            const raw = typeof rawResponse === 'string' ? JSON.parse(rawResponse) : rawResponse;
+            code = raw.ResponseCode || raw.response_code || raw.Transaction?.ResponseCode || (raw.error && !raw.error.includes(' ') ? raw.error : null);
+            rawMsg = raw.ResponseMessage || raw.message || raw.error || raw.Transaction?.Description || '';
+          } catch (e) {
+            rawMsg = '';
+          }
+        }
+
+        const combined = `${code || ''} ${rawMsg} ${description || ''}`.toLowerCase();
+
+        // Fondos insuficientes confirmados (Código 51 o mensaje explícito de fondos)
+        if (code === '51' || combined.includes('fondos insuficientes') || combined.includes('insufficient funds')) {
+          return {
+            category: 'Fondos Insuficientes',
+            code: code || '51',
+            reason: 'Fondos insuficientes confirmados (51)'
+          };
+        }
+
+        // Tarjeta vencida o token inválido confirmado (Código 54, PR001, token expirado)
+        if (code === 'PR001' || code === '54' || combined.includes('token') || combined.includes('vencid') || combined.includes('expired')) {
+          return {
+            category: 'Token o Tarjeta Inválida',
+            code: code || 'PR001',
+            reason: rawMsg || 'Token inválido o tarjeta vencida'
+          };
+        }
+
+        // Reglas de seguridad / Exceso de reintentos (Códigos 63, 65)
+        if (code === '65' || combined.includes('velocity')) {
+          return {
+            category: 'Límite de Intentos',
+            code: '65',
+            reason: 'Límite de frecuencia de cobros excedido (65)'
+          };
+        }
+        if (code === '63' || combined.includes('security')) {
+          return {
+            category: 'Seguridad Emisor',
+            code: '63',
+            reason: 'Rechazo de seguridad del banco emisor (63)'
+          };
+        }
+
+        // Transacción inválida (Código 12)
+        if (code === '12' || combined.includes('transaccion invalida')) {
+          return {
+            category: 'Transacción Inválida',
+            code: '12',
+            reason: 'Transacción rechazada como inválida por el emisor (12)'
+          };
+        }
+
+        // Rechazo del emisor sin causa detallada (Código 05 o "Declinada" general)
+        if (code === '05' || combined.includes('declinad') || combined.includes('do not honor')) {
+          return {
+            category: 'Declinada Emisor',
+            code: '05',
+            reason: 'Declinada por el banco emisor sin causa detallada (05)'
+          };
+        }
+
+        return {
+          category: 'Rechazo Desconocido',
+          code: code || 'UNK',
+          reason: rawMsg || 'Rechazo bancario sin detalle'
+        };
+      }
+
+      // 5. Reconstrucción de obligaciones mensuales con control de duplicación y separación de pagos sin atribución
+      const allReconstructedObligations = [];
+      const allUnmatchedPayments = [];
+      const processedPaymentIds = new Set();
+      const startDateTimeStr = `${start} 00:00:00`;
+      const endDateTimeStr = `${end} 23:59:59`;
+
+      // Helper para asociación contractual estructurada sin coincidencias accidentales
+      function matchContractForPayment(p, clientContracts) {
+        const pid = p.id || '';
+        const desc = p.description || '';
+        const gref = p.gateway_ref || '';
+        const lowerDesc = desc.toLowerCase();
+        const amt = parseFloat(p.amount) || 0;
+        const isSingleContract = clientContracts.length === 1;
+
+        // 1. Descarte estricto de conceptos ajenos a membresía (servicios POS de peluquería, productos retail, propinas, etc.)
+        const isNonMembership = lowerDesc.includes('giftcard') || lowerDesc.includes('propina') ||
+                                lowerDesc.includes('producto') || lowerDesc.includes('shampoo') ||
+                                lowerDesc.includes('corte') || lowerDesc.includes('peinado') ||
+                                lowerDesc.includes('tinte') || lowerDesc.includes('balayage') ||
+                                lowerDesc.includes('manicure') || lowerDesc.includes('pedicure') ||
+                                lowerDesc.includes('uñas') || lowerDesc.includes('unas') ||
+                                lowerDesc.includes('venta pos') || lowerDesc.includes('servicio salon') ||
+                                (amt > 0 && amt < 100.00);
+
+        if (isNonMembership) {
+          return { contract: null, matchType: 'non_membership_concept', reason: 'Operación ajena a membresía (servicio de salón o producto)' };
+        }
+
+        // Si es cliente de contrato único:
+        if (isSingleContract) {
+          const ct = clientContracts[0];
+          const cid = ct.contract_id || '';
+          const suffix = cid.slice(-4);
+
+          // Verificar si es intento de activación inicial (Ciclo 0 onboarding)
+          const isActivationOrInit = pid === `PAY-INIT-${cid}` ||
+            pid.startsWith('PAY-INIT-') ||
+            p.status === 'Fallido - Intento Inicial' ||
+            lowerDesc.includes('activación declinado') ||
+            lowerDesc.includes('activacion declinado') ||
+            lowerDesc.includes('intento inicial');
+          if (isActivationOrInit) {
+            return { contract: ct, matchType: 'init' };
+          }
+
+          // Señal A: Cobro automático recurrente generado por el cron/motor CardNet
+          const isAutoRecurring = p.method === 'CardNet_Auto' ||
+                                  pid.startsWith('PAY-AUTO-') ||
+                                  pid.startsWith('PAY-FAIL-') ||
+                                  pid.startsWith('PAY-SYS-');
+          if (isAutoRecurring) {
+            return { contract: ct, matchType: 'auto_recurring' };
+          }
+
+          // Señal B: Referencia contractual explícita en ID, gateway_ref o descripción
+          const hasSuffixInId = pid.endsWith(`-${suffix}`);
+          const fullIdRegex = new RegExp(`(?:^|[^0-9])${cid}(?:[^0-9]|$)`);
+          const explicitSuffixRegex = new RegExp(`(?:^|[^a-zA-Z0-9])(?:CT|CONTRATO|CTR|CONTRACT|#)[-_\\s]*${suffix}(?:[^0-9]|$)`, 'i');
+          if (hasSuffixInId || fullIdRegex.test(desc) || fullIdRegex.test(gref) || explicitSuffixRegex.test(desc) || explicitSuffixRegex.test(gref)) {
+            return { contract: ct, matchType: 'explicit_contract_reference' };
+          }
+
+          // Señal C: Descripción explícita de membresía o nombre del plan
+          const planNameLower = (ct.plan || '').toLowerCase();
+          const hasMembershipKeyword = lowerDesc.includes('plan beauty') ||
+                                       lowerDesc.includes('membresía') ||
+                                       lowerDesc.includes('membresia') ||
+                                       lowerDesc.includes('cuota') ||
+                                       lowerDesc.includes('mensualidad') ||
+                                       lowerDesc.includes('suscripción') ||
+                                       lowerDesc.includes('suscripcion') ||
+                                       lowerDesc.includes('renovación') ||
+                                       lowerDesc.includes('renovacion') ||
+                                       (planNameLower && lowerDesc.includes(planNameLower));
+          if (hasMembershipKeyword) {
+            return { contract: ct, matchType: 'membership_description' };
+          }
+
+          // Señal D: Ruta de cobro recurrente guardada o mensualidad manual legítima con cuota exacta
+          const isSavedCardRoute = p.method === 'Tarjeta_Guardada' || p.method === 'CardNet_Saved_Card';
+          const isExactQuotaAmount = Math.abs(amt - (parseFloat(ct.contract_price) || 1950.00)) < 0.01;
+          if (isSavedCardRoute) {
+            return { contract: ct, matchType: 'membership_route' };
+          }
+
+          if (isExactQuotaAmount && (p.method === 'Efectivo/POS' || p.method === 'Transferencia' || p.method === 'CardNet')) {
+            return { contract: ct, matchType: 'manual_membership_payment' };
+          }
+
+          // Si carece de evidencia suficiente, enviar a conciliación como pendiente de atribución
+          return { contract: null, matchType: 'insufficient_evidence', reason: 'Pago de cliente con contrato único sin evidencia verificable de mensualidad de membresía' };
+        }
+
+        // Cliente con múltiples contratos:
+        const candidates = [];
+        for (const ct of clientContracts) {
+          const cid = ct.contract_id || '';
+          const suffix = cid.slice(-4);
+
+          if (pid === `PAY-INIT-${cid}` || pid.startsWith(`PAY-INIT-${suffix}`) || p.status === 'Fallido - Intento Inicial' || lowerDesc.includes('activación declinado')) {
+            candidates.push({ contract: ct, matchType: 'init' });
+            continue;
+          }
+
+          if (pid.endsWith(`-${suffix}`)) {
+            candidates.push({ contract: ct, matchType: 'suffix_in_id' });
+            continue;
+          }
+
+          if (pid.includes(`-${cid}`) || pid.endsWith(`_${cid}`)) {
+            candidates.push({ contract: ct, matchType: 'contract_in_id' });
+            continue;
+          }
+
+          // Validación estructurada en description o gateway_ref con límites de palabra
+          const fullIdRegex = new RegExp(`(?:^|[^0-9])${cid}(?:[^0-9]|$)`);
+          if (fullIdRegex.test(desc) || fullIdRegex.test(gref)) {
+            candidates.push({ contract: ct, matchType: 'full_id_in_text' });
+            continue;
+          }
+
+          // Prefijo contractual explícito (CT-XXXX, CONTRATO XXXX, CTR-XXXX, #XXXX)
+          const explicitSuffixRegex = new RegExp(`(?:^|[^a-zA-Z0-9])(?:CT|CONTRATO|CTR|CONTRACT|#)[-_\\s]*${suffix}(?:[^0-9]|$)`, 'i');
+          if (explicitSuffixRegex.test(desc) || explicitSuffixRegex.test(gref)) {
+            candidates.push({ contract: ct, matchType: 'explicit_suffix_in_text' });
+            continue;
+          }
+        }
+
+        if (candidates.length === 1) {
+          return candidates[0];
+        }
+        if (candidates.length > 1) {
+          return { contract: null, matchType: 'ambiguous_multiple_matches', reason: 'Ambigüedad contractual múltiple (coincide con más de un contrato)' };
+        }
+        return { contract: null, matchType: 'no_match', reason: 'Cliente con múltiples contratos sin referencia contractual estructurada' };
+      }
+
+      function buildContractObligations(ct, contractPayments, targetList, unmatchedList, clientHasUntraceableReversal = false) {
+        contractPayments.sort((a, b) => (a.created_at_str < b.created_at_str ? -1 : (a.created_at_str > b.created_at_str ? 1 : 0)));
+        const suffix = (ct.contract_id || '').slice(-4);
+        let currentObligation = null;
+        let lastSettledObligation = null;
+        let cycleNumber = 0;
+
+        for (const p of contractPayments) {
+          if (p.matchType === 'init' || p.status === 'Fallido - Intento Inicial' || (p.description || '').toLowerCase().includes('activación declinado')) {
+            // Ciclo 0 (alta inicial). No es cuota recurrente mensual.
+            continue;
+          }
+
+          // Si el pago es una fila de reversión o anulación
+          const isReversalRow = p.status === 'Anulado' || p.status === 'Anulada' || p.status === 'Revertido' || p.status === 'Devuelto' || (parseFloat(p.amount) < 0);
+          if (isReversalRow) {
+            continue;
+          }
+
+          // Si este pago fue revertido por una transacción de reversión vinculada,
+          // se conserva en los intentos de la obligación pero no liquida la cuota (isApproved = false).
+          const isApproved = p.status === 'Aprobado' && !p.is_reversed;
+          const isFailed = p.status.startsWith('Fallido') || p.status === 'Rechazado';
+          const isConnError = p.status.startsWith('Error_Conexion') || (p.description || '').toLowerCase().includes('timeout') || (p.description || '').toLowerCase().includes('conexi');
+          const isExplicitIntento1 = /Intento\s+1\b/i.test(p.status) || /Intento\s+1\b/i.test(p.description || '');
+
+          const pLowerDesc = (p.description || '').toLowerCase();
+          const pLowerRef = (p.gateway_ref || '').toLowerCase();
+
+          // Señales estructuradas e inequívocas de nuevo ciclo contractual
+          const hasCycleNumber = p.cycle_number && lastSettledObligation && p.cycle_number > lastSettledObligation.cycle_number;
+          const cycleNumberRegex = /\b(?:ciclo|cuota|mes)\s*([0-9]+)\b/i;
+          const matchCycleDesc = (p.description || '').match(cycleNumberRegex) || (p.gateway_ref || '').match(cycleNumberRegex);
+          const hasHigherCycleNumber = matchCycleDesc && lastSettledObligation && parseInt(matchCycleDesc[1], 10) > (lastSettledObligation.cycle_number || 1);
+          const explicitCycleSuffixRegex = new RegExp(`(?:CT|CTR|CONTRATO|#)[-_\\s]*${suffix}[-_\\s]*(?:C|CICLO|M)?\\s*([0-9]+)`, 'i');
+          const hasContractCycleRef = explicitCycleSuffixRegex.test(p.description || '') || explicitCycleSuffixRegex.test(p.gateway_ref || '');
+
+          // Señales estructuradas de pago adelantado
+          const isAdvanceKeyword = pLowerDesc.includes('adelanto') || pLowerDesc.includes('anticipo') || pLowerDesc.includes('adelantad') ||
+                                   pLowerRef.includes('adelanto') || pLowerRef.includes('anticipo');
+          const hasAdvanceTarget = /\b(?:ciclo\s*[0-9]+|cuota\s*[0-9]+|mes\s+siguiente|pr[oó]ximo\s+ciclo|noviembre|diciembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre)\b/i.test(p.description || '') ||
+                                   /\b(?:ciclo\s*[0-9]+|cuota\s*[0-9]+)\b/i.test(p.gateway_ref || '') ||
+                                   hasContractCycleRef;
+          const isValidAdvance = isAdvanceKeyword && hasAdvanceTarget;
+          const isUntracedAdvance = isAdvanceKeyword && !hasAdvanceTarget;
+
+          // Si no hay obligación abierta
+          if (!currentObligation) {
+            // Verificar si la obligación previa ya estaba completamente liquidada y llega un cobro aprobado
+            if (lastSettledObligation && lastSettledObligation.is_settled && isApproved) {
+              const diffDays = Math.max(0, (new Date(p.created_at).getTime() - new Date(lastSettledObligation.settled_at).getTime()) / 86400000);
+              const isSameCalendarDay = p.created_at_str && lastSettledObligation.settled_at_str && (p.created_at_str.slice(0, 10) === lastSettledObligation.settled_at_str.slice(0, 10));
+
+              // Señal estructurada A: Cobro automático recurrente del cron para este contrato en su fecha de renovación mensual
+              const isContractAutoRenewal = (p.method === 'CardNet_Auto' || p.id.startsWith('PAY-AUTO-')) &&
+                (p.id.endsWith(`-${suffix}`) || (p.gateway_ref && p.gateway_ref.includes(suffix))) &&
+                (pLowerDesc.includes('recurrente') || pLowerDesc.includes('cobro mensual')) &&
+                (diffDays >= 25.0);
+
+              const isValidNewCycle = isContractAutoRenewal || hasCycleNumber || hasHigherCycleNumber || hasContractCycleRef ||
+                (pLowerDesc.includes('ciclo 2') || pLowerDesc.includes('ciclo 3') || pLowerDesc.includes('cuota 2') || pLowerDesc.includes('cuota 3'));
+
+              // 1. Caso Adelanto con ciclo o período destino identificado: abre ciclo legítimo adelantado
+              if (isValidAdvance) {
+                // Abre ciclo legítimo adelantado
+              }
+              // 2. Caso Adelanto sin identificación suficiente de ciclo o contrato: no inventar cuota, conservar en conciliación
+              else if (isUntracedAdvance) {
+                unmatchedList.push({
+                  id: p.id,
+                  client_id: ct.client_id,
+                  cliente: ct.cliente || 'Socia Plan Beauty',
+                  amount: parseFloat(p.amount) || 0,
+                  method: p.method,
+                  gateway_ref: p.gateway_ref || null,
+                  description: p.description || null,
+                  created_at: p.created_at,
+                  created_at_str: p.created_at_str,
+                  status: p.status,
+                  attribution_status: 'Pendiente de atribución',
+                  reason: 'Adelanto o anticipo sin identificación suficiente de ciclo o período destino',
+                  contracts_affected: [ct.contract_id]
+                });
+                continue;
+              }
+              // 3. Caso Nueva obligación legítima apoyada en evidencia contractual o referencias estructuradas
+              else if (isValidNewCycle) {
+                // Abre nueva obligación legítima
+              }
+              // 4. Caso Mismo día (o < 1 día) sin nuevo ciclo: segundo cobro duplicado/adicional
+              else if (isSameCalendarDay || diffDays < 1.0) {
+                unmatchedList.push({
+                  id: p.id,
+                  client_id: ct.client_id,
+                  cliente: ct.cliente || 'Socia Plan Beauty',
+                  amount: parseFloat(p.amount) || 0,
+                  method: p.method,
+                  gateway_ref: p.gateway_ref || null,
+                  description: p.description || null,
+                  created_at: p.created_at,
+                  created_at_str: p.created_at_str,
+                  status: p.status,
+                  attribution_status: 'Pendiente de atribución',
+                  reason: `Segundo cobro aprobado el mismo día para contrato #${suffix} en ciclo ya liquidado`,
+                  contracts_affected: [ct.contract_id]
+                });
+                continue;
+              }
+              // 5. Cualquier otro cobro posterior (incluso después de 25 días) sin evidencia verificable de nuevo ciclo:
+              // Se conserva en conciliación sin descartarlo ni inventar una cuota artificial
+              else {
+                unmatchedList.push({
+                  id: p.id,
+                  client_id: ct.client_id,
+                  cliente: ct.cliente || 'Socia Plan Beauty',
+                  amount: parseFloat(p.amount) || 0,
+                  method: p.method,
+                  gateway_ref: p.gateway_ref || null,
+                  description: p.description || null,
+                  created_at: p.created_at,
+                  created_at_str: p.created_at_str,
+                  status: p.status,
+                  attribution_status: 'Pendiente de atribución',
+                  reason: diffDays >= 25.0
+                    ? `Pago aprobado después de ${Math.round(diffDays)} días sin evidencia estructurada de nuevo ciclo contractual`
+                    : `Pago aprobado posterior a cuota liquidada sin evidencia de nuevo ciclo, adelanto ni vencimiento contractual`,
+                  contracts_affected: [ct.contract_id]
+                });
+                continue;
+              }
+            }
+
+            // Iniciar nueva obligación
+            cycleNumber++;
+            let declineClassification = null;
+            if (isConnError || isFailed) {
+              declineClassification = classifyDecline(p.cardnet_raw_response, p.status, p.description);
+            }
+
+            let initialStatus = p.status === 'Aprobado' ? 'Aprobado' : (declineClassification ? declineClassification.category : (p.is_reversed ? 'Revertido' : 'Fallido'));
+            let effectiveQuota = parseFloat(ct.contract_price) || 1950.00;
+            const amtPaid = isApproved ? (parseFloat(p.amount) || 0) : 0;
+            const isFullyPaid = amtPaid >= effectiveQuota;
+
+            currentObligation = {
+              obligation_id: `OBL-${ct.contract_id}-C${cycleNumber}`,
+              contract_id: ct.contract_id,
+              contract_suffix: suffix,
+              client_id: ct.client_id,
+              cliente: ct.cliente || 'Socia Plan Beauty',
+              telefono: ct.telefono || '',
+              email: ct.email || '',
+              plan: ct.plan || 'Plan Beauty',
+              plan_id: ct.plan_id,
+              salon_id: ct.salon_id,
+              sucursal: ct.sucursal || 'San Vicente',
+              cycle_number: cycleNumber,
+              cuota: effectiveQuota,
+              amount_paid: amtPaid,
+              saldo_pendiente: Math.max(0, effectiveQuota - amtPaid),
+              opened_at: p.created_at,
+              opened_at_str: p.created_at_str,
+              initial_status: initialStatus,
+              initial_decline_code: declineClassification ? declineClassification.code : null,
+              initial_decline_reason: declineClassification ? declineClassification.reason : null,
+              attempts: [p],
+              is_settled: isFullyPaid,
+              settled_at: isFullyPaid ? p.created_at : null,
+              settled_at_str: isFullyPaid ? p.created_at_str : null,
+              settled_method: isFullyPaid ? p.method : null,
+              confidence: (p.isAmbiguous || clientHasUntraceableReversal) ? 'requires_review' : 'high'
+            };
+
+            if (isFullyPaid) {
+              targetList.push(currentObligation);
+              lastSettledObligation = currentObligation;
+              currentObligation = null;
+            }
+          } else {
+            // Hay una obligación abierta (unsettled)
+            const isContinuation = !currentObligation.is_settled && !isExplicitIntento1;
+
+            if (isContinuation) {
+              currentObligation.attempts.push(p);
+
+              if (isApproved) {
+                const addAmt = parseFloat(p.amount) || 0;
+                currentObligation.amount_paid = (currentObligation.amount_paid || 0) + addAmt;
+                currentObligation.saldo_pendiente = Math.max(0, currentObligation.cuota - currentObligation.amount_paid);
+
+                if (currentObligation.amount_paid >= currentObligation.cuota) {
+                  currentObligation.is_settled = true;
+                  currentObligation.settled_at = p.created_at;
+                  currentObligation.settled_at_str = p.created_at_str;
+                  currentObligation.settled_method = p.method;
+                  targetList.push(currentObligation);
+                  lastSettledObligation = currentObligation;
+                  currentObligation = null;
+                }
+              }
+            } else {
+              // Intento 1 explícito mientras había otra obligación abierta: cerrar la anterior como impaga y abrir la nueva
+              targetList.push(currentObligation);
+              lastSettledObligation = currentObligation;
+              cycleNumber++;
+              let declineClassification = null;
+              if (isConnError || isFailed) {
+                declineClassification = classifyDecline(p.cardnet_raw_response, p.status, p.description);
+              }
+
+              let initialStatus = p.status === 'Aprobado' ? 'Aprobado' : (declineClassification ? declineClassification.category : (p.is_reversed ? 'Revertido' : 'Fallido'));
+              let effectiveQuota = parseFloat(ct.contract_price) || 1950.00;
+              const amtPaid = isApproved ? (parseFloat(p.amount) || 0) : 0;
+              const isFullyPaid = amtPaid >= effectiveQuota;
+
+              currentObligation = {
+                obligation_id: `OBL-${ct.contract_id}-C${cycleNumber}`,
+                contract_id: ct.contract_id,
+                contract_suffix: suffix,
+                client_id: ct.client_id,
+                cliente: ct.cliente || 'Socia Plan Beauty',
+                telefono: ct.telefono || '',
+                email: ct.email || '',
+                plan: ct.plan || 'Plan Beauty',
+                plan_id: ct.plan_id,
+                salon_id: ct.salon_id,
+                sucursal: ct.sucursal || 'San Vicente',
+                cycle_number: cycleNumber,
+                cuota: effectiveQuota,
+                amount_paid: amtPaid,
+                saldo_pendiente: Math.max(0, effectiveQuota - amtPaid),
+                opened_at: p.created_at,
+                opened_at_str: p.created_at_str,
+                initial_status: initialStatus,
+                initial_decline_code: declineClassification ? declineClassification.code : null,
+                initial_decline_reason: declineClassification ? declineClassification.reason : null,
+                attempts: [p],
+                is_settled: isFullyPaid,
+                settled_at: isFullyPaid ? p.created_at : null,
+                settled_at_str: isFullyPaid ? p.created_at_str : null,
+                settled_method: isFullyPaid ? p.method : null,
+                confidence: (p.isAmbiguous || clientHasUntraceableReversal) ? 'requires_review' : 'high'
+              };
+
+              if (isFullyPaid) {
+                targetList.push(currentObligation);
+                lastSettledObligation = currentObligation;
+                currentObligation = null;
+              }
+            }
+          }
+        }
+
+        if (currentObligation) {
+          targetList.push(currentObligation);
+        }
+      }
+
+      // Procesar clientes desduplicando transacciones por ID y sin sesgo de orden
+      for (const [clientId, clientContracts] of contractsByClientId.entries()) {
+        const clientPayments = paymentsByClient.get(clientId) || [];
+
+        // 1. Identificar registros de reversión/anulación/devolución y vincular trazabilidad
+        const reversalRecords = [];
+        for (const p of clientPayments) {
+          const lowerDesc = (p.description || '').toLowerCase();
+          const isRev = p.status === 'Revertido' || p.status === 'Devuelto' || p.status === 'Anulado' ||
+                        (parseFloat(p.amount) < 0) || lowerDesc.includes('reverso') || lowerDesc.includes('devolución') ||
+                        lowerDesc.includes('devolucion') || lowerDesc.includes('refund');
+          if (isRev) {
+            reversalRecords.push(p);
+          }
+        }
+
+        let clientHasUntraceableReversal = false;
+        for (const rev of reversalRecords) {
+          const targetPayment = clientPayments.find(other =>
+            other.id !== rev.id &&
+            other.status === 'Aprobado' &&
+            !other.is_reversed &&
+            (
+              (rev.gateway_ref && other.gateway_ref && rev.gateway_ref === other.gateway_ref) ||
+              (rev.gateway_ref && other.id && rev.gateway_ref === other.id) ||
+              (rev.description && rev.description.includes(other.id)) ||
+              (rev.id && rev.id.includes(other.id)) ||
+              (other.gateway_ref && rev.description && rev.description.includes(other.gateway_ref))
+            )
+          );
+
+          if (targetPayment) {
+            targetPayment.is_reversed = true;
+            targetPayment.reversed_by = rev.id;
+            targetPayment.reversed_at = rev.created_at;
+            targetPayment.reversed_at_str = rev.created_at_str || (rev.created_at ? (typeof rev.created_at === 'string' ? rev.created_at : new Date(rev.created_at).toISOString().replace('T', ' ').slice(0, 19)) : '');
+            rev.is_reversal_processed = true;
+          } else {
+            rev.is_untraceable_reversal = true;
+            clientHasUntraceableReversal = true;
+          }
+        }
+
+        // Distribuir pagos por contrato según coincidencia estructurada
+        const paymentsByContractMap = new Map();
+        for (const ct of clientContracts) {
+          paymentsByContractMap.set(ct.contract_id, []);
+        }
+
+        for (const p of clientPayments) {
+          if (processedPaymentIds.has(p.id)) continue;
+          const matchResult = matchContractForPayment(p, clientContracts);
+
+          if (matchResult.contract) {
+            processedPaymentIds.add(p.id);
+            const pDateStr = p.created_at_str || (p.created_at ? new Date(p.created_at).toISOString().replace('T', ' ').slice(0, 19) : '');
+            paymentsByContractMap.get(matchResult.contract.contract_id).push({
+              ...p,
+              created_at_str: pDateStr,
+              matchType: matchResult.matchType
+            });
+          } else {
+            // No hubo correspondencia inequívoca o es no membresía:
+            processedPaymentIds.add(p.id);
+            const pDateStr = p.created_at_str || (p.created_at ? new Date(p.created_at).toISOString().replace('T', ' ').slice(0, 19) : '');
+            allUnmatchedPayments.push({
+              id: p.id,
+              client_id: clientId,
+              cliente: clientContracts[0].cliente || 'Socia Plan Beauty',
+              amount: parseFloat(p.amount) || 0,
+              method: p.method,
+              gateway_ref: p.gateway_ref || null,
+              description: p.description || null,
+              created_at: p.created_at,
+              created_at_str: pDateStr,
+              status: p.status,
+              attribution_status: 'Pendiente de atribución',
+              reason: matchResult.reason || 'Sin referencia contractual estructurada',
+              contracts_affected: clientContracts.map(c => c.contract_id)
+            });
+          }
+        }
+
+        for (const ct of clientContracts) {
+          const cPayments = paymentsByContractMap.get(ct.contract_id) || [];
+          buildContractObligations(ct, cPayments, allReconstructedObligations, allUnmatchedPayments, clientHasUntraceableReversal);
+        }
+      }
+
+      // 6. Filtrar por cohorte del período (apertura / 1er intento dentro de [startDateTimeStr, endDateTimeStr])
+      const cohortObligations = allReconstructedObligations.filter(o => {
+        return o.opened_at_str >= startDateTimeStr && o.opened_at_str <= endDateTimeStr;
+      });
+
+      // Pagos sin atribución ocurridos dentro del período seleccionado
+      const cohortUnmatchedPayments = allUnmatchedPayments.filter(p => {
+        return p.created_at_str >= startDateTimeStr && p.created_at_str <= endDateTimeStr;
+      });
+
+      // 7. Evaluar estado al corte vs estado actual de forma estrictamente independiente
+      for (const o of cohortObligations) {
+        // Intentos ocurridos antes o en la fecha de corte (hasta endDateTimeStr exacto)
+        const attemptsAtCutoff = o.attempts.filter(a => a.created_at_str <= endDateTimeStr);
+        // Coherencia de fecha de corte: pagos aprobados que fueron revertidos con posterioridad al corte
+        // se consideran aprobados al momento del corte, pero se reflejan como no liquidados en el estado actual.
+        const approvedAtCutoff = attemptsAtCutoff.filter(a => {
+          if (a.status !== 'Aprobado') return false;
+          if (a.is_reversed) {
+            const revDateStr = a.reversed_at_str || '';
+            const wasReversedBeforeCutoff = revDateStr && revDateStr <= endDateTimeStr;
+            return !wasReversedBeforeCutoff;
+          }
+          return true;
+        });
+        const paidAtCutoff = approvedAtCutoff.reduce((acc, a) => acc + (parseFloat(a.amount) || 0), 0);
+        const isSettledAtCutoff = paidAtCutoff >= o.cuota;
+        o.saldo_pendiente_corte = Math.max(0, o.cuota - paidAtCutoff);
+        o.amount_paid_corte = paidAtCutoff;
+
+        if (o.confidence === 'requires_review') {
+          o.estado_corte = 'Requiere revisión';
+        } else if (isSettledAtCutoff) {
+          if (attemptsAtCutoff.length === 1 && o.initial_status === 'Aprobado') {
+            o.estado_corte = 'Pagada 1er intento';
+          } else if (approvedAtCutoff.some(a => a.method === 'CardNet_Auto')) {
+            o.estado_corte = 'Recuperada reintentos';
+          } else {
+            o.estado_corte = 'Recuperada otra vía';
+          }
+        } else if (paidAtCutoff > 0) {
+          o.estado_corte = 'Pendiente parcial';
+        } else {
+          o.estado_corte = 'Sin recuperar';
+        }
+
+        // Estado actual (con todos los eventos hasta hoy, independiente del corte)
+        const approvedCurrent = o.attempts.filter(a => a.status === 'Aprobado' && !a.is_reversed);
+        const paidCurrent = approvedCurrent.reduce((acc, a) => acc + (parseFloat(a.amount) || 0), 0);
+        o.saldo_pendiente = Math.max(0, o.cuota - paidCurrent);
+        o.amount_paid = paidCurrent;
+        o.is_settled = paidCurrent >= o.cuota;
+        o.has_posterior_reversal = o.attempts.some(a => a.is_reversed && a.reversed_at_str && a.reversed_at_str > endDateTimeStr);
+
+        if (o.confidence === 'requires_review') {
+          o.estado_actual = 'Requiere revisión';
+        } else if (o.is_settled) {
+          if (o.attempts.length === 1 && o.initial_status === 'Aprobado') {
+            o.estado_actual = 'Pagada 1er intento';
+          } else if (approvedCurrent.some(a => a.method === 'CardNet_Auto')) {
+            o.estado_actual = 'Recuperada reintentos';
+          } else {
+            o.estado_actual = 'Recuperada otra vía';
+          }
+        } else if (paidCurrent > 0) {
+          o.estado_actual = 'Pendiente parcial';
+        } else {
+          o.estado_actual = 'Sin recuperar';
+        }
+
+        // Tiempo de recuperación en días calculado al corte para indicadores consistentes
+        const settlingAttempt = approvedAtCutoff.find(a => isSettledAtCutoff);
+        if (settlingAttempt && o.opened_at) {
+          const diffMs = Math.max(0, new Date(settlingAttempt.created_at).getTime() - new Date(o.opened_at).getTime());
+          o.dias_recuperacion = Number((diffMs / (1000 * 60 * 60 * 24)).toFixed(1));
+        } else {
+          o.dias_recuperacion = null;
+        }
+      }
+
+      // 8. Cálculo de los Cuatro KPIs Financieros con Denominadores Rigurosos
+      const totalObligations = cohortObligations.length;
+      const paidFirstList = cohortObligations.filter(o => o.estado_corte === 'Pagada 1er intento');
+      const recoveredAutoList = cohortObligations.filter(o => o.estado_corte === 'Recuperada reintentos');
+      const recoveredManualList = cohortObligations.filter(o => o.estado_corte === 'Recuperada otra vía');
+      const partialList = cohortObligations.filter(o => o.estado_corte === 'Pendiente parcial');
+      const unrecoveredList = cohortObligations.filter(o => o.estado_corte === 'Sin recuperar');
+      const reviewList = cohortObligations.filter(o => o.estado_corte === 'Requiere revisión');
+
+      // Cuotas que sufrieron un rechazo inicial confirmado (excluye pagos manuales aprobados y errores de conexión puros)
+      const confirmedDeclinedList = cohortObligations.filter(o =>
+        o.initial_status !== 'Aprobado' &&
+        !o.initial_status.startsWith('Error Conexión') &&
+        o.estado_corte !== 'Requiere revisión'
+      );
+
+      const totalRecovered = recoveredAutoList.length + recoveredManualList.length;
+
+      // KPI 1: Tasa de éxito al primer intento
+      const rateFirst = totalObligations > 0
+        ? ((paidFirstList.length / totalObligations) * 100).toFixed(1)
+        : '0.0';
+
+      // KPI 2: Tasa de recuperación tras rechazo (Denominador legítimo: rechazos confirmados)
+      const rateRecovery = confirmedDeclinedList.length > 0
+        ? ((totalRecovered / confirmedDeclinedList.length) * 100).toFixed(1)
+        : '0.0';
+
+      // KPI 3: Saldo neto insoluto real pendiente de recuperar al corte
+      const pendingSum = cohortObligations
+        .filter(o => o.estado_corte !== 'Requiere revisión' && (o.saldo_pendiente_corte || 0) > 0)
+        .reduce((acc, o) => acc + (o.saldo_pendiente_corte || 0), 0);
+
+      const reviewSum = cohortObligations
+        .filter(o => o.estado_corte === 'Requiere revisión')
+        .reduce((acc, o) => acc + (o.saldo_pendiente_corte !== undefined ? o.saldo_pendiente_corte : o.cuota), 0);
+
+      const unrecoveredOrPartialCount = unrecoveredList.length + partialList.length;
+
+      // KPI 4: Tiempo medio de recuperación
+      const allRecoveredList = [...recoveredAutoList, ...recoveredManualList];
+      let avgRecoveryText = '0 días';
+      if (allRecoveredList.length > 0) {
+        const totalDays = allRecoveredList.reduce((acc, o) => acc + (o.dias_recuperacion || 0), 0);
+        const avgDays = totalDays / allRecoveredList.length;
+        if (avgDays < 1) {
+          const hours = Math.max(1, Math.round(avgDays * 24));
+          avgRecoveryText = `${hours} horas`;
+        } else {
+          avgRecoveryText = `${avgDays.toFixed(1)} días`;
+        }
+      }
+
+      // 9. Estructuras de datos para visualizaciones financieras (Fase B2)
+      // Gráfico A: Resultado de las cuotas (Participación apilada 100%)
+      const chartCategories = [
+        { label: 'Pagada 1er intento', count: paidFirstList.length, color: '#10b981' },
+        { label: 'Recuperada reintentos CardNet', count: recoveredAutoList.length, color: '#2563eb' },
+        { label: 'Recuperada por otra vía', count: recoveredManualList.length, color: '#8b5cf6' },
+        { label: 'Sin recuperar', count: unrecoveredList.length, color: '#ef4444' }
+      ];
+
+      if (partialList.length > 0) {
+        chartCategories.push({ label: 'Pendiente parcial', count: partialList.length, color: '#f97316' });
+      }
+
+      if (reviewList.length > 0) {
+        chartCategories.push({ label: 'Requiere revisión', count: reviewList.length, color: '#f59e0b' });
+      }
+
+      let chartData = [];
+      if (totalObligations > 0) {
+        chartData = chartCategories.map((cat) => {
+          const pct = Number(((cat.count / totalObligations) * 100).toFixed(1));
+          return {
+            label: cat.label,
+            value: cat.count,
+            count: cat.count,
+            percentage: pct,
+            color: cat.color,
+            displayValue: `${cat.count} (${pct}%)`
+          };
+        });
+      } else {
+        chartData = chartCategories.map(cat => ({
+          label: cat.label,
+          value: 0,
+          count: 0,
+          percentage: 0,
+          color: cat.color,
+          displayValue: '0 (0%)'
+        }));
+      }
+
+      const quotaResults = {
+        total_obligations: totalObligations,
+        categories: chartData
+      };
+
+      // Gráfico B: Evolución del éxito al primer intento
+      const obligationsByMonth = new Map();
+      for (const o of cohortObligations) {
+        const mKey = (o.opened_at_str || '').slice(0, 7);
+        if (!mKey) continue;
+        if (!obligationsByMonth.has(mKey)) {
+          obligationsByMonth.set(mKey, []);
+        }
+        obligationsByMonth.get(mKey).push(o);
+      }
+
+      const monthNamesEs = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      const monthlyEvolution = [];
+      const sortedMonths = Array.from(obligationsByMonth.keys()).sort();
+
+      for (const mKey of sortedMonths) {
+        const parts = mKey.split('-');
+        const yNum = parseInt(parts[0], 10);
+        const mNum = parseInt(parts[1], 10);
+        const mLabel = (!isNaN(mNum) && mNum >= 1 && mNum <= 12) ? `${monthNamesEs[mNum - 1]} ${yNum}` : mKey;
+
+        const mObligations = obligationsByMonth.get(mKey) || [];
+        const mTotal = mObligations.length;
+        const mPaidFirst = mObligations.filter(o => o.initial_status === 'Aprobado').length;
+        const mRate = mTotal > 0 ? Number(((mPaidFirst / mTotal) * 100).toFixed(1)) : 0;
+
+        monthlyEvolution.push({
+          month: mKey,
+          label: mLabel,
+          total_obligations: mTotal,
+          paid_first: mPaidFirst,
+          percentage: mRate
+        });
+      }
+
+      // Gráfico C: Causas de rechazo inicial (Analiza exclusivamente el primer intento de cada obligación rechazada)
+      const declineBuckets = new Map();
+      const totalDeclinedCount = confirmedDeclinedList.length;
+
+      for (const o of confirmedDeclinedList) {
+        const code = String(o.initial_decline_code || '').trim();
+        const reason = (o.initial_decline_reason || '').toLowerCase();
+        const status = (o.initial_status || '').toLowerCase();
+
+        let bucketKey = 'generic_05';
+        let bucketLabel = 'Rechazo genérico emisor (05)';
+        let bucketColor = '#f59e0b';
+
+        // 1. Error técnico de conexión con pasarela
+        if (code === 'SYS_TIMEOUT' || status.includes('conexión') || status.includes('conexion') || reason.includes('timeout') || reason.includes('network') || reason.includes('red')) {
+          bucketKey = 'tech_error';
+          bucketLabel = 'Error técnico de conexión';
+          bucketColor = '#64748b';
+        }
+        // 2. Fondos insuficientes confirmados (Código 51)
+        else if (code === '51' || reason.includes('fondos insuficientes') || reason.includes('insufficient funds')) {
+          bucketKey = 'insufficient_funds';
+          bucketLabel = 'Fondos insuficientes (51)';
+          bucketColor = '#dc2626';
+        }
+        // 3. Tarjeta o token inválido (Código 14, 54, PR001)
+        else if (code === '14' || code === '54' || code === 'PR001' || reason.includes('token') || reason.includes('vencid') || reason.includes('expir')) {
+          bucketKey = 'invalid_token_card';
+          bucketLabel = 'Tarjeta o token inválido (14, 54)';
+          bucketColor = '#ea580c';
+        }
+        // 4. Seguridad del emisor (Código 63)
+        else if (code === '63' || code === '04' || code === '41' || code === '43' || code === '59' || reason.includes('seguridad')) {
+          bucketKey = 'issuer_security';
+          bucketLabel = 'Seguridad del emisor (63)';
+          bucketColor = '#d97706';
+        }
+        // 5. Límite de intentos / frecuencia (Código 65, 75)
+        else if (code === '65' || code === '75' || reason.includes('límite') || reason.includes('limite') || reason.includes('velocity')) {
+          bucketKey = 'velocity_limit';
+          bucketLabel = 'Límite de intentos (65)';
+          bucketColor = '#b45309';
+        }
+        // 6. Transacción inválida (Código 12)
+        else if (code === '12' || reason.includes('transaccion invalida') || reason.includes('transacción inválida')) {
+          bucketKey = 'invalid_transaction';
+          bucketLabel = 'Transacción inválida (12)';
+          bucketColor = '#9333ea';
+        }
+        // 7. Rechazo genérico del emisor (Código 05)
+        else if (code === '05' || status.includes('declinada') || reason.includes('declinad') || reason.includes('do not honor')) {
+          bucketKey = 'generic_05';
+          bucketLabel = 'Rechazo genérico emisor (05)';
+          bucketColor = '#f59e0b';
+        }
+        // 8. Otros rechazos documentados
+        else {
+          bucketKey = `other_${code || 'unk'}`;
+          bucketLabel = `Otros rechazos documentados (${code || 'N/D'})`;
+          bucketColor = '#6b7280';
+        }
+
+        if (!declineBuckets.has(bucketKey)) {
+          declineBuckets.set(bucketKey, { category: bucketLabel, count: 0, color: bucketColor });
+        }
+        declineBuckets.get(bucketKey).count++;
+      }
+
+      const declineCauses = Array.from(declineBuckets.values()).map(b => {
+        const pct = totalDeclinedCount > 0 ? Number(((b.count / totalDeclinedCount) * 100).toFixed(1)) : 0;
+        return {
+          category: b.category,
+          count: b.count,
+          percentage: pct,
+          total_declined: totalDeclinedCount,
+          color: b.color,
+          displayValue: `${b.count} (${pct}%)`
+        };
+      });
+
+      // Gráfico D: Efectividad de los reintentos
+      const retryBucketsDef = [
+        { key: 'attempt_2', label: 'Segundo intento', count: 0, color: '#3b82f6' },
+        { key: 'attempt_3', label: 'Tercer intento', count: 0, color: '#2563eb' },
+        { key: 'attempt_4_7', label: 'Intentos 4 a 7', count: 0, color: '#1d4ed8' },
+        { key: 'attempt_8_plus', label: 'Intentos 8 o posteriores', count: 0, color: '#1e3a8a' },
+        { key: 'manual_box', label: 'Recuperadas por caja / otra vía', count: 0, color: '#8b5cf6' },
+        { key: 'undetermined', label: 'No determinado', count: 0, color: '#64748b' }
+      ];
+      const retryMap = new Map(retryBucketsDef.map(b => [b.key, b]));
+
+      for (const o of allRecoveredList) {
+        if (o.estado_corte === 'Recuperada otra vía' || (o.settled_method && o.settled_method !== 'CardNet_Auto')) {
+          retryMap.get('manual_box').count++;
+          continue;
+        }
+
+        const approvedIdx = (o.attempts || []).findIndex(p => p.status === 'Aprobado' && !p.is_reversed);
+        const attemptNum = approvedIdx >= 0 ? (approvedIdx + 1) : (o.reintentos || null);
+
+        if (attemptNum === 2) {
+          retryMap.get('attempt_2').count++;
+        } else if (attemptNum === 3) {
+          retryMap.get('attempt_3').count++;
+        } else if (attemptNum >= 4 && attemptNum <= 7) {
+          retryMap.get('attempt_4_7').count++;
+        } else if (attemptNum >= 8) {
+          retryMap.get('attempt_8_plus').count++;
+        } else {
+          retryMap.get('undetermined').count++;
+        }
+      }
+
+      const totalRecoveredCount = allRecoveredList.length;
+      const retryEffectiveness = retryBucketsDef
+        .filter(b => b.count > 0)
+        .map(b => {
+          const pctOfRecovered = totalRecoveredCount > 0 ? Number(((b.count / totalRecoveredCount) * 100).toFixed(1)) : 0;
+          const pctOfDeclined = totalDeclinedCount > 0 ? Number(((b.count / totalDeclinedCount) * 100).toFixed(1)) : 0;
+          return {
+            label: b.label,
+            count: b.count,
+            percentage: pctOfRecovered,
+            percentage_of_recovered: pctOfRecovered,
+            percentage_of_declined: pctOfDeclined,
+            total_recovered: totalRecoveredCount,
+            total_declined: totalDeclinedCount,
+            color: b.color,
+            displayValue: `${b.count} (${pctOfRecovered}%)`
+          };
+        });
+
+      // 10. Filas de la tabla de detalle (Fase B3.1 y B3.2)
+      const tableRows = cohortObligations
+        .sort((a, b) => (a.opened_at_str < b.opened_at_str ? 1 : (a.opened_at_str > b.opened_at_str ? -1 : 0)))
+        .map(o => {
+          const opDate = new Date(o.opened_at);
+          const opFormatted = !isNaN(opDate.getTime())
+            ? opDate.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
+            : '-';
+
+          let settledFormatted = '-';
+          if (o.settled_at) {
+            const sDate = new Date(o.settled_at);
+            if (!isNaN(sDate.getTime())) {
+              settledFormatted = sDate.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
+            }
+          }
+
+          // Sanitizar y estructurar los intentos asociados (B3.2 - cero PAN/CVV/tokens)
+          const sanitizedAttempts = (o.attempts || []).map((att, attIdx) => {
+            const rawId = att.id || '';
+            const maskedId = rawId.length > 8 ? `${rawId.slice(0, 8)}***${rawId.slice(-4)}` : rawId;
+            const rawRef = att.gateway_ref || '';
+            const maskedRef = rawRef.length > 6 ? `${rawRef.slice(0, 4)}***${rawRef.slice(-4)}` : (rawRef || maskedId);
+
+            let attDateStr = att.created_at_str || '-';
+            try {
+              const d = new Date(att.created_at);
+              if (!isNaN(d.getTime())) {
+                attDateStr = d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              }
+            } catch (_) {}
+
+            let responseCode = null;
+            let responseDesc = att.description || '';
+            if (att.cardnet_raw_response) {
+              try {
+                const raw = typeof att.cardnet_raw_response === 'string' ? JSON.parse(att.cardnet_raw_response) : att.cardnet_raw_response;
+                responseCode = raw.ResponseCode || raw.response_code || null;
+                if (raw.ResponseMessage) responseDesc = raw.ResponseMessage;
+              } catch (_) {}
+            }
+            if (!responseCode && att.status === 'Aprobado') {
+              responseCode = '00';
+            }
+
+            return {
+              intento_num: attIdx + 1,
+              fecha_hora: attDateStr,
+              resultado: att.status,
+              metodo: att.method || 'CardNet_Auto',
+              codigo_respuesta: responseCode || (att.status === 'Aprobado' ? '00' : 'N/D'),
+              descripcion_segura: responseDesc || (att.status === 'Aprobado' ? 'Transacción Aprobada' : 'Rechazada por procesador'),
+              importe_intentado: parseFloat(att.amount) || o.cuota,
+              referencia_enmascarada: maskedRef,
+              id_seguro: maskedId
+            };
+          });
+
+          return {
+            cliente: o.cliente,
+            plan: o.plan,
+            sucursal: o.sucursal || 'San Vicente',
+            contrato: `#...-${o.contract_suffix}`,
+            ciclo: `Ciclo ${o.cycle_number || 1}`,
+            contract_id: o.contract_id,
+            client_id: o.client_id,
+            telefono: o.telefono || '',
+            cuota: o.cuota,
+            amount_paid: o.amount_paid_corte !== undefined ? o.amount_paid_corte : (o.amount_paid || 0),
+            saldo_pendiente: o.saldo_pendiente_corte !== undefined ? o.saldo_pendiente_corte : (o.saldo_pendiente || 0),
+            saldo_pendiente_actual: o.saldo_pendiente !== undefined ? o.saldo_pendiente : 0,
+            is_settled: o.is_settled,
+            apertura: opFormatted,
+            reintentos: o.attempts.length,
+            primer_intento: o.initial_status,
+            decline_reason: o.initial_decline_reason || 'Ninguno',
+            fecha_recuperacion: settledFormatted,
+            metodo_pago: o.settled_method || 'Ninguno',
+            dias_recuperacion: o.dias_recuperacion !== null ? `${o.dias_recuperacion} d` : '-',
+            estado_corte: o.estado_corte,
+            estado_actual: o.estado_actual,
+            cycle_number: o.cycle_number,
+            has_posterior_reversal: !!o.has_posterior_reversal,
+            attempts: sanitizedAttempts
+          };
+        });
+
+      // Métricas independientes de transacciones físicas (eventos de payments en el período)
+      const periodPayments = payments.filter(p => p.created_at_str >= startDateTimeStr && p.created_at_str <= endDateTimeStr);
+      const totalPaymentsRecords = periodPayments.length;
+      const totalAutoAttempts = periodPayments.filter(p => p.method === 'CardNet_Auto' || (p.id && (p.id.startsWith('PAY-AUTO-') || p.id.startsWith('PAY-FAIL-') || p.id.startsWith('PAY-SYS-')))).length;
+      const totalFailedAttempts = periodPayments.filter(p => p.status && (p.status.startsWith('Fallido') || p.status === 'Rechazado')).length;
+      const totalTechnicalErrors = periodPayments.filter(p => p.status && (p.status.startsWith('Error_Conexion') || (p.description || '').toLowerCase().includes('timeout') || (p.description || '').toLowerCase().includes('conexi'))).length;
+      const totalApprovedPayments = periodPayments.filter(p => p.status === 'Aprobado' && !p.is_reversed).length;
+
+      // Conciliación de pagos sin atribución contractual discriminados por resultado financiero
+      const cohortUnmatchedApproved = cohortUnmatchedPayments.filter(p => p.status === 'Aprobado');
+      const cohortUnmatchedFailed = cohortUnmatchedPayments.filter(p => p.status && (p.status.startsWith('Fallido') || p.status === 'Rechazado'));
+      const cohortUnmatchedErrors = cohortUnmatchedPayments.filter(p => p.status && (p.status.startsWith('Error_Conexion') || (p.description || '').toLowerCase().includes('timeout')));
+      const unmatchedApprovedAmount = cohortUnmatchedApproved.reduce((acc, p) => acc + (p.amount || 0), 0);
+      const unmatchedFailedAmount = cohortUnmatchedFailed.reduce((acc, p) => acc + (p.amount || 0), 0);
+
+      const unmatchedApprovedRows = cohortUnmatchedApproved.map(p => {
+        let pDateStr = p.created_at_str || '-';
+        try {
+          const d = new Date(p.created_at);
+          if (!isNaN(d.getTime())) {
+            pDateStr = d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
+          }
+        } catch (_) {}
+
+        const rawId = p.id || '';
+        const maskedId = rawId.length > 8 ? `${rawId.slice(0, 8)}***${rawId.slice(-4)}` : rawId;
+
+        return {
+          fecha: pDateStr,
+          cliente: p.cliente || 'Socia Plan Beauty',
+          client_id: p.client_id,
+          metodo: p.method || 'Desconocido',
+          importe: parseFloat(p.amount) || 0,
+          transaccion_id: maskedId,
+          motivo: p.reason || 'Sin referencia contractual explícita de cuota o membresía',
+          contratos_afectados: (p.contracts_affected || []).length,
+          estado_conciliacion: 'Pendiente de conciliación'
+        };
+      });
+
+      return {
+        title: 'Efectividad de cobros y recuperación',
+        periodText: `Cohorte del ${start} al ${end} (Corte de evaluación: ${end})`,
+        alertInfo: 'Análisis de cohortes por cuotas mensuales individuales. Múltiples reintentos de cobro se consolidan en su obligación única, evaluando la recuperación al corte y auditando pagos sin atribución de forma separada.',
+        kpis: [
+          {
+            label: 'Éxito al 1er intento',
+            value: `${rateFirst}%`,
+            subtext: `${paidFirstList.length} de ${totalObligations} obligaciones evaluables`,
+            icon: 'check',
+            color: 'emerald'
+          },
+          {
+            label: 'Recuperación tras rechazo',
+            value: `${rateRecovery}%`,
+            subtext: totalRecovered > 0
+              ? `${totalRecovered} de ${confirmedDeclinedList.length} rechazadas (${recoveredAutoList.length} auto, ${recoveredManualList.length} caja)`
+              : `${totalRecovered} de ${confirmedDeclinedList.length} rechazadas confirmadas`,
+            icon: 'trending',
+            color: 'blue'
+          },
+          {
+            label: 'Importe pendiente de recuperar',
+            value: `RD$ ${pendingSum.toLocaleString('es-DO')}`,
+            subtext: unrecoveredOrPartialCount === 1
+              ? '1 obligación con saldo pendiente'
+              : `${unrecoveredOrPartialCount} obligaciones con saldo pendiente`,
+            icon: 'alert',
+            color: unrecoveredOrPartialCount > 0 ? 'red' : 'slate'
+          },
+          {
+            label: 'Tiempo medio de recuperación',
+            value: avgRecoveryText,
+            subtext: `${allRecoveredList.length} obligaciones recuperadas calculadas`,
+            icon: 'clock',
+            color: 'amber'
+          }
+        ],
+        summary: {
+          total_payments_records: totalPaymentsRecords,
+          total_auto_attempts: totalAutoAttempts,
+          total_failed_attempts: totalFailedAttempts,
+          total_technical_errors: totalTechnicalErrors,
+          total_approved_payments: totalApprovedPayments,
+          total_obligations: totalObligations,
+          paid_first: paidFirstList.length,
+          recovered_auto: recoveredAutoList.length,
+          recovered_manual: recoveredManualList.length,
+          total_recovered: totalRecovered,
+          unrecovered: unrecoveredList.length,
+          partial: partialList.length,
+          requires_review: reviewList.length,
+          pending_confirmed_amount: pendingSum,
+          review_amount: reviewSum,
+          total_unmatched_approved_payments: cohortUnmatchedApproved.length,
+          unmatched_approved_amount: unmatchedApprovedAmount,
+          total_unmatched_failed_attempts: cohortUnmatchedFailed.length,
+          unmatched_failed_amount: unmatchedFailedAmount,
+          unmatched_payments_count: cohortUnmatchedPayments.length,
+          unmatched_payments_amount: unmatchedApprovedAmount,
+          potential_contracts_affected: new Set(cohortUnmatchedPayments.flatMap(p => p.contracts_affected || [])).size
+        },
+        reconciliation: {
+          total_payments_records: totalPaymentsRecords,
+          total_auto_attempts: totalAutoAttempts,
+          total_failed_attempts: totalFailedAttempts,
+          total_technical_errors: totalTechnicalErrors,
+          total_approved_payments: totalApprovedPayments,
+          total_reconstructed_obligations: totalObligations,
+          total_settled_obligations: paidFirstList.length + totalRecovered,
+          total_pending_obligations: unrecoveredOrPartialCount,
+          pending_confirmed_debt: pendingSum,
+          total_unmatched_approved_payments: cohortUnmatchedApproved.length,
+          unmatched_approved_amount: unmatchedApprovedAmount,
+          total_unmatched_failed_attempts: cohortUnmatchedFailed.length,
+          unmatched_failed_amount: unmatchedFailedAmount,
+          unmatched_payments_count: cohortUnmatchedPayments.length,
+          unmatched_payments_amount: unmatchedApprovedAmount,
+          potential_contracts_affected: new Set(cohortUnmatchedPayments.flatMap(p => p.contracts_affected || [])).size,
+          unmatched_payments: cohortUnmatchedPayments
+        },
+        unmatched_payments: cohortUnmatchedPayments,
+        charts: {
+          quota_results: quotaResults,
+          monthly_evolution: monthlyEvolution,
+          decline_causes: declineCauses,
+          retry_effectiveness: retryEffectiveness
+        },
+        chart: {
+          type: 'recovery_cohort_charts',
+          title: 'Distribución y efectividad de cobros recurrentes',
+          quota_results: quotaResults,
+          monthly_evolution: monthlyEvolution,
+          decline_causes: declineCauses,
+          retry_effectiveness: retryEffectiveness,
+          data: chartData
+        },
+        table: {
+          title: 'Detalle de obligaciones contractuales',
+          badgeText: `${tableRows.length} obligaciones`,
+          total_count: tableRows.length,
+          columns: [
+            { key: 'cliente', label: 'Clienta' },
+            { key: 'plan', label: 'Plan' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'contrato', label: 'Contrato', align: 'center' },
+            { key: 'ciclo', label: 'Ciclo', align: 'center' },
+            { key: 'apertura', label: '1er Intento', align: 'center' },
+            { key: 'cuota', label: 'Mensualidad', align: 'right', isCurrency: true },
+            { key: 'amount_paid', label: 'Pagado', align: 'right', isCurrency: true },
+            { key: 'saldo_pendiente', label: 'Saldo Pendiente', align: 'right', isCurrency: true },
+            { key: 'reintentos', label: 'Intentos', align: 'center' },
+            { key: 'primer_intento', label: '1er Resultado', align: 'center' },
+            { key: 'decline_reason', label: 'Motivo Inicial', align: 'left' },
+            { key: 'fecha_recuperacion', label: 'Fecha Recup.', align: 'center' },
+            { key: 'metodo_pago', label: 'Método Recup.', align: 'center' },
+            { key: 'dias_recuperacion', label: 'Tiempo Recup.', align: 'center' },
+            { key: 'estado_corte', label: 'Estado al Corte', align: 'center', isBadge: true },
+            { key: 'estado_actual', label: 'Estado Actual', align: 'center', isBadge: true },
+            { key: 'accion', label: 'Perfil', align: 'center' }
+          ],
+          rows: tableRows,
+          footerNote: 'Cada fila representa una cuota contractual mensual única. Múltiples reintentos diarios de cobro se consolidan en la misma obligación.'
+        },
+        unmatched_table: {
+          title: 'Pagos pendientes de conciliación contractual',
+          badgeText: `${unmatchedApprovedRows.length} pagos (RD$ ${unmatchedApprovedAmount.toLocaleString('es-DO')})`,
+          columns: [
+            { key: 'fecha', label: 'Fecha del pago' },
+            { key: 'cliente', label: 'Clienta' },
+            { key: 'metodo', label: 'Método de pago', align: 'center' },
+            { key: 'importe', label: 'Importe recibido', align: 'right', isCurrency: true },
+            { key: 'transaccion_id', label: 'ID Transacción', align: 'center' },
+            { key: 'motivo', label: 'Motivo falta de atribución' },
+            { key: 'contratos_afectados', label: 'Contratos potenciales', align: 'center' },
+            { key: 'estado_conciliacion', label: 'Estado', align: 'center', isBadge: true }
+          ],
+          rows: unmatchedApprovedRows,
+          footerNote: 'Transacciones aprobadas sin evidencia suficiente de cuota o contrato. No modifican deudas contractuales ni alteran las tasas de éxito.'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in recurring_charges_result:', e.message);
+      throw e;
+    }
+  }
+
+  // ==========================================
+  // 19. GENERADOR UNIVERSAL DINÁMICO (Para cualquier otro reporte)
   // Garantiza que NUNCA devuelva null ni rompa la UI
   // ==========================================
   try {
     const [statsRows] = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(v.id) as total_ops,
         COALESCE(SUM(v.total), 0) as total_monto,
         COALESCE(AVG(v.total), 0) as avg_monto
@@ -2198,7 +3467,7 @@ async function handleBIReport(pool, params) {
     `, visParams);
 
     const [recentRows] = await pool.query(`
-      SELECT 
+      SELECT
         DATE_FORMAT(v.visited_at, '%e %b %Y') as fecha,
         COALESCE(v.client_name, 'Cliente General') as cliente,
         COALESCE(s.name, 'San Vicente') as sucursal,

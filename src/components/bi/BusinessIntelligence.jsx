@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  TrendingUp, Users, CreditCard, UserCheck, Filter, Download, 
+import {
+  TrendingUp, Users, CreditCard, UserCheck, Filter, Download,
   Printer, ChevronDown, Calendar, MapPin, AlertCircle, Info, Sparkles, Check, RefreshCw
 } from 'lucide-react';
-import { 
-  BI_CATEGORIES, 
-  BI_REPORTS_BY_CATEGORY, 
-  PERIOD_OPTIONS, 
+import {
+  BI_CATEGORIES,
+  BI_REPORTS_BY_CATEGORY,
+  PERIOD_OPTIONS,
   FUTURE_PERIOD_OPTIONS,
   CANCELLATION_REASONS,
   getDateRangeForPeriod
@@ -53,7 +53,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   const [endDate, setEndDate] = useState(urlEnd || initialDates.endDate);
   const [selectedSalon, setSelectedSalon] = useState(urlSalon || 'all');
   const [selectedPlan, setSelectedPlan] = useState('all');
-  
+
   // Dynamic contextual filters
   const [selectedMembership, setSelectedMembership] = useState('all');
   const [daysInactive, setDaysInactive] = useState(15);
@@ -63,22 +63,31 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   // Chart interactivity states
   const [interactiveSelectedGroup, setInteractiveSelectedGroup] = useState('0_visits');
   const [timeGrain, setTimeGrain] = useState('daily');
-  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('open_export') === '1';
+    }
+    return false;
+  });
+  const [tableFilteredRows, setTableFilteredRows] = useState(null);
 
-  // Reports available in active category
+  // Reports available in active category (evita duplicados en el selector si es un alias ejecutivo)
   const availableReports = useMemo(() => {
-    return BI_REPORTS_BY_CATEGORY[activeCategory] || [];
-  }, [activeCategory]);
+    const list = BI_REPORTS_BY_CATEGORY[activeCategory] || [];
+    return list.filter(r => !r.isCatalogAlias || r.id === selectedReportId);
+  }, [activeCategory, selectedReportId]);
 
   // Current active report config
   const currentReportConfig = useMemo(() => {
-    return availableReports.find(r => r.id === selectedReportId) || availableReports[0] || {};
-  }, [availableReports, selectedReportId]);
+    const all = BI_REPORTS_BY_CATEGORY[activeCategory] || [];
+    return all.find(r => r.id === selectedReportId) || availableReports[0] || {};
+  }, [activeCategory, selectedReportId, availableReports]);
 
   // Handle report change with synchronized period and date range updates
   const handleReportChange = (newReportId) => {
     setSelectedReportId(newReportId);
     setInteractiveSelectedGroup('0_visits');
+    setTableFilteredRows(null);
 
     if (newReportId === 'contracts_upcoming_renewal') {
       const nextP = 'next_365_days';
@@ -184,10 +193,10 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       if (res && Array.isArray(res.kpis)) {
         setReportData(res);
         setReportError(null);
-      } else if (selectedReportId === 'contracts_upcoming_renewal') {
-        // En producción para RF-07: cero datos simulados.
+      } else if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery'].includes(selectedReportId)) {
+        // En producción: cero datos simulados.
         // Si no se reciben KPIs válidos desde el backend, reflejar error formal y no fallback a mock.
-        setReportError(callError?.message || 'No se pudo obtener la información de renovaciones anuales desde el servidor.');
+        setReportError(callError?.message || 'No se pudo obtener la información desde el servidor.');
         setReportData(null);
       } else {
         // Fallback generator adhering strictly to developer specs and mockups
@@ -195,8 +204,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       }
     } catch (err) {
       console.error('Error fetching BI report:', err);
-      if (selectedReportId === 'contracts_upcoming_renewal') {
-        setReportError(err?.message || 'Error de conexión al cargar renovaciones anuales.');
+      if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery'].includes(selectedReportId)) {
+        setReportError(err?.message || 'Error de conexión al cargar el reporte desde el servidor.');
         setReportData(null);
       } else {
         generateMockReport({ category: activeCategory, reportId: selectedReportId });
@@ -489,13 +498,13 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   useEffect(() => {
     loadReport();
   }, [
-    activeCategory, 
-    selectedReportId, 
-    selectedSalon, 
-    daysInactive, 
-    cancellationReason, 
-    selectedEmployee, 
-    selectedMembership, 
+    activeCategory,
+    selectedReportId,
+    selectedSalon,
+    daysInactive,
+    cancellationReason,
+    selectedEmployee,
+    selectedMembership,
     timeGrain,
     startDate,
     endDate
@@ -563,16 +572,91 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   }
 
   return (
-    <div style={{
-      minHeight: standalone ? '100vh' : 'auto',
-      background: standalone ? '#f8fafc' : 'transparent',
-      padding: standalone ? '1.75rem 2rem 3rem' : '0.5rem 0',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      color: '#0f172a'
-    }}>
+    <div
+      className="printable-bi-container"
+      style={{
+        minHeight: standalone ? '100vh' : 'auto',
+        background: standalone ? '#f8fafc' : 'transparent',
+        padding: standalone ? '1.75rem 2rem 3rem' : '0.5rem 0',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        color: '#0f172a'
+      }}
+    >
+      {/* Print Styles for Direct Printing & Save as PDF */}
+      <style>{`
+        @media print {
+          nav, aside, header, .sidebar, .no-print,
+          button, input, select, form, .no-print * {
+            display: none !important;
+          }
+          body, html, #root {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .printable-bi-container {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            padding: 8mm 10mm !important;
+            margin: 0 !important;
+            background: #ffffff !important;
+          }
+          .bi-print-header {
+            display: block !important;
+            margin-bottom: 1.25rem !important;
+            border-bottom: 2px solid #0f172a !important;
+            padding-bottom: 0.65rem !important;
+          }
+          .bi-print-header h1 {
+            margin: 0 0 0.25rem 0 !important;
+            font-size: 1.3rem !important;
+            font-weight: 800 !important;
+            color: #0f172a !important;
+          }
+          .bi-print-header p {
+            margin: 0 !important;
+            font-size: 0.82rem !important;
+            color: #475569 !important;
+          }
+          table {
+            width: 100% !important;
+            font-size: 8pt !important;
+            border-collapse: collapse !important;
+            page-break-inside: auto !important;
+          }
+          tr {
+            page-break-inside: avoid !important;
+            page-break-after: auto !important;
+          }
+          th, td {
+            padding: 4px 6px !important;
+            border: 1px solid #cbd5e1 !important;
+          }
+        }
+        @media screen {
+          .bi-print-header {
+            display: none !important;
+          }
+        }
+      `}</style>
+
+      {/* Institutional Header Visible Only on Print/PDF */}
+      <div className="bi-print-header">
+        <h1>SISTEMA SALON PRO &amp; PLAN BEAUTY RD</h1>
+        <p>
+          <strong>Reporte:</strong> {reportData?.title || currentReportConfig.name} &nbsp;|&nbsp;
+          <strong>Período evaluado:</strong> {reportData?.periodText || `${startDate} al ${endDate}`} &nbsp;|&nbsp;
+          <strong>Fecha y hora de generación:</strong> {new Date().toLocaleString('es-DO')}
+        </p>
+      </div>
+
       {/* 1. Header Area */}
       {standalone && (
-      <div style={{
+      <div className="no-print" style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'flex-start',
@@ -663,7 +747,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       )}
 
       {/* 2. Top Category Tabs (4 tabs) */}
-      <div style={{
+      <div className="no-print" style={{
         display: 'flex',
         borderBottom: '2px solid #e2e8f0',
         marginBottom: '1.5rem',
@@ -712,7 +796,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       </div>
 
       {/* 3. Filter Bar (Single White Card) */}
-      <form 
+      <form
+        className="no-print"
         onSubmit={handleApplyFilters}
         style={{
           background: '#ffffff',
@@ -1160,7 +1245,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         </div>
 
         {/* Export & Print Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+        <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
           {/* Export Dropdown */}
           <div style={{ position: 'relative' }}>
             <button
@@ -1210,8 +1295,14 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                       title: reportData?.title || currentReportConfig.name,
                       periodText: reportData?.periodText || `${startDate} al ${endDate}`,
                       kpis: reportData?.kpis || [],
-                      columns: reportData?.table?.columns || [],
-                      rows: reportData?.table?.rows || []
+                      columns: displayedTable?.columns || reportData?.table?.columns || [],
+                      rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
+                      unmatchedTable: reportData?.unmatched_table,
+                      activeFilters: {
+                        salon: selectedSalon,
+                        plan: selectedPlan,
+                        period
+                      }
                     });
                   }}
                   style={{
@@ -1237,8 +1328,15 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                     setShowExportMenu(false);
                     exportReportToCSV({
                       title: reportData?.title || currentReportConfig.name,
-                      columns: reportData?.table?.columns || [],
-                      rows: reportData?.table?.rows || []
+                      periodText: reportData?.periodText || `${startDate} al ${endDate}`,
+                      columns: displayedTable?.columns || reportData?.table?.columns || [],
+                      rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
+                      unmatchedTable: reportData?.unmatched_table,
+                      activeFilters: {
+                        salon: selectedSalon,
+                        plan: selectedPlan,
+                        period
+                      }
                     });
                   }}
                   style={{
@@ -1314,9 +1412,86 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       {/* 6. KPI Metric Cards */}
       <BIKpiCards kpis={reportData?.kpis || []} />
 
+      {/* 6.5 Resumen Discreto de Conciliación Independiente (Fase B1.2) */}
+      {(selectedReportId === 'recurring_charges_result' || selectedReportId === 'declined_charges_recovery') && reportData?.reconciliation && (
+        <div
+          data-testid="reconciliation-summary"
+          style={{
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '0.85rem',
+            padding: '0.85rem 1.25rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '0.85rem',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: '260px' }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '0.5rem',
+              background: '#f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#475569',
+              flexShrink: 0
+            }}>
+              <Info size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1e293b' }}>
+                Pagos cobrados sin atribución contractual
+              </div>
+              <div style={{ fontSize: '0.76rem', color: '#64748b' }}>
+                Transacciones aprobadas en pasarela sin referencia de contrato ni cuota. Se concilian de forma independiente sin alterar la deuda pendiente.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Cobrado sin asignar
+              </div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                RD$ {(reportData.reconciliation.unmatched_approved_amount || 0).toLocaleString('es-DO')}
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Cantidad
+              </div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                {reportData.reconciliation.total_unmatched_approved_payments || 0} {reportData.reconciliation.total_unmatched_approved_payments === 1 ? 'pago' : 'pagos'}
+              </div>
+            </div>
+
+            <span style={{
+              background: '#fef3c7',
+              color: '#92400e',
+              border: '1px solid #fde68a',
+              padding: '0.3rem 0.75rem',
+              borderRadius: '9999px',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              whiteSpace: 'nowrap'
+            }}>
+              Pendiente de conciliación
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 7. Interactive Chart (Sales evolution / Frequency bars / Donut) */}
-      <BIChart 
-        chartConfig={reportData?.chart || { type: currentReportConfig.chartType }} 
+      <BIChart
+        chartConfig={reportData?.chart || { type: currentReportConfig.chartType }}
         data={reportData?.chart?.data || []}
         selectedGroup={interactiveSelectedGroup}
         onSelectGroup={(key, bin) => {
@@ -1347,9 +1522,32 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         columns={displayedTable?.columns || []}
         rows={displayedTable?.rows || []}
         footerNote={displayedTable?.footerNote}
-        emptyMessage={currentReportConfig.id === 'contracts_upcoming_renewal' ? 'No hay renovaciones anuales para el período seleccionado' : 'No hay registros disponibles para los filtros aplicados.'}
+        onFilteredRowsChange={(filtered) => setTableFilteredRows(filtered)}
+        emptyMessage={
+          currentReportConfig.id === 'contracts_upcoming_renewal'
+            ? 'No hay renovaciones anuales para el período seleccionado'
+            : (selectedReportId === 'recurring_charges_result' || selectedReportId === 'declined_charges_recovery')
+              ? 'No se encontraron obligaciones de cobros recurrentes para el período y filtros seleccionados.'
+              : 'No hay registros disponibles para los filtros aplicados.'
+        }
         pageSize={10}
       />
+
+      {/* 8.5 Tabla independiente de pagos pendientes de conciliación contractual (Fase B3.4) */}
+      {(selectedReportId === 'recurring_charges_result' || selectedReportId === 'declined_charges_recovery') && reportData?.unmatched_table && (
+        <div style={{ marginTop: '2rem' }} data-testid="unmatched-payments-section">
+          <BIDetailTable
+            title={reportData.unmatched_table.title || 'Pagos pendientes de conciliación contractual'}
+            subtitle={reportData.unmatched_table.subtitle}
+            badgeText={reportData.unmatched_table.badgeText}
+            columns={reportData.unmatched_table.columns || []}
+            rows={reportData.unmatched_table.rows || []}
+            footerNote={reportData.unmatched_table.footerNote}
+            emptyMessage="No hay pagos pendientes de conciliación contractual en el período."
+            pageSize={10}
+          />
+        </div>
+      )}
     </div>
   );
 };
