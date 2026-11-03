@@ -268,7 +268,7 @@ async function handleBIReport(pool, params) {
             const parsed = JSON.parse(v.items_detail);
             if (Array.isArray(parsed)) items = parsed;
           }
-        } catch (e) {}
+        } catch (e) { }
 
         if (items.length === 0 && v.servicios) {
           try {
@@ -279,7 +279,7 @@ async function handleBIReport(pool, params) {
             } else if (typeof v.servicios === 'string') {
               items = [{ nombre: v.servicios, cantidad: 1, precioAplicado: v.total }];
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         items.forEach(it => {
@@ -757,7 +757,7 @@ async function handleBIReport(pool, params) {
               });
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       });
 
       const totalDiscountSum = discountDetails.reduce((sum, r) => sum + r.descuento, 0);
@@ -914,13 +914,13 @@ async function handleBIReport(pool, params) {
               names = parsed.map(p => String(p.nombre || '').trim()).filter(Boolean);
             }
           }
-        } catch (e) {}
+        } catch (e) { }
 
         if (names.length === 0 && v.servicios) {
           try {
             if (Array.isArray(v.servicios)) names = v.servicios;
             else if (typeof v.servicios === 'string' && v.servicios.startsWith('[')) names = JSON.parse(v.servicios);
-          } catch (e) {}
+          } catch (e) { }
         }
 
         const uniqueNames = Array.from(new Set(names)).sort();
@@ -1404,7 +1404,7 @@ async function handleBIReport(pool, params) {
               };
               break;
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         let usoDescuento = 'No utilizado';
@@ -2257,9 +2257,9 @@ async function handleBIReport(pool, params) {
       // Helper para clasificar códigos y causas de rechazo CardNet con rigor técnico
       function classifyDecline(rawResponse, statusText, description) {
         const isConnError = (statusText && statusText.startsWith('Error_Conexion')) ||
-                            (description && description.toLowerCase().includes('timeout')) ||
-                            (description && description.toLowerCase().includes('conexi')) ||
-                            (description && description.toLowerCase().includes('network'));
+          (description && description.toLowerCase().includes('timeout')) ||
+          (description && description.toLowerCase().includes('conexi')) ||
+          (description && description.toLowerCase().includes('network'));
 
         if (isConnError) {
           return {
@@ -2361,13 +2361,13 @@ async function handleBIReport(pool, params) {
 
         // 1. Descarte estricto de conceptos ajenos a membresía (servicios POS de peluquería, productos retail, propinas, etc.)
         const isNonMembership = lowerDesc.includes('giftcard') || lowerDesc.includes('propina') ||
-                                lowerDesc.includes('producto') || lowerDesc.includes('shampoo') ||
-                                lowerDesc.includes('corte') || lowerDesc.includes('peinado') ||
-                                lowerDesc.includes('tinte') || lowerDesc.includes('balayage') ||
-                                lowerDesc.includes('manicure') || lowerDesc.includes('pedicure') ||
-                                lowerDesc.includes('uñas') || lowerDesc.includes('unas') ||
-                                lowerDesc.includes('venta pos') || lowerDesc.includes('servicio salon') ||
-                                (amt > 0 && amt < 100.00);
+          lowerDesc.includes('producto') || lowerDesc.includes('shampoo') ||
+          lowerDesc.includes('corte') || lowerDesc.includes('peinado') ||
+          lowerDesc.includes('tinte') || lowerDesc.includes('balayage') ||
+          lowerDesc.includes('manicure') || lowerDesc.includes('pedicure') ||
+          lowerDesc.includes('uñas') || lowerDesc.includes('unas') ||
+          lowerDesc.includes('venta pos') || lowerDesc.includes('servicio salon') ||
+          (amt > 0 && amt < 100.00);
 
         if (isNonMembership) {
           return { contract: null, matchType: 'non_membership_concept', reason: 'Operación ajena a membresía (servicio de salón o producto)' };
@@ -2392,9 +2392,9 @@ async function handleBIReport(pool, params) {
 
           // Señal A: Cobro automático recurrente generado por el cron/motor CardNet
           const isAutoRecurring = p.method === 'CardNet_Auto' ||
-                                  pid.startsWith('PAY-AUTO-') ||
-                                  pid.startsWith('PAY-FAIL-') ||
-                                  pid.startsWith('PAY-SYS-');
+            pid.startsWith('PAY-AUTO-') ||
+            pid.startsWith('PAY-FAIL-') ||
+            pid.startsWith('PAY-SYS-');
           if (isAutoRecurring) {
             return { contract: ct, matchType: 'auto_recurring' };
           }
@@ -2410,15 +2410,15 @@ async function handleBIReport(pool, params) {
           // Señal C: Descripción explícita de membresía o nombre del plan
           const planNameLower = (ct.plan || '').toLowerCase();
           const hasMembershipKeyword = lowerDesc.includes('plan beauty') ||
-                                       lowerDesc.includes('membresía') ||
-                                       lowerDesc.includes('membresia') ||
-                                       lowerDesc.includes('cuota') ||
-                                       lowerDesc.includes('mensualidad') ||
-                                       lowerDesc.includes('suscripción') ||
-                                       lowerDesc.includes('suscripcion') ||
-                                       lowerDesc.includes('renovación') ||
-                                       lowerDesc.includes('renovacion') ||
-                                       (planNameLower && lowerDesc.includes(planNameLower));
+            lowerDesc.includes('membresía') ||
+            lowerDesc.includes('membresia') ||
+            lowerDesc.includes('cuota') ||
+            lowerDesc.includes('mensualidad') ||
+            lowerDesc.includes('suscripción') ||
+            lowerDesc.includes('suscripcion') ||
+            lowerDesc.includes('renovación') ||
+            lowerDesc.includes('renovacion') ||
+            (planNameLower && lowerDesc.includes(planNameLower));
           if (hasMembershipKeyword) {
             return { contract: ct, matchType: 'membership_description' };
           }
@@ -2522,10 +2522,10 @@ async function handleBIReport(pool, params) {
 
           // Señales estructuradas de pago adelantado
           const isAdvanceKeyword = pLowerDesc.includes('adelanto') || pLowerDesc.includes('anticipo') || pLowerDesc.includes('adelantad') ||
-                                   pLowerRef.includes('adelanto') || pLowerRef.includes('anticipo');
+            pLowerRef.includes('adelanto') || pLowerRef.includes('anticipo');
           const hasAdvanceTarget = /\b(?:ciclo\s*[0-9]+|cuota\s*[0-9]+|mes\s+siguiente|pr[oó]ximo\s+ciclo|noviembre|diciembre|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre)\b/i.test(p.description || '') ||
-                                   /\b(?:ciclo\s*[0-9]+|cuota\s*[0-9]+)\b/i.test(p.gateway_ref || '') ||
-                                   hasContractCycleRef;
+            /\b(?:ciclo\s*[0-9]+|cuota\s*[0-9]+)\b/i.test(p.gateway_ref || '') ||
+            hasContractCycleRef;
           const isValidAdvance = isAdvanceKeyword && hasAdvanceTarget;
           const isUntracedAdvance = isAdvanceKeyword && !hasAdvanceTarget;
 
@@ -2750,8 +2750,8 @@ async function handleBIReport(pool, params) {
         for (const p of clientPayments) {
           const lowerDesc = (p.description || '').toLowerCase();
           const isRev = p.status === 'Revertido' || p.status === 'Devuelto' || p.status === 'Anulado' ||
-                        (parseFloat(p.amount) < 0) || lowerDesc.includes('reverso') || lowerDesc.includes('devolución') ||
-                        lowerDesc.includes('devolucion') || lowerDesc.includes('refund');
+            (parseFloat(p.amount) < 0) || lowerDesc.includes('reverso') || lowerDesc.includes('devolución') ||
+            lowerDesc.includes('devolucion') || lowerDesc.includes('refund');
           if (isRev) {
             reversalRecords.push(p);
           }
@@ -3011,7 +3011,15 @@ async function handleBIReport(pool, params) {
 
       // Gráfico B: Evolución del éxito al primer intento
       const obligationsByMonth = new Map();
-      for (const o of cohortObligations) {
+
+      // Si el período filtrado es de 1 solo mes, enriquecemos con los meses previos
+      // de allReconstructedObligations (hasta el corte) para mostrar la tendencia real de cohortes
+      const distinctCohortMonths = new Set(cohortObligations.map(o => (o.opened_at_str || '').slice(0, 7)).filter(Boolean));
+      const sourceObligationsForEvolution = (distinctCohortMonths.size <= 1)
+        ? allReconstructedObligations.filter(o => o.opened_at_str && o.opened_at_str <= endDateTimeStr)
+        : cohortObligations;
+
+      for (const o of sourceObligationsForEvolution) {
         const mKey = (o.opened_at_str || '').slice(0, 7);
         if (!mKey) continue;
         if (!obligationsByMonth.has(mKey)) {
@@ -3022,7 +3030,14 @@ async function handleBIReport(pool, params) {
 
       const monthNamesEs = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
       const monthlyEvolution = [];
-      const sortedMonths = Array.from(obligationsByMonth.keys()).sort();
+      let sortedMonths = Array.from(obligationsByMonth.keys()).sort();
+
+      // Limitar a máximo los últimos 5 meses si hay muchos meses históricos acumulados
+      if (distinctCohortMonths.size <= 1 && sortedMonths.length > 5) {
+        sortedMonths = sortedMonths.slice(-5);
+      }
+
+      const evaluatedMonthKey = end.slice(0, 7);
 
       for (const mKey of sortedMonths) {
         const parts = mKey.split('-');
@@ -3040,9 +3055,21 @@ async function handleBIReport(pool, params) {
           label: mLabel,
           total_obligations: mTotal,
           paid_first: mPaidFirst,
-          percentage: mRate
+          percentage: mRate,
+          is_current_cohort: (mKey === evaluatedMonthKey)
         });
       }
+
+      // Nota dinámica para el gráfico B evitando notas estáticas obsoletas
+      const cutoffDay = parseInt(end.slice(8, 10), 10);
+      const isPartialMonth = cutoffDay < 28;
+      const mNamesFull = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+      const endMonthNum = parseInt(end.slice(5, 7), 10);
+      const endMonthName = (endMonthNum >= 1 && endMonthNum <= 12) ? mNamesFull[endMonthNum - 1] : '';
+      const hasContextMonths = (distinctCohortMonths.size <= 1 && sortedMonths.length > 1);
+      const evolutionNote = hasContextMonths
+        ? `*${endMonthName.charAt(0).toUpperCase() + endMonthName.slice(1)} al ${cutoffDay} ${endMonthName.slice(0, 3)}${isPartialMonth ? ' (mes en curso)' : ''} · Incluye meses previos para contexto histórico · Bases independientes.`
+        : `*${endMonthName.charAt(0).toUpperCase() + endMonthName.slice(1)} al ${cutoffDay} ${endMonthName.slice(0, 3)}${isPartialMonth ? ' (mes en curso)' : ''} · Bases mensuales independientes.`;
 
       // Gráfico C: Causas de rechazo inicial (Analiza exclusivamente el primer intento de cada obligación rechazada)
       const declineBuckets = new Map();
@@ -3206,7 +3233,7 @@ async function handleBIReport(pool, params) {
               if (!isNaN(d.getTime())) {
                 attDateStr = d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
               }
-            } catch (_) {}
+            } catch (_) { }
 
             let responseCode = null;
             let responseDesc = att.description || '';
@@ -3215,7 +3242,7 @@ async function handleBIReport(pool, params) {
                 const raw = typeof att.cardnet_raw_response === 'string' ? JSON.parse(att.cardnet_raw_response) : att.cardnet_raw_response;
                 responseCode = raw.ResponseCode || raw.response_code || null;
                 if (raw.ResponseMessage) responseDesc = raw.ResponseMessage;
-              } catch (_) {}
+              } catch (_) { }
             }
             if (!responseCode && att.status === 'Aprobado') {
               responseCode = '00';
@@ -3285,7 +3312,7 @@ async function handleBIReport(pool, params) {
           if (!isNaN(d.getTime())) {
             pDateStr = d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' });
           }
-        } catch (_) {}
+        } catch (_) { }
 
         const rawId = p.id || '';
         const maskedId = rawId.length > 8 ? `${rawId.slice(0, 8)}***${rawId.slice(-4)}` : rawId;
@@ -3388,6 +3415,7 @@ async function handleBIReport(pool, params) {
         charts: {
           quota_results: quotaResults,
           monthly_evolution: monthlyEvolution,
+          evolution_note: evolutionNote,
           decline_causes: declineCauses,
           retry_effectiveness: retryEffectiveness
         },
@@ -3396,6 +3424,7 @@ async function handleBIReport(pool, params) {
           title: 'Distribución y efectividad de cobros recurrentes',
           quota_results: quotaResults,
           monthly_evolution: monthlyEvolution,
+          evolution_note: evolutionNote,
           decline_causes: declineCauses,
           retry_effectiveness: retryEffectiveness,
           data: chartData

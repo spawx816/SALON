@@ -611,8 +611,19 @@ export const BIDetailTable = ({
                         // Currency formatted columns
                         if (col.isCurrency) {
                           const numericVal = typeof val === 'number' ? val : (parseFloat(String(val || '').replace(/[^0-9.-]+/g, '')) || 0);
+                          const isPendingDebt = col.key === 'saldo_pendiente' && numericVal > 0;
                           return (
-                            <td key={cIdx} style={{ padding: '0.75rem 1rem', textAlign: col.align || 'right', fontWeight: 700, color: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                            <td
+                              key={cIdx}
+                              style={{
+                                padding: '0.75rem 1rem',
+                                textAlign: col.align || 'right',
+                                fontWeight: 700,
+                                color: isPendingDebt ? '#dc2626' : '#0f172a',
+                                fontVariantNumeric: 'tabular-nums',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
                               RD$ {numericVal.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
                           );

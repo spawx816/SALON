@@ -51,22 +51,22 @@ export const BIKpiCards = ({ kpis = [] }) => {
         const lowerLabel = (kpi.label || '').toLowerCase();
         let displayLabel = kpi.label;
 
-        if (lowerLabel.includes('éxito') || lowerLabel.includes('exito')) {
+        if (lowerLabel.includes('tiempo') || lowerLabel.includes('días') || lowerLabel.includes('dias')) {
+          displayLabel = 'Tiempo medio de recuperación';
+          IconComponent = Clock;
+          theme = COLOR_MAP.purple;
+        } else if (lowerLabel.includes('éxito') || lowerLabel.includes('exito')) {
           displayLabel = 'Éxito al primer intento';
           IconComponent = CreditCard;
           theme = COLOR_MAP.green;
-        } else if (lowerLabel.includes('recuperación') || lowerLabel.includes('recuperacion')) {
-          displayLabel = 'Recuperación tras rechazo';
-          IconComponent = RotateCw;
-          theme = COLOR_MAP.blue;
         } else if (lowerLabel.includes('pendiente')) {
           displayLabel = 'Pendiente de recuperar';
           IconComponent = FileText;
           theme = COLOR_MAP.rose;
-        } else if (lowerLabel.includes('tiempo medio')) {
-          displayLabel = 'Tiempo medio de recuperación';
-          IconComponent = Clock;
-          theme = COLOR_MAP.purple;
+        } else if (lowerLabel.includes('recuperación') || lowerLabel.includes('recuperacion')) {
+          displayLabel = 'Recuperación tras rechazo';
+          IconComponent = RotateCw;
+          theme = COLOR_MAP.blue;
         }
 
         return (

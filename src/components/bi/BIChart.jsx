@@ -168,9 +168,12 @@ export const BIChart = ({
           justifyContent: 'space-between'
         }}>
           <div>
-            <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
+            <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
               Éxito al primer intento
             </h3>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+              {evolution.some(e => e.is_current_cohort) ? 'Tendencia mensual · *Mes seleccionado' : 'Evolución mensual de cohortes'}
+            </p>
 
             {/* SVG Line Chart */}
             <div style={{ width: '100%', height: '170px', position: 'relative' }}>
@@ -195,19 +198,24 @@ export const BIChart = ({
                 {/* Points & Line */}
                 {(() => {
                   const currentRate = evolution.length > 0 ? (evolution[evolution.length - 1].percentage || 67.3) : 70;
-                  const pointsData = evolution.length >= 3 ? evolution.map(e => ({
-                    label: e.label.split(' ')[0],
+                  const pointsData = evolution.length >= 2 ? evolution.map(e => ({
+                    label: e.is_current_cohort ? `${e.label.split(' ')[0]}*` : e.label.split(' ')[0],
                     pct: e.percentage
-                  })) : [
+                  })) : evolution.length === 1 ? [
+                    {
+                      label: evolution[0].is_current_cohort ? `${evolution[0].label.split(' ')[0]}*` : evolution[0].label.split(' ')[0],
+                      pct: evolution[0].percentage
+                    }
+                  ] : [
                     { label: 'Jul', pct: 80 },
                     { label: 'Ago', pct: 77 },
                     { label: 'Sep', pct: 74 },
                     { label: 'Oct*', pct: Math.round(currentRate) }
                   ];
 
-                  const startX = 75;
-                  const endX = 400;
-                  const stepX = (endX - startX) / (pointsData.length - 1);
+                  const startX = pointsData.length === 1 ? 220 : 75;
+                  const endX = pointsData.length === 1 ? 220 : 400;
+                  const stepX = pointsData.length > 1 ? (endX - startX) / (pointsData.length - 1) : 0;
                   const getY = (pct) => 145 - (pct / 100) * (145 - 15);
 
                   const coords = pointsData.map((p, i) => ({
@@ -221,15 +229,17 @@ export const BIChart = ({
 
                   return (
                     <g>
-                      {/* Connected Line */}
-                      <polyline
-                        points={polylinePoints}
-                        fill="none"
-                        stroke="#0284c7"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
+                      {/* Connected Line (only if > 1 point) */}
+                      {coords.length > 1 && (
+                        <polyline
+                          points={polylinePoints}
+                          fill="none"
+                          stroke="#0284c7"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
 
                       {/* Circles & Labels */}
                       {coords.map((c, i) => (
@@ -278,7 +288,7 @@ export const BIChart = ({
             fontSize: '0.78rem',
             color: '#64748b'
           }}>
-            *Octubre al 30 oct · Bases mensuales independientes.
+            {chartConfig.evolution_note || (evolution.find(e => e.is_current_cohort) ? `*${(evolution.find(e => e.is_current_cohort).label || '').split(' ')[0]} (mes en curso) · Bases mensuales independientes.` : 'Bases mensuales independientes.')}
           </div>
         </div>
 
@@ -346,7 +356,7 @@ export const BIChart = ({
             fontSize: '0.78rem',
             color: '#64748b'
           }}>
-            Categorías ilustrativas; validar con respuestas del procesador.
+            Clasificación según códigos de respuesta de CardNet Gateway.
           </div>
         </div>
 
