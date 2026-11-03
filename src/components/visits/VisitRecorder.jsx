@@ -288,6 +288,49 @@ const VisitRecorder = () => {
     )
   );
 
+  // Scope principal: Detección de estado del cliente y suspensión (declarado antes de hasActivePlan para evitar TDZ)
+  const isPendingPayment = Boolean(
+    !isEmployeeClient && !isGuestClient && (
+      clientFound?.status === 'Pending_Payment' ||
+      clientFound?.status === 'Pending_Retry' ||
+      clientFound?.status === 'Suspended' ||
+      clientFound?.status === 'Past_Due' ||
+      clientFound?.status === 'Suspendido' ||
+      clientFound?.status === 'Pendiente' ||
+      clientFound?.clientStatus === 'Pending_Payment' ||
+      clientFound?.clientStatus === 'Pending_Retry' ||
+      clientFound?.clientStatus === 'Suspended' ||
+      (clientContracts && clientContracts.length > 0 && clientContracts.some(c => 
+        c.status === 'Pending_Payment' || 
+        c.status === 'Pending_Retry' || 
+        c.status === 'Suspended' || 
+        c.status === 'Past_Due' || 
+        c.status === 'Suspendido' || 
+        c.status === 'Pendiente' ||
+        (Number(c.retry_count) > 0 && c.status !== 'Active' && c.status !== 'Cancelled')
+      ) && (!activePlans || activePlans.length === 0))
+    )
+  );
+  const suspendedContract = (clientContracts || []).find(c => 
+    c.status === 'Pending_Payment' || 
+    c.status === 'Pending_Retry' || 
+    c.status === 'Suspended' || 
+    c.status === 'Past_Due' || 
+    c.status === 'Suspendido' || 
+    c.status === 'Pendiente' ||
+    Number(c.retry_count) > 0
+  ) || null;
+  const isContractCancelled = Boolean(
+    !isEmployeeClient && !isGuestClient && !isPendingPayment && (
+      clientFound?.status === 'Cancelled' ||
+      clientFound?.status === 'Cancelado' ||
+      clientFound?.clientStatus === 'Cancelled' ||
+      clientFound?.clientStatus === 'Cancelado' ||
+      (clientContracts && clientContracts.length > 0 && clientContracts.some(c => c.status === 'Cancelled' || c.status === 'Cancelado') && (!activePlans || activePlans.length === 0))
+    )
+  );
+  const cancelledContract = (clientContracts || []).find(c => c.status === 'Cancelled' || c.status === 'Cancelado') || null;
+
   const hasActivePlan = Boolean(!isGuestClient && !isEmployeeClient && !isPendingPayment && activePlans && activePlans.length > 0);
 
   // Birthday discount tracking
@@ -3303,48 +3346,7 @@ const VisitRecorder = () => {
     }
   };
 
-  // Scope principal: Detección de estado del cliente y suspensión
-  const isPendingPayment = Boolean(
-    !isEmployeeClient && !isGuestClient && (
-      clientFound?.status === 'Pending_Payment' ||
-      clientFound?.status === 'Pending_Retry' ||
-      clientFound?.status === 'Suspended' ||
-      clientFound?.status === 'Past_Due' ||
-      clientFound?.status === 'Suspendido' ||
-      clientFound?.status === 'Pendiente' ||
-      clientFound?.clientStatus === 'Pending_Payment' ||
-      clientFound?.clientStatus === 'Pending_Retry' ||
-      clientFound?.clientStatus === 'Suspended' ||
-      (clientContracts && clientContracts.length > 0 && clientContracts.some(c => 
-        c.status === 'Pending_Payment' || 
-        c.status === 'Pending_Retry' || 
-        c.status === 'Suspended' || 
-        c.status === 'Past_Due' || 
-        c.status === 'Suspendido' || 
-        c.status === 'Pendiente' ||
-        (Number(c.retry_count) > 0 && c.status !== 'Active' && c.status !== 'Cancelled')
-      ) && (!activePlans || activePlans.length === 0))
-    )
-  );
-  const suspendedContract = (clientContracts || []).find(c => 
-    c.status === 'Pending_Payment' || 
-    c.status === 'Pending_Retry' || 
-    c.status === 'Suspended' || 
-    c.status === 'Past_Due' || 
-    c.status === 'Suspendido' || 
-    c.status === 'Pendiente' ||
-    Number(c.retry_count) > 0
-  ) || null;
-  const isContractCancelled = Boolean(
-    !isEmployeeClient && !isGuestClient && !isPendingPayment && (
-      clientFound?.status === 'Cancelled' ||
-      clientFound?.status === 'Cancelado' ||
-      clientFound?.clientStatus === 'Cancelled' ||
-      clientFound?.clientStatus === 'Cancelado' ||
-      (clientContracts && clientContracts.length > 0 && clientContracts.some(c => c.status === 'Cancelled' || c.status === 'Cancelado') && (!activePlans || activePlans.length === 0))
-    )
-  );
-  const cancelledContract = (clientContracts || []).find(c => c.status === 'Cancelled' || c.status === 'Cancelado') || null;
+// Scope principal hoisted to line 290 to prevent TDZ
 
   return (
     <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '0', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#ffffff', minHeight: '100%' }}>
