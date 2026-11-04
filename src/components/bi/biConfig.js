@@ -28,10 +28,10 @@ export const BI_CATEGORIES = [
   },
   {
     id: 'team',
-    name: 'Equipo y nómina',
+    name: 'Productividad y rentabilidad',
     iconName: 'UserCheck',
-    description: 'Ingresos vs. comisiones, productividad, horas extras y asistencia',
-    count: 5
+    description: 'Flujo de efectivo, ingresos vs. nómina, productividad y rentabilidad operativa',
+    count: 6
   }
 ];
 
@@ -199,6 +199,13 @@ export const BI_REPORTS_BY_CATEGORY = {
   ],
 
   team: [
+    {
+      id: 'cash_flow',
+      name: 'Flujo de efectivo',
+      chartType: 'cash_flow_breakdown',
+      description: 'Total cobrado, total pagado, excedente del período y salidas de dinero por concepto consolidadas.',
+      note: 'El excedente corresponde a cobros menos pagos del período. No equivale a utilidad contable ni al saldo bancario.'
+    },
     {
       id: 'income_vs_commissions',
       name: 'Ingresos vs. comisiones',

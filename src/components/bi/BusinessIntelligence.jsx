@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, Users, CreditCard, UserCheck, Filter, Download,
-  Printer, ChevronDown, Calendar, MapPin, AlertCircle, Info, Sparkles, Check, RefreshCw
+  Printer, ChevronDown, Calendar, MapPin, AlertCircle, Info, Sparkles, Check, RefreshCw,
+  Wallet, Percent, BarChart3, Home, Building2, Share2, Shield
 } from 'lucide-react';
 import {
   BI_CATEGORIES,
@@ -262,7 +263,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         daysInactive,
         reason: cancellationReason,
         employeeId: selectedEmployee,
-        timeGrain
+        timeGrain,
+        sample: useSampleData ? '1' : '0'
       };
 
       let res = null;
@@ -303,6 +305,45 @@ export const BusinessIntelligence = ({ standalone = true }) => {
 
   // Generate realistic data based on mockups & docs if API endpoint is loading or in development
   const generateMockReport = (params) => {
+    // 0. Flujo de efectivo (Productividad y rentabilidad - Mockup Corporativo)
+    if (selectedReportId === 'cash_flow') {
+      setReportData({
+        title: 'Flujo de efectivo',
+        categoryName: 'Productividad y rentabilidad',
+        periodText: `${startDate} al ${endDate}`,
+        is_sample: true,
+        total_cobrado: 1000000,
+        total_pagado: 750000,
+        excedente_periodo: 250000,
+        excedente_pct: 25.0,
+        retencion_desc: 'Por cada RD$100 cobrados, te quedan RD$25.',
+        delta_vs_anterior: '+3 puntos porcentuales',
+        delta_subtext: 'vs. período anterior',
+        kpis: [
+          { label: 'Total cobrado', value: 'RD$ 1,000,000', icon: 'credit_card', color: 'blue' },
+          { label: 'Total pagado', value: 'RD$ 750,000', icon: 'wallet', color: 'purple' },
+          { label: 'Excedente del período', value: 'RD$ 250,000', icon: 'trending', color: 'indigo' },
+          { label: 'Excedente sobre lo cobrado', value: '25%', icon: 'percent', color: 'emerald' }
+        ],
+        concepts_breakdown: [
+          { concept: 'Nómina', amount: 300000, percentage: 40.0, bar_pct: 40.0 },
+          { concept: 'Mercancías e insumos', amount: 150000, percentage: 20.0, bar_pct: 20.0 },
+          { concept: 'Alquileres', amount: 100000, percentage: 13.3, bar_pct: 13.3 },
+          { concept: 'Préstamos', amount: 80000, percentage: 10.7, bar_pct: 10.7 },
+          { concept: 'TSS', amount: 60000, percentage: 8.0, bar_pct: 8.0 },
+          { concept: 'Energía eléctrica', amount: 40000, percentage: 5.3, bar_pct: 5.3 },
+          { concept: 'Otros pagos', amount: 20000, percentage: 2.7, bar_pct: 2.7 }
+        ],
+        badges: [
+          { text: 'Sin duplicar pagos', icon: 'ShieldCheck' },
+          { text: 'Nómina pagada del período', icon: 'Check' }
+        ],
+        sources_text: 'Fuentes: Cobros · Egresos · 606 pagado · Plantilla de nómina',
+        footnote: 'El excedente corresponde a cobros menos pagos del período. No equivale a utilidad contable ni al saldo bancario.'
+      });
+      return;
+    }
+
     // 1. Resumen de ventas y cobros (Mockup 1)
     if (selectedReportId === 'sales_summary') {
       setReportData({
@@ -593,7 +634,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     selectedMembership,
     timeGrain,
     startDate,
-    endDate
+    endDate,
+    useSampleData
   ]);
 
   const handleApplyFilters = (e) => {
@@ -894,25 +936,644 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         })}
       </div>
 
-      {/* 3. Filter Bar (Single White Card) */}
-      <form
-        className="no-print"
-        onSubmit={handleApplyFilters}
-        style={{
-          background: '#ffffff',
-          borderRadius: '1rem',
-          padding: '1.25rem 1.5rem',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-          marginBottom: '1.5rem'
-        }}
-      >
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '1rem',
-          alignItems: 'end'
-        }}>
+      {/* RENDERIZADO CONDICIONAL: VISTA ESPECIALIZADA FLUJO DE EFECTIVO O VISTA ESTÁNDAR BI */}
+      {selectedReportId === 'cash_flow' ? (
+        <div data-testid="cash-flow-executive-view" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
+          {/* Header Superior con Breadcrumbs y Badge */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            marginBottom: '1rem'
+          }}>
+            <div>
+              <span style={{
+                display: 'inline-block',
+                padding: '0.25rem 0.75rem',
+                background: '#ede9fe',
+                color: '#7c3aed',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                borderRadius: '9999px',
+                letterSpacing: '0.05em',
+                marginBottom: '0.4rem',
+                textTransform: 'uppercase'
+              }}>
+                INTELIGENCIA DE NEGOCIOS
+              </span>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                fontSize: '0.85rem',
+                color: '#64748b'
+              }}>
+                <Home size={14} color="#64748b" />
+                <span style={{ color: '#cbd5e1' }}>&gt;</span>
+                <span style={{ fontWeight: 600, color: '#334155' }}>Productividad y rentabilidad</span>
+                {availableReports.length > 1 && (
+                  <>
+                    <span style={{ color: '#cbd5e1' }}>&gt;</span>
+                    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                      <select
+                        value={selectedReportId}
+                        onChange={(e) => handleReportChange(e.target.value)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: '#2563eb',
+                          fontSize: '0.85rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          outline: 'none',
+                          paddingRight: '1rem',
+                          appearance: 'none'
+                        }}
+                        title="Cambiar reporte dentro de Productividad y rentabilidad"
+                      >
+                        {availableReports.map(rep => (
+                          <option key={rep.id} value={rep.id}>{rep.name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={12} color="#2563eb" style={{ pointerEvents: 'none', marginLeft: '-0.85rem' }} />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setUseSampleData(!useSampleData)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: (reportData?.is_sample || useSampleData) ? '#2563eb' : '#94a3b8',
+                fontSize: '0.85rem',
+                fontWeight: (reportData?.is_sample || useSampleData) ? 700 : 500,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.25rem 0.5rem',
+                borderRadius: '0.375rem'
+              }}
+              title="Haga clic para alternar entre datos de ejemplo y datos reales de la base de datos"
+            >
+              <span style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                background: (reportData?.is_sample || useSampleData) ? '#2563eb' : '#cbd5e1'
+              }} />
+              <span>{useSampleData ? 'Datos de ejemplo (Activo)' : 'Datos de ejemplo'}</span>
+            </button>
+          </div>
+
+          {/* Título Principal */}
+          <h1 style={{
+            fontSize: '2.4rem',
+            fontWeight: 800,
+            color: '#0f172a',
+            margin: '0 0 1.5rem 0',
+            letterSpacing: '-0.025em'
+          }}>
+            Flujo de efectivo
+          </h1>
+
+          {/* Barra de Filtros Homologada a la Maqueta */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '1.25rem',
+            padding: '1.25rem 1.5rem',
+            border: '1px solid #f1f5f9',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'flex-end',
+            flexWrap: 'wrap',
+            gap: '1rem'
+          }}>
+            <div style={{ flex: '1 1 140px', minWidth: '140px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
+                Desde
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Calendar size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 0.75rem 0.55rem 2.25rem',
+                    fontSize: '0.88rem',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '0.6rem',
+                    color: '#1e293b',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ flex: '1 1 140px', minWidth: '140px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
+                Hasta
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Calendar size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} />
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 0.75rem 0.55rem 2.25rem',
+                    fontSize: '0.88rem',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '0.6rem',
+                    color: '#1e293b',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ flex: '2 1 200px', minWidth: '200px' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
+                Sucursal
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Building2 size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} />
+                <select
+                  value={selectedSalon}
+                  onChange={(e) => setSelectedSalon(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 2.25rem',
+                    fontSize: '0.88rem',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '0.6rem',
+                    color: '#1e293b',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">Todas las sucursales</option>
+                  {salons.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleApplyFilters}
+              disabled={loading}
+              style={{
+                padding: '0.65rem 1.75rem',
+                background: loading ? '#93c5fd' : '#2563eb',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '0.6rem',
+                fontWeight: 700,
+                fontSize: '0.88rem',
+                cursor: loading ? 'wait' : 'pointer',
+                boxShadow: '0 2px 4px rgba(37,99,235,0.2)',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {loading ? 'Aplicando...' : 'Aplicar'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                exportReportToExcel({
+                  title: 'Flujo de efectivo',
+                  periodText: `${startDate} al ${endDate}`,
+                  kpis: reportData?.kpis || [],
+                  columns: [
+                    { key: 'concept', label: 'Concepto' },
+                    { key: 'amount', label: 'Monto (RD$)', isCurrency: true },
+                    { key: 'percentage', label: '% del total pagado' }
+                  ],
+                  rows: (reportData?.concepts_breakdown || []).map(c => ({
+                    concept: c.concept,
+                    amount: c.amount,
+                    percentage: `${c.percentage}%`
+                  })),
+                  activeFilters: { salon: selectedSalon, period }
+                });
+              }}
+              style={{
+                padding: '0.65rem 0.95rem',
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '0.6rem',
+                color: '#475569',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+              }}
+              title="Exportar reporte"
+            >
+              <Share2 size={16} />
+            </button>
+          </div>
+
+          {/* 4 KPI Cards (Grid 2x2) */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '1rem',
+            marginBottom: '1.5rem'
+          }}>
+            {/* KPI 1: Total cobrado */}
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '1.25rem',
+              padding: '1.5rem',
+              border: '1px solid #f1f5f9',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1.25rem'
+            }}>
+              <div style={{
+                width: '54px',
+                height: '54px',
+                borderRadius: '0.85rem',
+                background: '#eff6ff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#2563eb',
+                flexShrink: 0
+              }}>
+                <CreditCard size={28} />
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '0.25rem' }}>
+                  Total cobrado
+                </span>
+                <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#1e3a8a', letterSpacing: '-0.02em' }}>
+                  RD$ {(reportData?.total_cobrado !== undefined ? reportData.total_cobrado : 1000000).toLocaleString('es-DO')}
+                </span>
+              </div>
+            </div>
+
+            {/* KPI 2: Total pagado */}
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '1.25rem',
+              padding: '1.5rem',
+              border: '1px solid #f1f5f9',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1.25rem'
+            }}>
+              <div style={{
+                width: '54px',
+                height: '54px',
+                borderRadius: '0.85rem',
+                background: '#faf5ff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#9333ea',
+                flexShrink: 0
+              }}>
+                <Wallet size={28} />
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '0.25rem' }}>
+                  Total pagado
+                </span>
+                <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#3b0764', letterSpacing: '-0.02em' }}>
+                  RD$ {(reportData?.total_pagado !== undefined ? reportData.total_pagado : 750000).toLocaleString('es-DO')}
+                </span>
+              </div>
+            </div>
+
+            {/* KPI 3: Excedente del período */}
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '1.25rem',
+              padding: '1.5rem',
+              border: '1px solid #f1f5f9',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1.25rem'
+            }}>
+              <div style={{
+                width: '54px',
+                height: '54px',
+                borderRadius: '0.85rem',
+                background: '#f5f3ff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#7c3aed',
+                flexShrink: 0
+              }}>
+                <BarChart3 size={28} />
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '0.25rem' }}>
+                  Excedente del período
+                </span>
+                <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#1e1b4b', letterSpacing: '-0.02em' }}>
+                  RD$ {(reportData?.excedente_periodo !== undefined ? reportData.excedente_periodo : 250000).toLocaleString('es-DO')}
+                </span>
+              </div>
+            </div>
+
+            {/* KPI 4: Excedente sobre lo cobrado */}
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '1.25rem',
+              padding: '1.5rem',
+              border: '1px solid #f1f5f9',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '1.25rem'
+            }}>
+              <div style={{
+                width: '54px',
+                height: '54px',
+                borderRadius: '0.85rem',
+                background: '#ecfdf5',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#059669',
+                flexShrink: 0
+              }}>
+                <Percent size={28} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, color: '#64748b', marginBottom: '0.25rem' }}>
+                  Excedente sobre lo cobrado
+                </span>
+                <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#059669', lineHeight: 1.1, marginBottom: '0.35rem' }}>
+                  {reportData?.excedente_pct !== undefined ? reportData.excedente_pct : 25}%
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500, marginBottom: '0.5rem' }}>
+                  {reportData?.retencion_desc || 'Por cada RD$100 cobrados, te quedan RD$25.'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.2rem',
+                    padding: '0.15rem 0.55rem',
+                    borderRadius: '0.35rem',
+                    background: '#dcfce7',
+                    color: '#15803d',
+                    fontSize: '0.74rem',
+                    fontWeight: 700
+                  }}>
+                    ↑ 3 puntos porcentuales
+                  </span>
+                  <span style={{ fontSize: '0.74rem', color: '#94a3b8', fontWeight: 500 }}>
+                    vs. período anterior
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tarjeta Principal: Salidas de dinero por concepto */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '1.25rem',
+            padding: '2rem',
+            border: '1px solid #f1f5f9',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+            marginBottom: '1.5rem'
+          }}>
+            {/* Cabecera de la sección */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              paddingBottom: '1.5rem',
+              borderBottom: '1px solid #f1f5f9',
+              marginBottom: '1.5rem'
+            }}>
+              <div>
+                <h2 style={{
+                  fontSize: '1.4rem',
+                  fontWeight: 800,
+                  color: '#0f172a',
+                  margin: '0 0 0.25rem 0'
+                }}>
+                  Salidas de dinero por concepto
+                </h2>
+                <span style={{ fontSize: '0.88rem', color: '#64748b', fontWeight: 400 }}>
+                  De mayor a menor · Conceptos consolidados
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '2.5rem',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                color: '#94a3b8'
+              }}>
+                <span style={{ width: '120px', textAlign: 'right' }}>Monto</span>
+                <span style={{ width: '120px', textAlign: 'right' }}>% del total pagado</span>
+              </div>
+            </div>
+
+            {/* Lista de Filas con Barras Horizontales */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {(reportData?.concepts_breakdown || [
+                { concept: 'Nómina', amount: 300000, percentage: 40.0, bar_pct: 40.0 },
+                { concept: 'Mercancías e insumos', amount: 150000, percentage: 20.0, bar_pct: 20.0 },
+                { concept: 'Alquileres', amount: 100000, percentage: 13.3, bar_pct: 13.3 },
+                { concept: 'Préstamos', amount: 80000, percentage: 10.7, bar_pct: 10.7 },
+                { concept: 'TSS', amount: 60000, percentage: 8.0, bar_pct: 8.0 },
+                { concept: 'Energía eléctrica', amount: 40000, percentage: 5.3, bar_pct: 5.3 },
+                { concept: 'Otros pagos', amount: 20000, percentage: 2.7, bar_pct: 2.7 }
+              ]).map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1.25rem'
+                  }}
+                >
+                  {/* Nombre del Concepto */}
+                  <div style={{
+                    width: '180px',
+                    fontSize: '0.92rem',
+                    fontWeight: 600,
+                    color: '#1e293b',
+                    flexShrink: 0
+                  }}>
+                    {item.concept}
+                  </div>
+
+                  {/* Barra de Progreso Azul Proporcional */}
+                  <div style={{
+                    flex: 1,
+                    height: '18px',
+                    borderRadius: '0.4rem',
+                    background: '#f1f5f9',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.min(Math.max(item.bar_pct || item.percentage || 0, 1), 100)}%`,
+                        background: '#3b82f6',
+                        borderRadius: '0.4rem',
+                        transition: 'width 0.4s ease'
+                      }}
+                    />
+                  </div>
+
+                  {/* Monto y Porcentaje */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '2.5rem',
+                    fontSize: '0.92rem',
+                    flexShrink: 0
+                  }}>
+                    <span style={{
+                      width: '120px',
+                      textAlign: 'right',
+                      fontWeight: 700,
+                      color: '#0f172a'
+                    }}>
+                      RD$ {(item.amount || 0).toLocaleString('es-DO')}
+                    </span>
+                    <span style={{
+                      width: '120px',
+                      textAlign: 'right',
+                      fontWeight: 500,
+                      color: '#64748b'
+                    }}>
+                      {(item.percentage || 0).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer de la tarjeta con fuentes y etiquetas */}
+            <div style={{
+              marginTop: '2.25rem',
+              paddingTop: '1.5rem',
+              borderTop: '1px solid #f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
+                {reportData?.sources_text || 'Fuentes: Cobros · Egresos · 606 pagado · Plantilla de nómina'}
+              </span>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: '9999px',
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  color: '#1d4ed8',
+                  fontSize: '0.78rem',
+                  fontWeight: 600
+                }}>
+                  <Shield size={14} color="#2563eb" />
+                  <span>Sin duplicar pagos</span>
+                </span>
+
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: '9999px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  color: '#15803d',
+                  fontSize: '0.78rem',
+                  fontWeight: 600
+                }}>
+                  <Check size={14} color="#16a34a" />
+                  <span>Nómina pagada del período</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Nota al Pie Explicativa Metodológica */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.78rem',
+            color: '#64748b',
+            padding: '0.25rem 0.5rem',
+            marginBottom: '1rem'
+          }}>
+            <Info size={15} color="#94a3b8" style={{ flexShrink: 0 }} />
+            <span>
+              {reportData?.footnote || 'El excedente corresponde a cobros menos pagos del período. No equivale a utilidad contable ni al saldo bancario.'}
+            </span>
+          </div>
+        </div>
+      ) : (
+        /* VISTAS ESTÁNDAR PARA LOS DEMÁS REPORTES */
+        <>
+          {/* 3. Filter Bar (Single White Card) */}
+          <form
+            className="no-print"
+            onSubmit={handleApplyFilters}
+            style={{
+              background: '#ffffff',
+              borderRadius: '1rem',
+              padding: '1.25rem 1.5rem',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+              marginBottom: '1.5rem'
+            }}
+          >
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '1rem',
+              alignItems: 'end'
+            }}>
           {/* Selector 1: Reporte */}
           <div>
             <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
@@ -1666,6 +2327,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             pageSize={10}
           />
         </div>
+      )}
+        </>
       )}
     </div>
   );
