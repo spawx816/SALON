@@ -24,7 +24,7 @@ export default function DgiiSequencesModule() {
     numero_hasta: '',
     cantidad_aprobada: 10,
     fecha_vencimiento: '2027-12-31',
-    alerta_minima: 5
+    alerta_minima: 2
   });
 
   const COMPROBANTE_TYPES = [
@@ -65,7 +65,7 @@ export default function DgiiSequencesModule() {
       numero_hasta: 'E310000000010',
       cantidad_aprobada: 10,
       fecha_vencimiento: '2027-12-31',
-      alerta_minima: 5
+      alerta_minima: 2
     });
     setShowModal(true);
   };
@@ -82,7 +82,7 @@ export default function DgiiSequencesModule() {
       cantidad_aprobada: seq.cantidad_aprobada,
       cantidad_usada: seq.cantidad_usada,
       fecha_vencimiento: seq.fecha_vencimiento ? seq.fecha_vencimiento.split('T')[0] : '',
-      alerta_minima: seq.alerta_minima || 5,
+      alerta_minima: seq.alerta_minima || 2,
       estado: seq.estado
     });
     setShowModal(true);
@@ -617,6 +617,20 @@ export default function DgiiSequencesModule() {
                       value={formData.fecha_vencimiento}
                       onChange={(e) => setFormData({ ...formData, fecha_vencimiento: e.target.value })}
                       style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.35rem', textTransform: 'uppercase' }}>
+                      Alerta Mínima (Comprobantes Restantes)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Ej. 2"
+                      value={formData.alerta_minima}
+                      onChange={(e) => setFormData({ ...formData, alerta_minima: parseInt(e.target.value) || 2 })}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
                     />
                   </div>
                 </div>

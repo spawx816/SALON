@@ -219,7 +219,7 @@ function evaluateBatchFiscalStatus(seq, now = new Date()) {
     ? Math.round((realDisponibles / effectiveCapacity) * 100)
     : 0;
 
-  const alertaMinima = Number(seq.alerta_minima || 5);
+  const alertaMinima = Number(seq.alerta_minima !== undefined && seq.alerta_minima !== null ? seq.alerta_minima : 2);
   const isAlertaMinima = (estadoCalculado === 'Activo' && realDisponibles > 0 && realDisponibles <= alertaMinima);
 
   return {
@@ -984,15 +984,9 @@ const getSequenceAvailability = async (req, res) => {
         availability[tipo].diagnosticCode = diag.code;
         availability[tipo].diagnosticMessage = diag.message;
         alertMsg = `⛔ ALERTA PERSISTENTE: Se agotaron los comprobantes fiscales de ${tipo} (${availability[tipo].nombre}). [${diag.code}] ${diag.message}`;
-      } else if (disp <= 5) {
-        level = 'critical_5';
-        alertMsg = `🚨 Alerta Crítica: Quedan solo ${disp} secuencias autorizadas de ${tipo}. Bloqueo inminente al llegar a cero.`;
-      } else if (disp <= 10) {
-        level = 'warning_10';
-        alertMsg = `⚠️ Advertencia: Quedan solo ${disp} secuencias autorizadas de ${tipo}. Favor notificar al administrador para solicitar nuevas secuencias a la DGII.`;
-      } else if (disp <= 20) {
-        level = 'warning_20';
-        alertMsg = `ℹ️ Aviso: Quedan ${disp} secuencias autorizadas de ${tipo}.`;
+      } else if (disp <= 2) {
+        level = 'critical_2';
+        alertMsg = `🚨 Alerta: Quedan solo ${disp} comprobante(s) restante(s) de ${tipo}. Bloqueo inminente al llegar a cero.`;
       }
 
       availability[tipo].alertLevel = level;
@@ -1102,7 +1096,7 @@ router.post('/sequences', async (req, res) => {
       numero_hasta.trim().toUpperCase(),
       parseInt(cantidad_aprobada) || 1,
       fecha_vencimiento || null,
-      parseInt(alerta_minima) || 5
+      parseInt(alerta_minima) || 2
     ]);
 
     res.json({ success: true, message: 'Secuencia de e-NCF registrada con éxito.', id: result.insertId });
