@@ -3482,23 +3482,155 @@ async function handleBIReport(pool, params) {
   // ==========================================
   // FLUJO DE EFECTIVO (cash_flow)
   // Productividad y rentabilidad: Total cobrado vs Total pagado
-  // y salidas de dinero por concepto consolidadas.
+  // Integración real: Cobros + DGII 606 + Contabilidad Egresos
   // ==========================================
   if (reportId === 'cash_flow') {
     try {
       const isSampleRequested = params.sample === '1' || params.sample === true || params.sample === 'true';
 
-      // 1. Total Cobrado: Ventas netas (visitas no anuladas) + Cobros de membresías (aprobados)
+      // 0. Auditoría de disponibilidad de tablas de Egresos, 606 y Movimientos de Caja
+      let hasExpensesTable = false;
+      let has606Table = false;
+      let hasCashRegisterMovements = false;
+      try {
+        const [tableCheck] = await pool.query(`
+          SELECT TABLE_NAME FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME IN ('expenses', 'dgii_606_purchases', 'cash_register_movements')
+        `);
+        const existingTables = (tableCheck || []).map(r => Object.values(r)[0]);
+        hasExpensesTable = existingTables.includes('expenses');
+        has606Table = existingTables.includes('dgii_606_purchases');
+        hasCashRegisterMovements = existingTables.includes('cash_register_movements');
+      } catch (errSchema) {
+        console.warn('Error auditando tablas de egresos:', errSchema.message);
+      }
+
+      const sourcesStatus = {
+        expenses_available: hasExpensesTable,
+        dgii_606_available: has606Table,
+        cash_register_available: hasCashRegisterMovements,
+        payroll_available: true
+      };
+
+      // Si se solicita modo demostración (sample=1):
+      if (isSampleRequested) {
+        return {
+          title: 'Flujo de efectivo',
+          categoryName: 'Productividad y rentabilidad',
+          periodText: `${formatDO(start)} al ${formatDO(end)}`,
+          is_sample: true,
+          warning: !hasExpensesTable ? 'Fuente Egresos no disponible' : null,
+          sources_status: sourcesStatus,
+          loans_detail: {
+            total_capital: 56000,
+            total_interest: 20000,
+            total_charges: 4000,
+            total_prestamos: 80000
+          },
+          reconciliation_meta: {
+            reconciled_606_count: 0,
+            reconciled_606_amount: 0,
+            deduplication_active: true,
+            nomina_source: 'Plantilla de nómina'
+          },
+          total_cobrado: 1000000,
+          total_pagado: 750000,
+          excedente_periodo: 250000,
+          excedente_pct: 25.0,
+          retencion_desc: 'Por cada RD$100 cobrados, te quedan RD$25.',
+          delta_vs_anterior: '↑ 3 puntos porcentuales',
+          delta_subtext: 'vs. período anterior',
+          delta_direction: 'up',
+          kpis: [
+            {
+              id: 'cobrado',
+              label: 'Total cobrado',
+              value: 'RD$ 1,000,000',
+              rawValue: 1000000,
+              icon: 'CreditCard',
+              color: 'blue',
+              theme: 'blue'
+            },
+            {
+              id: 'pagado',
+              label: 'Total pagado',
+              value: 'RD$ 750,000',
+              rawValue: 750000,
+              icon: 'Wallet',
+              color: 'purple',
+              theme: 'purple'
+            },
+            {
+              id: 'excedente',
+              label: 'Excedente del período',
+              value: 'RD$ 250,000',
+              rawValue: 250000,
+              icon: 'BarChart3',
+              color: 'indigo',
+              theme: 'indigo'
+            },
+            {
+              id: 'pct_excedente',
+              label: 'Excedente sobre lo cobrado',
+              value: '25%',
+              rawValue: 25,
+              subtext: 'Por cada RD$100 cobrados, te quedan RD$25.',
+              delta: '↑ 3 puntos porcentuales',
+              deltaSubtext: 'vs. período anterior',
+              deltaDirection: 'up',
+              icon: 'Percent',
+              color: 'emerald',
+              theme: 'emerald'
+            }
+          ],
+          concepts_breakdown: [
+            { concept: 'Nómina', amount: 300000, percentage: 40.0, bar_pct: 40.0 },
+            { concept: 'Mercancías e insumos', amount: 150000, percentage: 20.0, bar_pct: 20.0 },
+            { concept: 'Alquileres', amount: 100000, percentage: 13.3, bar_pct: 13.3 },
+            { concept: 'Préstamos', amount: 80000, percentage: 10.7, bar_pct: 10.7 },
+            { concept: 'TSS', amount: 60000, percentage: 8.0, bar_pct: 8.0 },
+            { concept: 'Energía eléctrica', amount: 40000, percentage: 5.3, bar_pct: 5.3 },
+            { concept: 'Otros pagos', amount: 20000, percentage: 2.7, bar_pct: 2.7 }
+          ],
+          badges: [
+            { text: 'Sin duplicar pagos', icon: 'ShieldCheck', color: 'blue' },
+            { text: 'Nómina pagada del período', icon: 'Check', color: 'emerald' }
+          ],
+          sources_text: 'Fuentes: Cobros · DGII 606 pagado · Contabilidad/Egresos · Plantilla de nómina',
+          footnote: 'El excedente corresponde a cobros menos pagos del período. No equivale a utilidad contable ni al saldo bancario.'
+        };
+      }
+
+      // 1. Total Cobrado: Ventas netas efectivamente cobradas (visitas no anuladas ni con nota de crédito) + Cobros de membresías aprobados
+      // NOTA CRÍTICA: Se excluyen consumos a crédito o descuentos de colaboradores ('Nomina'), ya que no representan dinero cobrado en caja.
       const [salesCobradoRows] = await pool.query(`
-        SELECT COALESCE(SUM(total), 0) as total_cobrado_ventas
+        SELECT COALESCE(SUM(v.total), 0) as total_cobrado_ventas
         FROM visits v
         WHERE v.visited_at >= ? AND v.visited_at <= ?
-          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada')
+          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada', 'Pendiente')
+          AND (v.ncf_nota_credito IS NULL OR v.ncf_nota_credito = '')
+          AND v.metodo_pago NOT IN ('Nomina', 'Nómina', 'Plan Beauty')
+          AND v.metodo_pago NOT LIKE '%Nomina%'
+          AND v.metodo_pago NOT LIKE '%Nómina%'
           ${salonFilterVis}
       `, visParams);
 
+      // Auditoría de consumos de colaboradores excluidos de cobros en caja (recuperables vía deducción de nómina)
+      const [colabNominaRows] = await pool.query(`
+        SELECT COALESCE(SUM(v.total), 0) as total_nomina_colaborador, COUNT(v.id) as count_nomina
+        FROM visits v
+        WHERE v.visited_at >= ? AND v.visited_at <= ?
+          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada', 'Pendiente')
+          AND (v.ncf_nota_credito IS NULL OR v.ncf_nota_credito = '')
+          AND (v.metodo_pago IN ('Nomina', 'Nómina') OR v.metodo_pago LIKE '%Nomina%' OR v.metodo_pago LIKE '%Nómina%')
+          ${salonFilterVis}
+      `, visParams);
+      const totalColabNomina = Number(colabNominaRows[0]?.total_nomina_colaborador || 0);
+      const countColabNomina = Number(colabNominaRows[0]?.count_nomina || 0);
+
       const [payCobradoRows] = await pool.query(`
-        SELECT COALESCE(SUM(amount), 0) as total_cobrado_membresias
+        SELECT COALESCE(SUM(p.amount), 0) as total_cobrado_membresias
         FROM payments p
         LEFT JOIN clients cl ON p.client_id = cl.id
         WHERE p.created_at >= ? AND p.created_at <= ?
@@ -3508,152 +3640,527 @@ async function handleBIReport(pool, params) {
 
       const cobradoVentas = Number(salesCobradoRows[0]?.total_cobrado_ventas || 0);
       const cobradoMembresias = Number(payCobradoRows[0]?.total_cobrado_membresias || 0);
-      let realTotalCobrado = cobradoVentas + cobradoMembresias;
+      const realTotalCobrado = cobradoVentas + cobradoMembresias;
 
-      // 2. Pagos por Concepto
-      // A. Nómina: Períodos aprobados/pagados o gastos con concepto nómina
-      let realNomina = 0;
-      try {
-        const [payrollRows] = await pool.query(`
-          SELECT COALESCE(SUM(pi.neto_pagar), 0) as total_nomina
-          FROM payroll_items pi
-          JOIN payroll_periods pp ON pi.payroll_id = pp.id
-          WHERE pp.status IN ('approved', 'Aprobado', 'pagada', 'cerrada')
-            AND pp.end_date >= ? AND pp.start_date <= ?
-        `, [start, end]);
-        realNomina = Number(payrollRows[0]?.total_nomina || 0);
-      } catch (errPayroll) {
-        // Fallback silencioso si no hay períodos de nómina
-      }
+      // 2. Salidas: 7 Conceptos consolidados sin duplicidad
+      let catNomina = 0;
+      let catMercancias = 0;
+      let catAlquileres = 0;
+      let catPrestamos = 0;
+      let catTss = 0;
+      let catEnergia = 0;
+      let catOtros = 0;
 
-      // B. Gastos registrados en tabla expenses
+      const loansDetail = {
+        total_capital: 0,
+        total_interest: 0,
+        total_charges: 0,
+        total_prestamos: 0
+      };
+
+      const matchedNcfsInExpenses = new Set();
+      const matchedCrmIdsInExpenses = new Set();
+      let hasNominaInExpenses = false;
       const expenseSalonFilter = salonId !== 'all' ? 'AND (e.salon_id = ? OR e.salon_id IS NULL)' : '';
       const expenseParams = salonId !== 'all' ? [start, end, salonId] : [start, end];
 
-      let realTss = 0;
-      let realPrestamos = 0;
-      let realAlquileres = 0;
-      let realEnergia = 0;
-      let realMercancias = 0;
-      let realOtros = 0;
+      // Funciones de normalización de NCFs (Tradicional B 11 caracteres, Electrónico E 13 caracteres)
+      const cleanNcf = (val) => {
+        if (!val) return null;
+        const s = String(val).trim().toUpperCase();
+        if (/^B\d{10}$/.test(s) || /^E\d{12}$/.test(s)) return s;
+        return null;
+      };
 
-      try {
-        const [expensesRows] = await pool.query(`
-          SELECT 
-            e.concept_name,
-            COALESCE(e.amount, 0) as amount,
-            e.is_loan
-          FROM expenses e
-          WHERE e.payment_date >= ? AND e.payment_date <= ?
-            AND e.status NOT IN ('voided', 'Anulado', 'anulado')
-            ${expenseSalonFilter}
-        `, expenseParams);
+      const extractFullNcfs = (txt) => {
+        if (!txt) return [];
+        const found = String(txt).toUpperCase().match(/\b(?:B\d{10}|E\d{12})\b/g);
+        return found || [];
+      };
 
-        for (const row of expensesRows) {
-          const amt = Number(row.amount || 0);
-          const cName = (row.concept_name || '').toLowerCase();
-          if (row.is_loan === 1 || cName.includes('préstamo') || cName.includes('prestamo')) {
-            realPrestamos += amt;
-          } else if (cName.includes('tss') || cName.includes('seguridad social')) {
-            realTss += amt;
-          } else if (cName.includes('alquiler') || cName.includes('renta')) {
-            realAlquileres += amt;
-          } else if (cName.includes('energ') || cName.includes('luz') || cName.includes('edeeste') || cName.includes('edesur')) {
-            realEnergia += amt;
-          } else if (cName.includes('nómina') || cName.includes('nomina') || cName.includes('salario') || cName.includes('sueldo')) {
-            if (realNomina === 0) realNomina += amt;
-          } else if (cName.includes('mercanc') || cName.includes('insumo') || cName.includes('producto') || cName.includes('material')) {
-            realMercancias += amt;
-          } else {
-            realOtros += amt;
+      // A. FUENTE B: Contabilidad → Egresos
+      if (hasExpensesTable) {
+        try {
+          const [expensesRows] = await pool.query(`
+            SELECT 
+              e.id,
+              e.concept_name,
+              COALESCE(e.amount, 0) as amount,
+              e.payment_date,
+              e.reference,
+              e.observation,
+              e.is_loan,
+              COALESCE(e.breakdown_capital, 0) as breakdown_capital,
+              COALESCE(e.breakdown_interest, 0) as breakdown_interest,
+              COALESCE(e.breakdown_charges, 0) as breakdown_charges,
+              e.status
+            FROM expenses e
+            WHERE e.payment_date >= ? AND e.payment_date <= ?
+              AND e.status NOT IN ('voided', 'Anulado', 'anulado', 'Cancelado', 'cancelado', 'Pendiente', 'pendiente')
+              ${expenseSalonFilter}
+          `, expenseParams);
+
+          for (const row of expensesRows) {
+            const amt = Number(row.amount || 0);
+            const cName = (row.concept_name || '').toLowerCase();
+            const ref = (row.reference || '').trim();
+            const obs = (row.observation || '').trim();
+
+            const directNcf = cleanNcf(ref);
+            if (directNcf) {
+              matchedNcfsInExpenses.add(directNcf);
+            }
+            extractFullNcfs(ref).forEach(n => matchedNcfsInExpenses.add(n));
+            extractFullNcfs(obs).forEach(n => matchedNcfsInExpenses.add(n));
+
+            // Rastrear referencias a movimientos de caja POS
+            const crmMatch = String(ref + ' ' + obs).match(/(?:CRM|CAJA)[-_:\s]*(\d+)/i);
+            if (crmMatch) {
+              matchedCrmIdsInExpenses.add(Number(crmMatch[1]));
+            }
+
+            // Clasificación precisa del egreso
+            if (row.is_loan === 1 || cName.includes('préstamo') || cName.includes('prestamo')) {
+              catPrestamos += amt;
+              const cap = Number(row.breakdown_capital || 0);
+              const intAmt = Number(row.breakdown_interest || 0);
+              const chg = Number(row.breakdown_charges || 0);
+              loansDetail.total_capital += cap;
+              loansDetail.total_interest += intAmt;
+              loansDetail.total_charges += chg;
+              loansDetail.total_prestamos += amt;
+            } else if (cName.includes('tss') || cName.includes('seguridad social') || cName.includes('infotep')) {
+              catTss += amt;
+            } else if (cName.includes('alquiler') || cName.includes('renta')) {
+              catAlquileres += amt;
+            } else if (cName.includes('energ') || cName.includes('luz') || cName.includes('edeeste') || cName.includes('edesur') || cName.includes('edenorte')) {
+              catEnergia += amt;
+            } else if (cName.includes('nómina') || cName.includes('nomina') || cName.includes('salario') || cName.includes('sueldo')) {
+              catNomina += amt;
+              hasNominaInExpenses = true;
+            } else if (cName.includes('mercanc') || cName.includes('insumo') || cName.includes('producto') || cName.includes('suministro') || cName.includes('material')) {
+              catMercancias += amt;
+            } else {
+              catOtros += amt;
+            }
           }
+        } catch (errExp) {
+          console.warn('Error consultando expenses:', errExp.message);
         }
-      } catch (errExp) {
-        // Fallback silencioso
       }
 
-      // C. Compras en DGII 606 (Mercancías e insumos si no están ya en expenses)
+      // B. FUENTE A: Reporte DGII 606 (Compras pagadas con fecha real de desembolso)
+      let reconciled606Count = 0;
+      let reconciled606Amount = 0;
+      const pending606Purchases = [];
+      let pending606Amount = 0;
+
+      if (has606Table) {
+        try {
+          const [purchasesRows] = await pool.query(`
+            SELECT 
+              id,
+              ncf,
+              rnc_cedula,
+              proveedor,
+              fecha_pago,
+              forma_pago,
+              total_facturado,
+              monto_servicios,
+              monto_bienes,
+              itbis_facturado,
+              itbis_retenido,
+              isr_retenido,
+              otros_impuestos,
+              propina_legal,
+              clasificacion_gasto,
+              estado,
+              notas
+            FROM dgii_606_purchases
+            WHERE fecha_pago IS NOT NULL 
+              AND fecha_pago != '' 
+              AND fecha_pago != '0000-00-00'
+              AND fecha_pago >= ? AND fecha_pago <= ?
+              AND estado NOT IN ('anulado', 'cancelado', 'pendiente', 'Pendiente')
+          `, [start, end]);
+
+          for (const p of purchasesRows) {
+            const rawNcf = (p.ncf || '').trim().toUpperCase();
+            const ncfUpper = (/^B\d{10}$/.test(rawNcf) || /^E\d{12}$/.test(rawNcf)) ? rawNcf : rawNcf;
+            
+            // Monto efectivamente desembolsado (restando retenciones de impuestos no pagadas al proveedor)
+            const sumComponents = Number(p.monto_servicios || 0) + Number(p.monto_bienes || 0) + Number(p.itbis_facturado || 0) + Number(p.otros_impuestos || 0) + Number(p.propina_legal || 0);
+            const rawTotal = Math.max(Number(p.total_facturado || 0), sumComponents);
+            const retenciones = Number(p.itbis_retenido || 0) + Number(p.isr_retenido || 0);
+            const amt606 = Math.max(0, rawTotal - retenciones);
+
+            // PREVENCIÓN DE DUPLICIDAD Y CONCILIACIÓN CON CONTABILIDAD:
+            // 1. Si el NCF coincide con un egreso registrado, ya está computado en Egresos:
+            if (ncfUpper && matchedNcfsInExpenses.has(ncfUpper)) {
+              reconciled606Count++;
+              reconciled606Amount += amt606;
+              continue;
+            }
+
+            // Exclusión de compras a crédito pendientes de pago o permutas
+            const formaPago = String(p.forma_pago || '').trim();
+            if (formaPago === '04' || formaPago === '05' || formaPago === '06') {
+              continue;
+            }
+
+            // 2. Identificación de datos demostrativos o compras sin soporte verificado:
+            const provLower = (p.proveedor || '').toLowerCase();
+            const isDemo = provLower.includes('ejemplo') || (p.rnc_cedula === '131000001' && p.ncf === 'B0100000123');
+
+            if (isDemo) {
+              pending606Purchases.push({
+                id: p.id,
+                ncf: ncfUpper || p.ncf,
+                rnc_cedula: p.rnc_cedula,
+                proveedor: p.proveedor,
+                fecha_pago: p.fecha_pago,
+                total_facturado: rawTotal,
+                monto_efectivo: amt606,
+                clasificacion_gasto: p.clasificacion_gasto,
+                estado: 'pendiente_conciliacion',
+                motivo: 'Dato demostrativo del formulario 606 (sin comprobante bancario ni asiento en Egresos)'
+              });
+              pending606Amount += amt606;
+              continue;
+            }
+
+            // Clasificación rigurosa de compras 606 reales y pagadas no duplicadas
+            const clasif = (p.clasificacion_gasto || '').toLowerCase();
+            const notas = (p.notas || '').toLowerCase();
+
+            if (clasif.includes('01') || clasif.includes('personal') || provLower.includes('nómina') || provLower.includes('nomina')) {
+              catNomina += amt606;
+            } else if (clasif.includes('03') || clasif.includes('arrendamiento') || provLower.includes('alquiler') || provLower.includes('renta')) {
+              catAlquileres += amt606;
+            } else if (clasif.includes('07') || clasif.includes('financiero') || provLower.includes('prestamo') || provLower.includes('banco')) {
+              catPrestamos += amt606;
+              loansDetail.total_prestamos += amt606;
+            } else if (provLower.includes('edeeste') || provLower.includes('edesur') || provLower.includes('edenorte') || provLower.includes('luz') || notas.includes('electricidad') || notas.includes('energía')) {
+              catEnergia += amt606;
+            } else if (provLower.includes('tss') || provLower.includes('seguridad social') || provLower.includes('infotep')) {
+              catTss += amt606;
+            } else if (clasif.includes('02') || clasif.includes('09') || clasif.includes('suministro') || Number(p.monto_bienes || 0) > 0) {
+              catMercancias += amt606;
+            } else {
+              catOtros += amt606;
+            }
+          }
+        } catch (err606) {
+          console.warn('Error consultando dgii_606_purchases:', err606.message);
+        }
+      }
+
+      // C. FUENTE COMPLEMENTARIA: Gastos efectivos de caja POS (cash_register_movements)
+      // Incorpora los desembolsos reales de caja chica / gastos imprevistos, evitando duplicar con Egresos o 606
+      let cashRegisterExpensesCount = 0;
+      let cashRegisterExpensesAmount = 0;
+      let cashRegisterDeduplicatedCount = 0;
+      let cashRegisterDeduplicatedAmount = 0;
+
+      if (hasCashRegisterMovements) {
+        try {
+          const crmSalonFilter = salonId !== 'all' ? 'AND cr.salon_id = ?' : '';
+          const crmParams = salonId !== 'all' ? [startDateTime, endDateTime, salonId] : [startDateTime, endDateTime];
+
+          const [crmRows] = await pool.query(`
+            SELECT 
+              crm.id,
+              crm.cash_register_id,
+              cr.salon_id,
+              COALESCE(crm.amount, 0) as amount,
+              crm.concept,
+              crm.created_at
+            FROM cash_register_movements crm
+            JOIN cash_registers cr ON crm.cash_register_id = cr.id
+            WHERE crm.created_at >= ? AND crm.created_at <= ?
+              AND crm.type = 'Gasto_Imprevisto'
+              ${crmSalonFilter}
+          `, crmParams);
+
+          for (const crm of crmRows) {
+            const amt = Number(crm.amount || 0);
+            const conc = (crm.concept || '').trim();
+            const concLower = conc.toLowerCase();
+
+            // Prevención de duplicidad: si el ID de movimiento de caja fue registrado en Egresos
+            const isDupInExpenses = matchedCrmIdsInExpenses.has(crm.id);
+            if (isDupInExpenses) {
+              cashRegisterDeduplicatedCount++;
+              cashRegisterDeduplicatedAmount += amt;
+              continue;
+            }
+
+            // Verificar si contiene algún NCF que ya esté registrado en Egresos o 606
+            const crmNcfs = extractFullNcfs(conc);
+            let ncfDuplicated = false;
+            for (const n of crmNcfs) {
+              if (matchedNcfsInExpenses.has(n)) {
+                ncfDuplicated = true;
+                break;
+              }
+            }
+            if (ncfDuplicated) {
+              cashRegisterDeduplicatedCount++;
+              cashRegisterDeduplicatedAmount += amt;
+              continue;
+            }
+
+            cashRegisterExpensesCount++;
+            cashRegisterExpensesAmount += amt;
+
+            // Clasificación rigurosa del desembolso de caja POS en los 7 conceptos
+            if (concLower.includes('prestamo') || concLower.includes('préstamo')) {
+              catPrestamos += amt;
+              loansDetail.total_prestamos += amt;
+            } else if (
+              concLower.includes('pago a') || concLower.includes('pago de') ||
+              concLower.includes('wandy') || concLower.includes('manuela') || concLower.includes('loraly')
+            ) {
+              catNomina += amt;
+            } else if (
+              concLower.includes('agua') || concLower.includes('detergente') || concLower.includes('alisado') ||
+              concLower.includes('vinadre') || concLower.includes('coqui') || concLower.includes('papel') ||
+              concLower.includes('vasos') || concLower.includes('material') || concLower.includes('rollo') ||
+              concLower.includes('bombillo') || concLower.includes('pilidora') || concLower.includes('blower') ||
+              concLower.includes('conectore') || concLower.includes('top')
+            ) {
+              catMercancias += amt;
+            } else {
+              catOtros += amt;
+            }
+          }
+        } catch (errCrm) {
+          console.warn('Error consultando cash_register_movements:', errCrm.message);
+        }
+      }
+
+      // D. Auditoría de Nómina Calculada Pendiente de Conciliación Bancaria
+      // Conserva la nómina calculada del período como información pendiente hasta disponer de soporte bancario
+      let pendingPayrollAmount = 0;
+      let pendingPayrollPeriodsCount = 0;
       try {
-        const [purchasesRows] = await pool.query(`
-          SELECT COALESCE(SUM(total_facturado), 0) as total_606
-          FROM dgii_606_purchases
-          WHERE fecha_pago >= ? AND fecha_pago <= ?
-            AND estado NOT IN ('anulado', 'cancelado')
-        `, [start, end]);
-        const amt606 = Number(purchasesRows[0]?.total_606 || 0);
-        if (realMercancias === 0 && amt606 > 0) {
-          realMercancias = amt606;
+        const [payrollRows] = await pool.query(`
+          SELECT 
+            COALESCE(SUM(pi.neto_pagar), 0) as total_neto_calculado,
+            COUNT(DISTINCT pp.id) as count_periods
+          FROM payroll_items pi
+          JOIN payroll_periods pp ON pi.payroll_id = pp.id
+          WHERE (
+            (pp.start_date >= ? AND pp.start_date <= ?) OR
+            (pp.end_date >= ? AND pp.end_date <= ?)
+          )
+          AND LOWER(pp.period_name) NOT LIKE '%test%'
+          AND LOWER(pp.period_name) NOT LIKE '%prueba%'
+        `, [start, end, start, end]);
+        pendingPayrollAmount = Number(payrollRows[0]?.total_neto_calculado || 0);
+        pendingPayrollPeriodsCount = Number(payrollRows[0]?.count_periods || 0);
+      } catch (errPay) {
+        // Ignorar si no existe tabla
+      }
+
+      let nominaSource = hasNominaInExpenses
+        ? 'Egresos'
+        : (catNomina > 0 ? 'Gastos de caja POS' : 'Pendiente de asiento bancario');
+
+      // Consolidar conceptos
+      const rawConcepts = [
+        { concept: 'Nómina', amount: catNomina },
+        { concept: 'Mercancías e insumos', amount: catMercancias },
+        { concept: 'Alquileres', amount: catAlquileres },
+        { concept: 'Préstamos', amount: catPrestamos },
+        { concept: 'TSS', amount: catTss },
+        { concept: 'Energía eléctrica', amount: catEnergia },
+        { concept: 'Otros pagos', amount: catOtros }
+      ];
+
+      // Total Pagado es la suma exacta de los 7 conceptos
+      const realTotalPagado = rawConcepts.reduce((acc, c) => acc + c.amount, 0);
+      const realExcedentePeriodo = realTotalCobrado - realTotalPagado;
+      const realExcedentePct = realTotalCobrado > 0 ? Number(((realExcedentePeriodo / realTotalCobrado) * 100).toFixed(1)) : 0;
+
+      // E. Cobertura e Integridad: Detección basada en fuentes incompletas y movimientos concretos pendientes
+      const concretePendingItems = [];
+      if (pending606Purchases.length > 0) {
+        concretePendingItems.push(`${pending606Purchases.length} compra(s) 606 pendiente(s) de conciliación`);
+      }
+      if (pendingPayrollAmount > 0) {
+        concretePendingItems.push(`Nómina calculada en plantilla pendiente de desembolso bancario (RD$ ${pendingPayrollAmount.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`);
+      }
+
+      const isPartialFlow = concretePendingItems.length > 0 || !hasExpensesTable || !has606Table;
+      const coverageWarning = isPartialFlow
+        ? 'Flujo parcial: existen pagos pendientes de registro'
+        : null;
+
+      // F. Cálculo dinámico de variación vs período anterior equivalente
+      let deltaVsAnterior = '= Sin variación';
+      let deltaDirection = 'neutral';
+      try {
+        const startDt = new Date(start);
+        const endDt = new Date(end);
+        const diffMs = endDt.getTime() - startDt.getTime();
+        const diffDays = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+
+        const prevEndDateDt = new Date(startDt.getTime() - 24 * 60 * 60 * 1000);
+        const prevStartDateDt = new Date(prevEndDateDt.getTime() - (diffDays - 1) * 24 * 60 * 60 * 1000);
+        const prevStart = prevStartDateDt.toISOString().split('T')[0];
+        const prevEnd = prevEndDateDt.toISOString().split('T')[0];
+        const prevStartDateTime = `${prevStart} 00:00:00`;
+        const prevEndDateTime = `${prevEnd} 23:59:59`;
+
+        const [prevSales] = await pool.query(`
+          SELECT COALESCE(SUM(v.total), 0) as cobrado
+          FROM visits v
+          WHERE v.visited_at >= ? AND v.visited_at <= ?
+            AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada', 'Pendiente')
+            AND (v.ncf_nota_credito IS NULL OR v.ncf_nota_credito = '')
+            AND v.metodo_pago NOT IN ('Nomina', 'Nómina', 'Plan Beauty')
+            AND v.metodo_pago NOT LIKE '%Nomina%'
+            AND v.metodo_pago NOT LIKE '%Nómina%'
+            ${salonFilterVis}
+        `, salonId !== 'all' ? [prevStartDateTime, prevEndDateTime, salonId] : [prevStartDateTime, prevEndDateTime]);
+
+        const [prevPay] = await pool.query(`
+          SELECT COALESCE(SUM(p.amount), 0) as cobrado
+          FROM payments p
+          LEFT JOIN clients cl ON p.client_id = cl.id
+          WHERE p.created_at >= ? AND p.created_at <= ?
+            AND p.status = 'Aprobado'
+            ${salonFilterPay}
+        `, salonId !== 'all' ? [prevStartDateTime, prevEndDateTime, salonId] : [prevStartDateTime, prevEndDateTime]);
+
+        let prevExpAmt = 0;
+        if (hasExpensesTable) {
+          const [prevExp] = await pool.query(`
+            SELECT COALESCE(SUM(amount), 0) as pagado
+            FROM expenses e
+            WHERE e.payment_date >= ? AND e.payment_date <= ?
+              AND e.status NOT IN ('voided', 'Anulado', 'anulado', 'Cancelado', 'cancelado', 'Pendiente', 'pendiente')
+              ${expenseSalonFilter}
+          `, salonId !== 'all' ? [prevStart, prevEnd, salonId] : [prevStart, prevEnd]);
+          prevExpAmt = Number(prevExp[0]?.pagado || 0);
         }
-      } catch (err606) {
-        // Fallback silencioso
+
+        let prevCrmAmt = 0;
+        if (hasCashRegisterMovements) {
+          const [prevCrm] = await pool.query(`
+            SELECT COALESCE(SUM(crm.amount), 0) as pagado_caja
+            FROM cash_register_movements crm
+            JOIN cash_registers cr ON crm.cash_register_id = cr.id
+            WHERE crm.created_at >= ? AND crm.created_at <= ?
+              AND crm.type = 'Gasto_Imprevisto'
+              ${salonId !== 'all' ? 'AND cr.salon_id = ?' : ''}
+          `, salonId !== 'all' ? [prevStartDateTime, prevEndDateTime, salonId] : [prevStartDateTime, prevEndDateTime]);
+          prevCrmAmt = Number(prevCrm[0]?.pagado_caja || 0);
+        }
+
+        const prevCobrado = Number(prevSales[0]?.cobrado || 0) + Number(prevPay[0]?.cobrado || 0);
+        const prevPagadoTotal = prevExpAmt + prevCrmAmt;
+        const prevExcedente = prevCobrado - prevPagadoTotal;
+        const prevPct = prevCobrado > 0 ? (prevExcedente / prevCobrado) * 100 : 0;
+        const diffPuntos = Number((realExcedentePct - prevPct).toFixed(1));
+
+        if (diffPuntos > 0) {
+          deltaVsAnterior = `↑ ${diffPuntos} puntos porcentuales`;
+          deltaDirection = 'up';
+        } else if (diffPuntos < 0) {
+          deltaVsAnterior = `↓ ${Math.abs(diffPuntos)} puntos porcentuales`;
+          deltaDirection = 'down';
+        } else {
+          deltaVsAnterior = '= Sin variación';
+          deltaDirection = 'neutral';
+        }
+      } catch (errPrev) {
+        deltaVsAnterior = '= Sin histórico';
+        deltaDirection = 'neutral';
       }
 
-      let realTotalPagado = realNomina + realMercancias + realAlquileres + realPrestamos + realTss + realEnergia + realOtros;
+      // Ordenar conceptos de mayor a menor
+      rawConcepts.sort((a, b) => b.amount - a.amount);
 
-      // Si se solicita modo de muestra o si no hay movimientos en la base de datos para el rango,
-      // mostramos con total fidelidad la maqueta de referencia corporativa
-      const useSample = isSampleRequested || (realTotalCobrado === 0 && realTotalPagado === 0);
+      const conceptsBreakdown = rawConcepts.map(c => {
+        const pct = realTotalPagado > 0 ? Number(((c.amount / realTotalPagado) * 100).toFixed(1)) : 0;
+        return {
+          concept: c.concept,
+          amount: c.amount,
+          percentage: pct,
+          bar_pct: pct
+        };
+      });
 
-      const totalCobrado = useSample ? 1000000 : realTotalCobrado;
-      const totalPagado = useSample ? 750000 : realTotalPagado;
-      const excedentePeriodo = totalCobrado - totalPagado;
-      const excedentePct = totalCobrado > 0 ? Number(((excedentePeriodo / totalCobrado) * 100).toFixed(1)) : 0;
-      const excedentePorCadaCien = totalCobrado > 0 ? Math.round((excedentePeriodo / totalCobrado) * 100) : 0;
+      const retencionPorCien = realTotalCobrado > 0 ? Math.round((realExcedentePeriodo / realTotalCobrado) * 100) : 0;
+      const retencionTexto = realTotalCobrado > 0
+        ? `Por cada RD$100 cobrados, te quedan RD$${retencionPorCien}.`
+        : 'Sin cobros registrados en el período.';
 
-      let conceptsBreakdown = [];
-      if (useSample) {
-        conceptsBreakdown = [
-          { concept: 'Nómina', amount: 300000, percentage: 40.0, bar_pct: 40.0 },
-          { concept: 'Mercancías e insumos', amount: 150000, percentage: 20.0, bar_pct: 20.0 },
-          { concept: 'Alquileres', amount: 100000, percentage: 13.3, bar_pct: 13.3 },
-          { concept: 'Préstamos', amount: 80000, percentage: 10.7, bar_pct: 10.7 },
-          { concept: 'TSS', amount: 60000, percentage: 8.0, bar_pct: 8.0 },
-          { concept: 'Energía eléctrica', amount: 40000, percentage: 5.3, bar_pct: 5.3 },
-          { concept: 'Otros pagos', amount: 20000, percentage: 2.7, bar_pct: 2.7 }
-        ];
-      } else {
-        const rawConcepts = [
-          { concept: 'Nómina', amount: realNomina },
-          { concept: 'Mercancías e insumos', amount: realMercancias },
-          { concept: 'Alquileres', amount: realAlquileres },
-          { concept: 'Préstamos', amount: realPrestamos },
-          { concept: 'TSS', amount: realTss },
-          { concept: 'Energía eléctrica', amount: realEnergia },
-          { concept: 'Otros pagos', amount: realOtros }
-        ];
+      const badges = [
+        { text: 'Sin duplicar pagos', icon: 'ShieldCheck', color: 'blue' },
+        ...(isPartialFlow
+          ? [{ text: 'Flujo parcial: existen pagos pendientes de registro', icon: 'AlertTriangle', color: 'amber' }]
+          : [{ text: 'Nómina pagada del período', icon: 'Check', color: 'emerald' }]
+        )
+      ];
 
-        // Ordenar de mayor a menor y calcular porcentajes
-        rawConcepts.sort((a, b) => b.amount - a.amount);
-
-        conceptsBreakdown = rawConcepts.map(c => {
-          const pct = totalPagado > 0 ? Number(((c.amount / totalPagado) * 100).toFixed(1)) : 0;
-          return {
-            concept: c.concept,
-            amount: c.amount,
-            percentage: pct,
-            bar_pct: totalPagado > 0 ? Number(((c.amount / totalPagado) * 100).toFixed(1)) : 0
-          };
-        });
-      }
+      const formatDOVal = (n) => (n % 1 !== 0)
+        ? (n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : (n || 0).toLocaleString('es-DO');
 
       return {
         title: 'Flujo de efectivo',
         categoryName: 'Productividad y rentabilidad',
         periodText: `${formatDO(start)} al ${formatDO(end)}`,
-        is_sample: useSample,
-        total_cobrado: totalCobrado,
-        total_pagado: totalPagado,
-        excedente_periodo: excedentePeriodo,
-        excedente_pct: excedentePct,
-        retencion_desc: `Por cada RD$100 cobrados, te quedan RD$${excedentePorCadaCien}.`,
-        delta_vs_anterior: '+3 puntos porcentuales',
+        is_sample: false,
+        warning: coverageWarning,
+        sources_status: sourcesStatus,
+        loans_detail: loansDetail,
+        reconciliation_meta: {
+          reconciled_606_count: reconciled606Count,
+          reconciled_606_amount: reconciled606Amount,
+          pending_606_count: pending606Purchases.length,
+          pending_606_amount: pending606Amount,
+          pending_606_items: pending606Purchases,
+          cash_register_expenses_count: cashRegisterExpensesCount,
+          cash_register_expenses_amount: cashRegisterExpensesAmount,
+          cash_register_deduplicated_count: cashRegisterDeduplicatedCount,
+          cash_register_deduplicated_amount: cashRegisterDeduplicatedAmount,
+          pending_payroll_amount: pendingPayrollAmount,
+          pending_payroll_periods_count: pendingPayrollPeriodsCount,
+          excedente_registrado: realExcedentePeriodo,
+          excedente_registrado_pct: realExcedentePct,
+          flujo_completo_conciliado: Math.max(0, realExcedentePeriodo - pendingPayrollAmount),
+          flujo_completo_pct: realTotalCobrado > 0
+            ? Number((((realExcedentePeriodo - pendingPayrollAmount) / realTotalCobrado) * 100).toFixed(1))
+            : 0,
+          excluded_colab_nomina_count: countColabNomina,
+          excluded_colab_nomina_amount: totalColabNomina,
+          deduplication_active: true,
+          nomina_source: nominaSource,
+          coverage_status: {
+            is_partial: isPartialFlow,
+            warning: coverageWarning,
+            pending_items: concretePendingItems,
+            details: 'Existen obligaciones calculadas o reportadas (como nómina o compras 606) pendientes de comprobante de egreso bancario definitivo.'
+          }
+        },
+        total_cobrado: realTotalCobrado,
+        total_pagado: realTotalPagado,
+        excedente_periodo: realExcedentePeriodo,
+        excedente_pct: realExcedentePct,
+        retencion_desc: retencionTexto,
+        delta_vs_anterior: deltaVsAnterior,
         delta_subtext: 'vs. período anterior',
+        delta_direction: deltaDirection,
         kpis: [
           {
             id: 'cobrado',
             label: 'Total cobrado',
-            value: `RD$ ${totalCobrado.toLocaleString('es-DO')}`,
-            rawValue: totalCobrado,
+            value: `RD$ ${formatDOVal(realTotalCobrado)}`,
+            rawValue: realTotalCobrado,
             icon: 'CreditCard',
             color: 'blue',
             theme: 'blue'
@@ -3661,8 +4168,8 @@ async function handleBIReport(pool, params) {
           {
             id: 'pagado',
             label: 'Total pagado',
-            value: `RD$ ${totalPagado.toLocaleString('es-DO')}`,
-            rawValue: totalPagado,
+            value: `RD$ ${formatDOVal(realTotalPagado)}`,
+            rawValue: realTotalPagado,
             icon: 'Wallet',
             color: 'purple',
             theme: 'purple'
@@ -3670,8 +4177,8 @@ async function handleBIReport(pool, params) {
           {
             id: 'excedente',
             label: 'Excedente del período',
-            value: `RD$ ${excedentePeriodo.toLocaleString('es-DO')}`,
-            rawValue: excedentePeriodo,
+            value: `RD$ ${formatDOVal(realExcedentePeriodo)}`,
+            rawValue: realExcedentePeriodo,
             icon: 'BarChart3',
             color: 'indigo',
             theme: 'indigo'
@@ -3679,22 +4186,20 @@ async function handleBIReport(pool, params) {
           {
             id: 'pct_excedente',
             label: 'Excedente sobre lo cobrado',
-            value: `${excedentePct}%`,
-            rawValue: excedentePct,
-            subtext: `Por cada RD$100 cobrados, te quedan RD$${excedentePorCadaCien}.`,
-            delta: '+3 puntos porcentuales',
+            value: `${realExcedentePct}%`,
+            rawValue: realExcedentePct,
+            subtext: retencionTexto,
+            delta: deltaVsAnterior,
             deltaSubtext: 'vs. período anterior',
+            deltaDirection: deltaDirection,
             icon: 'Percent',
             color: 'emerald',
             theme: 'emerald'
           }
         ],
         concepts_breakdown: conceptsBreakdown,
-        badges: [
-          { text: 'Sin duplicar pagos', icon: 'ShieldCheck', color: 'blue' },
-          { text: 'Nómina pagada del período', icon: 'Check', color: 'emerald' }
-        ],
-        sources_text: 'Fuentes: Cobros · Egresos · 606 pagado · Plantilla de nómina',
+        badges: badges,
+        sources_text: 'Fuentes: Cobros · DGII 606 pagado · Contabilidad/Egresos · Gastos de caja POS',
         footnote: 'El excedente corresponde a cobros menos pagos del período. No equivale a utilidad contable ni al saldo bancario.'
       };
     } catch (e) {

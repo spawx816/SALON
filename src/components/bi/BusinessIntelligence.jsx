@@ -281,7 +281,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       if (res && Array.isArray(res.kpis)) {
         setReportData(res);
         setReportError(null);
-      } else if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery'].includes(selectedReportId)) {
+      } else if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow'].includes(selectedReportId) && !useSampleData) {
         // En producción: cero datos simulados.
         // Si no se reciben KPIs válidos desde el backend, reflejar error formal y no fallback a mock.
         setReportError(callError?.message || 'No se pudo obtener la información desde el servidor.');
@@ -292,7 +292,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       }
     } catch (err) {
       console.error('Error fetching BI report:', err);
-      if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery'].includes(selectedReportId)) {
+      if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow'].includes(selectedReportId) && !useSampleData) {
         setReportError(err?.message || 'Error de conexión al cargar el reporte desde el servidor.');
         setReportData(null);
       } else {
@@ -1032,6 +1032,67 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             </button>
           </div>
 
+          {/* Error Banner si la llamada al backend falló */}
+          {reportError && (
+            <div style={{
+              background: '#fff1f2',
+              border: '1px solid #fecdd3',
+              borderRadius: '0.75rem',
+              padding: '0.85rem 1.25rem',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+              color: '#9f1239',
+              fontSize: '0.88rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <AlertCircle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
+                <span>{reportError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={loadReport}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  background: '#e11d48',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Reintentar
+              </button>
+            </div>
+          )}
+
+          {/* Advertencia de disponibilidad de fuentes */}
+          {reportData?.warning && (
+            <div style={{
+              background: '#fffbeb',
+              border: '1px solid #fef3c7',
+              borderLeft: '4px solid #f59e0b',
+              borderRadius: '0.75rem',
+              padding: '0.85rem 1.25rem',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              color: '#92400e',
+              fontSize: '0.88rem'
+            }}>
+              <AlertCircle size={20} color="#d97706" style={{ flexShrink: 0 }} />
+              <div>
+                <strong style={{ fontWeight: 700 }}>Advertencia de fuentes: </strong>
+                {reportData.warning}. Para salvaguardar la exactitud financiera, no se presentan totales parciales como definitivos.
+              </div>
+            </div>
+          )}
+
           {/* Título Principal */}
           <h1 style={{
             fontSize: '2.4rem',
@@ -1193,6 +1254,68 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             </button>
           </div>
 
+          {/* Banner de Advertencia de Integridad y Cobertura */}
+          {reportData?.warning && (
+            <div
+              data-testid="cash-flow-partial-warning"
+              style={{
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '1rem',
+                padding: '0.9rem 1.25rem',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                color: '#92400e'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <AlertCircle size={20} color="#d97706" style={{ flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>
+                    {reportData.warning}
+                  </div>
+                  {reportData?.reconciliation_meta?.coverage_status?.pending_items?.length > 0 && (
+                    <div style={{ fontSize: '0.78rem', color: '#b45309', marginTop: '0.15rem' }}>
+                      Movimientos pendientes: {reportData.reconciliation_meta.coverage_status.pending_items.join(' · ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {reportData?.reconciliation_meta?.pending_payroll_amount > 0 && (
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    background: '#fef3c7',
+                    color: '#92400e',
+                    padding: '0.3rem 0.65rem',
+                    borderRadius: '0.5rem',
+                    border: '1px solid #fcd34d'
+                  }}>
+                    Nómina calculada: RD$ {Number(reportData.reconciliation_meta.pending_payroll_amount).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                )}
+                {reportData?.reconciliation_meta?.pending_606_count > 0 && (
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    background: '#fef3c7',
+                    color: '#92400e',
+                    padding: '0.3rem 0.65rem',
+                    borderRadius: '0.5rem',
+                    border: '1px solid #fcd34d'
+                  }}>
+                    {reportData.reconciliation_meta.pending_606_count} compra 606 pendiente
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* 4 KPI Cards (Grid 2x2) */}
           <div style={{
             display: 'grid',
@@ -1229,7 +1352,11 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   Total cobrado
                 </span>
                 <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#1e3a8a', letterSpacing: '-0.02em' }}>
-                  RD$ {(reportData?.total_cobrado !== undefined ? reportData.total_cobrado : 1000000).toLocaleString('es-DO')}
+                  RD$ {(reportData?.total_cobrado !== undefined
+                    ? (reportData.total_cobrado % 1 !== 0
+                        ? reportData.total_cobrado.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : reportData.total_cobrado.toLocaleString('es-DO'))
+                    : (useSampleData ? '1,000,000' : '0'))}
                 </span>
               </div>
             </div>
@@ -1263,7 +1390,11 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   Total pagado
                 </span>
                 <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#3b0764', letterSpacing: '-0.02em' }}>
-                  RD$ {(reportData?.total_pagado !== undefined ? reportData.total_pagado : 750000).toLocaleString('es-DO')}
+                  RD$ {(reportData?.total_pagado !== undefined
+                    ? (reportData.total_pagado % 1 !== 0
+                        ? reportData.total_pagado.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : reportData.total_pagado.toLocaleString('es-DO'))
+                    : (useSampleData ? '750,000' : '0'))}
                 </span>
               </div>
             </div>
@@ -1297,7 +1428,11 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   Excedente del período
                 </span>
                 <span style={{ fontSize: '1.9rem', fontWeight: 800, color: '#1e1b4b', letterSpacing: '-0.02em' }}>
-                  RD$ {(reportData?.excedente_periodo !== undefined ? reportData.excedente_periodo : 250000).toLocaleString('es-DO')}
+                  RD$ {(reportData?.excedente_periodo !== undefined
+                    ? (reportData.excedente_periodo % 1 !== 0
+                        ? reportData.excedente_periodo.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : reportData.excedente_periodo.toLocaleString('es-DO'))
+                    : (useSampleData ? '250,000' : '0'))}
                 </span>
               </div>
             </div>
@@ -1331,27 +1466,29 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   Excedente sobre lo cobrado
                 </span>
                 <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#059669', lineHeight: 1.1, marginBottom: '0.35rem' }}>
-                  {reportData?.excedente_pct !== undefined ? reportData.excedente_pct : 25}%
+                  {reportData?.excedente_pct !== undefined ? reportData.excedente_pct : (useSampleData ? 25 : 0)}%
                 </div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500, marginBottom: '0.5rem' }}>
-                  {reportData?.retencion_desc || 'Por cada RD$100 cobrados, te quedan RD$25.'}
+                  {reportData?.retencion_desc || (useSampleData ? 'Por cada RD$100 cobrados, te quedan RD$25.' : ((reportData?.total_cobrado || 0) > 0 ? `Por cada RD$100 cobrados, te quedan RD$${Math.round(((reportData?.excedente_periodo || 0) / (reportData?.total_cobrado || 1)) * 100)}.` : 'Sin cobros registrados en el período.'))}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                  <span style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.2rem',
-                    padding: '0.15rem 0.55rem',
-                    borderRadius: '0.35rem',
-                    background: '#dcfce7',
-                    color: '#15803d',
-                    fontSize: '0.74rem',
-                    fontWeight: 700
-                  }}>
-                    ↑ 3 puntos porcentuales
-                  </span>
+                  {reportData?.delta_vs_anterior && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.2rem',
+                      padding: '0.15rem 0.55rem',
+                      borderRadius: '0.35rem',
+                      background: reportData.delta_direction === 'up' ? '#dcfce7' : (reportData.delta_direction === 'down' ? '#fee2e2' : '#f1f5f9'),
+                      color: reportData.delta_direction === 'up' ? '#15803d' : (reportData.delta_direction === 'down' ? '#b91c1c' : '#475569'),
+                      fontSize: '0.74rem',
+                      fontWeight: 700
+                    }}>
+                      {reportData.delta_vs_anterior}
+                    </span>
+                  )}
                   <span style={{ fontSize: '0.74rem', color: '#94a3b8', fontWeight: 500 }}>
-                    vs. período anterior
+                    {reportData?.delta_subtext || 'vs. período anterior'}
                   </span>
                 </div>
               </div>
@@ -1406,83 +1543,109 @@ export const BusinessIntelligence = ({ standalone = true }) => {
 
             {/* Lista de Filas con Barras Horizontales */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {(reportData?.concepts_breakdown || [
-                { concept: 'Nómina', amount: 300000, percentage: 40.0, bar_pct: 40.0 },
-                { concept: 'Mercancías e insumos', amount: 150000, percentage: 20.0, bar_pct: 20.0 },
-                { concept: 'Alquileres', amount: 100000, percentage: 13.3, bar_pct: 13.3 },
-                { concept: 'Préstamos', amount: 80000, percentage: 10.7, bar_pct: 10.7 },
-                { concept: 'TSS', amount: 60000, percentage: 8.0, bar_pct: 8.0 },
-                { concept: 'Energía eléctrica', amount: 40000, percentage: 5.3, bar_pct: 5.3 },
-                { concept: 'Otros pagos', amount: 20000, percentage: 2.7, bar_pct: 2.7 }
-              ]).map((item, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '1.25rem'
-                  }}
-                >
-                  {/* Nombre del Concepto */}
-                  <div style={{
-                    width: '180px',
-                    fontSize: '0.92rem',
-                    fontWeight: 600,
-                    color: '#1e293b',
-                    flexShrink: 0
-                  }}>
-                    {item.concept}
-                  </div>
+              {(() => {
+                const breakdownItems = reportData?.concepts_breakdown || (useSampleData ? [
+                  { concept: 'Nómina', amount: 300000, percentage: 40.0, bar_pct: 40.0 },
+                  { concept: 'Mercancías e insumos', amount: 150000, percentage: 20.0, bar_pct: 20.0 },
+                  { concept: 'Alquileres', amount: 100000, percentage: 13.3, bar_pct: 13.3 },
+                  { concept: 'Préstamos', amount: 80000, percentage: 10.7, bar_pct: 10.7 },
+                  { concept: 'TSS', amount: 60000, percentage: 8.0, bar_pct: 8.0 },
+                  { concept: 'Energía eléctrica', amount: 40000, percentage: 5.3, bar_pct: 5.3 },
+                  { concept: 'Otros pagos', amount: 20000, percentage: 2.7, bar_pct: 2.7 }
+                ] : []);
 
-                  {/* Barra de Progreso Azul Proporcional */}
-                  <div style={{
-                    flex: 1,
-                    height: '18px',
-                    borderRadius: '0.4rem',
-                    background: '#f1f5f9',
-                    overflow: 'hidden',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}>
+                if (breakdownItems.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#94a3b8', fontSize: '0.9rem' }}>
+                      No se registraron desembolsos ni egresos para los filtros seleccionados en este período.
+                    </div>
+                  );
+                }
+
+                return breakdownItems.map((item, idx) => {
+                  const isLoan = item.concept.toLowerCase().includes('préstamo') || item.concept.toLowerCase().includes('prestamo');
+                  const hasLoanBreakdown = isLoan && reportData?.loans_detail && (
+                    Number(reportData.loans_detail.total_capital || 0) > 0 ||
+                    Number(reportData.loans_detail.total_interest || 0) > 0
+                  );
+
+                  return (
                     <div
+                      key={idx}
                       style={{
-                        height: '100%',
-                        width: `${Math.min(Math.max(item.bar_pct || item.percentage || 0, 1), 100)}%`,
-                        background: '#3b82f6',
-                        borderRadius: '0.4rem',
-                        transition: 'width 0.4s ease'
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '1.25rem'
                       }}
-                    />
-                  </div>
+                    >
+                      {/* Nombre del Concepto */}
+                      <div style={{
+                        width: '180px',
+                        fontSize: '0.92rem',
+                        fontWeight: 600,
+                        color: '#1e293b',
+                        flexShrink: 0
+                      }}>
+                        <div>{item.concept}</div>
+                        {hasLoanBreakdown && (
+                          <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.2rem', fontWeight: 500 }}>
+                            Cap: RD$ {Number(reportData.loans_detail.total_capital || 0).toLocaleString('es-DO')} · Int: RD$ {Number(reportData.loans_detail.total_interest || 0).toLocaleString('es-DO')}
+                            {Number(reportData.loans_detail.total_charges || 0) > 0 ? ` · Cargos: RD$ ${Number(reportData.loans_detail.total_charges).toLocaleString('es-DO')}` : ''}
+                          </div>
+                        )}
+                      </div>
 
-                  {/* Monto y Porcentaje */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '2.5rem',
-                    fontSize: '0.92rem',
-                    flexShrink: 0
-                  }}>
-                    <span style={{
-                      width: '120px',
-                      textAlign: 'right',
-                      fontWeight: 700,
-                      color: '#0f172a'
-                    }}>
-                      RD$ {(item.amount || 0).toLocaleString('es-DO')}
-                    </span>
-                    <span style={{
-                      width: '120px',
-                      textAlign: 'right',
-                      fontWeight: 500,
-                      color: '#64748b'
-                    }}>
-                      {(item.percentage || 0).toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
+                      {/* Barra de Progreso Azul Proporcional */}
+                      <div style={{
+                        flex: 1,
+                        height: '18px',
+                        borderRadius: '0.4rem',
+                        background: '#f1f5f9',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}>
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${Math.min(Math.max(item.bar_pct || item.percentage || 0, (item.amount > 0 ? 1 : 0)), 100)}%`,
+                            background: '#3b82f6',
+                            borderRadius: '0.4rem',
+                            transition: 'width 0.4s ease'
+                          }}
+                        />
+                      </div>
+
+                      {/* Monto y Porcentaje */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '2.5rem',
+                        fontSize: '0.92rem',
+                        flexShrink: 0
+                      }}>
+                        <span style={{
+                          width: '120px',
+                          textAlign: 'right',
+                          fontWeight: 700,
+                          color: '#0f172a'
+                        }}>
+                          RD$ {(item.amount || 0).toLocaleString('es-DO')}
+                        </span>
+                        <span style={{
+                          width: '120px',
+                          textAlign: 'right',
+                          fontWeight: 500,
+                          color: '#64748b'
+                        }}>
+                          {(item.percentage || 0).toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
             {/* Footer de la tarjeta con fuentes y etiquetas */}
@@ -1497,7 +1660,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
               gap: '1rem'
             }}>
               <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
-                {reportData?.sources_text || 'Fuentes: Cobros · Egresos · 606 pagado · Plantilla de nómina'}
+                {reportData?.sources_text || 'Fuentes: Cobros · DGII 606 pagado · Contabilidad/Egresos'}
               </span>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -1530,11 +1693,158 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   fontWeight: 600
                 }}>
                   <Check size={14} color="#16a34a" />
-                  <span>Nómina pagada del período</span>
+                  <span>{reportData?.reconciliation_meta?.nomina_source || 'Nómina pagada del período'}</span>
                 </span>
+
+                {reportData?.reconciliation_meta?.reconciled_606_count > 0 && (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    padding: '0.35rem 0.85rem',
+                    borderRadius: '9999px',
+                    background: '#faf5ff',
+                    border: '1px solid #e9d5ff',
+                    color: '#7e22ce',
+                    fontSize: '0.78rem',
+                    fontWeight: 600
+                  }}>
+                    <span>{reportData.reconciliation_meta.reconciled_606_count} compras 606 conciliadas en Egresos</span>
+                  </span>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Panel de Conciliación Financiera y Auditoría de Fuentes */}
+          {reportData?.reconciliation_meta && (
+            <div
+              data-testid="cash-flow-reconciliation-panel"
+              style={{
+                background: '#ffffff',
+                borderRadius: '1.25rem',
+                padding: '1.75rem',
+                border: '1px solid #f1f5f9',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                marginBottom: '1.5rem'
+              }}
+            >
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '0.5rem',
+                paddingBottom: '1rem',
+                borderBottom: '1px solid #f8fafc',
+                marginBottom: '1.25rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <Shield size={20} color="#2563eb" />
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                    Conciliación Financiera y Auditoría de Fuentes
+                  </h3>
+                </div>
+                <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>
+                  Principio de prudencia financiera: Cobros netos vs. Desembolsos verificados
+                </span>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: '1rem'
+              }}>
+                {/* 1. Movimientos Efectivos Conciliados */}
+                <div style={{
+                  background: '#f8fafc',
+                  borderRadius: '0.85rem',
+                  padding: '1.15rem',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.65rem' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>
+                      1. Movimientos Efectivos Conciliados
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: 1.6 }}>
+                    <div>• <strong>Cobros netos en caja/banco:</strong> RD$ {Number(reportData.total_cobrado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    <div>• <strong>Total pagado registrado:</strong> RD$ {Number(reportData.total_pagado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                    {reportData.reconciliation_meta.cash_register_expenses_amount > 0 && (
+                      <div style={{ fontSize: '0.74rem', color: '#475569', marginLeft: '0.65rem' }}>
+                        ↳ Incluye {reportData.reconciliation_meta.cash_register_expenses_count} gastos de caja POS por RD$ {Number(reportData.reconciliation_meta.cash_register_expenses_amount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                      </div>
+                    )}
+                    <div>• <strong>Excedente registrado:</strong> RD$ {Number(reportData.excedente_periodo || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({reportData.excedente_pct}%)</div>
+                    {reportData.reconciliation_meta.excluded_colab_nomina_amount > 0 && (
+                      <div style={{ marginTop: '0.5rem', padding: '0.4rem 0.6rem', background: '#f1f5f9', borderRadius: '0.4rem', color: '#475569', fontSize: '0.74rem' }}>
+                        * Excluidos <strong>RD$ {Number(reportData.reconciliation_meta.excluded_colab_nomina_amount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong> ({reportData.reconciliation_meta.excluded_colab_nomina_count} consumos) de colaboradoras por deducirse vía nómina.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Movimientos Pendientes de Conciliación */}
+                <div style={{
+                  background: '#fffbeb',
+                  borderRadius: '0.85rem',
+                  padding: '1.15rem',
+                  border: '1px solid #fde68a'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.65rem' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#92400e' }}>
+                      2. Pendientes de Conciliación
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#78350f', lineHeight: 1.6 }}>
+                    {reportData.reconciliation_meta.pending_606_count > 0 && (
+                      <div>• <strong>DGII 606 sin desembolso comprobado:</strong> {reportData.reconciliation_meta.pending_606_count} compra (RD$ {Number(reportData.reconciliation_meta.pending_606_amount || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })})</div>
+                    )}
+                    {reportData.reconciliation_meta.pending_payroll_amount > 0 && (
+                      <div style={{ marginTop: '0.35rem' }}>
+                        • <strong>Nómina calculada en plantilla:</strong> {reportData.reconciliation_meta.pending_payroll_periods_count || 2} períodos calculados (RD$ {Number(reportData.reconciliation_meta.pending_payroll_amount).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) pendientes de soporte de desembolso bancario.
+                      </div>
+                    )}
+                    {reportData.reconciliation_meta.pending_606_items?.map((it, idx) => (
+                      <div key={idx} style={{ marginTop: '0.35rem', padding: '0.4rem 0.6rem', background: '#fef3c7', borderRadius: '0.4rem', fontSize: '0.73rem', color: '#92400e' }}>
+                        <div><strong>{it.proveedor}</strong> (NCF {it.ncf}): RD$ {Number(it.monto_efectivo || it.total_facturado).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</div>
+                        <div style={{ fontSize: '0.7rem', color: '#b45309' }}>Motivo: {it.motivo}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Flujo Completo vs. Registrado */}
+                <div style={{
+                  background: '#f8fafc',
+                  borderRadius: '0.85rem',
+                  padding: '1.15rem',
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.65rem' }}>
+                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6366f1' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#3730a3' }}>
+                      3. Excedente Registrado vs. Completo
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: 1.6 }}>
+                    <div>• <strong>Excedente registrado en sistema:</strong> RD$ {Number(reportData.excedente_periodo || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({reportData.excedente_pct}%)</div>
+                    {reportData.reconciliation_meta.flujo_completo_conciliado !== undefined && (
+                      <div style={{ marginTop: '0.35rem' }}>
+                        • <strong>Flujo completo proyectado:</strong> RD$ {Number(reportData.reconciliation_meta.flujo_completo_conciliado || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({reportData.reconciliation_meta.flujo_completo_pct}%)
+                        <div style={{ fontSize: '0.72rem', color: '#64748b' }}>(al deducir la nómina calculada de plantilla)</div>
+                      </div>
+                    )}
+                    <div style={{ marginTop: '0.35rem', padding: '0.4rem 0.6rem', background: '#f1f5f9', borderRadius: '0.4rem', fontSize: '0.72rem', color: '#64748b' }}>
+                      Alquileres, TSS y Electricidad ejecutados fuera del sistema o pendientes de migración contable.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Nota al Pie Explicativa Metodológica */}
           <div style={{
