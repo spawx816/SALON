@@ -1070,29 +1070,6 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             </div>
           )}
 
-          {/* Advertencia de disponibilidad de fuentes */}
-          {reportData?.warning && (
-            <div style={{
-              background: '#fffbeb',
-              border: '1px solid #fef3c7',
-              borderLeft: '4px solid #f59e0b',
-              borderRadius: '0.75rem',
-              padding: '0.85rem 1.25rem',
-              marginBottom: '1.25rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              color: '#92400e',
-              fontSize: '0.88rem'
-            }}>
-              <AlertCircle size={20} color="#d97706" style={{ flexShrink: 0 }} />
-              <div>
-                <strong style={{ fontWeight: 700 }}>Advertencia de fuentes: </strong>
-                {reportData.warning}. Para salvaguardar la exactitud financiera, no se presentan totales parciales como definitivos.
-              </div>
-            </div>
-          )}
-
           {/* Título Principal */}
           <h1 style={{
             fontSize: '2.4rem',
@@ -1126,7 +1103,10 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                 <input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    setPeriod('custom');
+                  }}
                   style={{
                     width: '100%',
                     padding: '0.55rem 0.75rem 0.55rem 2.25rem',
@@ -1150,7 +1130,10 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                 <input
                   type="date"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    setPeriod('custom');
+                  }}
                   style={{
                     width: '100%',
                     padding: '0.55rem 0.75rem 0.55rem 2.25rem',

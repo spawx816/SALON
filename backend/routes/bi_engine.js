@@ -21,6 +21,7 @@ async function handleBIReport(pool, params) {
     membership = 'all',
     daysInactive = 15,
     cancellationReason = 'Todos los motivos',
+    employeeId = 'all',
     timeGrain = 'daily'
   } = params;
 
@@ -4205,6 +4206,778 @@ async function handleBIReport(pool, params) {
     } catch (e) {
       console.warn('DB error in cash_flow:', e.message);
       throw e;
+    }
+  }
+
+  // ============================================================================
+  // 18.B INGRESOS VS. COMISIONES (income_vs_commissions)
+  // ============================================================================
+  if (reportId === 'income_vs_commissions') {
+    try {
+      const [salesRows] = await pool.query(`
+        SELECT
+          COALESCE(s.name, 'Abatte Peluquería San Vicente') as sucursal,
+          v.salon_id,
+          COUNT(v.id) as facturas,
+          COALESCE(SUM(v.total), 0) as ingresos
+        FROM visits v
+        LEFT JOIN salons s ON v.salon_id = s.id
+        WHERE v.visited_at >= ? AND v.visited_at <= ?
+          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada', 'Pendiente', 'Procesando')
+          ${salonFilterVis}
+        GROUP BY v.salon_id, s.name
+      `, visParams);
+
+      let commSalonFilter = '';
+      const commParams = [startDateTime, endDateTime];
+      if (salonId !== 'all') {
+        commSalonFilter = 'AND (v.salon_id = ? OR sr.salon_id = ?)';
+        commParams.push(salonId, salonId);
+      }
+
+      const [commByBranch] = await pool.query(`
+        SELECT
+          COALESCE(s.name, ecl.localidad, 'Abatte Peluquería San Vicente') as sucursal,
+          COUNT(ecl.id) as items_comisionados,
+          COALESCE(SUM(ecl.monto_base), 0) as base_comisionable,
+          COALESCE(SUM(ecl.monto_comision), 0) as comisiones
+        FROM employee_commissions_log ecl
+        LEFT JOIN visits v ON ecl.visit_id COLLATE utf8mb4_unicode_ci = v.id COLLATE utf8mb4_unicode_ci
+        LEFT JOIN staff_records sr ON sr.id = CAST(REPLACE(ecl.employee_id, 'EMP-', '') AS UNSIGNED)
+        LEFT JOIN salons s ON COALESCE(v.salon_id, sr.salon_id) = s.id
+        WHERE COALESCE(v.visited_at, ecl.created_at) >= ? AND COALESCE(v.visited_at, ecl.created_at) <= ?
+          AND (v.id IS NULL OR v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada'))
+          AND (ecl.status IS NULL OR ecl.status NOT IN ('Anulado', 'Cancelado'))
+          ${commSalonFilter}
+        GROUP BY COALESCE(s.name, ecl.localidad, 'Abatte Peluquería San Vicente')
+      `, commParams);
+
+      const [commByEmployee] = await pool.query(`
+        SELECT
+          ecl.employee_id,
+          COALESCE(sr.nombre, ecl.employee_name, 'Colaboradora') as colaborador,
+          COALESCE(sr.posicion, 'Especialista') as posicion,
+          COALESCE(s.name, ecl.localidad, 'Abatte Peluquería San Vicente') as sucursal,
+          COUNT(ecl.id) as servicios,
+          COALESCE(SUM(ecl.monto_base), 0) as base_generada,
+          COALESCE(SUM(ecl.monto_comision), 0) as comision_generada
+        FROM employee_commissions_log ecl
+        LEFT JOIN visits v ON ecl.visit_id COLLATE utf8mb4_unicode_ci = v.id COLLATE utf8mb4_unicode_ci
+        LEFT JOIN staff_records sr ON sr.id = CAST(REPLACE(ecl.employee_id, 'EMP-', '') AS UNSIGNED)
+        LEFT JOIN salons s ON COALESCE(v.salon_id, sr.salon_id) = s.id
+        WHERE COALESCE(v.visited_at, ecl.created_at) >= ? AND COALESCE(v.visited_at, ecl.created_at) <= ?
+          AND (v.id IS NULL OR v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada'))
+          AND (ecl.status IS NULL OR ecl.status NOT IN ('Anulado', 'Cancelado'))
+          ${commSalonFilter}
+        GROUP BY ecl.employee_id, sr.nombre, ecl.employee_name, sr.posicion, s.name, ecl.localidad
+        ORDER BY comision_generada DESC
+      `, commParams);
+
+      const totalIngresos = salesRows.reduce((acc, r) => acc + Number(r.ingresos || 0), 0);
+      const totalFacturas = salesRows.reduce((acc, r) => acc + Number(r.facturas || 0), 0);
+      const totalComisiones = commByBranch.reduce((acc, r) => acc + Number(r.comisiones || 0), 0);
+      const totalServiciosComisionados = commByBranch.reduce((acc, r) => acc + Number(r.items_comisionados || 0), 0);
+      const margenBruto = Math.round((totalIngresos - totalComisiones) * 100) / 100;
+      const pctComision = totalIngresos > 0 ? Number(((totalComisiones / totalIngresos) * 100).toFixed(1)) : 0;
+
+      // Consolidar por sucursal
+      const branchMap = new Map();
+      for (const r of salesRows) {
+        branchMap.set(r.sucursal, {
+          sucursal: r.sucursal,
+          facturas: Number(r.facturas || 0),
+          ingresos: Number(r.ingresos || 0),
+          comisiones: 0
+        });
+      }
+      for (const c of commByBranch) {
+        const cur = branchMap.get(c.sucursal) || { sucursal: c.sucursal, facturas: 0, ingresos: 0, comisiones: 0 };
+        cur.comisiones += Number(c.comisiones || 0);
+        branchMap.set(c.sucursal, cur);
+      }
+
+      const summaryRows = Array.from(branchMap.values()).map(b => {
+        const margen = Math.round((b.ingresos - b.comisiones) * 100) / 100;
+        const pct = b.ingresos > 0 ? `${((b.comisiones / b.ingresos) * 100).toFixed(1)}%` : '0.0%';
+        return {
+          sucursal: b.sucursal,
+          facturas: b.facturas,
+          ingresos: Math.round(b.ingresos),
+          comisiones: Math.round(b.comisiones),
+          pct_comision: pct,
+          margen_bruto: Math.round(margen)
+        };
+      });
+
+      const employeeRows = commByEmployee.map(e => {
+        const base = Number(e.base_generada || 0);
+        const com = Number(e.comision_generada || 0);
+        const pct = base > 0 ? `${((com / base) * 100).toFixed(1)}%` : '0.0%';
+        return {
+          colaborador: e.colaborador,
+          posicion: e.posicion,
+          sucursal: e.sucursal,
+          servicios: Number(e.servicios || 0),
+          base_generada: Math.round(base),
+          comision_generada: Math.round(com),
+          pct_efectivo: pct,
+          margen_aportado: Math.round(base - com)
+        };
+      });
+
+      return {
+        title: 'Ingresos vs. comisiones',
+        periodText: `${start} al ${end}`,
+        alertInfo: 'Ingresos menos comisiones se rotula estrictamente como margen bruto antes de gastos fijos; no equivale a utilidad neta.',
+        kpis: [
+          {
+            label: 'Ingresos facturados',
+            value: `RD$ ${Math.round(totalIngresos).toLocaleString('es-DO')}`,
+            subtext: `${totalFacturas} facturas válidas`,
+            icon: 'trending',
+            color: 'emerald'
+          },
+          {
+            label: 'Comisiones generadas',
+            value: `RD$ ${Math.round(totalComisiones).toLocaleString('es-DO')}`,
+            subtext: `${totalServiciosComisionados} servicios comisionados`,
+            icon: 'dollar',
+            color: 'blue'
+          },
+          {
+            label: '% Comisión s/ ingresos',
+            value: `${pctComision}%`,
+            subtext: `RD$ ${pctComision} por cada RD$100 facturados`,
+            icon: 'tag',
+            color: 'purple'
+          },
+          {
+            label: 'Margen bruto (antes de gastos fijos)',
+            value: `RD$ ${Math.round(margenBruto).toLocaleString('es-DO')}`,
+            subtext: 'No equivale a utilidad neta',
+            icon: 'receipt',
+            color: 'indigo'
+          }
+        ],
+        chart: {
+          type: 'bar',
+          title: 'Comisiones generadas por colaboradora (Top 10)',
+          data: employeeRows.slice(0, 10).map(e => ({
+            label: e.colaborador,
+            value: e.comision_generada,
+            displayValue: `RD$ ${e.comision_generada.toLocaleString('es-DO')}`
+          }))
+        },
+        summaryTable: {
+          title: 'Resumen consolidado por sucursal',
+          badgeText: `${summaryRows.length} sucursales`,
+          columns: [
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'facturas', label: 'Facturas', align: 'center' },
+            { key: 'ingresos', label: 'Ingresos Facturados', isCurrency: true },
+            { key: 'comisiones', label: 'Comisiones Generadas', isCurrency: true },
+            { key: 'pct_comision', label: '% s/ Ingresos', align: 'center' },
+            { key: 'margen_bruto', label: 'Margen Bruto (Antes Gastos Fijos)', isCurrency: true }
+          ],
+          rows: summaryRows,
+          footerNote: 'Excluye facturas anuladas. El margen bruto antes de gastos fijos descuenta únicamente las comisiones directas del servicio.'
+        },
+        table: {
+          title: 'Desglose de ingresos y comisiones por colaboradora',
+          badgeText: `${employeeRows.length} colaboradoras`,
+          columns: [
+            { key: 'colaborador', label: 'Colaboradora' },
+            { key: 'posicion', label: 'Posición' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'servicios', label: 'Servicios', align: 'center' },
+            { key: 'base_generada', label: 'Monto Base Servicio', isCurrency: true },
+            { key: 'comision_generada', label: 'Comisión Generada', isCurrency: true },
+            { key: 'pct_efectivo', label: '% Comisión', align: 'center' },
+            { key: 'margen_aportado', label: 'Margen Bruto Aportado', isCurrency: true }
+          ],
+          rows: employeeRows,
+          footerNote: 'Ingresos menos comisiones corresponde a margen bruto operativo antes de gastos fijos.'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in income_vs_commissions:', e.message);
+    }
+  }
+
+  // ============================================================================
+  // 18.C INGRESOS VS. NÓMINA TOTAL (income_vs_payroll)
+  // ============================================================================
+  if (reportId === 'income_vs_payroll') {
+    try {
+      const [salesTotalRows] = await pool.query(`
+        SELECT COALESCE(SUM(v.total), 0) as total_ingresos_ventas
+        FROM visits v
+        WHERE v.visited_at >= ? AND v.visited_at <= ?
+          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada', 'Pendiente', 'Procesando')
+          ${salonFilterVis}
+      `, visParams);
+
+      const [membPaymentsRows] = await pool.query(`
+        SELECT COALESCE(SUM(p.amount), 0) as total_membresias
+        FROM payments p
+        LEFT JOIN clients cl ON p.client_id = cl.id
+        WHERE p.created_at >= ? AND p.created_at <= ?
+          AND p.status = 'Aprobado'
+          ${salonFilterPay}
+      `, payParams);
+
+      const ingresosOperativos = Number(salesTotalRows[0]?.total_ingresos_ventas || 0) + Number(membPaymentsRows[0]?.total_membresias || 0);
+
+      let paySalonFilter = '';
+      const payItemParams = [end, start];
+      if (salonId !== 'all') {
+        const [sRow] = await pool.query('SELECT name FROM salons WHERE id = ?', [salonId]);
+        const salonName = sRow[0]?.name || '';
+        paySalonFilter = 'AND (sr.salon_id = ? OR pi.sucursal COLLATE utf8mb4_unicode_ci = ?)';
+        payItemParams.push(salonId, salonName);
+      }
+
+      // Buscar quincenas reales (excluyendo periodos de prueba/test y duplicados en preparación sobre la misma quincena)
+      const [payrollItemsRows] = await pool.query(`
+        SELECT
+          pi.employee_id,
+          pi.employee_name as colaborador,
+          COALESCE(pi.posicion, sr.posicion, 'Colaborador') as posicion,
+          COALESCE(pi.sucursal, sr.localidad, 'Abatte Peluquería San Vicente') as sucursal,
+          COUNT(DISTINCT pp.id) as quincenas,
+          COALESCE(SUM(pi.salario_fijo), 0) as sueldo_fijo,
+          COALESCE(SUM(pi.comisiones), 0) as comisiones,
+          COALESCE(SUM(pi.horas_extras + pi.feriados), 0) as horas_extras_feriados,
+          COALESCE(SUM(pi.otros_ingresos + COALESCE(pi.descanso, 0)), 0) as bonos_otros,
+          COALESCE(SUM(pi.total_ingresos), 0) as total_devengado,
+          COALESCE(SUM(pi.total_descuentos), 0) as total_descuentos,
+          COALESCE(SUM(pi.neto_pagar), 0) as neto_pagar
+        FROM payroll_items pi
+        INNER JOIN payroll_periods pp ON pi.payroll_id = pp.id
+        LEFT JOIN staff_records sr ON sr.id = CAST(REPLACE(pi.employee_id, 'EMP-', '') AS UNSIGNED)
+        WHERE pp.start_date <= ? AND pp.end_date >= ?
+          AND LOWER(pp.period_name) NOT LIKE '%test%'
+          AND LOWER(pp.period_name) NOT LIKE '%prueba%'
+          AND pp.id IN (
+            SELECT MIN(p2.id)
+            FROM payroll_periods p2
+            WHERE LOWER(p2.period_name) NOT LIKE '%test%'
+              AND LOWER(p2.period_name) NOT LIKE '%prueba%'
+            GROUP BY p2.start_date, p2.end_date
+          )
+          ${paySalonFilter}
+        GROUP BY pi.employee_id, pi.employee_name, pi.posicion, sr.posicion, pi.sucursal, sr.localidad
+        ORDER BY total_devengado DESC
+      `, payItemParams);
+
+      const totalSueldos = payrollItemsRows.reduce((s, r) => s + Number(r.sueldo_fijo || 0), 0);
+      const totalComisiones = payrollItemsRows.reduce((s, r) => s + Number(r.comisiones || 0), 0);
+      const totalExtras = payrollItemsRows.reduce((s, r) => s + Number(r.horas_extras_feriados || 0), 0);
+      const totalBonos = payrollItemsRows.reduce((s, r) => s + Number(r.bonos_otros || 0), 0);
+      const totalNominaBruta = payrollItemsRows.reduce((s, r) => s + Number(r.total_devengado || 0), 0);
+      const totalNominaNeta = payrollItemsRows.reduce((s, r) => s + Number(r.neto_pagar || 0), 0);
+
+      const pesoNominaPor100 = ingresosOperativos > 0 ? Number(((totalNominaBruta / ingresosOperativos) * 100).toFixed(1)) : 0;
+      const excedenteTrasNomina = ingresosOperativos - totalNominaBruta;
+
+      return {
+        title: 'Ingresos vs. nómina total',
+        periodText: `${start} al ${end}`,
+        alertInfo: `Por cada RD$100 de ingresos operativos en el período, la nómina bruta representa RD$${pesoNominaPor100}.`,
+        kpis: [
+          {
+            label: 'Ingresos del período',
+            value: `RD$ ${Math.round(ingresosOperativos).toLocaleString('es-DO')}`,
+            subtext: 'Ventas + cobros de membresías',
+            icon: 'trending',
+            color: 'emerald'
+          },
+          {
+            label: 'Nómina total devengada',
+            value: `RD$ ${Math.round(totalNominaBruta).toLocaleString('es-DO')}`,
+            subtext: `Neto a pagar: RD$ ${Math.round(totalNominaNeta).toLocaleString('es-DO')}`,
+            icon: 'dollar',
+            color: 'blue'
+          },
+          {
+            label: 'Peso s/ cada RD$100',
+            value: `RD$ ${pesoNominaPor100}`,
+            subtext: `${pesoNominaPor100}% sobre los ingresos`,
+            icon: 'tag',
+            color: 'purple'
+          },
+          {
+            label: 'Remanente tras nómina',
+            value: `RD$ ${Math.round(excedenteTrasNomina).toLocaleString('es-DO')}`,
+            subtext: 'Antes de alquileres e insumos',
+            icon: 'receipt',
+            color: 'indigo'
+          }
+        ],
+        chart: {
+          type: 'bar',
+          title: 'Composición de la nómina del período',
+          data: [
+            { label: 'Sueldos Fijos', value: Math.round(totalSueldos), displayValue: `RD$ ${Math.round(totalSueldos).toLocaleString('es-DO')}` },
+            { label: 'Comisiones', value: Math.round(totalComisiones), displayValue: `RD$ ${Math.round(totalComisiones).toLocaleString('es-DO')}` },
+            { label: 'Horas Extras y Feriados', value: Math.round(totalExtras), displayValue: `RD$ ${Math.round(totalExtras).toLocaleString('es-DO')}` },
+            { label: 'Bonos y Otros', value: Math.round(totalBonos), displayValue: `RD$ ${Math.round(totalBonos).toLocaleString('es-DO')}` }
+          ]
+        },
+        table: {
+          title: 'Desglose de nómina por colaborador en el período',
+          badgeText: `${payrollItemsRows.length} colaboradores`,
+          columns: [
+            { key: 'colaborador', label: 'Colaborador' },
+            { key: 'posicion', label: 'Posición' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'sueldo_fijo', label: 'Sueldo Fijo', isCurrency: true },
+            { key: 'comisiones', label: 'Comisiones', isCurrency: true },
+            { key: 'horas_extras_feriados', label: 'Horas Extras / Feriados', isCurrency: true },
+            { key: 'bonos_otros', label: 'Bonos / Otros', isCurrency: true },
+            { key: 'total_devengado', label: 'Total Devengado', isCurrency: true },
+            { key: 'neto_pagar', label: 'Neto a Pagar', isCurrency: true }
+          ],
+          rows: payrollItemsRows.map(r => ({
+            colaborador: r.colaborador,
+            posicion: r.posicion,
+            sucursal: r.sucursal,
+            sueldo_fijo: Math.round(Number(r.sueldo_fijo || 0)),
+            comisiones: Math.round(Number(r.comisiones || 0)),
+            horas_extras_feriados: Math.round(Number(r.horas_extras_feriados || 0)),
+            bonos_otros: Math.round(Number(r.bonos_otros || 0)),
+            total_devengado: Math.round(Number(r.total_devengado || 0)),
+            neto_pagar: Math.round(Number(r.neto_pagar || 0))
+          })),
+          footerNote: 'Consolida las quincenas oficiales del período (excluyendo plantillas de prueba).'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in income_vs_payroll:', e.message);
+    }
+  }
+
+  // ============================================================================
+  // 18.D PRODUCTIVIDAD POR EMPLEADO (employee_productivity)
+  // ============================================================================
+  if (reportId === 'employee_productivity') {
+    try {
+      let empFilterSql = '';
+      const prodParams = [startDateTime, endDateTime, startDateTime, endDateTime];
+      if (salonId !== 'all') {
+        empFilterSql += ' AND sr.salon_id = ?';
+        prodParams.push(salonId);
+      }
+      if (employeeId && employeeId !== 'all') {
+        empFilterSql += ' AND sr.id = ?';
+        prodParams.push(String(employeeId).replace('EMP-', ''));
+      }
+
+      const [prodRows] = await pool.query(`
+        SELECT
+          sr.id as employee_id,
+          sr.nombre as colaborador,
+          COALESCE(sr.posicion, 'Especialista') as posicion,
+          COALESCE(s.name, sr.localidad, 'Abatte Peluquería San Vicente') as sucursal,
+          COALESCE(comm.servicios_realizados, 0) as servicios_realizados,
+          COALESCE(comm.unidades_totales, 0) as unidades_totales,
+          COALESCE(comm.ingresos_atribuibles, 0) as ingresos_atribuibles,
+          COALESCE(comm.comision_generada, 0) as comision_generada,
+          COALESCE(att.dias_asistidos, 0) as dias_asistidos,
+          COALESCE(att.minutos_extra, 0) as minutos_extra,
+          COALESCE(att.minutos_tardanza, 0) as minutos_tardanza
+        FROM staff_records sr
+        LEFT JOIN salons s ON sr.salon_id = s.id
+        LEFT JOIN (
+          SELECT
+            CAST(REPLACE(ecl.employee_id, 'EMP-', '') AS UNSIGNED) as emp_id,
+            COUNT(ecl.id) as servicios_realizados,
+            COALESCE(SUM(ecl.cantidad), COUNT(ecl.id)) as unidades_totales,
+            COALESCE(SUM(ecl.monto_base), 0) as ingresos_atribuibles,
+            COALESCE(SUM(ecl.monto_comision), 0) as comision_generada
+          FROM employee_commissions_log ecl
+          LEFT JOIN visits v ON ecl.visit_id COLLATE utf8mb4_unicode_ci = v.id COLLATE utf8mb4_unicode_ci
+          WHERE COALESCE(v.visited_at, ecl.created_at) >= ? AND COALESCE(v.visited_at, ecl.created_at) <= ?
+            AND (v.id IS NULL OR v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada'))
+            AND (ecl.status IS NULL OR ecl.status NOT IN ('Anulado', 'Cancelado'))
+          GROUP BY CAST(REPLACE(ecl.employee_id, 'EMP-', '') AS UNSIGNED)
+        ) comm ON sr.id = comm.emp_id
+        LEFT JOIN (
+          SELECT
+            CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED) as emp_id,
+            COUNT(DISTINCT CASE WHEN a.type = 'Check-In' THEN DATE(a.timestamp) END) as dias_asistidos,
+            COALESCE(SUM(CASE WHEN a.type = 'Check-Out' THEN a.extra_minutes ELSE 0 END), 0) as minutos_extra,
+            COALESCE(SUM(CASE WHEN a.type = 'Check-In' THEN a.lateness_minutes ELSE 0 END), 0) as minutos_tardanza
+          FROM attendance a
+          WHERE a.timestamp >= ? AND a.timestamp <= ?
+          GROUP BY CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED)
+        ) att ON sr.id = att.emp_id
+        WHERE sr.status = 'Activo'
+          ${empFilterSql}
+        ORDER BY ingresos_atribuibles DESC, dias_asistidos DESC
+      `, prodParams);
+
+      const formattedRows = prodRows.map(r => {
+        const dias = Number(r.dias_asistidos || 0);
+        const minExtra = Number(r.minutos_extra || 0);
+        const minTarde = Number(r.minutos_tardanza || 0);
+        // Cada jornada estándar neta son 8 horas (480 min) más extras menos tardanzas
+        const horasTrabajadas = dias > 0
+          ? Math.max(1, Number(((dias * 480 + minExtra - minTarde) / 60).toFixed(1)))
+          : 0;
+        const ingresos = Number(r.ingresos_atribuibles || 0);
+        const ingresoPorHora = horasTrabajadas > 0 ? Math.round(ingresos / horasTrabajadas) : 0;
+
+        return {
+          colaborador: r.colaborador,
+          posicion: r.posicion,
+          sucursal: r.sucursal,
+          dias_asistidos: dias,
+          horas_trabajadas: horasTrabajadas,
+          servicios: Number(r.servicios_realizados || 0),
+          ingresos_atribuibles: Math.round(ingresos),
+          ingreso_por_hora: ingresoPorHora,
+          comision_generada: Math.round(Number(r.comision_generada || 0))
+        };
+      });
+
+      const totalIngresosAtrib = formattedRows.reduce((s, r) => s + r.ingresos_atribuibles, 0);
+      const totalServicios = formattedRows.reduce((s, r) => s + r.servicios, 0);
+      const totalHoras = Number(formattedRows.reduce((s, r) => s + r.horas_trabajadas, 0).toFixed(1));
+      const promPorHora = totalHoras > 0 ? Math.round(totalIngresosAtrib / totalHoras) : 0;
+
+      return {
+        title: 'Productividad por empleado',
+        periodText: `${start} al ${end}`,
+        kpis: [
+          {
+            label: 'Ingresos atribuibles',
+            value: `RD$ ${totalIngresosAtrib.toLocaleString('es-DO')}`,
+            subtext: 'Monto base de servicios ejecutados',
+            icon: 'dollar',
+            color: 'emerald'
+          },
+          {
+            label: 'Servicios realizados',
+            value: totalServicios.toLocaleString('es-DO'),
+            subtext: `En ${formattedRows.filter(r => r.servicios > 0).length} colaboradores con producción`,
+            icon: 'receipt',
+            color: 'blue'
+          },
+          {
+            label: 'Horas trabajadas netas',
+            value: `${totalHoras.toLocaleString('es-DO')} hrs`,
+            subtext: 'Según jornadas ponchadas',
+            icon: 'clock',
+            color: 'purple'
+          },
+          {
+            label: 'Productividad por hora',
+            value: `RD$ ${promPorHora.toLocaleString('es-DO')}`,
+            subtext: 'Ingreso atribuible / hora trabajada',
+            icon: 'trending',
+            color: 'indigo'
+          }
+        ],
+        chart: {
+          type: 'bar',
+          title: 'Top colaboradores por ingresos atribuibles (RD$)',
+          data: formattedRows.filter(r => r.ingresos_atribuibles > 0).slice(0, 10).map(r => ({
+            label: r.colaborador,
+            value: r.ingresos_atribuibles,
+            displayValue: `RD$ ${r.ingresos_atribuibles.toLocaleString('es-DO')}`
+          }))
+        },
+        table: {
+          title: 'Detalle de productividad e ingresos por colaborador',
+          badgeText: `${formattedRows.length} colaboradores activos`,
+          columns: [
+            { key: 'colaborador', label: 'Colaborador' },
+            { key: 'posicion', label: 'Posición' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'dias_asistidos', label: 'Días Asistidos', align: 'center' },
+            { key: 'horas_trabajadas', label: 'Horas Trabajadas', align: 'center' },
+            { key: 'servicios', label: 'Servicios Realizados', align: 'center' },
+            { key: 'ingresos_atribuibles', label: 'Ingresos Atribuibles', isCurrency: true },
+            { key: 'ingreso_por_hora', label: 'Ingreso / Hora', isCurrency: true },
+            { key: 'comision_generada', label: 'Comisión', isCurrency: true }
+          ],
+          rows: formattedRows,
+          footerNote: 'Las horas trabajadas se calculan sobre los días con ponche de entrada (8h netas base + minutos extra - tardanzas).'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in employee_productivity:', e.message);
+    }
+  }
+
+  // ============================================================================
+  // 18.E HORAS EXTRAS VS. RESULTADOS (overtime_vs_results)
+  // ============================================================================
+  if (reportId === 'overtime_vs_results') {
+    try {
+      let otSalonFilter = '';
+      const otParams = [startDateTime, endDateTime];
+      if (salonId !== 'all') {
+        otSalonFilter = 'AND sr.salon_id = ?';
+        otParams.push(salonId);
+      }
+
+      const [otAttendanceRows] = await pool.query(`
+        SELECT
+          sr.id as employee_id,
+          COALESCE(sr.nombre, CONCAT('Empleado #', a.employee_id)) as colaborador,
+          COALESCE(sr.posicion, 'Especialista') as posicion,
+          COALESCE(s.name, sr.localidad, 'Abatte Peluquería San Vicente') as sucursal,
+          COUNT(CASE WHEN a.extra_minutes > 0 THEN 1 END) as dias_con_extra,
+          COALESCE(SUM(a.extra_minutes), 0) as total_extra_minutes,
+          COALESCE(sr.salario_base, 18421) as salario_base
+        FROM attendance a
+        LEFT JOIN staff_records sr ON sr.id = CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED)
+        LEFT JOIN salons s ON sr.salon_id = s.id
+        WHERE a.timestamp >= ? AND a.timestamp <= ?
+          AND a.type = 'Check-Out'
+          AND a.extra_minutes > 0
+          ${otSalonFilter}
+        GROUP BY sr.id, sr.nombre, a.employee_id, sr.posicion, s.name, sr.localidad, sr.salario_base
+        ORDER BY total_extra_minutes DESC
+      `, otParams);
+
+      const [salesRows] = await pool.query(`
+        SELECT
+          COUNT(v.id) as total_visitas,
+          COALESCE(SUM(v.total), 0) as facturacion
+        FROM visits v
+        WHERE v.visited_at >= ? AND v.visited_at <= ?
+          AND v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada', 'Pendiente', 'Procesando')
+          ${salonFilterVis}
+      `, visParams);
+
+      const totalFacturacion = Number(salesRows[0]?.facturacion || 0);
+      const totalVisitas = Number(salesRows[0]?.total_visitas || 0);
+
+      const tableRows = otAttendanceRows.map(r => {
+        const minExtras = Number(r.total_extra_minutes || 0);
+        const horasExtras = Number((minExtras / 60).toFixed(1));
+        const salarioBase = Number(r.salario_base || 18421);
+        // Tarifa hora ordinaria = (salarioBase / 23.83 / 8) * 1.35 (recargo 35% Código de Trabajo RD)
+        const valorHoraExtra = (salarioBase / 23.83 / 8) * 1.35;
+        const costoEstimado = Math.round((minExtras / 60) * valorHoraExtra);
+
+        return {
+          colaborador: r.colaborador,
+          posicion: r.posicion,
+          sucursal: r.sucursal,
+          jornadas_extra: Number(r.dias_con_extra || 0),
+          horas_extras: `${horasExtras} hrs (${minExtras} min)`,
+          horas_num: horasExtras,
+          costo_horas_extras: costoEstimado
+        };
+      });
+
+      const totalMinutosExtra = otAttendanceRows.reduce((s, r) => s + Number(r.total_extra_minutes || 0), 0);
+      const totalHorasExtra = Number((totalMinutosExtra / 60).toFixed(1));
+      const totalCostoExtras = tableRows.reduce((s, r) => s + r.costo_horas_extras, 0);
+      const pctSobreVentas = totalFacturacion > 0 ? Number(((totalCostoExtras / totalFacturacion) * 100).toFixed(2)) : 0;
+
+      return {
+        title: 'Horas extras vs. resultados',
+        periodText: `${start} al ${end}`,
+        kpis: [
+          {
+            label: 'Facturación del período',
+            value: `RD$ ${Math.round(totalFacturacion).toLocaleString('es-DO')}`,
+            subtext: `${totalVisitas} visitas facturadas`,
+            icon: 'trending',
+            color: 'emerald'
+          },
+          {
+            label: 'Horas extras registradas',
+            value: `${totalHorasExtra} hrs`,
+            subtext: `${totalMinutosExtra.toLocaleString('es-DO')} minutos acumulados`,
+            icon: 'clock',
+            color: 'blue'
+          },
+          {
+            label: 'Costo en horas extras',
+            value: `RD$ ${totalCostoExtras.toLocaleString('es-DO')}`,
+            subtext: 'Cálculo al 135% (Código Trabajo RD)',
+            icon: 'dollar',
+            color: 'purple'
+          },
+          {
+            label: '% Costo Extra s/ Ventas',
+            value: `${pctSobreVentas}%`,
+            subtext: `RD$ ${pctSobreVentas} por cada RD$100 vendidos`,
+            icon: 'tag',
+            color: 'amber'
+          }
+        ],
+        chart: {
+          type: 'bar',
+          title: 'Colaboradores con mayor volumen de horas extras (Costo RD$)',
+          data: tableRows.slice(0, 10).map(r => ({
+            label: r.colaborador,
+            value: r.costo_horas_extras,
+            displayValue: `RD$ ${r.costo_horas_extras.toLocaleString('es-DO')} (${r.horas_num}h)`
+          }))
+        },
+        table: {
+          title: 'Detalle de horas extras por colaborador',
+          badgeText: `${tableRows.length} colaboradores con sobretiempo`,
+          columns: [
+            { key: 'colaborador', label: 'Colaborador' },
+            { key: 'posicion', label: 'Posición' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'jornadas_extra', label: 'Días con Extra', align: 'center' },
+            { key: 'horas_extras', label: 'Tiempo Extra Acumulado', align: 'center' },
+            { key: 'costo_horas_extras', label: 'Costo Estimado (135%)', isCurrency: true }
+          ],
+          rows: tableRows,
+          footerNote: 'Calculado sobre ponches de salida (Check-Out) con minutos extras registrados y recargo legal del 35%.'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in overtime_vs_results:', e.message);
+    }
+  }
+
+  // ============================================================================
+  // 18.F TENDENCIAS DE ASISTENCIA (attendance_trends)
+  // ============================================================================
+  if (reportId === 'attendance_trends') {
+    try {
+      let attFilter = '';
+      const attParams = [startDateTime, endDateTime];
+      if (salonId !== 'all') {
+        attFilter += ' AND sr.salon_id = ?';
+        attParams.push(salonId);
+      }
+      if (employeeId && employeeId !== 'all') {
+        attFilter += ' AND sr.id = ?';
+        attParams.push(String(employeeId).replace('EMP-', ''));
+      }
+
+      const [attSummaryByEmp] = await pool.query(`
+        SELECT
+          sr.id as employee_id,
+          COALESCE(sr.nombre, CONCAT('Empleado #', a.employee_id)) as colaborador,
+          COALESCE(sr.posicion, 'Especialista') as posicion,
+          COALESCE(s.name, sr.localidad, 'Abatte Peluquería San Vicente') as sucursal,
+          COUNT(CASE WHEN a.type = 'Check-In' THEN 1 END) as entradas_totales,
+          COUNT(CASE WHEN a.type = 'Check-In' AND (a.lateness_minutes IS NULL OR a.lateness_minutes = 0) THEN 1 END) as entradas_puntuales,
+          COUNT(CASE WHEN a.type = 'Check-In' AND a.lateness_minutes > 0 THEN 1 END) as tardanzas,
+          COALESCE(SUM(CASE WHEN a.type = 'Check-In' THEN a.lateness_minutes ELSE 0 END), 0) as minutos_tardanza,
+          COUNT(CASE WHEN a.type = 'Ausencia' THEN 1 END) as ausencias,
+          COUNT(CASE WHEN a.type = 'Ausencia' AND a.modification_reason IS NOT NULL AND TRIM(a.modification_reason) != '' THEN 1 END) as ausencias_justificadas
+        FROM attendance a
+        LEFT JOIN staff_records sr ON sr.id = CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED)
+        LEFT JOIN salons s ON sr.salon_id = s.id
+        WHERE a.timestamp >= ? AND a.timestamp <= ?
+          ${attFilter}
+        GROUP BY sr.id, sr.nombre, a.employee_id, sr.posicion, s.name, sr.localidad
+        ORDER BY minutos_tardanza DESC, ausencias DESC
+      `, attParams);
+
+      const totalEntradas = attSummaryByEmp.reduce((s, r) => s + Number(r.entradas_totales || 0), 0);
+      const totalPuntuales = attSummaryByEmp.reduce((s, r) => s + Number(r.entradas_puntuales || 0), 0);
+      const totalTardanzas = attSummaryByEmp.reduce((s, r) => s + Number(r.tardanzas || 0), 0);
+      const totalMinTardanza = attSummaryByEmp.reduce((s, r) => s + Number(r.minutos_tardanza || 0), 0);
+      const totalAusencias = attSummaryByEmp.reduce((s, r) => s + Number(r.ausencias || 0), 0);
+      const totalJustificadas = attSummaryByEmp.reduce((s, r) => s + Number(r.ausencias_justificadas || 0), 0);
+      const totalInjustificadas = Math.max(0, totalAusencias - totalJustificadas);
+
+      // Horas de cobertura perdidas = (minutos de tardanza / 60) + (ausencias * 8h)
+      const horasPerdidasTardanza = totalMinTardanza / 60;
+      const horasPerdidasAusencias = totalAusencias * 8;
+      const totalHorasPerdidas = Number((horasPerdidasTardanza + horasPerdidasAusencias).toFixed(1));
+      const tasaPuntualidad = totalEntradas > 0 ? Number(((totalPuntuales / totalEntradas) * 100).toFixed(1)) : 100;
+
+      const empRows = attSummaryByEmp.map(r => {
+        const ent = Number(r.entradas_totales || 0);
+        const punt = Number(r.entradas_puntuales || 0);
+        const tard = Number(r.tardanzas || 0);
+        const minT = Number(r.minutos_tardanza || 0);
+        const aus = Number(r.ausencias || 0);
+        const hrsPerdidas = Number(((minT / 60) + (aus * 8)).toFixed(1));
+        const pctPuntual = ent > 0 ? `${((punt / ent) * 100).toFixed(0)}%` : '100%';
+
+        return {
+          colaborador: r.colaborador,
+          posicion: r.posicion,
+          sucursal: r.sucursal,
+          entradas: ent,
+          pct_puntualidad: pctPuntual,
+          tardanzas: tard,
+          minutos_tardanza: `${minT} min`,
+          ausencias: aus,
+          horas_perdidas: `${hrsPerdidas} hrs`,
+          horas_perdidas_num: hrsPerdidas
+        };
+      });
+
+      return {
+        title: 'Tendencias de asistencia',
+        periodText: `${start} al ${end}`,
+        kpis: [
+          {
+            label: 'Tasa de puntualidad',
+            value: `${tasaPuntualidad}%`,
+            subtext: `${totalPuntuales} puntuales de ${totalEntradas} entradas`,
+            icon: 'user_check',
+            color: 'emerald'
+          },
+          {
+            label: 'Tardanzas registradas',
+            value: totalTardanzas.toString(),
+            subtext: `${totalMinTardanza.toLocaleString('es-DO')} min acumulados (${horasPerdidasTardanza.toFixed(1)}h)`,
+            icon: 'clock',
+            color: 'amber'
+          },
+          {
+            label: 'Ausencias del período',
+            value: totalAusencias.toString(),
+            subtext: `${totalJustificadas} justificadas · ${totalInjustificadas} sin justificar`,
+            icon: 'alert',
+            color: 'rose'
+          },
+          {
+            label: 'Cobertura perdida total',
+            value: `${totalHorasPerdidas} hrs`,
+            subtext: 'Suma de tardanzas y ausencias',
+            icon: 'trending',
+            color: 'purple'
+          }
+        ],
+        chart: {
+          type: 'bar',
+          title: 'Horas de cobertura perdidas por colaborador (Top 10)',
+          data: empRows.filter(r => r.horas_perdidas_num > 0).slice(0, 10).map(r => ({
+            label: r.colaborador,
+            value: r.horas_perdidas_num,
+            displayValue: `${r.horas_perdidas_num} hrs`
+          }))
+        },
+        table: {
+          title: 'Control de asistencia, tardanzas y ausencias por colaborador',
+          badgeText: `${empRows.length} colaboradores evaluados`,
+          columns: [
+            { key: 'colaborador', label: 'Colaborador' },
+            { key: 'posicion', label: 'Posición' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'entradas', label: 'Ponches Entrada', align: 'center' },
+            { key: 'pct_puntualidad', label: '% Puntualidad', align: 'center' },
+            { key: 'tardanzas', label: 'Cant. Tardanzas', align: 'center' },
+            { key: 'minutos_tardanza', label: 'Retraso Acumulado', align: 'center' },
+            { key: 'ausencias', label: 'Ausencias', align: 'center' },
+            { key: 'horas_perdidas', label: 'Cobertura Perdida', align: 'center' }
+          ],
+          rows: empRows,
+          footerNote: 'Las horas de cobertura perdidas consolidan los minutos de tardanza en ponches de entrada más las jornadas de ausencia (8h c/u).'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in attendance_trends:', e.message);
     }
   }
 
