@@ -394,9 +394,40 @@ function createVisitsRouter(pool, deps = {}) {
 
       // 2. Clasificación fiscal del contribuyente para ventas comerciales (total > 0):
       // - Crédito Fiscal (E31) para empresas/contribuyentes con RNC/Cédula y Razón Social válidos.
-      // - Consumo (E32) para consumidores finales en ventas comerciales generales (nunca se omite comprobante).
+      // - Consumo (E32) para consumidores finales en ventas comerciales generales.
       const hasValidTaxReceptor = validateReceptorTaxId(clientRnc).isValid && isValidRazonSocial(clientRazonSocial);
       const isTargetFiscal = (requestedType === 'E31' || requestedType === 'CREDITO_FISCAL' || hasValidTaxReceptor);
+
+      // Regla comercial de facturación en efectivo: 4 operaciones sin comprobante y 1 con comprobante por cada 5 operaciones en efectivo
+      const isPureCash = (
+        String(metodoPago || '').trim().toLowerCase() === 'efectivo' || 
+        String(metodoPago || '').trim().toLowerCase() === 'cash'
+      );
+
+      if (!isTargetFiscal && isPureCash && !options.bypassCashRatio) {
+        try {
+          await pool.query('UPDATE company_ncf_counters SET cash_counter = cash_counter + 1 WHERE id = 1');
+          const [counterRows] = await pool.query('SELECT cash_counter, cash_ratio FROM company_ncf_counters WHERE id = 1');
+          const count = counterRows[0]?.cash_counter || 1;
+          const ratio = Number(counterRows[0]?.cash_ratio || 5);
+
+          // Si NO es el múltiplo del ratio, se emite SIN comprobante fiscal (4 de cada 5 sin comprobante)
+          if (count % ratio !== 0) {
+            const docName = 'Sin Comprobante Fiscal';
+            console.log(`ℹ️ [DGII CASH COUNTER]: Factura en Efectivo #${count} emitida SIN comprobante fiscal según regla (${ratio - 1} de cada ${ratio} sin comprobante).`);
+            await pool.query(
+              "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = ?, codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
+              [docName, visitId]
+            );
+            return { ncf: null, ncf_type: 'NONE', ncf_name: docName };
+          } else {
+            console.log(`ℹ️ [DGII CASH COUNTER]: Factura en Efectivo #${count} seleccionada para EMISIÓN FISCAL con e-NCF según regla (1 de cada ${ratio} con comprobante).`);
+          }
+        } catch (counterErr) {
+          console.warn('[DGII CASH COUNTER ERROR]:', counterErr.message);
+        }
+      }
+
       let targetType = 'E32';
       if (requestedType && String(requestedType).startsWith('TEST_')) {
         targetType = String(requestedType).toUpperCase();
@@ -819,7 +850,9 @@ function createVisitsRouter(pool, deps = {}) {
             { user_name: req.body?.user_name || 'Cajero' }
           );
 
-          if (!dgiiResult || !dgiiResult.ncf) {
+          if (dgiiResult && dgiiResult.ncf_type === 'NONE') {
+            effectiveNcfType = 'NONE';
+          } else if (!dgiiResult || !dgiiResult.ncf) {
             const err = new Error(dgiiResult?.error || `No hay comprobantes fiscales disponibles para ${effectiveNcfType}.`);
             err.code = dgiiResult?.code || 'LOTE_AGOTADO';
             err.tipo_comprobante = effectiveNcfType;
@@ -929,8 +962,10 @@ function createVisitsRouter(pool, deps = {}) {
         ]
       );
 
-      if (effectiveNcfType === 'NONE') {
-        const docName = isPlanBeautyCanje ? 'Comprobante de Canje Plan Beauty' : 'Comprobante de Cortesía / Ajuste Interno';
+      if (effectiveNcfType === 'NONE' || dgiiResult?.ncf_type === 'NONE') {
+        const docName = isPlanBeautyCanje 
+          ? 'Comprobante de Canje Plan Beauty' 
+          : (dgiiResult?.ncf_name || 'Sin Comprobante Fiscal');
         await pool.query(
           "UPDATE visits SET ncf = NULL, ncf_type = 'NONE', ncf_name = ?, codigo_seguridad_ecf = NULL, qr_code_url = NULL WHERE id = ?",
           [docName, id]
