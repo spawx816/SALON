@@ -269,12 +269,12 @@ const AppContent = () => {
     }
   }, [isAdministrationActive]);
 
-  // Expandir automáticamente el submenú de Contabilidad si estamos en una ruta contable
+  // Expandir automáticamente el submenú de Contabilidad si estamos en una ruta contable o si el usuario es Contador
   useEffect(() => {
-    if (isAccountingActive) {
+    if (isAccountingActive || isAccountant) {
       setIsAccountingOpen(true);
     }
-  }, [isAccountingActive]);
+  }, [isAccountingActive, isAccountant]);
 
   // Expandir automáticamente el submenú de Inteligencia de Negocios si estamos en una ruta de analítica
   useEffect(() => {
@@ -846,76 +846,77 @@ const AppContent = () => {
                   )}
                 </div>
               )}
-              
-              {(isAdmin || isAccountant) && (
-                <>
-                  {isAccountant && <p className="nav-group-title">Módulo Contable</p>}
-                  {/* Menú Desplegable Contabilidad */}
-                  <div style={{ margin: '0.2rem 0' }}>
-                    <button
-                      type="button"
-                      onClick={() => setIsAccountingOpen(!isAccountingOpen)}
-                      className={`nav-dropdown-header ${isAccountingActive ? 'active' : ''}`}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <Landmark size={18} strokeWidth={isAccountingActive ? 2.5 : 2} />
-                        <span>Contabilidad</span>
-                      </div>
-                      {isAccountingOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
-                    </button>
+            </>
+          )}
 
-                    {/* Submenú de Contabilidad */}
-                    {isAccountingOpen && (
-                      <div style={{ 
-                        marginLeft: '1.25rem', 
-                        paddingLeft: '0.65rem', 
-                        borderLeft: '2px solid rgba(255,255,255,0.15)',
-                        marginTop: '0.35rem',
-                        marginBottom: '0.35rem',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '0.25rem'
-                      }}>
-                        <SidebarLink 
-                          to="/secuencias-dgii" 
-                          icon={Receipt} 
-                          label="Secuencias DGII e-CF" 
-                          active={location.pathname === '/secuencias-dgii'} 
-                          onClick={closeMobileMenu} 
-                        />
-                        <SidebarLink 
-                          to="/contabilidad/notas-credito" 
-                          icon={ArrowDownLeft} 
-                          label="Notas de Crédito" 
-                          active={location.pathname === '/contabilidad/notas-credito' || location.pathname === '/notas-credito'} 
-                          onClick={closeMobileMenu} 
-                        />
-                        <SidebarLink 
-                          to="/contabilidad/reporte-607" 
-                          icon={FileSpreadsheet} 
-                          label="Reporte 607 DGII" 
-                          active={location.pathname === '/contabilidad/reporte-607' || location.pathname === '/reporte-607'} 
-                          onClick={closeMobileMenu} 
-                        />
-                        <SidebarLink
-                          to="/contabilidad/reporte-606"
-                          icon={FileSpreadsheet}
-                          label="Reporte 606 DGII"
-                          active={location.pathname === '/contabilidad/reporte-606' || location.pathname === '/reporte-606'}
-                          onClick={closeMobileMenu}
-                        />
-                        <SidebarLink
-                          to="/contabilidad/egresos"
-                          icon={ArrowDownCircle}
-                          label="Egresos"
-                          active={location.pathname === '/contabilidad/egresos' || location.pathname === '/egresos'}
-                          onClick={closeMobileMenu}
-                        />
-                      </div>
-                    )}
+          {/* Módulo Contable para Administrador y Contador (Independiente del bloque de administración operativa) */}
+          {(isAdmin || isAccountant) && (
+            <>
+              {isAccountant && <p className="nav-group-title">Módulo Contable</p>}
+              {/* Menú Desplegable Contabilidad */}
+              <div style={{ margin: '0.2rem 0' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAccountingOpen(!isAccountingOpen)}
+                  className={`nav-dropdown-header ${isAccountingActive ? 'active' : ''}`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <Landmark size={18} strokeWidth={isAccountingActive ? 2.5 : 2} />
+                    <span>Contabilidad</span>
                   </div>
-                </>
-              )}
+                  {isAccountingOpen ? <ChevronDown size={15} style={{ opacity: 0.7 }} /> : <ChevronRight size={15} style={{ opacity: 0.7 }} />}
+                </button>
+
+                {/* Submenú de Contabilidad */}
+                {isAccountingOpen && (
+                  <div style={{ 
+                    marginLeft: '1.25rem', 
+                    paddingLeft: '0.65rem', 
+                    borderLeft: '2px solid rgba(255,255,255,0.15)',
+                    marginTop: '0.35rem',
+                    marginBottom: '0.35rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem'
+                  }}>
+                    <SidebarLink 
+                      to="/secuencias-dgii" 
+                      icon={Receipt} 
+                      label="Secuencias DGII e-CF" 
+                      active={location.pathname === '/secuencias-dgii'} 
+                      onClick={closeMobileMenu} 
+                    />
+                    <SidebarLink 
+                      to="/contabilidad/notas-credito" 
+                      icon={ArrowDownLeft} 
+                      label="Notas de Crédito" 
+                      active={location.pathname === '/contabilidad/notas-credito' || location.pathname === '/notas-credito'} 
+                      onClick={closeMobileMenu} 
+                    />
+                    <SidebarLink 
+                      to="/contabilidad/reporte-607" 
+                      icon={FileSpreadsheet} 
+                      label="Reporte 607 DGII" 
+                      active={location.pathname === '/contabilidad/reporte-607' || location.pathname === '/reporte-607'} 
+                      onClick={closeMobileMenu} 
+                    />
+                    <SidebarLink 
+                      to="/contabilidad/reporte-606" 
+                      icon={FileSpreadsheet} 
+                      label="Reporte 606 DGII" 
+                      active={location.pathname === '/contabilidad/reporte-606' || location.pathname === '/reporte-606'} 
+                      onClick={closeMobileMenu} 
+                    />
+                    <SidebarLink 
+                      to="/contabilidad/egresos" 
+                      icon={ArrowDownCircle} 
+                      label="Egresos" 
+                      active={location.pathname === '/contabilidad/egresos' || location.pathname === '/egresos'} 
+                      onClick={closeMobileMenu} 
+                    />
+                  </div>
+                )}
+              </div>
             </>
           )}
         </nav>
