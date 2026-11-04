@@ -146,6 +146,143 @@ function extractPaymentBreakdown(metodoPagoRaw, totalAmount, appliedPayments = n
  * @param {import('mysql2/promise').Pool} pool
  * @param {Object} helpers
  */
+/**
+ * Unifies evaluation of DGII sequence batch availability and status across Administration,
+ * POS Availability check, and Checkout Atomic Allocation.
+ *
+ * @param {Object} seq - Row from dgii_ncf_sequences
+ * @param {Date} [now=new Date()]
+ * @returns {Object}
+ */
+function evaluateBatchFiscalStatus(seq, now = new Date()) {
+  const currentDate = new Date(now);
+  currentDate.setHours(0, 0, 0, 0);
+
+  const prefix = seq.tipo_comprobante || (seq.numero_desde ? seq.numero_desde.slice(0, 3) : 'E32');
+  const rawDesde = seq.numero_desde ? seq.numero_desde.slice(prefix.length) : '1';
+  const startNum = parseInt(rawDesde, 10) || 1;
+
+  const rawHasta = seq.numero_hasta ? seq.numero_hasta.slice(prefix.length) : '';
+  const parsedHasta = parseInt(rawHasta, 10);
+  const endNum = !isNaN(parsedHasta) && parsedHasta >= startNum
+    ? parsedHasta
+    : (startNum + Number(seq.cantidad_aprobada || 1) - 1);
+
+  const cantidadAprobada = Number(seq.cantidad_aprobada || 0);
+  const cantidadUsada = Number(seq.cantidad_usada || 0);
+  const currentAssignedNum = startNum + cantidadUsada;
+
+  // Capacity strictly delimited by range bounds
+  const rangeCapacity = Math.max(0, endNum - startNum + 1);
+  const effectiveCapacity = Math.min(cantidadAprobada, rangeCapacity);
+
+  let isVencido = false;
+  if (seq.fecha_vencimiento) {
+    const expDate = new Date(seq.fecha_vencimiento);
+    expDate.setHours(0, 0, 0, 0);
+    if (expDate < currentDate) {
+      isVencido = true;
+    }
+  }
+
+  const hasSolicitud = Boolean(seq.no_solicitud && String(seq.no_solicitud).trim() && String(seq.no_solicitud).trim() !== 'N/D');
+  const hasAutorizacion = Boolean(seq.no_autorizacion && String(seq.no_autorizacion).trim() && String(seq.no_autorizacion).trim() !== 'N/D');
+  const isAuthorized = hasSolicitud && hasAutorizacion;
+
+  let realDisponibles = 0;
+  let estadoCalculado = seq.estado || 'Activo';
+  let motivoInactividad = null;
+
+  if (seq.estado === 'Inactivo') {
+    estadoCalculado = 'Inactivo';
+    motivoInactividad = 'Lote desactivado administrativamente.';
+    realDisponibles = 0;
+  } else if (isVencido) {
+    estadoCalculado = 'Vencido';
+    motivoInactividad = 'Lote con fecha de vencimiento DGII caducada.';
+    realDisponibles = 0;
+  } else if (cantidadUsada >= effectiveCapacity || currentAssignedNum > endNum) {
+    estadoCalculado = 'Agotado';
+    motivoInactividad = 'Lote con secuencias agotadas en el rango autorizado.';
+    realDisponibles = 0;
+  } else {
+    realDisponibles = Math.max(0, Math.min(effectiveCapacity - cantidadUsada, endNum - currentAssignedNum + 1));
+    if (realDisponibles === 0) {
+      estadoCalculado = 'Agotado';
+      motivoInactividad = 'Sin comprobantes disponibles en el rango.';
+    } else {
+      estadoCalculado = 'Activo';
+    }
+  }
+
+  const porcentajeDisponible = effectiveCapacity > 0
+    ? Math.round((realDisponibles / effectiveCapacity) * 100)
+    : 0;
+
+  const alertaMinima = Number(seq.alerta_minima || 5);
+  const isAlertaMinima = (estadoCalculado === 'Activo' && realDisponibles > 0 && realDisponibles <= alertaMinima);
+
+  return {
+    prefix,
+    startNum,
+    endNum,
+    currentAssignedNum,
+    cantidadAprobada: effectiveCapacity,
+    cantidadUsada,
+    realDisponibles,
+    porcentajeDisponible,
+    isVencido,
+    isAlertaMinima,
+    estadoCalculado,
+    motivoInactividad,
+    isAuthorized,
+    hasSolicitud,
+    hasAutorizacion
+  };
+}
+
+/**
+ * Diagnoses exact rejection cause when no sequences are available for a given type.
+ *
+ * @param {Array} rowsForType
+ * @param {string} targetType
+ * @returns {{ code: string, message: string }}
+ */
+function diagnoseSequenceFailure(rowsForType, targetType) {
+  if (!rowsForType || rowsForType.length === 0) {
+    return {
+      code: 'LOTE_INEXISTENTE',
+      message: `No existe ningún lote de secuencias fiscales registrado para el tipo de comprobante ${targetType}.`
+    };
+  }
+
+  const allInactive = rowsForType.every(r => r.estado === 'Inactivo');
+  if (allInactive) {
+    return {
+      code: 'LOTE_INACTIVO',
+      message: `Todos los lotes registrados para ${targetType} se encuentran en estado Inactivo.`
+    };
+  }
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
+  const activeRows = rowsForType.filter(r => r.estado !== 'Inactivo');
+  const allExpired = activeRows.length > 0 && activeRows.every(r => r.fecha_vencimiento && new Date(r.fecha_vencimiento) < now);
+  if (allExpired) {
+    return {
+      code: 'LOTE_VENCIDO',
+      message: `Las secuencias fiscales autorizadas para ${targetType} se encuentran vencidas ante la DGII.`
+    };
+  }
+
+  return {
+    code: 'LOTE_AGOTADO',
+    message: `Se agotaron los comprobantes fiscales disponibles. No quedan secuencias en el rango autorizado para ${targetType}.`
+  };
+}
+
+
 function createDgiiRouter(pool, helpers = {}) {
   const router = express.Router();
   const { allocateNextDgiiSequence, buildAndSignNotaCreditoXml, generateAndTransmitNotaCredito } = helpers;
@@ -794,46 +931,40 @@ router.get('/report-607/txt', async (req, res) => {
 // GET /api/dgii/sequences/availability - Real-time e-NCF sequence availability and threshold alerts
 const getSequenceAvailability = async (req, res) => {
   try {
-    const [rows] = await pool.query(`
-      SELECT id, tipo_comprobante, nombre_comprobante, numero_desde, numero_hasta, 
-             secuencia_actual, cantidad_aprobada, cantidad_usada, fecha_vencimiento, estado, alerta_minima
+    const [allRows] = await pool.query(`
+      SELECT id, tipo_comprobante, nombre_comprobante, no_solicitud, no_autorizacion,
+             numero_desde, numero_hasta, secuencia_actual, cantidad_aprobada, cantidad_usada,
+             fecha_vencimiento, estado, alerta_minima
       FROM dgii_ncf_sequences
-      WHERE estado = 'Activo'
       ORDER BY id ASC
     `);
 
     const now = new Date();
-    now.setHours(0, 0, 0, 0);
-
     const availability = {
-      E31: { tipo: 'E31', nombre: 'Factura de Crédito Fiscal Electrónico', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [] },
-      E32: { tipo: 'E32', nombre: 'Factura de Consumo Electrónica', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [] },
-      E34: { tipo: 'E34', nombre: 'Nota de Crédito Electrónica', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [] },
+      E31: { tipo: 'E31', nombre: 'Factura de Crédito Fiscal Electrónico', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [], diagnosticCode: null },
+      E32: { tipo: 'E32', nombre: 'Factura de Consumo Electrónica', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [], diagnosticCode: null },
+      E34: { tipo: 'E34', nombre: 'Nota de Crédito Electrónica', disponibles: 0, isExhausted: true, alertLevel: 'exhausted', batches: [], diagnosticCode: null },
       hasAlerts: false,
       alerts: []
     };
 
-    for (const row of rows) {
+    for (const row of allRows) {
       const tipo = row.tipo_comprobante;
       if (!availability[tipo]) continue;
 
-      const isExpired = row.fecha_vencimiento ? new Date(row.fecha_vencimiento) < now : false;
-      if (isExpired) continue;
+      const evalRes = evaluateBatchFiscalStatus(row, now);
 
-      const prefix = tipo || row.numero_desde.slice(0, 3);
-      const startNum = parseInt(row.numero_desde.slice(prefix.length), 10) || 1;
-      const endNum = parseInt(row.numero_hasta.slice(prefix.length), 10) || (startNum + row.cantidad_aprobada - 1);
-      const currentAssignedNum = startNum + row.cantidad_usada;
-
-      if (currentAssignedNum <= endNum && row.cantidad_usada < row.cantidad_aprobada) {
-        const batchAvailable = Math.min(row.cantidad_aprobada - row.cantidad_usada, endNum - currentAssignedNum + 1);
-        availability[tipo].disponibles += Math.max(0, batchAvailable);
+      if (evalRes.estadoCalculado === 'Activo' && evalRes.realDisponibles > 0) {
+        availability[tipo].disponibles += evalRes.realDisponibles;
         availability[tipo].batches.push({
           id: row.id,
-          disponibles: batchAvailable,
+          disponibles: evalRes.realDisponibles,
           secuencia_actual: row.secuencia_actual,
           cantidad_usada: row.cantidad_usada,
-          cantidad_aprobada: row.cantidad_aprobada
+          cantidad_aprobada: evalRes.cantidadAprobada,
+          is_authorized: evalRes.isAuthorized,
+          no_solicitud: row.no_solicitud,
+          no_autorizacion: row.no_autorizacion
         });
       }
     }
@@ -848,7 +979,11 @@ const getSequenceAvailability = async (req, res) => {
 
       if (disp === 0) {
         level = 'exhausted';
-        alertMsg = `⛔ ALERTA PERSISTENTE: Se agotaron los comprobantes fiscales de ${tipo} (${availability[tipo].nombre}). Facturación bloqueada para este tipo.`;
+        const typeRows = allRows.filter(r => r.tipo_comprobante === tipo);
+        const diag = diagnoseSequenceFailure(typeRows, tipo);
+        availability[tipo].diagnosticCode = diag.code;
+        availability[tipo].diagnosticMessage = diag.message;
+        alertMsg = `⛔ ALERTA PERSISTENTE: Se agotaron los comprobantes fiscales de ${tipo} (${availability[tipo].nombre}). [${diag.code}] ${diag.message}`;
       } else if (disp <= 5) {
         level = 'critical_5';
         alertMsg = `🚨 Alerta Crítica: Quedan solo ${disp} secuencias autorizadas de ${tipo}. Bloqueo inminente al llegar a cero.`;
@@ -868,7 +1003,8 @@ const getSequenceAvailability = async (req, res) => {
           tipo,
           disponibles: disp,
           level,
-          message: alertMsg
+          message: alertMsg,
+          code: availability[tipo].diagnosticCode || null
         });
       }
     }
@@ -893,22 +1029,20 @@ router.get('/sequences', async (req, res) => {
     const now = new Date();
 
     const formatted = rows.map(seq => {
-      const disponibles = Math.max(0, seq.cantidad_aprobada - seq.cantidad_usada);
-      const porcentajeDisponibles = seq.cantidad_aprobada > 0 ? Math.round((disponibles / seq.cantidad_aprobada) * 100) : 0;
-      const isExpiring = seq.fecha_vencimiento ? new Date(seq.fecha_vencimiento) < now : false;
-      const isLow = disponibles <= (seq.alerta_minima || 5);
-
-      let estadoActual = seq.estado;
-      if (isExpiring) estadoActual = 'Vencido';
-      else if (disponibles <= 0) estadoActual = 'Agotado';
+      const evalRes = evaluateBatchFiscalStatus(seq, now);
 
       return {
         ...seq,
-        cantidad_disponible: disponibles,
-        porcentaje_disponible: porcentajeDisponibles,
-        is_alerta_minima: isLow && disponibles > 0,
-        is_vencido: isExpiring,
-        estado_calculado: estadoActual
+        cantidad_aprobada: evalRes.cantidadAprobada,
+        cantidad_disponible: evalRes.realDisponibles,
+        porcentaje_disponible: evalRes.porcentajeDisponible,
+        is_alerta_minima: evalRes.isAlertaMinima,
+        is_vencido: evalRes.isVencido,
+        estado_calculado: evalRes.estadoCalculado,
+        motivo_inactividad: evalRes.motivoInactividad,
+        is_authorized: evalRes.isAuthorized,
+        has_solicitud: evalRes.hasSolicitud,
+        has_autorizacion: evalRes.hasAutorizacion
       };
     });
 
@@ -1049,4 +1183,4 @@ router.delete('/sequences/:id', async (req, res) => {
   return router;
 }
 
-module.exports = { createDgiiRouter, extractPaymentBreakdown };
+module.exports = { createDgiiRouter, extractPaymentBreakdown, evaluateBatchFiscalStatus, diagnoseSequenceFailure };

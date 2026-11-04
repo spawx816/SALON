@@ -373,6 +373,11 @@ export default function DgiiSequencesModule() {
                         <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
                           Aut: <span style={{ fontFamily: 'monospace' }}>{seq.no_autorizacion || 'N/D'}</span>
                         </div>
+                        {!seq.is_authorized && (
+                          <span style={{ display: 'inline-block', fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', fontWeight: 700, marginTop: '3px' }}>
+                            Sin Registro OFV
+                          </span>
+                        )}
                       </td>
 
                       <td style={{ padding: '1.25rem 1.5rem' }}>
@@ -433,6 +438,11 @@ export default function DgiiSequencesModule() {
                           {seq.estado_calculado === 'Activo' ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
                           {seq.estado_calculado}
                         </span>
+                        {seq.motivo_inactividad && (
+                          <div style={{ fontSize: '0.7rem', color: '#dc2626', marginTop: '0.25rem', maxWidth: '160px', lineHeight: '1.2' }}>
+                            {seq.motivo_inactividad}
+                          </div>
+                        )}
                       </td>
 
                       <td style={{ padding: '1.25rem 1.5rem', textAlign: 'right' }}>

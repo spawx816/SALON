@@ -38,18 +38,23 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
   const dateFormatted = dateObj.toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const timeFormatted = dateObj.toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
 
-  const encfNumber = invoice.ncf || `E32${String(invoice.ticket_number || invoice.id || '1').replace(/\D/g, '').padStart(10, '0').slice(-10)}`;
-  const encfName = invoice.ncf_name || (encfNumber.startsWith('E31') ? 'Factura de Crédito Fiscal Electrónica' : 'Factura de Consumo Electrónica');
+  const isFiscalOfficial = Boolean(invoice.ncf && invoice.status === 'Facturado');
+  const encfNumber = isFiscalOfficial ? invoice.ncf : 'SIN COMPROBANTE FISCAL (PRE-CUENTA)';
+  const encfName = isFiscalOfficial
+    ? (invoice.ncf_name || (invoice.ncf.startsWith('E31') ? 'Factura de Crédito Fiscal Electrónica' : 'Factura de Consumo Electrónica'))
+    : 'Precuenta de Servicios (Documento No Fiscal)';
   const totalVal = Number(invoice.total || 0);
-  const securityCode = invoice.codigo_seguridad_ecf || 'S/DqDu';
+  const securityCode = isFiscalOfficial ? (invoice.codigo_seguridad_ecf || 'S/DqDu') : null;
 
   const emisorRnc = '131917038';
   const compradorRnc = invoice.rnc_cliente || '';
-  const qrUrl = invoice.qr_code_url || (
-    encfNumber.startsWith('E32') && totalVal < 250000
-      ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&CodigoSeguridad=${securityCode}`
-      : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&FechaEmision=${dateFormatted}&FechaFirma=${dateFormatted}&CodigoSeguridad=${securityCode}`
-  );
+  const qrUrl = isFiscalOfficial
+    ? (invoice.qr_code_url || (
+        encfNumber.startsWith('E32') && totalVal < 250000
+          ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&CodigoSeguridad=${securityCode}`
+          : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&FechaEmision=${dateFormatted}&FechaFirma=${dateFormatted}&CodigoSeguridad=${securityCode}`
+      ))
+    : `https://planbeauty.app/tickets/${invoice.ticket_number || invoice.id}`;
 
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}>
@@ -144,8 +149,13 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
             <div style={{ margin: '4px 0' }}>
               <div style={{ fontWeight: 900, fontSize: '10px' }}>{encfName}</div>
               <div style={{ fontWeight: 900, fontSize: '11px', letterSpacing: '0.5px' }}>
-                e-NCF: {encfNumber}
+                {isFiscalOfficial ? `e-NCF: ${encfNumber}` : '*** DOCUMENTO NO FISCAL ***'}
               </div>
+              {!isFiscalOfficial && (
+                <div style={{ fontSize: '7.5px', color: '#b91c1c', fontWeight: 700, marginTop: '2px' }}>
+                  Pendiente de Facturar ante la DGII
+                </div>
+              )}
             </div>
 
             {/* SEPARADOR ASTERISCOS */}
@@ -248,15 +258,25 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
               <div style={{ background: '#ffffff', padding: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <QRCodeSVG value={qrUrl} size={68} level="M" />
               </div>
-              <div style={{ fontSize: '8px', fontWeight: 800, marginTop: '5px', textAlign: 'center' }}>
-                Código de Seguridad: {securityCode}<br />
-                Fecha Firma: {dateFormatted} {timeFormatted}
-              </div>
+              {isFiscalOfficial ? (
+                <div style={{ fontSize: '8px', fontWeight: 800, marginTop: '5px', textAlign: 'center' }}>
+                  Código de Seguridad: {securityCode}<br />
+                  Fecha Firma: {dateFormatted} {timeFormatted}
+                </div>
+              ) : (
+                <div style={{ fontSize: '8px', fontWeight: 700, color: '#6b7280', marginTop: '5px', textAlign: 'center' }}>
+                  Comprobante Interno Provisional<br />
+                  Fecha Emisión: {dateFormatted} {timeFormatted}
+                </div>
+              )}
             </div>
 
-            {/* 8. LEYENDA OFICIAL DE REPRESENTACIÓN IMPRESA */}
+            {/* 8. LEYENDA OFICIAL O PRECUENTA */}
             <div style={{ fontSize: '7px', textAlign: 'center', color: '#4b5563', marginTop: '6px', lineHeight: '1.2' }}>
-              *Este documento es una Representación Impresa (RI) de un Comprobante Fiscal Electrónico (e-CF) certificado por la DGII.
+              {isFiscalOfficial
+                ? '*Este documento es una Representación Impresa (RI) de un Comprobante Fiscal Electrónico (e-CF) certificado por la DGII.'
+                : '*Este documento es una pre-cuenta interna sin valor tributario ante la DGII. Válido únicamente como detalle informativo.'
+              }
             </div>
 
           </div>
@@ -278,7 +298,7 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
             style={{ flex: 1.5, padding: '0.65rem', borderRadius: '8px', border: 'none', background: '#09090b', color: '#ffffff', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
           >
             <Printer size={16} />
-            <span>Imprimir Factura e-CF</span>
+            <span>{isFiscalOfficial ? "Imprimir Factura e-CF" : "Imprimir Precuenta Provisional"}</span>
           </button>
         </div>
 
