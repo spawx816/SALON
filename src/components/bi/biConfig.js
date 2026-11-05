@@ -30,8 +30,8 @@ export const BI_CATEGORIES = [
     id: 'team',
     name: 'Productividad y rentabilidad',
     iconName: 'UserCheck',
-    description: 'Flujo de efectivo, ingresos vs. nómina, productividad y rentabilidad operativa',
-    count: 6
+    description: 'Flujo de efectivo y productividad operativa del equipo',
+    count: 2
   }
 ];
 
@@ -217,32 +217,6 @@ export const BI_REPORTS_BY_CATEGORY = {
       hasServiceFilter: true,
       description: 'Ranking del equipo ordenado por total de servicios realizados (facturados y lavados de membresía), participación, servicios por día, monto generado y variación.',
       note: 'Los lavados de membresía cuentan como servicios, sin asignarles valor monetario.'
-    },
-    {
-      id: 'income_vs_commissions',
-      name: 'Ingresos vs. comisiones',
-      chartType: 'bar',
-      description: 'Compara ingresos y comisiones generadas, porcentaje sobre facturación y evolución para prevenir descalces.',
-      note: 'Ingresos menos comisiones se rotula estrictamente como margen bruto antes de gastos fijos; no equivale a utilidad neta.'
-    },
-    {
-      id: 'income_vs_payroll',
-      name: 'Ingresos vs. nómina total',
-      chartType: 'bar',
-      description: 'Muestra cuánto representa la nómina por cada RD$100 de ingresos con desglose de sueldos, comisiones, bonos y horas extras.'
-    },
-    {
-      id: 'overtime_vs_results',
-      name: 'Horas extras vs. resultados',
-      chartType: 'bar',
-      description: 'Relaciona horas extras y su costo con la facturación y afluencia de las mismas fechas y horarios.'
-    },
-    {
-      id: 'attendance_trends',
-      name: 'Tendencias de asistencia',
-      chartType: 'bar',
-      hasEmployeeFilter: true,
-      description: 'Muestra recurrencia de incidencias, horas de cobertura perdidas y distinción de ausencias justificadas vs. incumplimientos.'
     }
   ]
 };

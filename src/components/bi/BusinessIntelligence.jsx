@@ -2560,12 +2560,12 @@ export const BusinessIntelligence = ({ standalone = true }) => {
 
             // Escala para Evolución de activas (SVG Line/Area Chart)
             const maxActiveVal = Math.max(...activeEv.map(d => Number(d.value || 0)), 60);
-            const yAxisMaxActive = Math.ceil(maxActiveVal / 20) * 20 || 80;
+            const yAxisMaxActive = Math.max(80, Math.ceil((maxActiveVal + 15) / 20) * 20);
             const activeTicks = [0, Math.round(yAxisMaxActive * 0.25), Math.round(yAxisMaxActive * 0.5), Math.round(yAxisMaxActive * 0.75), yAxisMaxActive];
 
             // Escala para Membresías canceladas (6 meses)
             const maxCancelVal = Math.max(...cancelledEv.map(d => Number(d.value || 0)), 5);
-            const yAxisMaxCancel = Math.max(6, Math.ceil(maxCancelVal / 2) * 2);
+            const yAxisMaxCancel = Math.max(6, Math.ceil((maxCancelVal + 1) / 2) * 2);
             const cancelTicks = [0, Math.round(yAxisMaxCancel / 3), Math.round((yAxisMaxCancel * 2) / 3), yAxisMaxCancel];
 
             const maxBranchCount = Math.max(...byBranch.map(b => Number(b.count || 0)), 1);
@@ -2664,16 +2664,16 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                     </h3>
 
                     <div style={{ width: '100%', overflowX: 'auto' }}>
-                      <svg viewBox="0 0 460 205" style={{ width: '100%', height: 'auto', minHeight: '175px', display: 'block' }}>
+                      <svg viewBox="0 0 460 210" style={{ width: '100%', height: 'auto', minHeight: '185px', display: 'block' }}>
                         {/* Líneas horizontales y etiquetas del eje Y */}
                         {activeTicks.map((tick, tIdx) => {
-                          const y = 155 - ((tick / (yAxisMaxActive || 1)) * 120);
+                          const y = 160 - ((tick / (yAxisMaxActive || 1)) * 122);
                           return (
                             <g key={tIdx}>
-                              <text x="28" y={y + 4} textAnchor="end" fontSize="11" fill="#64748b" fontWeight="500">
+                              <text x="32" y={y + 4} textAnchor="end" fontSize="13.5" fill="#475569" fontWeight="600">
                                 {tick}
                               </text>
-                              <line x1="38" y1={y} x2="435" y2={y} stroke="#e2e8f0" strokeWidth="1" />
+                              <line x1="42" y1={y} x2="435" y2={y} stroke="#e2e8f0" strokeWidth="1" />
                             </g>
                           );
                         })}
@@ -2681,18 +2681,18 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                         {/* Área sombreada y línea de evolución */}
                         {(() => {
                           if (activeEv.length === 0) return null;
-                          const startX = 95;
+                          const startX = 100;
                           const endX = 385;
                           const stepX = activeEv.length > 1 ? (endX - startX) / (activeEv.length - 1) : 0;
 
                           const points = activeEv.map((pt, idx) => {
                             const x = activeEv.length === 1 ? 240 : startX + idx * stepX;
-                            const y = 155 - ((Number(pt.value || 0) / (yAxisMaxActive || 1)) * 120);
+                            const y = 160 - ((Number(pt.value || 0) / (yAxisMaxActive || 1)) * 122);
                             return { x, y, label: pt.label, value: Number(pt.value || 0) };
                           });
 
                           const polylinePoints = points.map(p => `${p.x},${p.y}`).join(' ');
-                          const areaPath = `M ${points[0].x},155 ` + points.map(p => `L ${p.x},${p.y}`).join(' ') + ` L ${points[points.length - 1].x},155 Z`;
+                          const areaPath = `M ${points[0].x},160 ` + points.map(p => `L ${p.x},${p.y}`).join(' ') + ` L ${points[points.length - 1].x},160 Z`;
 
                           return (
                             <>
@@ -2700,16 +2700,16 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                               <polyline
                                 fill="none"
                                 stroke="#2563eb"
-                                strokeWidth="2.5"
+                                strokeWidth="3"
                                 points={polylinePoints}
                               />
                               {points.map((p, idx) => (
                                 <g key={idx}>
-                                  <circle cx={p.x} cy={p.y} r="5" fill="#2563eb" stroke="#ffffff" strokeWidth="2" />
-                                  <text x={p.x} y={p.y - 11} textAnchor="middle" fontSize="12" fontWeight="800" fill="#0f172a">
+                                  <circle cx={p.x} cy={p.y} r="6" fill="#2563eb" stroke="#ffffff" strokeWidth="2.5" />
+                                  <text x={p.x} y={p.y - 13} textAnchor="middle" fontSize="17" fontWeight="800" fill="#0f172a">
                                     {p.value}
                                   </text>
-                                  <text x={p.x} y="178" textAnchor="middle" fontSize="12" fontWeight="600" fill="#475569">
+                                  <text x={p.x} y="186" textAnchor="middle" fontSize="14" fontWeight="700" fill="#334155">
                                     {p.label}
                                   </text>
                                 </g>
@@ -2720,7 +2720,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                       </svg>
                     </div>
 
-                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 500 }}>
+                    <div style={{ fontSize: '0.84rem', color: '#475569', marginTop: '0.4rem', fontWeight: 500 }}>
                       {reportData?.active_evolution_footnote || '*Al cierre del período'}
                     </div>
                   </div>
@@ -2746,15 +2746,15 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                     </div>
 
                     <div style={{ width: '100%', overflowX: 'auto' }}>
-                      <svg viewBox="0 0 460 190" style={{ width: '100%', height: 'auto', minHeight: '165px', display: 'block' }}>
+                      <svg viewBox="0 0 460 195" style={{ width: '100%', height: 'auto', minHeight: '170px', display: 'block' }}>
                         {cancelTicks.map((tick, tIdx) => {
-                          const y = 145 - ((tick / (yAxisMaxCancel || 1)) * 110);
+                          const y = 148 - ((tick / (yAxisMaxCancel || 1)) * 110);
                           return (
                             <g key={tIdx}>
-                              <text x="24" y={y + 4} textAnchor="end" fontSize="11" fill="#64748b" fontWeight="500">
+                              <text x="28" y={y + 4} textAnchor="end" fontSize="13" fill="#475569" fontWeight="600">
                                 {tick}
                               </text>
-                              <line x1="34" y1={y} x2="440" y2={y} stroke="#e2e8f0" strokeWidth="1" />
+                              <line x1="38" y1={y} x2="440" y2={y} stroke="#e2e8f0" strokeWidth="1" />
                             </g>
                           );
                         })}
@@ -2762,10 +2762,10 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                         {cancelledEv.map((item, idx) => {
                           const barWidth = 40;
                           const gap = 25;
-                          const x = 52 + idx * (barWidth + gap);
+                          const x = 54 + idx * (barWidth + gap);
                           const val = Number(item.value || 0);
                           const barHeight = Math.max(val > 0 ? 6 : 2, (val / (yAxisMaxCancel || 1)) * 110);
-                          const y = 145 - barHeight;
+                          const y = 148 - barHeight;
 
                           return (
                             <g key={idx}>
@@ -2777,10 +2777,10 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                                 rx="3"
                                 fill="#f87171"
                               />
-                              <text x={x + barWidth / 2} y={y - 7} textAnchor="middle" fontSize="12" fontWeight="800" fill="#0f172a">
+                              <text x={x + barWidth / 2} y={y - 8} textAnchor="middle" fontSize="15.5" fontWeight="800" fill="#0f172a">
                                 {val}
                               </text>
-                              <text x={x + barWidth / 2} y="166" textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">
+                              <text x={x + barWidth / 2} y="172" textAnchor="middle" fontSize="13.5" fontWeight="700" fill="#334155">
                                 {item.label}
                               </text>
                             </g>
@@ -2789,7 +2789,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                       </svg>
                     </div>
 
-                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 500 }}>
+                    <div style={{ fontSize: '0.84rem', color: '#475569', marginTop: '0.4rem', fontWeight: 500 }}>
                       {reportData?.cancelled_evolution_footnote || '*Al cierre del período'}
                     </div>
                   </div>
