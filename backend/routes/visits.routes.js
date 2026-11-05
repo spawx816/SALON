@@ -973,9 +973,9 @@ function createVisitsRouter(pool, deps = {}) {
       }
 
       if (dgiiResult?.ncf && typeof transmitInvoiceDirectlyToDgii === 'function') {
-        transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
+        await transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
       } else if (existing[0]?.ncf && typeof transmitInvoiceDirectlyToDgii === 'function') {
-        transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
+        await transmitInvoiceDirectlyToDgii(id).catch(e => console.warn('[DGII REALTIME AUTO-SEND NOTICE]:', e.message));
       }
 
       // Record Gift Card Redemption if applicable
@@ -1237,11 +1237,11 @@ function createVisitsRouter(pool, deps = {}) {
       res.json({ 
         success: true, 
         ticketNumber: ticketNum || id,
-        ncf: dgiiResult?.ncf || fv.ncf || null,
-        ncf_type: dgiiResult?.ncf_type || fv.ncf_type || null,
-        ncf_name: dgiiResult?.ncf_name || fv.ncf_name || null,
-        codigo_seguridad: dgiiResult?.codigo_seguridad || fv.codigo_seguridad_ecf || null,
-        qr_code_url: dgiiResult?.qr_code_url || fv.qr_code_url || null
+        ncf: fv.ncf || dgiiResult?.ncf || null,
+        ncf_type: fv.ncf_type || dgiiResult?.ncf_type || null,
+        ncf_name: fv.ncf_name || dgiiResult?.ncf_name || null,
+        codigo_seguridad: fv.codigo_seguridad_ecf || dgiiResult?.codigo_seguridad || null,
+        qr_code_url: fv.qr_code_url || dgiiResult?.qr_code_url || null
       });
     } catch (err) {
       if (typeof promoLockAcquired !== 'undefined' && promoLockAcquired && promoLockKey) {
