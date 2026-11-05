@@ -22,8 +22,11 @@ async function handleBIReport(pool, params) {
     daysInactive = 15,
     cancellationReason = 'Todos los motivos',
     employeeId = 'all',
+    serviceFilter = 'all',
+    service = 'all',
     timeGrain = 'daily'
   } = params;
+  const activeServiceFilter = (serviceFilter && serviceFilter !== 'all') ? serviceFilter : (service || 'all');
 
   const now = new Date();
   const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
@@ -4558,152 +4561,379 @@ async function handleBIReport(pool, params) {
   }
 
   // ============================================================================
-  // 18.D PRODUCTIVIDAD POR EMPLEADO (employee_productivity)
+  // 18.D PRODUCTIVIDAD / RANKING DEL EQUIPO (employee_productivity)
   // ============================================================================
   if (reportId === 'employee_productivity') {
     try {
-      let empFilterSql = '';
-      const prodParams = [startDateTime, endDateTime, startDateTime, endDateTime];
-      if (salonId !== 'all') {
-        empFilterSql += ' AND sr.salon_id = ?';
-        prodParams.push(salonId);
-      }
-      if (employeeId && employeeId !== 'all') {
-        empFilterSql += ' AND sr.id = ?';
-        prodParams.push(String(employeeId).replace('EMP-', ''));
+      // 1. Calcular período anterior equivalente para Variación %
+      const startParts = start.split('-').map(Number);
+      const endParts = end.split('-').map(Number);
+      const startDtObj = new Date(Date.UTC(startParts[0], startParts[1] - 1, startParts[2]));
+      const endDtObj = new Date(Date.UTC(endParts[0], endParts[1] - 1, endParts[2]));
+      const lastDayOfStartMonth = new Date(Date.UTC(startParts[0], startParts[1], 0)).getUTCDate();
+
+      let prevStart;
+      let prevEnd;
+      const pad2 = (n) => String(n).padStart(2, '0');
+      const fmtUTC = (d) => `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+
+      if (startParts[2] === 1 && startParts[0] === endParts[0] && startParts[1] === endParts[1] && endParts[2] === lastDayOfStartMonth) {
+        // Mes calendario completo -> comparar contra el mes calendario inmediatamente anterior
+        const prevMonthStart = new Date(Date.UTC(startParts[0], startParts[1] - 2, 1));
+        const prevMonthEnd = new Date(Date.UTC(startParts[0], startParts[1] - 1, 0));
+        prevStart = fmtUTC(prevMonthStart);
+        prevEnd = fmtUTC(prevMonthEnd);
+      } else {
+        const diffDays = Math.max(1, Math.round((endDtObj.getTime() - startDtObj.getTime()) / 86400000) + 1);
+        const pEnd = new Date(startDtObj.getTime() - 86400000);
+        const pStart = new Date(pEnd.getTime() - (diffDays - 1) * 86400000);
+        prevStart = fmtUTC(pStart);
+        prevEnd = fmtUTC(pEnd);
       }
 
-      const [prodRows] = await pool.query(`
-        SELECT
-          sr.id as employee_id,
-          sr.nombre as colaborador,
-          COALESCE(sr.posicion, 'Especialista') as posicion,
-          COALESCE(s.name, sr.localidad, 'Abatte Peluquería San Vicente') as sucursal,
-          COALESCE(comm.servicios_realizados, 0) as servicios_realizados,
-          COALESCE(comm.unidades_totales, 0) as unidades_totales,
-          COALESCE(comm.ingresos_atribuibles, 0) as ingresos_atribuibles,
-          COALESCE(comm.comision_generada, 0) as comision_generada,
-          COALESCE(att.dias_asistidos, 0) as dias_asistidos,
-          COALESCE(att.minutos_extra, 0) as minutos_extra,
-          COALESCE(att.minutos_tardanza, 0) as minutos_tardanza
+      const prevStartDateTime = `${prevStart} 00:00:00`;
+      const prevEndDateTime = `${prevEnd} 23:59:59`;
+
+      // 2. Cargar catálogo de empleados (staff_records)
+      const [staffRows] = await pool.query(`
+        SELECT sr.id, sr.nombre, sr.posicion, sr.localidad, sr.salon_id, sr.status, s.name as salon_name
         FROM staff_records sr
         LEFT JOIN salons s ON sr.salon_id = s.id
-        LEFT JOIN (
-          SELECT
-            CAST(REPLACE(ecl.employee_id, 'EMP-', '') AS UNSIGNED) as emp_id,
-            COUNT(ecl.id) as servicios_realizados,
-            COALESCE(SUM(ecl.cantidad), COUNT(ecl.id)) as unidades_totales,
-            COALESCE(SUM(ecl.monto_base), 0) as ingresos_atribuibles,
-            COALESCE(SUM(ecl.monto_comision), 0) as comision_generada
-          FROM employee_commissions_log ecl
-          LEFT JOIN visits v ON ecl.visit_id COLLATE utf8mb4_unicode_ci = v.id COLLATE utf8mb4_unicode_ci
-          WHERE COALESCE(v.visited_at, ecl.created_at) >= ? AND COALESCE(v.visited_at, ecl.created_at) <= ?
-            AND (v.id IS NULL OR v.status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada'))
-            AND (ecl.status IS NULL OR ecl.status NOT IN ('Anulado', 'Cancelado'))
-          GROUP BY CAST(REPLACE(ecl.employee_id, 'EMP-', '') AS UNSIGNED)
-        ) comm ON sr.id = comm.emp_id
-        LEFT JOIN (
-          SELECT
-            CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED) as emp_id,
-            COUNT(DISTINCT CASE WHEN a.type = 'Check-In' THEN DATE(a.timestamp) END) as dias_asistidos,
-            COALESCE(SUM(CASE WHEN a.type = 'Check-Out' THEN a.extra_minutes ELSE 0 END), 0) as minutos_extra,
-            COALESCE(SUM(CASE WHEN a.type = 'Check-In' THEN a.lateness_minutes ELSE 0 END), 0) as minutos_tardanza
-          FROM attendance a
-          WHERE a.timestamp >= ? AND a.timestamp <= ?
-          GROUP BY CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED)
-        ) att ON sr.id = att.emp_id
-        WHERE sr.status = 'Activo'
-          ${empFilterSql}
-        ORDER BY ingresos_atribuibles DESC, dias_asistidos DESC
-      `, prodParams);
+      `);
 
-      const formattedRows = prodRows.map(r => {
-        const dias = Number(r.dias_asistidos || 0);
-        const minExtra = Number(r.minutos_extra || 0);
-        const minTarde = Number(r.minutos_tardanza || 0);
-        // Cada jornada estándar neta son 8 horas (480 min) más extras menos tardanzas
-        const horasTrabajadas = dias > 0
-          ? Math.max(1, Number(((dias * 480 + minExtra - minTarde) / 60).toFixed(1)))
-          : 0;
-        const ingresos = Number(r.ingresos_atribuibles || 0);
-        const ingresoPorHora = horasTrabajadas > 0 ? Math.round(ingresos / horasTrabajadas) : 0;
+      const normalizeStr = (str) => String(str || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const staffById = new Map();
+      const staffByName = new Map();
+      for (const s of staffRows) {
+        staffById.set(String(s.id), s);
+        if (s.nombre) {
+          staffByName.set(normalizeStr(s.nombre), s);
+        }
+      }
 
-        return {
-          colaborador: r.colaborador,
-          posicion: r.posicion,
-          sucursal: r.sucursal,
-          dias_asistidos: dias,
-          horas_trabajadas: horasTrabajadas,
-          servicios: Number(r.servicios_realizados || 0),
-          ingresos_atribuibles: Math.round(ingresos),
-          ingreso_por_hora: ingresoPorHora,
-          comision_generada: Math.round(Number(r.comision_generada || 0))
-        };
+      const resolveStaffMember = (rawId, rawName, fallbackNames = []) => {
+        if (rawId) {
+          const cleanId = String(rawId).replace('EMP-', '').trim();
+          if (staffById.has(cleanId)) return staffById.get(cleanId);
+        }
+        const candidates = [rawName, ...fallbackNames].filter(n => n && n !== 'N/A' && n !== 'Sin asignar');
+        for (const cand of candidates) {
+          const norm = normalizeStr(cand);
+          if (!norm) continue;
+          if (staffByName.has(norm)) return staffByName.get(norm);
+          for (const [k, v] of staffByName.entries()) {
+            if (k.startsWith(norm) || norm.startsWith(k)) return v;
+          }
+          return {
+            id: `NAME:${norm}`,
+            nombre: String(cand).trim(),
+            posicion: 'Especialista',
+            localidad: 'Abatte Peluquería San Vicente',
+            salon_id: null
+          };
+        }
+        return null;
+      };
+
+      const cleanServiceDisplay = (name) => String(name || '').replace(/\s*\(Plan Beauty\)\s*/i, '').trim();
+      const distinctServicesSet = new Set();
+
+      // Cargar servicios del catálogo activo
+      try {
+        const [catServices] = await pool.query(`
+          SELECT DISTINCT nombre
+          FROM services
+          WHERE activo = 1
+            AND nombre IS NOT NULL
+            AND TRIM(nombre) != ''
+            AND LOWER(nombre) NOT LIKE '%producto prueba%'
+          ORDER BY nombre ASC
+        `);
+        for (const cs of catServices) {
+          const cleaned = cleanServiceDisplay(cs.nombre);
+          if (cleaned) distinctServicesSet.add(cleaned);
+        }
+      } catch (_) {}
+
+      const normServiceTarget = (activeServiceFilter && activeServiceFilter !== 'all')
+        ? normalizeStr(cleanServiceDisplay(activeServiceFilter))
+        : null;
+
+      const matchesSelectedService = (svcName) => {
+        if (!normServiceTarget) return true;
+        const cleaned = normalizeStr(cleanServiceDisplay(svcName));
+        return cleaned === normServiceTarget || normalizeStr(svcName) === normServiceTarget;
+      };
+
+      // Función de agregación de servicios facturados y lavados de membresía por período
+      const aggregatePeriodServices = async (fromDT, toDT, collectServices = false) => {
+        let vSql = `
+          SELECT id, servicios, items_detail, total, metodo_pago, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, visited_at
+          FROM visits
+          WHERE visited_at >= ? AND visited_at <= ?
+            AND status NOT IN ('Anulado', 'Anulada', 'Cancelado', 'Cancelada', 'Pendiente', 'Procesando')
+            AND (ncf_nota_credito IS NULL OR ncf_nota_credito = '')
+        `;
+        const vParams = [fromDT, toDT];
+        if (salonId !== 'all') {
+          vSql += ' AND salon_id = ?';
+          vParams.push(salonId);
+        }
+        const [visitsList] = await pool.query(vSql, vParams);
+        const empStatsMap = new Map();
+
+        for (const v of visitsList) {
+          const visitDateStr = v.visited_at ? new Date(v.visited_at).toISOString().split('T')[0] : null;
+          const metodoPagoLower = String(v.metodo_pago || '').toLowerCase();
+          let items = [];
+          try {
+            items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail || '[]') : (v.items_detail || []);
+          } catch (_) {
+            items = [];
+          }
+
+          if (!Array.isArray(items) || items.length === 0) {
+            let srvList = [];
+            try {
+              srvList = typeof v.servicios === 'string' ? JSON.parse(v.servicios || '[]') : (v.servicios || []);
+            } catch (_) {
+              srvList = [];
+            }
+            if (Array.isArray(srvList) && srvList.length > 0) {
+              const unitPrice = srvList.length > 0 ? Number(v.total || 0) / srvList.length : 0;
+              items = srvList.map(sName => ({
+                nombre: typeof sName === 'string' ? sName : (sName?.nombre || 'Servicio'),
+                precioAplicado: unitPrice,
+                cantidad: 1,
+                isPlanWash: Number(v.total || 0) === 0 && metodoPagoLower.includes('plan beauty')
+              }));
+            }
+          }
+
+          for (const item of items) {
+            const rawServiceName = String(item.nombre || item.name || 'Servicio').trim();
+            if (collectServices && rawServiceName) {
+              const cleanName = cleanServiceDisplay(rawServiceName);
+              if (cleanName && !cleanName.toLowerCase().includes('producto prueba')) {
+                distinctServicesSet.add(cleanName);
+              }
+            }
+
+            if (!matchesSelectedService(rawServiceName)) continue;
+
+            const emp = resolveStaffMember(
+              item.empleado_id,
+              item.empleado_nombre || item.empleado,
+              [v.empleado_peluquera, v.empleado_manicurista, v.empleado_lava_pelo]
+            );
+            if (!emp) continue;
+
+            if (employeeId && employeeId !== 'all') {
+              const targetEmpId = String(employeeId).replace('EMP-', '').trim();
+              if (String(emp.id) !== targetEmpId) continue;
+            }
+
+            const empKey = String(emp.id);
+            if (!empStatsMap.has(empKey)) {
+              empStatsMap.set(empKey, {
+                employee_id: emp.id,
+                empleado: emp.nombre,
+                posicion: emp.posicion || 'Especialista',
+                sucursal: emp.salon_name || emp.localidad || 'Abatte Peluquería San Vicente',
+                servicios_facturados: 0,
+                lavados_membresia: 0,
+                monto_generado: 0,
+                visit_days: new Set()
+              });
+            }
+
+            const rec = empStatsMap.get(empKey);
+            if (visitDateStr) rec.visit_days.add(visitDateStr);
+
+            const qty = Math.max(1, Number(item.cantidad || 1));
+            const rawPrice = Number(item.precioAplicado ?? item.precioBase ?? item.price ?? 0);
+            const discount = Number(item.descuento || 0);
+            const netAmount = Math.max(0, (rawPrice * qty) - discount);
+            const svcLower = rawServiceName.toLowerCase();
+
+            // Los lavados de membresía (Plan Beauty) cuentan como servicios realizados sin valor monetario
+            const isPlanWash = Boolean(
+              item.isPlanWash ||
+              svcLower.includes('plan beauty') ||
+              (netAmount === 0 && (svcLower.includes('lavado') || metodoPagoLower.includes('plan beauty')))
+            );
+
+            if (isPlanWash) {
+              rec.lavados_membresia += qty;
+            } else {
+              rec.servicios_facturados += qty;
+              rec.monto_generado += netAmount;
+            }
+          }
+        }
+
+        return empStatsMap;
+      };
+
+      const [currMap, prevMap] = await Promise.all([
+        aggregatePeriodServices(startDateTime, endDateTime, true),
+        aggregatePeriodServices(prevStartDateTime, prevEndDateTime, false)
+      ]);
+
+      // 3. Consultar días trabajados registrados en Control de Asistencia (attendance)
+      const [attRows] = await pool.query(`
+        SELECT
+          CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED) as emp_id,
+          COUNT(DISTINCT CASE WHEN a.type = 'Check-In' THEN DATE(a.timestamp) END) as checkin_days,
+          COUNT(DISTINCT DATE(a.timestamp)) as any_att_days
+        FROM attendance a
+        WHERE a.timestamp >= ? AND a.timestamp <= ?
+        GROUP BY CAST(REPLACE(a.employee_id, 'EMP-', '') AS UNSIGNED)
+      `, [startDateTime, endDateTime]);
+
+      const attDaysByEmp = new Map();
+      for (const r of attRows) {
+        attDaysByEmp.set(String(r.emp_id), Number(r.checkin_days || r.any_att_days || 0));
+      }
+
+      // 4. Construir ranking ordenado por total de servicios realizados (descendente)
+      const rankingRows = [];
+      for (const [empKey, rec] of currMap.entries()) {
+        const totalRealizados = rec.servicios_facturados + rec.lavados_membresia;
+        if (totalRealizados <= 0) continue;
+
+        const attDays = attDaysByEmp.get(empKey) || 0;
+        const diasTrabajados = Math.max(attDays, rec.visit_days.size, 1);
+        const serviciosPorDia = Number((totalRealizados / diasTrabajados).toFixed(1));
+
+        const prevRec = prevMap.get(empKey);
+        const prevTotal = prevRec ? (prevRec.servicios_facturados + prevRec.lavados_membresia) : 0;
+        const variacionPct = prevTotal > 0
+          ? Number((((totalRealizados - prevTotal) / prevTotal) * 100).toFixed(1))
+          : 0.0;
+
+        rankingRows.push({
+          employee_id: rec.employee_id,
+          empleado: rec.empleado,
+          colaborador: rec.empleado,
+          posicion: rec.posicion,
+          sucursal: rec.sucursal,
+          servicios_facturados: rec.servicios_facturados,
+          lavados_membresia: rec.lavados_membresia,
+          total_realizados: totalRealizados,
+          servicios: totalRealizados,
+          dias_trabajados: diasTrabajados,
+          dias_asistidos: diasTrabajados,
+          servicios_por_dia: serviciosPorDia,
+          monto_generado: Math.round(rec.monto_generado),
+          ingresos_atribuibles: Math.round(rec.monto_generado),
+          prev_total: prevTotal,
+          variacion_pct: variacionPct
+        });
+      }
+
+      rankingRows.sort((a, b) => (b.total_realizados - a.total_realizados) || (b.monto_generado - a.monto_generado));
+
+      const teamFacturados = rankingRows.reduce((s, r) => s + r.servicios_facturados, 0);
+      const teamMembresia = rankingRows.reduce((s, r) => s + r.lavados_membresia, 0);
+      const teamTotalRealizados = teamFacturados + teamMembresia;
+      const teamDiasTrabajados = rankingRows.reduce((s, r) => s + r.dias_trabajados, 0);
+      const teamServiciosPorDia = teamDiasTrabajados > 0
+        ? Number((teamTotalRealizados / teamDiasTrabajados).toFixed(1))
+        : 0.0;
+      const teamMontoGenerado = rankingRows.reduce((s, r) => s + r.monto_generado, 0);
+
+      let teamPrevTotal = 0;
+      for (const pRec of prevMap.values()) {
+        teamPrevTotal += (pRec.servicios_facturados + pRec.lavados_membresia);
+      }
+      const teamVariacionPct = teamPrevTotal > 0
+        ? Number((((teamTotalRealizados - teamPrevTotal) / teamPrevTotal) * 100).toFixed(1))
+        : 0.0;
+
+      rankingRows.forEach((r, idx) => {
+        r.rank = idx + 1;
+        r.participacion_pct = teamTotalRealizados > 0
+          ? Number(((r.total_realizados / teamTotalRealizados) * 100).toFixed(1))
+          : 0.0;
       });
 
-      const totalIngresosAtrib = formattedRows.reduce((s, r) => s + r.ingresos_atribuibles, 0);
-      const totalServicios = formattedRows.reduce((s, r) => s + r.servicios, 0);
-      const totalHoras = Number(formattedRows.reduce((s, r) => s + r.horas_trabajadas, 0).toFixed(1));
-      const promPorHora = totalHoras > 0 ? Math.round(totalIngresosAtrib / totalHoras) : 0;
+      const availableServices = Array.from(distinctServicesSet).sort((a, b) => a.localeCompare(b, 'es'));
 
       return {
-        title: 'Productividad por empleado',
+        title: 'Productividad',
+        subtitle: 'Ranking del equipo ordenado por total de servicios realizados',
         periodText: `${start} al ${end}`,
+        previousPeriodText: `${prevStart} al ${prevEnd}`,
+        available_services: availableServices,
+        ranking_rows: rankingRows,
+        team_totals: {
+          label: 'Total del equipo',
+          servicios_facturados: teamFacturados,
+          lavados_membresia: teamMembresia,
+          total_realizados: teamTotalRealizados,
+          participacion_pct: teamTotalRealizados > 0 ? 100 : 0,
+          dias_trabajados: teamDiasTrabajados,
+          servicios_por_dia: teamServiciosPorDia,
+          monto_generado: teamMontoGenerado,
+          prev_total: teamPrevTotal,
+          variacion_pct: teamVariacionPct
+        },
         kpis: [
           {
-            label: 'Ingresos atribuibles',
-            value: `RD$ ${totalIngresosAtrib.toLocaleString('es-DO')}`,
-            subtext: 'Monto base de servicios ejecutados',
-            icon: 'dollar',
-            color: 'emerald'
-          },
-          {
-            label: 'Servicios realizados',
-            value: totalServicios.toLocaleString('es-DO'),
-            subtext: `En ${formattedRows.filter(r => r.servicios > 0).length} colaboradores con producción`,
+            label: 'Total realizados',
+            value: teamTotalRealizados.toLocaleString('es-DO'),
+            subtext: `${teamFacturados.toLocaleString('es-DO')} facturados + ${teamMembresia.toLocaleString('es-DO')} membresía`,
             icon: 'receipt',
             color: 'blue'
           },
           {
-            label: 'Horas trabajadas netas',
-            value: `${totalHoras.toLocaleString('es-DO')} hrs`,
-            subtext: 'Según jornadas ponchadas',
+            label: 'Monto generado',
+            value: `RD$ ${teamMontoGenerado.toLocaleString('es-DO')}`,
+            subtext: 'Facturación atribuible a servicios',
+            icon: 'dollar',
+            color: 'emerald'
+          },
+          {
+            label: 'Servicios por día',
+            value: `${teamServiciosPorDia}`,
+            subtext: 'Promedio diario por colaborador',
             icon: 'clock',
             color: 'purple'
           },
           {
-            label: 'Productividad por hora',
-            value: `RD$ ${promPorHora.toLocaleString('es-DO')}`,
-            subtext: 'Ingreso atribuible / hora trabajada',
+            label: 'Variación vs. período ant.',
+            value: `${teamVariacionPct > 0 ? '+' : ''}${teamVariacionPct}%`,
+            subtext: `Anterior: ${teamPrevTotal.toLocaleString('es-DO')} servicios`,
             icon: 'trending',
-            color: 'indigo'
+            color: teamVariacionPct >= 0 ? 'emerald' : 'rose'
           }
         ],
         chart: {
           type: 'bar',
-          title: 'Top colaboradores por ingresos atribuibles (RD$)',
-          data: formattedRows.filter(r => r.ingresos_atribuibles > 0).slice(0, 10).map(r => ({
-            label: r.colaborador,
-            value: r.ingresos_atribuibles,
-            displayValue: `RD$ ${r.ingresos_atribuibles.toLocaleString('es-DO')}`
+          title: 'Ranking del equipo por total de servicios realizados',
+          data: rankingRows.slice(0, 10).map(r => ({
+            label: r.empleado,
+            value: r.total_realizados,
+            displayValue: `${r.total_realizados} servicios (RD$ ${r.monto_generado.toLocaleString('es-DO')})`
           }))
         },
         table: {
-          title: 'Detalle de productividad e ingresos por colaborador',
-          badgeText: `${formattedRows.length} colaboradores activos`,
+          title: 'Ranking del equipo',
+          badgeText: `${rankingRows.length} colaboradores`,
           columns: [
-            { key: 'colaborador', label: 'Colaborador' },
-            { key: 'posicion', label: 'Posición' },
-            { key: 'sucursal', label: 'Sucursal' },
-            { key: 'dias_asistidos', label: 'Días Asistidos', align: 'center' },
-            { key: 'horas_trabajadas', label: 'Horas Trabajadas', align: 'center' },
-            { key: 'servicios', label: 'Servicios Realizados', align: 'center' },
-            { key: 'ingresos_atribuibles', label: 'Ingresos Atribuibles', isCurrency: true },
-            { key: 'ingreso_por_hora', label: 'Ingreso / Hora', isCurrency: true },
-            { key: 'comision_generada', label: 'Comisión', isCurrency: true }
+            { key: 'rank', label: '#', align: 'center' },
+            { key: 'empleado', label: 'Empleado' },
+            { key: 'servicios_facturados', label: 'Servicios facturados', align: 'center' },
+            { key: 'lavados_membresia', label: 'Lavados de membresía', align: 'center' },
+            { key: 'total_realizados', label: 'Total realizados ↓', align: 'center' },
+            { key: 'participacion_pct', label: 'Participación %', align: 'center' },
+            { key: 'servicios_por_dia', label: 'Servicios por día', align: 'center' },
+            { key: 'monto_generado', label: 'Monto generado', isCurrency: true },
+            { key: 'variacion_pct', label: 'Variación %', align: 'center' }
           ],
-          rows: formattedRows,
-          footerNote: 'Las horas trabajadas se calculan sobre los días con ponche de entrada (8h netas base + minutos extra - tardanzas).'
+          rows: rankingRows,
+          footerNote: 'Fuentes: Facturación · Canjes de membresía · Control de asistencia'
         }
       };
     } catch (e) {

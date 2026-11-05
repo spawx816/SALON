@@ -207,6 +207,15 @@ export const BI_REPORTS_BY_CATEGORY = {
       note: 'El excedente corresponde a cobros menos pagos del período. No equivale a utilidad contable ni al saldo bancario.'
     },
     {
+      id: 'employee_productivity',
+      name: 'Productividad',
+      chartType: 'productivity_ranking',
+      hasEmployeeFilter: true,
+      hasServiceFilter: true,
+      description: 'Ranking del equipo ordenado por total de servicios realizados (facturados y lavados de membresía), participación, servicios por día, monto generado y variación.',
+      note: 'Los lavados de membresía cuentan como servicios, sin asignarles valor monetario.'
+    },
+    {
       id: 'income_vs_commissions',
       name: 'Ingresos vs. comisiones',
       chartType: 'bar',
@@ -218,13 +227,6 @@ export const BI_REPORTS_BY_CATEGORY = {
       name: 'Ingresos vs. nómina total',
       chartType: 'bar',
       description: 'Muestra cuánto representa la nómina por cada RD$100 de ingresos con desglose de sueldos, comisiones, bonos y horas extras.'
-    },
-    {
-      id: 'employee_productivity',
-      name: 'Productividad por empleado',
-      chartType: 'bar',
-      hasEmployeeFilter: true,
-      description: 'Relaciona ingresos atribuibles, servicios realizados y unidades vendidas contra horas trabajadas.'
     },
     {
       id: 'overtime_vs_results',
