@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, Users, CreditCard, UserCheck, Filter, Download,
   Printer, ChevronDown, Calendar, MapPin, AlertCircle, Info, Sparkles, Check, RefreshCw,
-  Wallet, Percent, BarChart3, Home, Building2, Share2, Shield
+  Wallet, Percent, BarChart3, Home, Building2, Share2, Shield,
+  UserPlus, XCircle, PauseCircle, Database
 } from 'lucide-react';
 import {
   BI_CATEGORIES,
@@ -62,6 +63,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   const [cancellationReason, setCancellationReason] = useState('Todos los motivos');
   const [selectedEmployee, setSelectedEmployee] = useState('all');
   const [selectedService, setSelectedService] = useState('all');
+  const [selectedStatus, setSelectedStatus] = useState('all');
 
   // Chart interactivity states
   const [interactiveSelectedGroup, setInteractiveSelectedGroup] = useState('0_visits');
@@ -267,6 +269,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         reason: cancellationReason,
         employeeId: selectedEmployee,
         serviceFilter: selectedService,
+        statusFilter: selectedStatus,
         timeGrain,
         sample: '0'
       };
@@ -285,7 +288,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       if (res && Array.isArray(res.kpis)) {
         setReportData(res);
         setReportError(null);
-      } else if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
+      } else if (['memberships_summary', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
         // En producción: cero datos simulados.
         // Si no se reciben KPIs válidos desde el backend, reflejar error formal y no fallback a mock.
         setReportError(callError?.message || 'No se pudo obtener la información desde el servidor.');
@@ -296,7 +299,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       }
     } catch (err) {
       console.error('Error fetching BI report:', err);
-      if (['contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
+      if (['memberships_summary', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
         setReportError(err?.message || 'Error de conexión al cargar el reporte desde el servidor.');
         setReportData(null);
       } else {
@@ -636,6 +639,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
     cancellationReason,
     selectedEmployee,
     selectedService,
+    selectedPlan,
+    selectedStatus,
     selectedMembership,
     timeGrain,
     startDate,
@@ -1136,13 +1141,47 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                     cursor: 'pointer'
                   }}
                 >
-                  <option value="all">Todos los planes</option>
+                  <option value="all">Todos</option>
                   {plans.map(p => (
                     <option key={p.id} value={p.id}>{p.title}</option>
                   ))}
                   {plans.length === 0 && (
                     <option value="Plan Beauty">Plan Beauty</option>
                   )}
+                </select>
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Contextual Dynamic Filter: Estado (Resumen de membresías) */}
+          {currentReportConfig.hasStatusFilter && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Estado
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
+                    fontSize: '0.88rem',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">Todos</option>
+                  <option value="activas">Activas</option>
+                  <option value="nuevas">Nuevas</option>
+                  <option value="canceladas">Canceladas</option>
+                  <option value="suspendidas">Suspendidas</option>
                 </select>
                 <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
               </div>
@@ -2391,6 +2430,434 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   </div>
                 </div>
               </div>
+            );
+          })()}
+        </div>
+      ) : selectedReportId === 'memberships_summary' ? (
+        <div data-testid="memberships-summary-executive-view" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
+          {(() => {
+            const sm = reportData?.summary_metrics || {
+              activas_cierre: 0,
+              nuevas_periodo: 0,
+              canceladas_periodo: 0,
+              suspendidas_cierre: 0,
+              crecimiento_neto: 0,
+              activas_inicio: 0,
+              valor_mensual_activo: 0
+            };
+            const activeEv = reportData?.active_evolution || [];
+            const cancelledEv = reportData?.cancelled_evolution || [];
+            const byBranch = reportData?.by_branch || [];
+            const byPlan = reportData?.by_plan || [];
+
+            const kpiCards = [
+              {
+                label: 'Activas',
+                value: Number(sm.activas_cierre || 0).toLocaleString('es-DO'),
+                subtext: 'Al cierre',
+                iconBg: '#dcfce7',
+                iconColor: '#16a34a',
+                Icon: Users
+              },
+              {
+                label: 'Nuevas',
+                value: Number(sm.nuevas_periodo || 0).toLocaleString('es-DO'),
+                subtext: 'En el período',
+                iconBg: '#dbeafe',
+                iconColor: '#2563eb',
+                Icon: UserPlus
+              },
+              {
+                label: 'Canceladas',
+                value: Number(sm.canceladas_periodo || 0).toLocaleString('es-DO'),
+                subtext: 'En el período',
+                iconBg: '#fee2e2',
+                iconColor: '#ef4444',
+                Icon: XCircle
+              },
+              {
+                label: 'Suspendidas',
+                value: Number(sm.suspendidas_cierre || 0).toLocaleString('es-DO'),
+                subtext: 'Al cierre',
+                iconBg: '#fef3c7',
+                iconColor: '#f59e0b',
+                Icon: PauseCircle
+              },
+              {
+                label: 'Crecimiento neto',
+                value: `${Number(sm.crecimiento_neto || 0) > 0 ? '+' : ''}${Number(sm.crecimiento_neto || 0)}`,
+                subtext: `${Number(sm.activas_inicio || 0)} al inicio → ${Number(sm.activas_cierre || 0)} al cierre`,
+                iconBg: '#f3e8ff',
+                iconColor: '#9333ea',
+                Icon: TrendingUp
+              },
+              {
+                label: 'Valor mensual activo',
+                value: `RD$ ${Number(sm.valor_mensual_activo || 0).toLocaleString('es-DO')}`,
+                subtext: 'Importe contratado, no cobrado',
+                iconBg: '#dbeafe',
+                iconColor: '#2563eb',
+                Icon: Database
+              }
+            ];
+
+            // Escala para Evolución de activas (SVG Line/Area Chart)
+            const maxActiveVal = Math.max(...activeEv.map(d => Number(d.value || 0)), 60);
+            const yAxisMaxActive = Math.ceil(maxActiveVal / 20) * 20 || 80;
+            const activeTicks = [0, Math.round(yAxisMaxActive * 0.25), Math.round(yAxisMaxActive * 0.5), Math.round(yAxisMaxActive * 0.75), yAxisMaxActive];
+
+            // Escala para Membresías canceladas (6 meses)
+            const maxCancelVal = Math.max(...cancelledEv.map(d => Number(d.value || 0)), 5);
+            const yAxisMaxCancel = Math.max(6, Math.ceil(maxCancelVal / 2) * 2);
+            const cancelTicks = [0, Math.round(yAxisMaxCancel / 3), Math.round((yAxisMaxCancel * 2) / 3), yAxisMaxCancel];
+
+            const maxBranchCount = Math.max(...byBranch.map(b => Number(b.count || 0)), 1);
+
+            return (
+              <>
+                {/* Tarjeta Superior: 6 KPIs Homologados */}
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '1rem',
+                  padding: '1.35rem 1.5rem',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(168px, 1fr))',
+                    gap: '0.85rem'
+                  }}>
+                    {kpiCards.map((kpi, idx) => {
+                      const IconComp = kpi.Icon;
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '0.85rem',
+                            padding: '1rem 1.05rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            gap: '0.55rem'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <div style={{
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '0.65rem',
+                              background: kpi.iconBg,
+                              color: kpi.iconColor,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <IconComp size={21} />
+                            </div>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', lineHeight: 1.2 }}>
+                                {kpi.label}
+                              </div>
+                              <div style={{
+                                fontSize: kpi.label === 'Valor mensual activo' ? '1.35rem' : '1.65rem',
+                                fontWeight: 800,
+                                color: '#0f172a',
+                                lineHeight: 1.2,
+                                marginTop: '0.15rem',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {kpi.value}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: '0.76rem', color: '#64748b', fontWeight: 500 }}>
+                            {kpi.subtext}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Grid 2x2 de Gráficos y Desgloses */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+                  gap: '1.25rem',
+                  marginBottom: '1.5rem'
+                }}>
+                  {/* 1. Evolución de activas */}
+                  <div style={{
+                    background: '#ffffff',
+                    borderRadius: '1rem',
+                    padding: '1.5rem 1.75rem',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between'
+                  }}>
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: '0 0 1rem 0' }}>
+                      Evolución de activas
+                    </h3>
+
+                    <div style={{ width: '100%', overflowX: 'auto' }}>
+                      <svg viewBox="0 0 460 205" style={{ width: '100%', height: 'auto', minHeight: '175px', display: 'block' }}>
+                        {/* Líneas horizontales y etiquetas del eje Y */}
+                        {activeTicks.map((tick, tIdx) => {
+                          const y = 155 - ((tick / (yAxisMaxActive || 1)) * 120);
+                          return (
+                            <g key={tIdx}>
+                              <text x="28" y={y + 4} textAnchor="end" fontSize="11" fill="#64748b" fontWeight="500">
+                                {tick}
+                              </text>
+                              <line x1="38" y1={y} x2="435" y2={y} stroke="#e2e8f0" strokeWidth="1" />
+                            </g>
+                          );
+                        })}
+
+                        {/* Área sombreada y línea de evolución */}
+                        {(() => {
+                          if (activeEv.length === 0) return null;
+                          const startX = 95;
+                          const endX = 385;
+                          const stepX = activeEv.length > 1 ? (endX - startX) / (activeEv.length - 1) : 0;
+
+                          const points = activeEv.map((pt, idx) => {
+                            const x = activeEv.length === 1 ? 240 : startX + idx * stepX;
+                            const y = 155 - ((Number(pt.value || 0) / (yAxisMaxActive || 1)) * 120);
+                            return { x, y, label: pt.label, value: Number(pt.value || 0) };
+                          });
+
+                          const polylinePoints = points.map(p => `${p.x},${p.y}`).join(' ');
+                          const areaPath = `M ${points[0].x},155 ` + points.map(p => `L ${p.x},${p.y}`).join(' ') + ` L ${points[points.length - 1].x},155 Z`;
+
+                          return (
+                            <>
+                              <path d={areaPath} fill="rgba(59, 130, 246, 0.14)" />
+                              <polyline
+                                fill="none"
+                                stroke="#2563eb"
+                                strokeWidth="2.5"
+                                points={polylinePoints}
+                              />
+                              {points.map((p, idx) => (
+                                <g key={idx}>
+                                  <circle cx={p.x} cy={p.y} r="5" fill="#2563eb" stroke="#ffffff" strokeWidth="2" />
+                                  <text x={p.x} y={p.y - 11} textAnchor="middle" fontSize="12" fontWeight="800" fill="#0f172a">
+                                    {p.value}
+                                  </text>
+                                  <text x={p.x} y="178" textAnchor="middle" fontSize="12" fontWeight="600" fill="#475569">
+                                    {p.label}
+                                  </text>
+                                </g>
+                              ))}
+                            </>
+                          );
+                        })()}
+                      </svg>
+                    </div>
+
+                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 500 }}>
+                      {reportData?.active_evolution_footnote || '*Al cierre del período'}
+                    </div>
+                  </div>
+
+                  {/* 2. Membresías canceladas */}
+                  <div style={{
+                    background: '#ffffff',
+                    borderRadius: '1rem',
+                    padding: '1.5rem 1.75rem',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ marginBottom: '0.75rem' }}>
+                      <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.2rem 0' }}>
+                        Membresías canceladas
+                      </h3>
+                      <div style={{ fontSize: '0.84rem', color: '#64748b', fontWeight: 500 }}>
+                        Últimos 6 meses · Cancelaciones efectivas
+                      </div>
+                    </div>
+
+                    <div style={{ width: '100%', overflowX: 'auto' }}>
+                      <svg viewBox="0 0 460 190" style={{ width: '100%', height: 'auto', minHeight: '165px', display: 'block' }}>
+                        {cancelTicks.map((tick, tIdx) => {
+                          const y = 145 - ((tick / (yAxisMaxCancel || 1)) * 110);
+                          return (
+                            <g key={tIdx}>
+                              <text x="24" y={y + 4} textAnchor="end" fontSize="11" fill="#64748b" fontWeight="500">
+                                {tick}
+                              </text>
+                              <line x1="34" y1={y} x2="440" y2={y} stroke="#e2e8f0" strokeWidth="1" />
+                            </g>
+                          );
+                        })}
+
+                        {cancelledEv.map((item, idx) => {
+                          const barWidth = 40;
+                          const gap = 25;
+                          const x = 52 + idx * (barWidth + gap);
+                          const val = Number(item.value || 0);
+                          const barHeight = Math.max(val > 0 ? 6 : 2, (val / (yAxisMaxCancel || 1)) * 110);
+                          const y = 145 - barHeight;
+
+                          return (
+                            <g key={idx}>
+                              <rect
+                                x={x}
+                                y={y}
+                                width={barWidth}
+                                height={barHeight}
+                                rx="3"
+                                fill="#f87171"
+                              />
+                              <text x={x + barWidth / 2} y={y - 7} textAnchor="middle" fontSize="12" fontWeight="800" fill="#0f172a">
+                                {val}
+                              </text>
+                              <text x={x + barWidth / 2} y="166" textAnchor="middle" fontSize="11.5" fontWeight="600" fill="#475569">
+                                {item.label}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                    </div>
+
+                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 500 }}>
+                      {reportData?.cancelled_evolution_footnote || '*Al cierre del período'}
+                    </div>
+                  </div>
+
+                  {/* 3. Por sucursal */}
+                  <div style={{
+                    background: '#ffffff',
+                    borderRadius: '1rem',
+                    padding: '1.5rem 1.75rem',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: '0 0 1.25rem 0' }}>
+                        Por sucursal
+                      </h3>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        {byBranch.map((b, idx) => {
+                          const widthPct = maxBranchCount > 0 ? Math.max((b.count / maxBranchCount) * 70, b.count > 0 ? 8 : 2) : 2;
+                          return (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                              <div style={{
+                                width: '100px',
+                                textAlign: 'right',
+                                fontSize: '0.9rem',
+                                fontWeight: 600,
+                                color: '#334155',
+                                flexShrink: 0
+                              }}>
+                                {b.sucursal}
+                              </div>
+                              <div style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.6rem',
+                                borderLeft: '1px solid #cbd5e1',
+                                paddingLeft: '0.2rem',
+                                minHeight: '30px'
+                              }}>
+                                <div style={{
+                                  width: `${widthPct}%`,
+                                  height: '24px',
+                                  background: '#1d6fe8',
+                                  borderRadius: '0 0.35rem 0.35rem 0',
+                                  transition: 'width 0.3s ease'
+                                }} />
+                                <div style={{ fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
+                                  <strong style={{ color: '#0f172a', fontWeight: 800 }}>{b.count}</strong>{' '}
+                                  <span style={{ color: '#64748b', fontWeight: 500 }}>({b.percentage}%)</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      textAlign: 'right',
+                      fontSize: '0.88rem',
+                      color: '#475569',
+                      fontWeight: 600,
+                      marginTop: '1.25rem'
+                    }}>
+                      Total: {Number(sm.activas_cierre || 0)} activas
+                    </div>
+                  </div>
+
+                  {/* 4. Desglose por plan */}
+                  <div style={{
+                    background: '#ffffff',
+                    borderRadius: '1rem',
+                    padding: '1.5rem 1.75rem',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'flex-start'
+                  }}>
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: '0 0 1.25rem 0' }}>
+                      Desglose por plan
+                    </h3>
+
+                    <div style={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '0.65rem',
+                      overflow: 'hidden'
+                    }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.92rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                            <th style={{ padding: '0.8rem 1rem', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Plan</th>
+                            <th style={{ padding: '0.8rem 1rem', textAlign: 'center', fontWeight: 700, color: '#334155' }}>Activas</th>
+                            <th style={{ padding: '0.8rem 1rem', textAlign: 'center', fontWeight: 700, color: '#334155' }}>%</th>
+                            <th style={{ padding: '0.8rem 1rem', textAlign: 'right', fontWeight: 700, color: '#334155' }}>Valor mensual</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {byPlan.map((p, idx) => (
+                            <tr key={idx} style={{ borderBottom: idx < byPlan.length - 1 ? '1px solid #f1f5f9' : 'none', background: '#ffffff' }}>
+                              <td style={{ padding: '0.95rem 1rem', textAlign: 'left', fontWeight: 600, color: '#0f172a' }}>
+                                {p.plan}
+                              </td>
+                              <td style={{ padding: '0.95rem 1rem', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
+                                {Number(p.activas || 0).toLocaleString('es-DO')}
+                              </td>
+                              <td style={{ padding: '0.95rem 1rem', textAlign: 'center', fontWeight: 600, color: '#334155' }}>
+                                {p.percentage}%
+                              </td>
+                              <td style={{ padding: '0.95rem 1rem', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>
+                                RD$ {Number(p.valor_mensual || 0).toLocaleString('es-DO')}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </>
             );
           })()}
         </div>

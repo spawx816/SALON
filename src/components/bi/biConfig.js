@@ -160,7 +160,9 @@ export const BI_REPORTS_BY_CATEGORY = {
     {
       id: 'memberships_summary',
       name: 'Resumen de membresías',
-      chartType: 'bar',
+      chartType: 'memberships_summary_dashboard',
+      hasPlanFilter: true,
+      hasStatusFilter: true,
       description: 'Muestra membresías por estado, nuevas altas, reactivaciones, cancelaciones e importe mensual contratado de las activas.',
       note: 'El importe mensual contratado representa proyección potencial, no dinero cobrado.'
     },

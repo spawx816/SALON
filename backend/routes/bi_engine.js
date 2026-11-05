@@ -1786,6 +1786,356 @@ async function handleBIReport(pool, params) {
   }
 
   // ==========================================
+  // 16.B MEMBRESÍAS: RESUMEN DE MEMBRESÍAS (memberships_summary)
+  // Movimientos en el período, estados al cierre, evolución de activas (3 meses),
+  // canceladas (6 meses), desglose por sucursal y desglose por plan.
+  // ==========================================
+  if (reportId === 'memberships_summary') {
+    try {
+      const statusFilter = (params.statusFilter || params.status || 'all').toLowerCase();
+      const effectivePlan = (planId && planId !== 'all') ? planId : (membership && membership !== 'all' ? membership : null);
+
+      const whereConds = ['1=1'];
+      const qParams = [];
+
+      if (salonId !== 'all') {
+        whereConds.push('(COALESCE(ct.salon_id, cl.salon_id, 1) = ? OR s.name LIKE ?)');
+        qParams.push(salonId, `%${salonId}%`);
+      }
+      if (effectivePlan) {
+        whereConds.push('(ct.plan_id = ? OR p.title = ?)');
+        qParams.push(effectivePlan, effectivePlan);
+      }
+
+      const [contractRows] = await pool.query(`
+        SELECT
+          ct.id,
+          ct.client_id,
+          COALESCE(cl.nombre, 'Socia Plan Beauty') as cliente,
+          ct.status,
+          ct.signed_at,
+          ct.last_billed_date,
+          COALESCE(bc.cancelled_at, ct.last_billed_date, ct.signed_at) as cancel_date,
+          COALESCE(ct.salon_id, cl.salon_id, 1) as effective_salon_id,
+          COALESCE(s.name, 'San Vicente') as sucursal_raw,
+          ct.plan_id,
+          COALESCE(p.title, 'Plan Beauty') as plan_title,
+          COALESCE(NULLIF(ct.contract_price, 0), p.price, 1950) as monthly_price
+        FROM contracts ct
+        LEFT JOIN (
+          SELECT contract_id, MAX(created_at) as cancelled_at
+          FROM billing_codes
+          WHERE action_type = 'cancellation' AND is_used = 1
+          GROUP BY contract_id
+        ) bc ON ct.id = bc.contract_id
+        LEFT JOIN clients cl ON ct.client_id = cl.id
+        LEFT JOIN salons s ON COALESCE(ct.salon_id, cl.salon_id, 1) = s.id
+        LEFT JOIN plans p ON ct.plan_id = p.id
+        WHERE ${whereConds.join(' AND ')}
+        ORDER BY ct.signed_at DESC
+      `, qParams);
+
+      const [allSalonsRows] = await pool.query('SELECT id, name FROM salons ORDER BY id ASC');
+
+      const cleanBranchName = (raw) => {
+        if (!raw) return 'San Vicente';
+        const cleaned = String(raw)
+          .replace(/^Abatte\s+Peluquer[ií]a\s*/i, '')
+          .replace(/^Sirena\s*/i, '')
+          .trim();
+        return cleaned || String(raw);
+      };
+
+      const toDateStr = (val) => {
+        if (!val) return '';
+        if (typeof val === 'string') return val.slice(0, 10);
+        try {
+          const d = new Date(val);
+          if (isNaN(d.getTime())) return '';
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        } catch (_) {
+          return '';
+        }
+      };
+
+      const normalizedContracts = contractRows.map(r => {
+        const signedDate = toDateStr(r.signed_at);
+        const cancelDate = toDateStr(r.cancel_date) || signedDate;
+        const rawStatus = String(r.status || 'Active').trim();
+        const isCancelledStatus = ['Cancelled', 'Cancelado', 'Cancelada'].includes(rawStatus);
+        const isSuspendedStatus = ['Suspended', 'Suspendido', 'Suspendida', 'Pending_Retry', 'Past_Due'].includes(rawStatus);
+        const isActiveStatus = ['Active', 'Activo', 'Activa'].includes(rawStatus);
+
+        return {
+          ...r,
+          sucursal: cleanBranchName(r.sucursal_raw),
+          signedDate,
+          cancelDate,
+          rawStatus,
+          isCancelledStatus,
+          isSuspendedStatus,
+          isActiveStatus,
+          priceNum: Number(r.monthly_price || 1950)
+        };
+      });
+
+      // Evaluar el estado de un contrato a una fecha de corte YYYY-MM-DD
+      const getStateAtCutoff = (c, cutoffDateStr) => {
+        if (c.signedDate && c.signedDate > cutoffDateStr) return 'Future';
+        if (c.isCancelledStatus) {
+          if (!c.cancelDate || c.cancelDate <= cutoffDateStr) {
+            return 'Cancelled';
+          }
+          return 'Active';
+        }
+        if (c.isSuspendedStatus) {
+          return 'Suspended';
+        }
+        return 'Active';
+      };
+
+      // Filtrar contratos si el usuario seleccionó un Estado específico en el filtro
+      const matchesStatusFilter = (c) => {
+        if (!statusFilter || statusFilter === 'all' || statusFilter === 'todos') return true;
+        const stateAtEnd = getStateAtCutoff(c, end);
+        if (statusFilter === 'active' || statusFilter === 'activas') return stateAtEnd === 'Active';
+        if (statusFilter === 'new' || statusFilter === 'nuevas') return c.signedDate >= start && c.signedDate <= end;
+        if (statusFilter === 'cancelled' || statusFilter === 'canceladas') {
+          return c.isCancelledStatus && c.cancelDate >= start && c.cancelDate <= end;
+        }
+        if (statusFilter === 'suspended' || statusFilter === 'suspendidas') return stateAtEnd === 'Suspended';
+        return true;
+      };
+
+      const activeAtCutoffList = normalizedContracts.filter(c => getStateAtCutoff(c, end) === 'Active' && matchesStatusFilter(c));
+      const suspendedAtCutoffList = normalizedContracts.filter(c => getStateAtCutoff(c, end) === 'Suspended' && matchesStatusFilter(c));
+      const newInPeriodList = normalizedContracts.filter(c => c.signedDate >= start && c.signedDate <= end && matchesStatusFilter(c));
+      const cancelledInPeriodList = normalizedContracts.filter(c => c.isCancelledStatus && c.cancelDate >= start && c.cancelDate <= end && matchesStatusFilter(c));
+
+      const activasCierre = activeAtCutoffList.length;
+      const nuevasPeriodo = newInPeriodList.length;
+      const canceladasPeriodo = cancelledInPeriodList.length;
+      const suspendidasCierre = suspendedAtCutoffList.length;
+      const crecimientoNeto = nuevasPeriodo - canceladasPeriodo;
+      const activasInicio = Math.max(0, activasCierre - crecimientoNeto);
+      const valorMensualActivo = activeAtCutoffList.reduce((sum, c) => sum + c.priceNum, 0);
+
+      // Formatear subtítulo del período al estilo del diseño: "Movimientos: 1–30 oct 2026 · Estados al 30 oct 2026"
+      const monthNamesShort = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      const monthNamesCap = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      const monthNamesFull = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+      const sParts = start.split('-').map(Number);
+      const eParts = end.split('-').map(Number);
+      const sYear = sParts[0] || now.getFullYear();
+      const sMonth = (sParts[1] || 1) - 1;
+      const sDay = sParts[2] || 1;
+      const eYear = eParts[0] || now.getFullYear();
+      const eMonth = (eParts[1] || 1) - 1;
+      const eDay = eParts[2] || 1;
+
+      const cutoffShortStr = `${eDay} ${monthNamesShort[eMonth]} ${eYear}`;
+      const movRangeStr = (sYear === eYear && sMonth === eMonth)
+        ? `${sDay}–${eDay} ${monthNamesShort[eMonth]} ${eYear}`
+        : `${sDay} ${monthNamesShort[sMonth]} ${sYear !== eYear ? sYear + ' ' : ''}– ${eDay} ${monthNamesShort[eMonth]} ${eYear}`;
+      const subtitleText = `Movimientos: ${movRangeStr} · Estados al ${cutoffShortStr}`;
+
+      // 1. Evolución de activas (últimos 3 meses hasta el mes de cierre)
+      const activeEvolution = [];
+      for (let offset = 2; offset >= 0; offset--) {
+        const targetDate = new Date(eYear, eMonth - offset, 1);
+        const ty = targetDate.getFullYear();
+        const tm = targetDate.getMonth();
+        const isCutoffMonth = offset === 0;
+        const lastDayOfMonth = new Date(ty, tm + 1, 0).getDate();
+        const evalDay = isCutoffMonth ? Math.min(eDay, lastDayOfMonth) : lastDayOfMonth;
+        const evalDateStr = `${ty}-${String(tm + 1).padStart(2, '0')}-${String(evalDay).padStart(2, '0')}`;
+
+        const countActive = normalizedContracts.filter(c => getStateAtCutoff(c, evalDateStr) === 'Active' && matchesStatusFilter(c)).length;
+        activeEvolution.push({
+          month: `${ty}-${String(tm + 1).padStart(2, '0')}`,
+          label: `${monthNamesCap[tm]}${isCutoffMonth ? '*' : ''}`,
+          value: countActive
+        });
+      }
+      const activeEvolutionFootnote = `*Al ${eDay} ${monthNamesShort[eMonth]}`;
+
+      // 2. Membresías canceladas (últimos 6 meses hasta el mes de cierre)
+      const cancelledEvolution = [];
+      for (let offset = 5; offset >= 0; offset--) {
+        const targetDate = new Date(eYear, eMonth - offset, 1);
+        const ty = targetDate.getFullYear();
+        const tm = targetDate.getMonth();
+        const isCutoffMonth = offset === 0;
+        const lastDayOfMonth = new Date(ty, tm + 1, 0).getDate();
+        const evalEndDay = isCutoffMonth ? Math.min(eDay, lastDayOfMonth) : lastDayOfMonth;
+        const mStartStr = `${ty}-${String(tm + 1).padStart(2, '0')}-01`;
+        const mEndStr = `${ty}-${String(tm + 1).padStart(2, '0')}-${String(evalEndDay).padStart(2, '0')}`;
+
+        const countCancelled = normalizedContracts.filter(c =>
+          c.isCancelledStatus && c.cancelDate >= mStartStr && c.cancelDate <= mEndStr && matchesStatusFilter(c)
+        ).length;
+
+        cancelledEvolution.push({
+          month: `${ty}-${String(tm + 1).padStart(2, '0')}`,
+          label: `${monthNamesCap[tm]}${isCutoffMonth ? '*' : ''}`,
+          value: countCancelled
+        });
+      }
+      const cancelledEvolutionFootnote = `*${monthNamesFull[eMonth]}: al ${eDay} ${monthNamesShort[eMonth]} ${eYear}`;
+
+      // 3. Por sucursal (Activas al cierre)
+      const branchCountsMap = new Map();
+      if (salonId === 'all') {
+        (allSalonsRows || []).forEach(s => {
+          const bName = cleanBranchName(s.name);
+          if (bName && !bName.toLowerCase().includes('disponible') && !bName.toLowerCase().includes('prueba')) {
+            if (!branchCountsMap.has(bName)) branchCountsMap.set(bName, 0);
+          }
+        });
+      }
+      activeAtCutoffList.forEach(c => {
+        branchCountsMap.set(c.sucursal, (branchCountsMap.get(c.sucursal) || 0) + 1);
+      });
+
+      const byBranch = Array.from(branchCountsMap.entries())
+        .map(([sucursal, count]) => {
+          const pct = activasCierre > 0 ? Number(((count / activasCierre) * 100).toFixed(1)) : 0;
+          return {
+            sucursal,
+            count,
+            percentage: pct
+          };
+        })
+        .sort((a, b) => b.count - a.count || a.sucursal.localeCompare(b.sucursal, 'es'));
+
+      // 4. Desglose por plan (Activas al cierre)
+      const planMap = new Map();
+      activeAtCutoffList.forEach(c => {
+        const pName = c.plan_title || 'Plan Beauty';
+        if (!planMap.has(pName)) {
+          planMap.set(pName, { plan: pName, activas: 0, valor_mensual: 0 });
+        }
+        const entry = planMap.get(pName);
+        entry.activas += 1;
+        entry.valor_mensual += c.priceNum;
+      });
+      if (planMap.size === 0) {
+        planMap.set('Plan Beauty', { plan: 'Plan Beauty', activas: 0, valor_mensual: 0 });
+      }
+      const byPlan = Array.from(planMap.values()).map(p => ({
+        plan: p.plan,
+        activas: p.activas,
+        percentage: activasCierre > 0 ? Number(((p.activas / activasCierre) * 100).toFixed(1)) : 0,
+        valor_mensual: Math.round(p.valor_mensual)
+      }));
+
+      // Filas detalladas para exportación Excel / CSV
+      const exportRows = normalizedContracts.filter(matchesStatusFilter).map(c => ({
+        cliente: c.cliente,
+        plan: c.plan_title,
+        sucursal: c.sucursal,
+        estado: getStateAtCutoff(c, end) === 'Active' ? 'Activa' : (getStateAtCutoff(c, end) === 'Suspended' ? 'Suspendida' : 'Cancelada'),
+        fecha_alta: formatDO(c.signed_at),
+        valor_mensual: Math.round(c.priceNum)
+      }));
+
+      return {
+        title: 'Resumen de membresías',
+        categoryName: 'Membresías',
+        periodText: subtitleText,
+        subtitle: subtitleText,
+        summary_metrics: {
+          activas_cierre: activasCierre,
+          nuevas_periodo: nuevasPeriodo,
+          canceladas_periodo: canceladasPeriodo,
+          suspendidas_cierre: suspendidasCierre,
+          crecimiento_neto: crecimientoNeto,
+          activas_inicio: activasInicio,
+          valor_mensual_activo: Math.round(valorMensualActivo)
+        },
+        kpis: [
+          {
+            label: 'Activas',
+            value: activasCierre.toString(),
+            subtext: 'Al cierre',
+            icon: 'users',
+            color: 'emerald'
+          },
+          {
+            label: 'Nuevas',
+            value: nuevasPeriodo.toString(),
+            subtext: 'En el período',
+            icon: 'user_plus',
+            color: 'blue'
+          },
+          {
+            label: 'Canceladas',
+            value: canceladasPeriodo.toString(),
+            subtext: 'En el período',
+            icon: 'x_circle',
+            color: 'rose'
+          },
+          {
+            label: 'Suspendidas',
+            value: suspendidasCierre.toString(),
+            subtext: 'Al cierre',
+            icon: 'pause',
+            color: 'amber'
+          },
+          {
+            label: 'Crecimiento neto',
+            value: `${crecimientoNeto > 0 ? '+' : ''}${crecimientoNeto}`,
+            subtext: `${activasInicio} al inicio → ${activasCierre} al cierre`,
+            icon: 'trending',
+            color: 'purple'
+          },
+          {
+            label: 'Valor mensual activo',
+            value: `RD$ ${Math.round(valorMensualActivo).toLocaleString('es-DO')}`,
+            subtext: 'Importe contratado, no cobrado',
+            icon: 'coins',
+            color: 'blue'
+          }
+        ],
+        active_evolution: activeEvolution,
+        active_evolution_footnote: activeEvolutionFootnote,
+        cancelled_evolution: cancelledEvolution,
+        cancelled_evolution_footnote: cancelledEvolutionFootnote,
+        by_branch: byBranch,
+        by_plan: byPlan,
+        chart: {
+          type: 'memberships_summary_dashboard',
+          data: byBranch.map(b => ({
+            label: b.sucursal,
+            value: b.count,
+            displayValue: `${b.count} (${b.percentage}%)`
+          }))
+        },
+        table: {
+          title: 'Desglose de membresías por plan y sucursal',
+          badgeText: `${exportRows.length} contratos`,
+          columns: [
+            { key: 'cliente', label: 'Cliente' },
+            { key: 'plan', label: 'Plan' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'estado', label: 'Estado al cierre', align: 'center' },
+            { key: 'fecha_alta', label: 'Fecha de Alta', align: 'center' },
+            { key: 'valor_mensual', label: 'Valor Mensual', isCurrency: true }
+          ],
+          rows: exportRows,
+          footerNote: 'El valor mensual activo corresponde al importe contratado de las membresías activas al cierre, no al monto cobrado.'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in memberships_summary:', e.message);
+    }
+  }
+
+  // ==========================================
   // 17. CONTRATOS: RENOVACIÓN ANUAL (RF-07)
   // Identifica membresías próximas a cumplir su vigencia anual y devengar el cargo
   // de RD$ 800 de manera totalmente independiente de la cuota mensual recurrente.
