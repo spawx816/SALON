@@ -98,6 +98,7 @@ const ADMIN_PROTECTED_ROUTES = [
   '/api/dgii-sequences',
   '/api/credit-notes',
   '/api/reports/607',
+  '/api/dgii/it1',
   '/api/email-settings',
   '/api/expenses'
 ];
@@ -112,6 +113,9 @@ app.use((req, res, next) => {
       req.path.startsWith('/api/reports/607') ||
       req.path.startsWith('/api/reports/606') ||
       req.path.startsWith('/api/reports/fiscal') ||
+      req.path.startsWith('/api/dgii/report-606') ||
+      req.path.startsWith('/api/dgii-606') ||
+      req.path.startsWith('/api/dgii/it1') ||
       req.path.startsWith('/api/credit-notes') ||
       req.path.startsWith('/api/invoices') ||
       req.path.startsWith('/api/auth') ||
@@ -133,7 +137,7 @@ app.use((req, res, next) => {
       req.path.startsWith('/api/settings') ||
       req.path.startsWith('/api/marketing') ||
       req.path.startsWith('/api/cardnet') ||
-      ((req.path.startsWith('/api/clients') || req.path.startsWith('/api/services') || req.path.startsWith('/api/salons') || req.path.startsWith('/api/dgii')) && req.method !== 'GET');
+      ((req.path.startsWith('/api/clients') || req.path.startsWith('/api/services') || req.path.startsWith('/api/salons') || (req.path.startsWith('/api/dgii') && !req.path.startsWith('/api/dgii/it1') && !req.path.startsWith('/api/dgii/report-606') && !req.path.startsWith('/api/dgii-606'))) && req.method !== 'GET');
 
     if (!isAllowedForContador || isForeignOperational) {
       return res.status(403).json({

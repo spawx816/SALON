@@ -49,6 +49,7 @@ import DgiiSequencesModule from './components/admin/DgiiSequencesModule';
 import CreditNotesModule from './components/admin/CreditNotesModule';
 import Reporte607Module from './components/admin/Reporte607Module';
 import Reporte606Module from './components/admin/Reporte606Module';
+import ReporteIT1Module from './components/admin/ReporteIT1Module';
 import ExpensesModule from './components/admin/ExpensesModule';
 import PayrollModule from './components/payroll/PayrollModule';
 import SecurityModule from './components/admin/SecurityModule';
@@ -159,7 +160,7 @@ const AppContent = () => {
   const isSubscriptionsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/contratos') || location.pathname.startsWith('/pagos') || location.pathname.startsWith('/encuesta') || location.pathname.startsWith('/planes') || location.pathname.startsWith('/sucursales') || location.pathname.startsWith('/regalos');
   const isTeamActive = location.pathname.startsWith('/equipo') || location.pathname.startsWith('/admin/asistencia');
   const isAdministrationActive = location.pathname.startsWith('/seguridad') || location.pathname.startsWith('/configuracion');
-  const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607') || location.pathname.startsWith('/reporte-606') || location.pathname.startsWith('/egresos');
+  const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607') || location.pathname.startsWith('/reporte-606') || location.pathname.startsWith('/itbis-it1') || location.pathname.startsWith('/egresos');
   const isBiActive = location.pathname.startsWith('/analitica');
   const isPayrollActive = location.pathname.startsWith('/nomina') || location.pathname.startsWith('/comisiones') || location.pathname.startsWith('/descuentos-empleados');
 
@@ -908,6 +909,13 @@ const AppContent = () => {
                       onClick={closeMobileMenu} 
                     />
                     <SidebarLink 
+                      to="/contabilidad/itbis-it1" 
+                      icon={Landmark} 
+                      label="ITBIS (IT-1)" 
+                      active={location.pathname === '/contabilidad/itbis-it1' || location.pathname === '/itbis-it1'} 
+                      onClick={closeMobileMenu} 
+                    />
+                    <SidebarLink 
                       to="/contabilidad/egresos" 
                       icon={ArrowDownCircle} 
                       label="Egresos" 
@@ -991,6 +999,8 @@ const AppContent = () => {
                 <Route path="/reporte-607" element={(isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />} />
                 <Route path="/contabilidad/reporte-606" element={(isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />} />
                 <Route path="/reporte-606" element={(isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />} />
+                <Route path="/contabilidad/itbis-it1" element={(isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />} />
+                <Route path="/itbis-it1" element={(isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />} />
                 <Route path="/contabilidad/egresos" element={(isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />} />
                 <Route path="/egresos" element={(isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />} />
                 <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />

@@ -3205,6 +3205,77 @@ export const dataService = {
     }
   },
 
+  getReporteIT1: async (params = {}) => {
+    try {
+      const query = new URLSearchParams();
+      if (params.periodo) query.append('periodo', params.periodo);
+      if (params.salonId) query.append('salonId', params.salonId);
+      if (params.regimen) query.append('regimen', params.regimen);
+
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/dgii/it1?${query.toString()}`, {
+        headers: {
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al cargar declaración IT-1');
+      return data;
+    } catch (e) {
+      console.error('Error in getReporteIT1:', e);
+      throw e;
+    }
+  },
+
+  saveIT1Settings: async (settingsData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/dgii/it1/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(settingsData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar configuración IT-1');
+      return data;
+    } catch (e) {
+      console.error('Error in saveIT1Settings:', e);
+      throw e;
+    }
+  },
+
+  saveIT1Declaration: async (declarationData) => {
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+
+      const res = await fetch(`${API_URL}/dgii/it1/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user?.role || user?.role_name || 'admin',
+          'x-user-name': user?.nombre || user?.name || 'Administrador'
+        },
+        body: JSON.stringify(declarationData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al guardar declaración IT-1');
+      return data;
+    } catch (e) {
+      console.error('Error in saveIT1Declaration:', e);
+      throw e;
+    }
+  },
+
   createExpenseAccount: async (accountData) => {
     try {
       const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;

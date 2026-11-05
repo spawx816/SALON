@@ -1174,6 +1174,514 @@ router.delete('/sequences/:id', async (req, res) => {
 });
 
 
+// =========================================================================
+// === DGII ITBIS (IT-1 & ANEXO A) AUTOMATIC DECLARATION FROM 606 & 607 ===
+// =========================================================================
+const ensureIt1Tables = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dgii_it1_settings (
+      id INT PRIMARY KEY DEFAULT 1,
+      regimen VARCHAR(20) NOT NULL DEFAULT 'exento',
+      empresa_nombre VARCHAR(255) DEFAULT 'ETEREAS SRL',
+      rnc VARCHAR(20) DEFAULT '131917038',
+      tasa_itbis DECIMAL(5,2) DEFAULT 18.00,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.query(`
+    INSERT IGNORE INTO dgii_it1_settings (id, regimen, empresa_nombre, rnc, tasa_itbis)
+    VALUES (1, 'exento', 'ETEREAS SRL', '131917038', 18.00)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dgii_it1_declarations (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      periodo VARCHAR(6) NOT NULL,
+      salon_id VARCHAR(20) NOT NULL DEFAULT 'all',
+      regimen VARCHAR(20) NOT NULL DEFAULT 'exento',
+      estado VARCHAR(20) NOT NULL DEFAULT 'Borrador',
+      datos_complementarios_revisados TINYINT(1) DEFAULT 0,
+      saldo_favor_anterior DECIMAL(14,2) DEFAULT 0,
+      retenciones_tarjetas DECIMAL(14,2) DEFAULT 0,
+      retenciones_terceros DECIMAL(14,2) DEFAULT 0,
+      pagos_computables_importaciones DECIMAL(14,2) DEFAULT 0,
+      otros_ajustes DECIMAL(14,2) DEFAULT 0,
+      notas TEXT DEFAULT NULL,
+      snapshot_ventas_totales DECIMAL(14,2) DEFAULT 0,
+      snapshot_itbis_generado DECIMAL(14,2) DEFAULT 0,
+      snapshot_itbis_compras DECIMAL(14,2) DEFAULT 0,
+      snapshot_resultado DECIMAL(14,2) DEFAULT 0,
+      snapshot_tipo_resultado VARCHAR(30) DEFAULT 'exento',
+      updated_by VARCHAR(100) DEFAULT 'Sistema',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_periodo_salon (periodo, salon_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dgii_606_purchases (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      periodo VARCHAR(6) NOT NULL,
+      rnc_cedula VARCHAR(20) NOT NULL,
+      tipo_id INT NOT NULL DEFAULT 1,
+      tipo_bienes_servicios VARCHAR(4) NOT NULL DEFAULT '02',
+      proveedor VARCHAR(255) NOT NULL,
+      ncf VARCHAR(20) NOT NULL,
+      ncf_modificado VARCHAR(20) DEFAULT '',
+      fecha_factura VARCHAR(10) NOT NULL,
+      fecha_pago VARCHAR(10) DEFAULT '',
+      tipo_compra VARCHAR(50) DEFAULT 'Bienes',
+      clasificacion_gasto VARCHAR(255) DEFAULT '02 - Gastos por trabajos, suministros y servicios',
+      monto_servicios DECIMAL(14,2) DEFAULT 0,
+      monto_bienes DECIMAL(14,2) DEFAULT 0,
+      total_facturado DECIMAL(14,2) NOT NULL DEFAULT 0,
+      itbis_facturado DECIMAL(14,2) DEFAULT 0,
+      itbis_retenido DECIMAL(14,2) DEFAULT 0,
+      itbis_proporcionalidad DECIMAL(14,2) DEFAULT 0,
+      itbis_costo DECIMAL(14,2) DEFAULT 0,
+      itbis_adelantar DECIMAL(14,2) DEFAULT 0,
+      itbis_percibido DECIMAL(14,2) DEFAULT 0,
+      tipo_retencion_isr VARCHAR(4) DEFAULT '',
+      isr_retenido DECIMAL(14,2) DEFAULT 0,
+      isr_percibido DECIMAL(14,2) DEFAULT 0,
+      isc DECIMAL(14,2) DEFAULT 0,
+      otros_impuestos DECIMAL(14,2) DEFAULT 0,
+      propina_legal DECIMAL(14,2) DEFAULT 0,
+      forma_pago VARCHAR(4) DEFAULT '02',
+      estado VARCHAR(20) DEFAULT 'Completa',
+      errores_validacion TEXT DEFAULT NULL,
+      notas TEXT DEFAULT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_periodo (periodo)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+};
+
+// GET /api/dgii/it1 - Calculate IT-1 & Anexo A automatically from 606 and 607
+router.get('/it1', async (req, res) => {
+  try {
+    await ensureIt1Tables();
+
+    const now = new Date();
+    const defaultPeriodo = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const periodo = (req.query.periodo && /^\d{6}$/.test(req.query.periodo))
+      ? req.query.periodo
+      : defaultPeriodo;
+    const salonId = req.query.salonId || 'all';
+
+    // 1. Fetch global IT-1 configuration (exento vs gravado)
+    const [settingsRows] = await pool.query('SELECT * FROM dgii_it1_settings WHERE id = 1 LIMIT 1');
+    const settings = settingsRows[0] || {
+      regimen: 'exento',
+      empresa_nombre: 'ETEREAS SRL',
+      rnc: '131917038',
+      tasa_itbis: 18.00
+    };
+    const regimen = req.query.regimen || settings.regimen || 'exento';
+
+    // 2. Fetch 607 Sales for the period
+    const params607 = [periodo, periodo];
+    let salonCond607 = '';
+    if (salonId && salonId !== 'all') {
+      salonCond607 = 'AND v.salon_id = ?';
+      params607.push(salonId);
+    }
+
+    const [rows607] = await pool.query(
+      `SELECT 
+        v.id, v.ncf, v.ncf_type, v.ncf_nota_credito, v.nota_credito_fecha,
+        v.total, v.metodo_pago, v.applied_payments, v.status, v.visited_at, v.created_at
+       FROM visits v
+       WHERE (v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE')
+       AND (DATE_FORMAT(v.visited_at, '%Y%m') = ? OR DATE_FORMAT(v.nota_credito_fecha, '%Y%m') = ?)
+       ${salonCond607}
+       ORDER BY v.visited_at ASC`,
+      params607
+    );
+
+    const summary607 = {
+      cantidad_registros: 0,
+      monto_total: 0,
+      itbis_facturado: 0,
+      por_ncf: {
+        credito_fiscal: { codigo: '01 / 31', nombre: 'Comprobantes Válidos para Crédito Fiscal (01 y 31)', cantidad: 0, monto: 0 },
+        consumo: { codigo: '02 / 32', nombre: 'Comprobantes de Consumo (02 y 32)', cantidad: 0, monto: 0 },
+        notas_debito: { codigo: '03 / 33', nombre: 'Comprobantes Notas de Débito (03 y 33)', cantidad: 0, monto: 0 },
+        notas_credito: { codigo: '04 / 34', nombre: 'Comprobantes Notas de Crédito (04 y 34)', cantidad: 0, monto: 0 },
+        regimenes_especiales: { codigo: '14 / 44', nombre: 'Comprobantes Regímenes Especiales (14 y 44)', cantidad: 0, monto: 0 },
+        gubernamentales: { codigo: '15 / 45', nombre: 'Comprobantes Gubernamentales (15 y 45)', cantidad: 0, monto: 0 },
+        otras_operaciones: { codigo: 'Otros', nombre: 'Otras Operaciones (Positivas / Negativas)', cantidad: 0, monto: 0 }
+      },
+      por_tipo_venta: {
+        efectivo: 0,
+        cheque_transferencia: 0,
+        tarjeta: 0,
+        venta_credito: 0,
+        bonos_certificados: 0,
+        permuta: 0,
+        otras_formas: 0
+      }
+    };
+
+    for (const v of rows607) {
+      const totalAmount = Number(v.total || 0);
+      const breakdown = extractPaymentBreakdown(v.metodo_pago, totalAmount, v.applied_payments);
+      const ncfClean = String(v.ncf || '').trim().toUpperCase();
+
+      summary607.cantidad_registros += 1;
+      summary607.monto_total += totalAmount;
+      summary607.por_tipo_venta.efectivo += breakdown.efectivo;
+      summary607.por_tipo_venta.cheque_transferencia += breakdown.transferencia;
+      summary607.por_tipo_venta.tarjeta += breakdown.tarjeta;
+      summary607.por_tipo_venta.bonos_certificados += breakdown.bonos;
+      summary607.por_tipo_venta.otras_formas += breakdown.otras;
+
+      if (ncfClean.startsWith('B01') || ncfClean.startsWith('E31')) {
+        summary607.por_ncf.credito_fiscal.cantidad += 1;
+        summary607.por_ncf.credito_fiscal.monto += totalAmount;
+      } else if (ncfClean.startsWith('B02') || ncfClean.startsWith('E32')) {
+        summary607.por_ncf.consumo.cantidad += 1;
+        summary607.por_ncf.consumo.monto += totalAmount;
+      } else if (ncfClean.startsWith('B14') || ncfClean.startsWith('E44')) {
+        summary607.por_ncf.regimenes_especiales.cantidad += 1;
+        summary607.por_ncf.regimenes_especiales.monto += totalAmount;
+      } else if (ncfClean.startsWith('B15') || ncfClean.startsWith('E45')) {
+        summary607.por_ncf.gubernamentales.cantidad += 1;
+        summary607.por_ncf.gubernamentales.monto += totalAmount;
+      } else {
+        summary607.por_ncf.otras_operaciones.cantidad += 1;
+        summary607.por_ncf.otras_operaciones.monto += totalAmount;
+      }
+
+      if (v.status === 'Anulado' && v.ncf_nota_credito) {
+        summary607.cantidad_registros += 1;
+        summary607.monto_total -= totalAmount;
+        summary607.por_ncf.notas_credito.cantidad += 1;
+        summary607.por_ncf.notas_credito.monto += totalAmount;
+        summary607.por_tipo_venta.efectivo -= breakdown.efectivo;
+        summary607.por_tipo_venta.cheque_transferencia -= breakdown.transferencia;
+        summary607.por_tipo_venta.tarjeta -= breakdown.tarjeta;
+        summary607.por_tipo_venta.bonos_certificados -= breakdown.bonos;
+        summary607.por_tipo_venta.otras_formas -= breakdown.otras;
+      }
+    }
+
+    // 3. Fetch 606 Purchases for the period
+    const [rows606] = await pool.query(
+      `SELECT * FROM dgii_606_purchases WHERE periodo = ? ORDER BY fecha_factura DESC, id DESC`,
+      [periodo]
+    );
+
+    const summary606 = {
+      cantidad_registros: rows606.length,
+      monto_servicios: 0,
+      monto_bienes: 0,
+      total_facturado: 0,
+      itbis_facturado: 0,
+      itbis_retenido: 0,
+      itbis_proporcionalidad: 0,
+      itbis_costo: 0,
+      itbis_adelantar: 0,
+      isr_retenido: 0,
+      por_categoria: {}
+    };
+
+    for (const r of rows606) {
+      const mServ = Number(r.monto_servicios || 0);
+      const mBien = Number(r.monto_bienes || 0);
+      const tFact = Number(r.total_facturado || 0);
+      const itbisFact = Number(r.itbis_facturado || 0);
+      const itbisRet = Number(r.itbis_retenido || 0);
+      const itbisProp = Number(r.itbis_proporcionalidad || 0);
+      const itbisCost = Number(r.itbis_costo || 0);
+      const itbisAdel = Number(r.itbis_adelantar || 0);
+      const isrRet = Number(r.isr_retenido || 0);
+
+      summary606.monto_servicios += mServ;
+      summary606.monto_bienes += mBien;
+      summary606.total_facturado += tFact;
+      summary606.itbis_facturado += itbisFact;
+      summary606.itbis_retenido += itbisRet;
+      summary606.itbis_proporcionalidad += itbisProp;
+      summary606.itbis_costo += itbisCost;
+      summary606.itbis_adelantar += itbisAdel;
+      summary606.isr_retenido += isrRet;
+
+      const catKey = r.clasificacion_gasto || `${r.tipo_bienes_servicios || '02'} - Gastos por trabajos, suministros y servicios`;
+      if (!summary606.por_categoria[catKey]) {
+        summary606.por_categoria[catKey] = {
+          categoria: catKey,
+          cantidad: 0,
+          total_facturado: 0,
+          itbis_facturado: 0
+        };
+      }
+      summary606.por_categoria[catKey].cantidad += 1;
+      summary606.por_categoria[catKey].total_facturado += tFact;
+      summary606.por_categoria[catKey].itbis_facturado += itbisFact;
+    }
+
+    // 4. Fetch saved declaration for (periodo, salonId) and previous period balance
+    const [savedRows] = await pool.query(
+      'SELECT * FROM dgii_it1_declarations WHERE periodo = ? AND salon_id = ? LIMIT 1',
+      [periodo, String(salonId)]
+    );
+    const savedDeclaration = savedRows[0] || null;
+
+    const yr = parseInt(periodo.slice(0, 4), 10);
+    const mo = parseInt(periodo.slice(4, 6), 10);
+    const prevYr = mo === 1 ? yr - 1 : yr;
+    const prevMo = mo === 1 ? 12 : mo - 1;
+    const prevPeriodo = `${prevYr}${String(prevMo).padStart(2, '0')}`;
+
+    const [prevRows] = await pool.query(
+      'SELECT * FROM dgii_it1_declarations WHERE periodo = ? AND salon_id = ? LIMIT 1',
+      [prevPeriodo, String(salonId)]
+    );
+    const prevDeclaration = prevRows[0] || null;
+    const suggestedSaldoFavorAnterior = (prevDeclaration && prevDeclaration.snapshot_tipo_resultado === 'a_favor')
+      ? Math.abs(Number(prevDeclaration.snapshot_resultado || 0))
+      : 0;
+
+    // 5. Compute IT-1 Metrics according to Regimen ('exento' vs 'gravado')
+    const tasaDecimal = Number(settings.tasa_itbis || 18) / 100;
+    const ventasNetas607 = Math.max(0, Number(summary607.monto_total.toFixed(2)));
+    const itbisCompras606 = Number(summary606.itbis_facturado.toFixed(2));
+
+    const saldoFavorAnterior = savedDeclaration
+      ? Number(savedDeclaration.saldo_favor_anterior || 0)
+      : suggestedSaldoFavorAnterior;
+    const retencionesTarjetas = savedDeclaration ? Number(savedDeclaration.retenciones_tarjetas || 0) : 0;
+    const retencionesTerceros = savedDeclaration ? Number(savedDeclaration.retenciones_terceros || 0) : 0;
+    const pagosImportaciones = savedDeclaration ? Number(savedDeclaration.pagos_computables_importaciones || 0) : 0;
+    const otrosAjustes = savedDeclaration ? Number(savedDeclaration.otros_ajustes || 0) : 0;
+    const totalComplementos = Number((retencionesTarjetas + retencionesTerceros + pagosImportaciones + otrosAjustes).toFixed(2));
+
+    let calculation = {};
+    if (regimen === 'exento') {
+      const itbisRetenidoPorPagar = Number(summary606.itbis_retenido.toFixed(2));
+      const resultadoNeto = Number(Math.max(0, itbisRetenidoPorPagar - totalComplementos - saldoFavorAnterior).toFixed(2));
+
+      calculation = {
+        regimen: 'exento',
+        ventas_totales: ventasNetas607,
+        ventas_exentas: ventasNetas607,
+        ventas_gravadas: 0,
+        itbis_generado_ventas: 0,
+        itbis_pagado_compras: itbisCompras606,
+        itbis_al_costo_gasto: itbisCompras606,
+        itbis_deducible: 0,
+        itbis_acreditable: 0,
+        itbis_retenido_compras: itbisRetenidoPorPagar,
+        saldo_favor_anterior: saldoFavorAnterior,
+        retenciones_y_ajustes: totalComplementos,
+        resultado_a_pagar: resultadoNeto,
+        saldo_a_favor: 0,
+        tipo_resultado: resultadoNeto > 0 ? 'a_pagar' : 'exento'
+      };
+    } else {
+      const itbisGenerado = summary607.itbis_facturado > 0
+        ? Number(summary607.itbis_facturado.toFixed(2))
+        : Number((ventasNetas607 * tasaDecimal).toFixed(2));
+      const itbisDeducible = summary606.itbis_adelantar > 0
+        ? Number(summary606.itbis_adelantar.toFixed(2))
+        : itbisCompras606;
+
+      const diff = Number((itbisGenerado - itbisDeducible - saldoFavorAnterior - totalComplementos).toFixed(2));
+      const resultadoAPagar = diff > 0 ? diff : 0;
+      const saldoAFavor = diff < 0 ? Math.abs(diff) : 0;
+
+      calculation = {
+        regimen: 'gravado',
+        ventas_totales: ventasNetas607,
+        ventas_exentas: 0,
+        ventas_gravadas: ventasNetas607,
+        itbis_generado_ventas: itbisGenerado,
+        itbis_pagado_compras: itbisCompras606,
+        itbis_al_costo_gasto: Number(summary606.itbis_costo.toFixed(2)),
+        itbis_deducible: itbisDeducible,
+        itbis_acreditable: itbisDeducible,
+        itbis_retenido_compras: Number(summary606.itbis_retenido.toFixed(2)),
+        saldo_favor_anterior: saldoFavorAnterior,
+        retenciones_y_ajustes: totalComplementos,
+        resultado_a_pagar: resultadoAPagar,
+        saldo_a_favor: saldoAFavor,
+        tipo_resultado: diff >= 0 ? 'a_pagar' : 'a_favor'
+      };
+    }
+
+    // 6. Fetch all saved periods for "Períodos guardados"
+    const [allSavedPeriods] = await pool.query(
+      `SELECT * FROM dgii_it1_declarations WHERE salon_id = ? ORDER BY periodo DESC LIMIT 24`,
+      [String(salonId)]
+    );
+
+    res.json({
+      success: true,
+      periodo,
+      salonId,
+      settings: {
+        ...settings,
+        regimen_activo: regimen
+      },
+      source606: {
+        loaded: true,
+        cantidad_registros: summary606.cantidad_registros,
+        monto_servicios: Number(summary606.monto_servicios.toFixed(2)),
+        monto_bienes: Number(summary606.monto_bienes.toFixed(2)),
+        total_facturado: Number(summary606.total_facturado.toFixed(2)),
+        itbis_facturado: itbisCompras606,
+        itbis_retenido: Number(summary606.itbis_retenido.toFixed(2)),
+        itbis_costo: Number(summary606.itbis_costo.toFixed(2)),
+        itbis_adelantar: Number(summary606.itbis_adelantar.toFixed(2)),
+        por_categoria: Object.values(summary606.por_categoria)
+      },
+      source607: {
+        loaded: true,
+        cantidad_registros: summary607.cantidad_registros,
+        monto_total: ventasNetas607,
+        itbis_facturado: Number(summary607.itbis_facturado.toFixed(2)),
+        por_ncf: summary607.por_ncf,
+        por_tipo_venta: summary607.por_tipo_venta
+      },
+      calculation,
+      declaration: savedDeclaration || {
+        periodo,
+        salon_id: String(salonId),
+        regimen,
+        estado: 'Borrador',
+        datos_complementarios_revisados: 0,
+        saldo_favor_anterior: saldoFavorAnterior,
+        retenciones_tarjetas: 0,
+        retenciones_terceros: 0,
+        pagos_computables_importaciones: 0,
+        otros_ajustes: 0,
+        notas: ''
+      },
+      savedPeriods: allSavedPeriods
+    });
+  } catch (err) {
+    console.error('[DGII IT-1 GET ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/dgii/it1/settings - Update company ITBIS regime ('exento' vs 'gravado')
+router.post('/it1/settings', async (req, res) => {
+  try {
+    await ensureIt1Tables();
+    const { regimen, tasa_itbis } = req.body;
+    const validRegimen = regimen === 'gravado' ? 'gravado' : 'exento';
+    const validTasa = tasa_itbis !== undefined ? Number(tasa_itbis) : 18.00;
+
+    await pool.query(
+      `UPDATE dgii_it1_settings SET regimen = ?, tasa_itbis = ? WHERE id = 1`,
+      [validRegimen, validTasa]
+    );
+
+    res.json({
+      success: true,
+      regimen: validRegimen,
+      tasa_itbis: validTasa,
+      message: validRegimen === 'exento'
+        ? 'Configuración actualizada: Empresa en Régimen Exento (Servicios exentos de ITBIS).'
+        : 'Configuración actualizada: Empresa en Régimen Gravado (Genera ITBIS en ventas).'
+    });
+  } catch (err) {
+    console.error('[DGII IT-1 SETTINGS ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/dgii/it1/save - Save IT-1 declaration draft or mark as reviewed
+router.post('/it1/save', async (req, res) => {
+  try {
+    await ensureIt1Tables();
+    const {
+      periodo,
+      salon_id = 'all',
+      regimen = 'exento',
+      estado = 'Borrador',
+      datos_complementarios_revisados = 0,
+      saldo_favor_anterior = 0,
+      retenciones_tarjetas = 0,
+      retenciones_terceros = 0,
+      pagos_computables_importaciones = 0,
+      otros_ajustes = 0,
+      notas = '',
+      snapshot_ventas_totales = 0,
+      snapshot_itbis_generado = 0,
+      snapshot_itbis_compras = 0,
+      snapshot_resultado = 0,
+      snapshot_tipo_resultado = 'exento'
+    } = req.body;
+
+    if (!periodo || !/^\d{6}$/.test(String(periodo))) {
+      return res.status(400).json({ error: 'El período debe tener formato YYYYMM.' });
+    }
+
+    const updatedBy = req.headers['x-user-name'] || 'Administrador';
+
+    await pool.query(
+      `INSERT INTO dgii_it1_declarations (
+        periodo, salon_id, regimen, estado, datos_complementarios_revisados,
+        saldo_favor_anterior, retenciones_tarjetas, retenciones_terceros,
+        pagos_computables_importaciones, otros_ajustes, notas,
+        snapshot_ventas_totales, snapshot_itbis_generado, snapshot_itbis_compras,
+        snapshot_resultado, snapshot_tipo_resultado, updated_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        regimen = VALUES(regimen),
+        estado = VALUES(estado),
+        datos_complementarios_revisados = VALUES(datos_complementarios_revisados),
+        saldo_favor_anterior = VALUES(saldo_favor_anterior),
+        retenciones_tarjetas = VALUES(retenciones_tarjetas),
+        retenciones_terceros = VALUES(retenciones_terceros),
+        pagos_computables_importaciones = VALUES(pagos_computables_importaciones),
+        otros_ajustes = VALUES(otros_ajustes),
+        notas = VALUES(notas),
+        snapshot_ventas_totales = VALUES(snapshot_ventas_totales),
+        snapshot_itbis_generado = VALUES(snapshot_itbis_generado),
+        snapshot_itbis_compras = VALUES(snapshot_itbis_compras),
+        snapshot_resultado = VALUES(snapshot_resultado),
+        snapshot_tipo_resultado = VALUES(snapshot_tipo_resultado),
+        updated_by = VALUES(updated_by)`,
+      [
+        String(periodo),
+        String(salon_id),
+        regimen === 'gravado' ? 'gravado' : 'exento',
+        estado === 'Revisado' ? 'Revisado' : 'Borrador',
+        datos_complementarios_revisados ? 1 : 0,
+        Number(saldo_favor_anterior || 0),
+        Number(retenciones_tarjetas || 0),
+        Number(retenciones_terceros || 0),
+        Number(pagos_computables_importaciones || 0),
+        Number(otros_ajustes || 0),
+        notas || null,
+        Number(snapshot_ventas_totales || 0),
+        Number(snapshot_itbis_generado || 0),
+        Number(snapshot_itbis_compras || 0),
+        Number(snapshot_resultado || 0),
+        snapshot_tipo_resultado || 'exento',
+        updatedBy
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: estado === 'Revisado'
+        ? `Declaración IT-1 del período ${periodo} marcada como Revisada.`
+        : `Borrador IT-1 del período ${periodo} guardado correctamente.`
+    });
+  } catch (err) {
+    console.error('[DGII IT-1 SAVE ERROR]:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
   return router;
 }
 
