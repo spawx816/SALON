@@ -168,9 +168,11 @@ export const BI_REPORTS_BY_CATEGORY = {
     },
     {
       id: 'upcoming_charges',
-      name: 'Próximos cobros',
-      chartType: 'table_only',
-      description: 'Lista cobros programados con cliente, membresía, sucursal, fecha y monto previsto para anticipar flujos.'
+      name: 'Programación y avance de cobros',
+      chartType: 'upcoming_charges_dashboard',
+      hasPlanFilter: true,
+      description: 'Lista cobros programados con cliente, membresía, sucursal, fecha y monto previsto para anticipar flujos.',
+      note: 'Base: cuotas programadas para las fechas seleccionadas. Los reintentos no duplican cuotas.'
     },
     {
       id: 'recurring_charges_result',

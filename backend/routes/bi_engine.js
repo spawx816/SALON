@@ -2136,6 +2136,440 @@ async function handleBIReport(pool, params) {
   }
 
   // ==========================================
+  // 16.C MEMBRESÍAS: PROGRAMACIÓN Y AVANCE DE COBROS (upcoming_charges)
+  // Cuotas programadas por día y por sucursal en el rango seleccionado.
+  // Los reintentos no duplican cuotas (1 cuota única por contrato por ciclo mensual).
+  // ==========================================
+  if (reportId === 'upcoming_charges') {
+    try {
+      const effectivePlan = (planId && planId !== 'all') ? planId : (membership && membership !== 'all' ? membership : null);
+
+      const whereConds = ['1=1'];
+      const qParams = [];
+
+      if (salonId !== 'all') {
+        whereConds.push('(COALESCE(ct.salon_id, cl.salon_id, 1) = ? OR s.name LIKE ?)');
+        qParams.push(salonId, `%${salonId}%`);
+      }
+      if (effectivePlan) {
+        whereConds.push('(ct.plan_id = ? OR p.title = ?)');
+        qParams.push(effectivePlan, effectivePlan);
+      }
+
+      const [contractRows] = await pool.query(`
+        SELECT
+          ct.id as contract_id,
+          ct.client_id,
+          COALESCE(cl.nombre, 'Socia Plan Beauty') as cliente,
+          cl.telefono,
+          ct.status,
+          ct.signed_at,
+          ct.last_billed_date,
+          ct.next_billing_date,
+          ct.next_retry_date,
+          COALESCE(bc.cancelled_at, ct.last_billed_date, ct.signed_at) as cancel_date,
+          COALESCE(ct.salon_id, cl.salon_id, 1) as effective_salon_id,
+          COALESCE(s.name, 'San Vicente') as sucursal_raw,
+          ct.plan_id,
+          COALESCE(p.title, 'Plan Beauty') as plan_title,
+          COALESCE(NULLIF(ct.contract_price, 0), p.price, 1950) as monthly_price
+        FROM contracts ct
+        LEFT JOIN (
+          SELECT contract_id, MAX(created_at) as cancelled_at
+          FROM billing_codes
+          WHERE action_type = 'cancellation' AND is_used = 1
+          GROUP BY contract_id
+        ) bc ON ct.id = bc.contract_id
+        LEFT JOIN clients cl ON ct.client_id = cl.id
+        LEFT JOIN salons s ON COALESCE(ct.salon_id, cl.salon_id, 1) = s.id
+        LEFT JOIN plans p ON ct.plan_id = p.id
+        WHERE ${whereConds.join(' AND ')}
+        ORDER BY ct.signed_at ASC
+      `, qParams);
+
+      const [allSalonsRows] = await pool.query('SELECT id, name FROM salons ORDER BY id ASC');
+
+      // Consultar pagos de membresía para conciliar cobros reales vs pendientes sin duplicar reintentos
+      const clientIds = [...new Set(contractRows.map(c => c.client_id).filter(Boolean))];
+      const paymentsByClient = new Map();
+      if (clientIds.length > 0) {
+        const [payRows] = await pool.query(`
+          SELECT id, client_id, plan_id, amount, method, status, description, created_at
+          FROM payments
+          WHERE client_id IN (?)
+            AND (plan_id IS NULL OR plan_id != 'gift_card')
+            AND status NOT IN ('Anulado', 'Anulada', 'Revertido', 'Devuelto')
+          ORDER BY created_at ASC
+        `, [clientIds]);
+
+        for (const p of payRows) {
+          const cid = String(p.client_id);
+          if (!paymentsByClient.has(cid)) paymentsByClient.set(cid, []);
+          paymentsByClient.get(cid).push(p);
+        }
+      }
+
+      const cleanBranchName = (raw) => {
+        if (!raw) return 'San Vicente';
+        const cleaned = String(raw)
+          .replace(/^Abatte\s+Peluquer[ií]a\s*/i, '')
+          .replace(/^Sirena\s*/i, '')
+          .trim();
+        return cleaned || String(raw);
+      };
+
+      const toDateStr = (val) => {
+        if (!val) return '';
+        if (typeof val === 'string') return val.slice(0, 10);
+        try {
+          const d = new Date(val);
+          if (isNaN(d.getTime())) return '';
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        } catch (_) {
+          return '';
+        }
+      };
+
+      const todayStr = toDateStr(now);
+
+      // Generar lista de meses YYYY-MM que intersectan con [start, end]
+      const monthsInRange = [];
+      {
+        const [sy, sm] = start.split('-').map(Number);
+        const [ey, em] = end.split('-').map(Number);
+        let curY = sy;
+        let curM = sm;
+        while (curY < ey || (curY === ey && curM <= em)) {
+          monthsInRange.push({ year: curY, month: curM, ym: `${curY}-${String(curM).padStart(2, '0')}` });
+          curM++;
+          if (curM > 12) {
+            curM = 1;
+            curY++;
+          }
+        }
+      }
+
+      // Reconstruir cuotas únicas programadas dentro de [start, end]
+      // Regla: Máximo 1 cuota mensual por contrato por mes calendario; los reintentos no duplican cuotas.
+      const scheduledQuotas = [];
+
+      for (const ct of contractRows) {
+        const rawStatus = String(ct.status || 'Active').trim();
+        const isCancelled = ['Cancelled', 'Cancelado', 'Cancelada'].includes(rawStatus);
+        const signedDate = toDateStr(ct.signed_at);
+        const cancelDate = toDateStr(ct.cancel_date) || signedDate;
+        const lastBilledDate = toDateStr(ct.last_billed_date);
+        const nextBillingDate = toDateStr(ct.next_billing_date);
+        const sucursal = cleanBranchName(ct.sucursal_raw);
+        const priceNum = Number(ct.monthly_price || 1950);
+
+        // Si fue cancelado antes del inicio del rango, no programa cuotas en el rango
+        if (isCancelled && cancelDate && cancelDate < start) continue;
+        // Si fue firmado después del fin del rango, aún no existía
+        if (signedDate && signedDate > end) continue;
+
+        // Día habitual de cobro mensual del contrato (basado en next_billing_date, last_billed_date o signed_at)
+        const refDateStr = nextBillingDate || lastBilledDate || signedDate || start;
+        const anchorDay = parseInt(refDateStr.split('-')[2], 10) || 1;
+
+        const clientPays = paymentsByClient.get(String(ct.client_id)) || [];
+
+        for (const mObj of monthsInRange) {
+          const { year, month, ym } = mObj;
+          const lastDayOfMonth = new Date(year, month, 0).getDate();
+          const mStart = `${ym}-01`;
+          const mEnd = `${ym}-${String(lastDayOfMonth).padStart(2, '0')}`;
+
+          if (signedDate && signedDate > mEnd) continue;
+          if (isCancelled && cancelDate && cancelDate < mStart) continue;
+
+          // Buscar pagos/intentos del cliente en ese mes (excluyendo cargos anuales de RD$800)
+          const monthPayments = clientPays.filter(p => {
+            const pDate = toDateStr(p.created_at);
+            const pAmt = Number(p.amount || 0);
+            const isAnnualFee = Math.abs(pAmt - 800) < 10 || String(p.description || '').toLowerCase().includes('anual');
+            return pDate >= mStart && pDate <= mEnd && !isAnnualFee;
+          });
+
+          const approvedPay = monthPayments.find(p => p.status === 'Aprobado');
+          const firstAttemptPay = monthPayments.find(p => /Intento\s+1\b/i.test(String(p.status || '')) || /Intento\s+1\b/i.test(String(p.description || ''))) || monthPayments[0];
+
+          let quotaDateStr = '';
+          let isPaid = false;
+
+          if (approvedPay) {
+            // Si hubo un intento 1 previo en el mismo mes, la fecha programada de la cuota fue la del primer intento (o la del pago aprobado si pagó al 1er intento)
+            quotaDateStr = firstAttemptPay ? toDateStr(firstAttemptPay.created_at) : toDateStr(approvedPay.created_at);
+            isPaid = true;
+          } else if (lastBilledDate && lastBilledDate >= mStart && lastBilledDate <= mEnd && ['Active', 'Activo'].includes(rawStatus)) {
+            quotaDateStr = lastBilledDate;
+            isPaid = true;
+          } else if (firstAttemptPay) {
+            // Cuota intentada en este mes pero aún no aprobada (los reintentos posteriores no crean otra cuota)
+            quotaDateStr = toDateStr(firstAttemptPay.created_at);
+            isPaid = false;
+          } else if (nextBillingDate && nextBillingDate >= mStart && nextBillingDate <= mEnd) {
+            quotaDateStr = nextBillingDate;
+            isPaid = false;
+          } else {
+            // Proyección mensual según el día de corte del contrato
+            const targetDay = Math.min(anchorDay, lastDayOfMonth);
+            quotaDateStr = `${ym}-${String(targetDay).padStart(2, '0')}`;
+            isPaid = false;
+          }
+
+          if (quotaDateStr >= start && quotaDateStr <= end) {
+            scheduledQuotas.push({
+              contract_id: ct.contract_id,
+              client_id: ct.client_id,
+              cliente: ct.cliente,
+              telefono: ct.telefono || 'N/D',
+              plan: ct.plan_title || 'Plan Beauty',
+              sucursal,
+              fecha: quotaDateStr,
+              monto_programado: priceNum,
+              monto_cobrado: isPaid ? priceNum : 0,
+              monto_pendiente: isPaid ? 0 : priceNum,
+              is_paid: isPaid,
+              estado: isPaid ? 'Cobrado' : 'Pendiente'
+            });
+          }
+        }
+      }
+
+      // Métricas globales del rango
+      const totalCuotas = scheduledQuotas.length;
+      const cuotasPagadas = scheduledQuotas.filter(q => q.is_paid).length;
+      const cuotasPendientes = totalCuotas - cuotasPagadas;
+      const totalACobrar = scheduledQuotas.reduce((s, q) => s + q.monto_programado, 0);
+      const totalCobrado = scheduledQuotas.reduce((s, q) => s + q.monto_cobrado, 0);
+      const totalPendiente = scheduledQuotas.reduce((s, q) => s + q.monto_pendiente, 0);
+      const avancePct = totalACobrar > 0 ? Math.round((totalCobrado / totalACobrar) * 100) : 0;
+
+      // Formateo de fechas para subtítulo y ejes
+      const monthNamesShort = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      const sParts = start.split('-').map(Number);
+      const eParts = end.split('-').map(Number);
+      const sYear = sParts[0] || now.getFullYear();
+      const sMonth = (sParts[1] || 1) - 1;
+      const sDay = sParts[2] || 1;
+      const eYear = eParts[0] || now.getFullYear();
+      const eMonth = (eParts[1] || 1) - 1;
+      const eDay = eParts[2] || 1;
+
+      const rangeText = (sYear === eYear && sMonth === eMonth)
+        ? `${sDay}–${eDay} ${monthNamesShort[eMonth]} ${eYear}`
+        : `${sDay} ${monthNamesShort[sMonth]} ${sYear !== eYear ? sYear + ' ' : ''}– ${eDay} ${monthNamesShort[eMonth]} ${eYear}`;
+      const subtitleText = `Rango consultado: ${rangeText}`;
+
+      // Construir serie diaria para "Avance por cobros por día"
+      // Si el rango es <= 14 días mostramos todos los días del calendario; si es más largo, mostramos los días con cuotas programadas (o todos si no hay ninguno)
+      const dayMap = new Map();
+      const startDt = new Date(sYear, sMonth, sDay);
+      const endDt = new Date(eYear, eMonth, eDay);
+      const diffDays = Math.max(1, Math.round((endDt - startDt) / 86400000) + 1);
+
+      if (diffDays <= 14) {
+        for (let i = 0; i < diffDays; i++) {
+          const d = new Date(sYear, sMonth, sDay + i);
+          const ds = toDateStr(d);
+          const dm = d.getMonth();
+          const dd = d.getDate();
+          dayMap.set(ds, {
+            date: ds,
+            label: `${dd} ${monthNamesShort[dm]}`,
+            is_today: ds === todayStr,
+            total_a_cobrar: 0,
+            cobrado: 0,
+            pendiente: 0,
+            cuotas_total: 0,
+            cuotas_pagadas: 0,
+            cuotas_pendientes: 0,
+            by_branch: {}
+          });
+        }
+      }
+
+      for (const q of scheduledQuotas) {
+        if (!dayMap.has(q.fecha)) {
+          const [qy, qm, qd] = q.fecha.split('-').map(Number);
+          dayMap.set(q.fecha, {
+            date: q.fecha,
+            label: `${qd} ${monthNamesShort[(qm || 1) - 1]}`,
+            is_today: q.fecha === todayStr,
+            total_a_cobrar: 0,
+            cobrado: 0,
+            pendiente: 0,
+            cuotas_total: 0,
+            cuotas_pagadas: 0,
+            cuotas_pendientes: 0,
+            by_branch: {}
+          });
+        }
+        const dEntry = dayMap.get(q.fecha);
+        dEntry.total_a_cobrar += q.monto_programado;
+        dEntry.cobrado += q.monto_cobrado;
+        dEntry.pendiente += q.monto_pendiente;
+        dEntry.cuotas_total += 1;
+        if (q.is_paid) dEntry.cuotas_pagadas += 1;
+        else dEntry.cuotas_pendientes += 1;
+
+        if (!dEntry.by_branch[q.sucursal]) {
+          dEntry.by_branch[q.sucursal] = {
+            sucursal: q.sucursal,
+            total_a_cobrar: 0,
+            cobrado: 0,
+            pendiente: 0,
+            cuotas_total: 0,
+            cuotas_pagadas: 0,
+            cuotas_pendientes: 0
+          };
+        }
+        dEntry.by_branch[q.sucursal].total_a_cobrar += q.monto_programado;
+        dEntry.by_branch[q.sucursal].cobrado += q.monto_cobrado;
+        dEntry.by_branch[q.sucursal].pendiente += q.monto_pendiente;
+        dEntry.by_branch[q.sucursal].cuotas_total += 1;
+        if (q.is_paid) dEntry.by_branch[q.sucursal].cuotas_pagadas += 1;
+        else dEntry.by_branch[q.sucursal].cuotas_pendientes += 1;
+      }
+
+      const dailyProgress = Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+      // Construir tabla "Avance por sucursal"
+      const branchMap = new Map();
+      if (salonId === 'all') {
+        (allSalonsRows || []).forEach(s => {
+          const bName = cleanBranchName(s.name);
+          if (bName && !bName.toLowerCase().includes('disponible') && !bName.toLowerCase().includes('prueba')) {
+            if (!branchMap.has(bName)) {
+              branchMap.set(bName, {
+                sucursal: bName,
+                total_a_cobrar: 0,
+                cobrado: 0,
+                pendiente: 0,
+                cuotas_total: 0,
+                cuotas_pagadas: 0,
+                cuotas_pendientes: 0
+              });
+            }
+          }
+        });
+      }
+
+      for (const q of scheduledQuotas) {
+        if (!branchMap.has(q.sucursal)) {
+          branchMap.set(q.sucursal, {
+            sucursal: q.sucursal,
+            total_a_cobrar: 0,
+            cobrado: 0,
+            pendiente: 0,
+            cuotas_total: 0,
+            cuotas_pagadas: 0,
+            cuotas_pendientes: 0
+          });
+        }
+        const b = branchMap.get(q.sucursal);
+        b.total_a_cobrar += q.monto_programado;
+        b.cobrado += q.monto_cobrado;
+        b.pendiente += q.monto_pendiente;
+        b.cuotas_total += 1;
+        if (q.is_paid) b.cuotas_pagadas += 1;
+        else b.cuotas_pendientes += 1;
+      }
+
+      const byBranchProgress = Array.from(branchMap.values())
+        .map(b => ({
+          ...b,
+          total_a_cobrar: Math.round(b.total_a_cobrar),
+          cobrado: Math.round(b.cobrado),
+          pendiente: Math.round(b.pendiente),
+          avance_pct: b.total_a_cobrar > 0 ? Math.round((b.cobrado / b.total_a_cobrar) * 100) : 0
+        }))
+        .sort((a, b) => b.total_a_cobrar - a.total_a_cobrar || a.sucursal.localeCompare(b.sucursal, 'es'));
+
+      return {
+        title: 'Programación y avance de cobros',
+        categoryName: 'Membresías',
+        periodText: subtitleText,
+        subtitle: subtitleText,
+        summary_metrics: {
+          total_a_cobrar: Math.round(totalACobrar),
+          cobrado: Math.round(totalCobrado),
+          pendiente: Math.round(totalPendiente),
+          avance_pct: avancePct,
+          cuotas_programadas: totalCuotas,
+          cuotas_pagadas: cuotasPagadas,
+          cuotas_pendientes: cuotasPendientes
+        },
+        kpis: [
+          {
+            label: 'Total a cobrar',
+            value: `RD$ ${Math.round(totalACobrar).toLocaleString('es-DO')}`,
+            subtext: `${totalCuotas} cuotas programadas`,
+            icon: 'coins',
+            color: 'emerald'
+          },
+          {
+            label: 'Cobrado',
+            value: `RD$ ${Math.round(totalCobrado).toLocaleString('es-DO')}`,
+            subtext: `${cuotasPagadas} cuotas pagadas`,
+            icon: 'users',
+            color: 'blue'
+          },
+          {
+            label: 'Pendiente',
+            value: `RD$ ${Math.round(totalPendiente).toLocaleString('es-DO')}`,
+            subtext: `${cuotasPendientes} cuotas pendientes`,
+            icon: 'receipt',
+            color: 'purple'
+          },
+          {
+            label: 'Avance de cobro',
+            value: `${avancePct}%`,
+            subtext: 'Sobre el monto programado',
+            icon: 'trending',
+            color: 'amber'
+          }
+        ],
+        daily_progress: dailyProgress,
+        by_branch_progress: byBranchProgress,
+        chart: {
+          type: 'upcoming_charges_dashboard',
+          data: dailyProgress.map(d => ({
+            label: d.label,
+            value: d.total_a_cobrar,
+            displayValue: `RD$ ${Math.round(d.total_a_cobrar).toLocaleString('es-DO')}`
+          }))
+        },
+        table: {
+          title: 'Detalle de cuotas programadas en el período',
+          badgeText: `${scheduledQuotas.length} cuotas`,
+          columns: [
+            { key: 'fecha_fmt', label: 'Fecha Programada' },
+            { key: 'cliente', label: 'Cliente' },
+            { key: 'plan', label: 'Plan' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'monto_programado', label: 'Total a Cobrar', isCurrency: true },
+            { key: 'monto_cobrado', label: 'Cobrado', isCurrency: true },
+            { key: 'monto_pendiente', label: 'Pendiente', isCurrency: true },
+            { key: 'estado', label: 'Estado', align: 'center' }
+          ],
+          rows: scheduledQuotas.sort((a, b) => a.fecha.localeCompare(b.fecha)).map(q => ({
+            ...q,
+            fecha_fmt: formatDO(q.fecha)
+          })),
+          footerNote: 'Base: cuotas programadas para las fechas seleccionadas. Los reintentos no duplican cuotas.'
+        }
+      };
+    } catch (e) {
+      console.warn('DB error in upcoming_charges:', e.message);
+    }
+  }
+
+  // ==========================================
   // 17. CONTRATOS: RENOVACIÓN ANUAL (RF-07)
   // Identifica membresías próximas a cumplir su vigencia anual y devengar el cargo
   // de RD$ 800 de manera totalmente independiente de la cuota mensual recurrente.

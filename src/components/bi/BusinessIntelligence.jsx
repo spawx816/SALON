@@ -3,7 +3,7 @@ import {
   TrendingUp, Users, CreditCard, UserCheck, Filter, Download,
   Printer, ChevronDown, Calendar, MapPin, AlertCircle, Info, Sparkles, Check, RefreshCw,
   Wallet, Percent, BarChart3, Home, Building2, Share2, Shield,
-  UserPlus, XCircle, PauseCircle, Database
+  UserPlus, XCircle, PauseCircle, Database, FileText
 } from 'lucide-react';
 import {
   BI_CATEGORIES,
@@ -67,6 +67,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
 
   // Chart interactivity states
   const [interactiveSelectedGroup, setInteractiveSelectedGroup] = useState('0_visits');
+  const [selectedUpcomingDay, setSelectedUpcomingDay] = useState(null);
   const [timeGrain, setTimeGrain] = useState('daily');
   const [showExportMenu, setShowExportMenu] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -255,6 +256,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   const loadReport = async () => {
     setLoading(true);
     setReportError(null);
+    setSelectedUpcomingDay(null);
     try {
       const params = {
         category: activeCategory,
@@ -288,7 +290,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       if (res && Array.isArray(res.kpis)) {
         setReportData(res);
         setReportError(null);
-      } else if (['memberships_summary', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
+      } else if (['memberships_summary', 'upcoming_charges', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
         // En producción: cero datos simulados.
         // Si no se reciben KPIs válidos desde el backend, reflejar error formal y no fallback a mock.
         setReportError(callError?.message || 'No se pudo obtener la información desde el servidor.');
@@ -299,7 +301,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       }
     } catch (err) {
       console.error('Error fetching BI report:', err);
-      if (['memberships_summary', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
+      if (['memberships_summary', 'upcoming_charges', 'contracts_upcoming_renewal', 'recurring_charges_result', 'declined_charges_recovery', 'cash_flow', 'employee_productivity'].includes(selectedReportId) && !useSampleData) {
         setReportError(err?.message || 'Error de conexión al cargar el reporte desde el servidor.');
         setReportData(null);
       } else {
@@ -1318,6 +1320,43 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             </div>
           )}
 
+          {/* Acción rápida Hoy (Programación y avance de cobros) */}
+          {selectedReportId === 'upcoming_charges' && (
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  const todayIso = new Date().toISOString().split('T')[0];
+                  const hasTodayInChart = (reportData?.daily_progress || []).some(d => d.date === todayIso);
+                  if (hasTodayInChart) {
+                    setSelectedUpcomingDay(todayIso);
+                  } else {
+                    setStartDate(todayIso);
+                    setEndDate(todayIso);
+                    setPeriod('today');
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0.6rem 1rem',
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '0.5rem',
+                  fontWeight: 700,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                Hoy
+              </button>
+            </div>
+          )}
+
           {/* Primary Action: Aplicar */}
           <div>
             <button
@@ -1429,14 +1468,32 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         marginBottom: '1.25rem'
       }}>
         <div>
-          <h2 style={{
-            margin: 0,
-            fontSize: '1.4rem',
-            fontWeight: 800,
-            color: '#0f172a'
-          }}>
-            {effectiveReportData?.title || reportData?.title || currentReportConfig.name}
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <h2 style={{
+              margin: 0,
+              fontSize: '1.4rem',
+              fontWeight: 800,
+              color: '#0f172a'
+            }}>
+              {effectiveReportData?.title || reportData?.title || currentReportConfig.name}
+            </h2>
+            {selectedReportId === 'upcoming_charges' && (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '0.22rem 0.7rem',
+                borderRadius: '0.45rem',
+                background: '#dbeafe',
+                color: '#1d4ed8',
+                fontSize: '0.78rem',
+                fontWeight: 600
+              }}>
+                {selectedUpcomingDay
+                  ? `Viendo: ${(reportData?.daily_progress || []).find(d => d.date === selectedUpcomingDay)?.label || selectedUpcomingDay}`
+                  : 'Viendo: rango completo'}
+              </span>
+            )}
+          </div>
           {isRecurringReport ? (
             <div style={{ margin: '0.2rem 0 0', lineHeight: 1.45 }}>
               <div style={{ fontSize: '0.88rem', color: '#64748b', fontWeight: 500 }}>
@@ -2855,6 +2912,568 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      ) : selectedReportId === 'upcoming_charges' ? (
+        <div data-testid="upcoming-charges-executive-view" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
+          {(() => {
+            const dailyList = reportData?.daily_progress || [];
+            const fullBranchList = reportData?.by_branch_progress || [];
+            const selectedDayObj = selectedUpcomingDay
+              ? dailyList.find(d => d.date === selectedUpcomingDay) || null
+              : null;
+
+            const activeMetrics = selectedDayObj
+              ? {
+                  total_a_cobrar: Math.round(selectedDayObj.total_a_cobrar || 0),
+                  cobrado: Math.round(selectedDayObj.cobrado || 0),
+                  pendiente: Math.round(selectedDayObj.pendiente || 0),
+                  avance_pct: (selectedDayObj.total_a_cobrar || 0) > 0
+                    ? Math.round(((selectedDayObj.cobrado || 0) / selectedDayObj.total_a_cobrar) * 100)
+                    : 0,
+                  cuotas_programadas: Number(selectedDayObj.cuotas_total || 0),
+                  cuotas_pagadas: Number(selectedDayObj.cuotas_pagadas || 0),
+                  cuotas_pendientes: Number(selectedDayObj.cuotas_pendientes || 0)
+                }
+              : (reportData?.summary_metrics || {
+                  total_a_cobrar: 0,
+                  cobrado: 0,
+                  pendiente: 0,
+                  avance_pct: 0,
+                  cuotas_programadas: 0,
+                  cuotas_pagadas: 0,
+                  cuotas_pendientes: 0
+                });
+
+            const displayedBranches = selectedDayObj
+              ? fullBranchList.map(b => {
+                  const dayB = (selectedDayObj.by_branch && selectedDayObj.by_branch[b.sucursal]) || {
+                    total_a_cobrar: 0,
+                    cobrado: 0,
+                    pendiente: 0
+                  };
+                  const tot = Math.round(dayB.total_a_cobrar || 0);
+                  const cob = Math.round(dayB.cobrado || 0);
+                  const pend = Math.round(dayB.pendiente || 0);
+                  return {
+                    sucursal: b.sucursal,
+                    total_a_cobrar: tot,
+                    cobrado: cob,
+                    pendiente: pend,
+                    avance_pct: tot > 0 ? Math.round((cob / tot) * 100) : 0
+                  };
+                })
+              : fullBranchList;
+
+            const maxDayTotal = Math.max(...dailyList.map(d => Number(d.total_a_cobrar || 0)), 20000);
+            const yAxisMax = Math.ceil(maxDayTotal / 10000) * 10000 || 30000;
+            const yTicks = [0, Math.round(yAxisMax / 3), Math.round((yAxisMax * 2) / 3), yAxisMax];
+
+            return (
+              <>
+                {/* 1. Tarjeta Superior: 4 KPIs (Total a cobrar, Cobrado, Pendiente, Avance de cobro) */}
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '1rem',
+                  padding: '1.35rem 1.5rem',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '1rem'
+                  }}>
+                    {/* KPI 1: Total a cobrar */}
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '0.85rem',
+                      padding: '1.1rem 1.25rem',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.9rem'
+                    }}>
+                      <div style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '0.7rem',
+                        background: '#dcfce7',
+                        color: '#16a34a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <Database size={22} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                          Total a cobrar
+                        </div>
+                        <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2, margin: '0.15rem 0 0.25rem' }}>
+                          RD$ {Number(activeMetrics.total_a_cobrar || 0).toLocaleString('es-DO')}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>
+                          {Number(activeMetrics.cuotas_programadas || 0)} cuotas programadas
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* KPI 2: Cobrado */}
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '0.85rem',
+                      padding: '1.1rem 1.25rem',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.9rem'
+                    }}>
+                      <div style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '0.7rem',
+                        background: '#dbeafe',
+                        color: '#2563eb',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <Users size={22} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                          Cobrado
+                        </div>
+                        <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2, margin: '0.15rem 0 0.25rem' }}>
+                          RD$ {Number(activeMetrics.cobrado || 0).toLocaleString('es-DO')}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>
+                          {Number(activeMetrics.cuotas_pagadas || 0)} cuotas pagadas
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* KPI 3: Pendiente */}
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '0.85rem',
+                      padding: '1.1rem 1.25rem',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.9rem'
+                    }}>
+                      <div style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '0.7rem',
+                        background: '#f3e8ff',
+                        color: '#9333ea',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <FileText size={22} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                          Pendiente
+                        </div>
+                        <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2, margin: '0.15rem 0 0.25rem' }}>
+                          RD$ {Number(activeMetrics.pendiente || 0).toLocaleString('es-DO')}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>
+                          {Number(activeMetrics.cuotas_pendientes || 0)} cuotas pendientes
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* KPI 4: Avance de cobro */}
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '0.85rem',
+                      padding: '1.1rem 1.25rem',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.9rem'
+                    }}>
+                      <div style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '0.7rem',
+                        background: '#fef3c7',
+                        color: '#f59e0b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        <BarChart3 size={22} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                          Avance de cobro
+                        </div>
+                        <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.2, margin: '0.1rem 0 0.35rem' }}>
+                          {Number(activeMetrics.avance_pct || 0)}%
+                        </div>
+                        <div style={{
+                          width: '100%',
+                          height: '8px',
+                          background: '#e2e8f0',
+                          borderRadius: '9999px',
+                          overflow: 'hidden',
+                          marginBottom: '0.35rem'
+                        }}>
+                          <div style={{
+                            width: `${Math.min(Math.max(Number(activeMetrics.avance_pct || 0), 0), 100)}%`,
+                            height: '100%',
+                            background: '#16a34a',
+                            borderRadius: '9999px',
+                            transition: 'width 0.3s ease'
+                          }} />
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 500 }}>
+                          Sobre el monto programado
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Tarjeta Central: Avance por cobros por día (Gráfico de Barras Apiladas Interactivo) */}
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '1rem',
+                  padding: '1.5rem 1.75rem',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    flexWrap: 'wrap',
+                    gap: '1rem',
+                    marginBottom: '1.35rem'
+                  }}>
+                    <div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.2rem 0' }}>
+                        Avance por cobros por día
+                      </h3>
+                      <div style={{ fontSize: '0.86rem', color: '#64748b', fontWeight: 500 }}>
+                        Selecciona una barra para consultar ese día.
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.1rem', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUpcomingDay(null)}
+                        style={{
+                          padding: '0.42rem 0.9rem',
+                          borderRadius: '0.45rem',
+                          border: '1px solid #cbd5e1',
+                          background: selectedUpcomingDay ? '#eff6ff' : '#ffffff',
+                          color: '#0f172a',
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Ver rango completo
+                      </button>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem', fontSize: '0.84rem', fontWeight: 600, color: '#334155' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#16a34a' }} />
+                          <span>Cobrado</span>
+                        </span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#1d6fe8' }} />
+                          <span>Pendiente</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contenedor del Gráfico Apilado */}
+                  {dailyList.length === 0 ? (
+                    <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#64748b', fontSize: '0.92rem' }}>
+                      No hay cuotas programadas registradas en las fechas seleccionadas.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto', paddingBottom: '0.25rem' }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'stretch',
+                        minWidth: `${Math.max(680, dailyList.length * 105)}px`,
+                        height: '245px'
+                      }}>
+                        {/* Eje Y Izquierdo */}
+                        <div style={{
+                          width: '78px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          paddingTop: '14px',
+                          paddingBottom: '36px',
+                          paddingRight: '10px',
+                          textAlign: 'right',
+                          fontSize: '0.76rem',
+                          color: '#64748b',
+                          fontWeight: 500,
+                          borderRight: '1px solid #cbd5e1',
+                          flexShrink: 0
+                        }}>
+                          {[...yTicks].reverse().map((tVal, idx) => (
+                            <span key={idx}>RD$ {tVal.toLocaleString('es-DO')}</span>
+                          ))}
+                        </div>
+
+                        {/* Área de Barras */}
+                        <div style={{
+                          flex: 1,
+                          position: 'relative',
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          justifyContent: 'space-around',
+                          paddingTop: '14px',
+                          paddingBottom: '36px',
+                          borderBottom: '1px solid #cbd5e1'
+                        }}>
+                          {/* Líneas horizontales de fondo */}
+                          {[0.333, 0.666, 1].map((ratio, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                position: 'absolute',
+                                left: 0,
+                                right: 0,
+                                bottom: `${36 + ratio * 185}px`,
+                                borderTop: '1px solid #f1f5f9',
+                                pointerEvents: 'none'
+                              }}
+                            />
+                          ))}
+
+                          {dailyList.map((dItem, idx) => {
+                            const totalAmt = Number(dItem.total_a_cobrar || 0);
+                            const cobradoAmt = Number(dItem.cobrado || 0);
+                            const pendienteAmt = Number(dItem.pendiente || 0);
+                            const maxBarPx = 165;
+                            const totalPx = yAxisMax > 0 ? Math.round((totalAmt / yAxisMax) * maxBarPx) : 0;
+                            const cobradoPx = totalAmt > 0 ? Math.round((cobradoAmt / totalAmt) * totalPx) : 0;
+                            const pendientePx = Math.max(0, totalPx - cobradoPx);
+                            const isSelected = selectedUpcomingDay === dItem.date;
+
+                            return (
+                              <div
+                                key={dItem.date || idx}
+                                onClick={() => setSelectedUpcomingDay(isSelected ? null : dItem.date)}
+                                style={{
+                                  flex: 1,
+                                  height: '100%',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'flex-end',
+                                  position: 'relative',
+                                  cursor: 'pointer',
+                                  borderRight: idx < dailyList.length - 1 ? '1px dashed #e2e8f0' : 'none',
+                                  padding: '0 0.45rem',
+                                  opacity: selectedUpcomingDay && !isSelected ? 0.55 : 1,
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                {/* Total encima de la barra */}
+                                {totalAmt > 0 && (
+                                  <div style={{
+                                    fontSize: '0.78rem',
+                                    fontWeight: 800,
+                                    color: '#0f172a',
+                                    marginBottom: '0.3rem',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    RD$ {Math.round(totalAmt).toLocaleString('es-DO')}
+                                  </div>
+                                )}
+
+                                {/* Barra Apilada */}
+                                <div style={{
+                                  width: '100%',
+                                  maxWidth: '92px',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  borderRadius: '0.25rem 0.25rem 0 0',
+                                  overflow: 'hidden',
+                                  boxShadow: isSelected ? '0 0 0 2px #1e3a8a' : 'none'
+                                }}>
+                                  {/* Segmento Superior: Pendiente (Azul) */}
+                                  {pendienteAmt > 0 && (
+                                    <div style={{
+                                      height: `${Math.max(pendientePx, 20)}px`,
+                                      background: '#1d6fe8',
+                                      color: '#ffffff',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 600,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      borderBottom: cobradoAmt > 0 ? '1px solid rgba(255,255,255,0.6)' : 'none',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {pendientePx >= 18 ? `RD$ ${Math.round(pendienteAmt).toLocaleString('es-DO')}` : ''}
+                                    </div>
+                                  )}
+
+                                  {/* Segmento Inferior: Cobrado (Verde) */}
+                                  {cobradoAmt > 0 && (
+                                    <div style={{
+                                      height: `${Math.max(cobradoPx, 24)}px`,
+                                      background: '#16a34a',
+                                      color: '#ffffff',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 600,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {cobradoPx >= 20 ? `RD$ ${Math.round(cobradoAmt).toLocaleString('es-DO')}` : ''}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Etiqueta del Eje X debajo de la línea base */}
+                                <div style={{
+                                  position: 'absolute',
+                                  bottom: '-30px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  {dItem.is_today || isSelected ? (
+                                    <span style={{
+                                      padding: '0.18rem 0.65rem',
+                                      borderRadius: '0.4rem',
+                                      background: '#dbeafe',
+                                      color: '#1e40af',
+                                      fontSize: '0.76rem',
+                                      fontWeight: 700,
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {dItem.label}{dItem.is_today ? ' · Hoy' : ''}
+                                    </span>
+                                  ) : (
+                                    <span style={{
+                                      fontSize: '0.78rem',
+                                      color: '#475569',
+                                      fontWeight: 500,
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {dItem.label}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Tarjeta Inferior: Avance por sucursal */}
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '1rem',
+                  padding: '1.5rem 1.75rem',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                  marginBottom: '1.5rem'
+                }}>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: '0 0 1rem 0' }}>
+                    Avance por sucursal
+                  </h3>
+
+                  <div style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '0.65rem',
+                    overflowX: 'auto'
+                  }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.92rem' }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                          <th style={{ padding: '0.8rem 1rem', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Sucursal</th>
+                          <th style={{ padding: '0.8rem 1rem', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Total a cobrar</th>
+                          <th style={{ padding: '0.8rem 1rem', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Cobrado</th>
+                          <th style={{ padding: '0.8rem 1rem', textAlign: 'left', fontWeight: 700, color: '#334155' }}>Pendiente</th>
+                          <th style={{ padding: '0.8rem 1rem', textAlign: 'left', fontWeight: 700, color: '#334155', minWidth: '220px' }}>Avance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayedBranches.map((b, idx) => (
+                          <tr key={idx} style={{ borderBottom: idx < displayedBranches.length - 1 ? '1px solid #f1f5f9' : 'none', background: '#ffffff' }}>
+                            <td style={{ padding: '0.9rem 1rem', fontWeight: 600, color: '#0f172a' }}>
+                              {b.sucursal}
+                            </td>
+                            <td style={{ padding: '0.9rem 1rem', fontWeight: 600, color: '#1e293b' }}>
+                              RD$ {Number(b.total_a_cobrar || 0).toLocaleString('es-DO')}
+                            </td>
+                            <td style={{ padding: '0.9rem 1rem', fontWeight: 500, color: '#334155' }}>
+                              RD$ {Number(b.cobrado || 0).toLocaleString('es-DO')}
+                            </td>
+                            <td style={{ padding: '0.9rem 1rem', fontWeight: 500, color: '#334155' }}>
+                              RD$ {Number(b.pendiente || 0).toLocaleString('es-DO')}
+                            </td>
+                            <td style={{ padding: '0.9rem 1rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <span style={{ width: '38px', fontWeight: 700, color: '#0f172a', fontSize: '0.9rem' }}>
+                                  {Number(b.avance_pct || 0)}%
+                                </span>
+                                <div style={{
+                                  flex: 1,
+                                  height: '10px',
+                                  background: '#e2e8f0',
+                                  borderRadius: '9999px',
+                                  overflow: 'hidden'
+                                }}>
+                                  <div style={{
+                                    width: `${Math.min(Math.max(Number(b.avance_pct || 0), 0), 100)}%`,
+                                    height: '100%',
+                                    background: '#16a34a',
+                                    borderRadius: '9999px',
+                                    transition: 'width 0.3s ease'
+                                  }} />
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style={{
+                    fontSize: '0.8rem',
+                    color: '#64748b',
+                    fontWeight: 500,
+                    marginTop: '0.9rem'
+                  }}>
+                    Base: cuotas programadas para las fechas seleccionadas. Los reintentos no duplican cuotas.
                   </div>
                 </div>
               </>
