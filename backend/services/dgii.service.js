@@ -5,7 +5,7 @@ let forge = null;
 try { forge = require('node-forge'); } catch(e) { console.warn('node-forge optional require notice in dgii.service:', e.message); }
 let dgiiEcfLib = {};
 try { dgiiEcfLib = require('dgii-ecf'); } catch(e) { console.warn('dgii-ecf optional require notice in dgii.service:', e.message); }
-const { Signature, ECF, ENVIRONMENT, convertECF32ToRFCE } = dgiiEcfLib;
+const { Signature, ECF, ENVIRONMENT, convertECF32ToRFCE, getCodeSixDigitfromSignature } = dgiiEcfLib;
 
 function escapeXml(str) {
   if (!str) return '';
@@ -333,11 +333,19 @@ ${itemsXml}
         
         qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${rncEmisor}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&CodigoSeguridad=${securityCode}`;
       } else {
+        if (typeof getCodeSixDigitfromSignature === 'function') {
+          try {
+            securityCode = getCodeSixDigitfromSignature(signedXml) || securityCode;
+          } catch (_) {}
+        } else {
+          const sigMatch = signedXml.match(/<SignatureValue>\s*([^<\s]{6})/);
+          if (sigMatch && sigMatch[1]) securityCode = sigMatch[1];
+        }
         const fileName = `${rncEmisor}${encf}.xml`;
         const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
         console.log(`✅ [DGII TRANSMISIÓN EN TIEMPO REAL e-CF]: ${encf} -> TrackID: ${resp?.trackId}`);
         
-        qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${visit.rnc_cliente || ''}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${securityCode}`;
+        qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${visit.rnc_cliente || ''}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${encodeURIComponent(fechaHoraFirma)}&CodigoSeguridad=${encodeURIComponent(securityCode)}`;
       }
 
       await pool.query(
