@@ -345,7 +345,7 @@ ${itemsXml}
         const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
         console.log(`✅ [DGII TRANSMISIÓN EN TIEMPO REAL e-CF]: ${encf} -> TrackID: ${resp?.trackId}`);
         
-        qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${visit.rnc_cliente || ''}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${encodeURIComponent(fechaHoraFirma)}&CodigoSeguridad=${encodeURIComponent(securityCode)}`;
+        qrUrl = `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${visit.rnc_cliente || ''}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${encodeURIComponent(fechaHoraFirma)}&CodigoSeguridad=${encodeURIComponent(securityCode)}`;
       }
 
       await pool.query(

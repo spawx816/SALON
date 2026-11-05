@@ -537,12 +537,16 @@ function createVisitsRouter(pool, deps = {}) {
           [newCantidadUsada, newSecuenciaActual, newEstado, seq.id]
         );
 
+                const nowObj = new Date();
+        const pad2 = n => String(n).padStart(2, '0');
+        const dgiiFecha = `${pad2(nowObj.getDate())}-${pad2(nowObj.getMonth() + 1)}-${nowObj.getFullYear()}`;
+        const dgiiFechaHoraFirma = encodeURIComponent(`${dgiiFecha} ${pad2(nowObj.getHours())}:${pad2(nowObj.getMinutes())}:${pad2(nowObj.getSeconds())}`);
         const securityCode = crypto.randomBytes(3).toString('hex').toUpperCase();
         const emisorRnc = '131917038';
         const totalFormatted = Number(totalAmount || 0).toFixed(2);
         const qrUrl = seq.tipo_comprobante === 'E32'
           ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&CodigoSeguridad=${securityCode}`
-          : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${clientRnc || ''}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&FechaEmision=02-10-2026&FechaFirma=02-10-2026&CodigoSeguridad=${securityCode}`;
+          : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${clientRnc || ''}&ENCF=${encfNumber}&MontoTotal=${totalFormatted}&FechaEmision=${dgiiFecha}&FechaFirma=${dgiiFechaHoraFirma}&CodigoSeguridad=${securityCode}`;
 
         await connection.query(
           `UPDATE visits 

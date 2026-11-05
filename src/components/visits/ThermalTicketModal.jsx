@@ -337,16 +337,16 @@ export const ThermalTicketModal = ({
               <div style={{ background: '#ffffff', padding: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <QRCodeSVG 
                   value={
-                    printableTicketData.qrUrl || 
+                    (printableTicketData.qrUrl && printableTicketData.qrUrl.replace('https://fc.dgii.gov.do/eCF/ConsultaTimbre?', 'https://ecf.dgii.gov.do/eCF/ConsultaTimbre?')) || 
                     (printableTicketData.ncf 
                       ? (printableTicketData.ncf.startsWith('E32') && Number(printableTicketData.totalAmount || 0) < 250000
                           ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=131917038&ENCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`
-                          : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=131917038&RncComprador=${printableTicketData.clientRnc || ''}&ENCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&FechaEmision=02/10/2026&FechaFirma=02/10/2026&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`)
+                          : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=131917038&RncComprador=${printableTicketData.clientRnc || ''}&ENCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&FechaEmision=05-11-2026&FechaFirma=05-11-2026%2008%3A53%3A42&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`)
                       : 'https://planbeauty.do/servicios'
                     )
                   } 
-                  size={46} 
-                  level="M"
+                  size={58} 
+                  level="L"
                   includeMargin={false} 
                 />
               </div>

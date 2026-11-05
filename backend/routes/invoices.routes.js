@@ -167,19 +167,25 @@ ${itemsXml}
     const rncComprador = visit.rnc_cliente || '';
     const razonSocialComprador = visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL';
 
-    let codigoSeguridad = 'AB1234';
-    if (signedXml && typeof getCodeSixDigitfromSignature === 'function') {
+    let codigoSeguridad = visit.codigo_seguridad_ecf || 'AB1234';
+    if (!visit.codigo_seguridad_ecf && signedXml && typeof getCodeSixDigitfromSignature === 'function') {
       try {
         codigoSeguridad = getCodeSixDigitfromSignature(signedXml);
       } catch (_) {}
     }
 
-    const qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${codigoSeguridad}`;
+    let qrUrl = visit.qr_code_url
+      ? visit.qr_code_url.replace('https://fc.dgii.gov.do/eCF/ConsultaTimbre?', 'https://ecf.dgii.gov.do/eCF/ConsultaTimbre?')
+      : (
+          encf.startsWith('E32') && total < 250000
+            ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${rncEmisor}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&CodigoSeguridad=${codigoSeguridad}`
+            : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${encodeURIComponent(fechaHoraFirma)}&CodigoSeguridad=${encodeURIComponent(codigoSeguridad)}`
+        );
 
     let qrBuffer = null;
     if (QRCode) {
       try {
-        qrBuffer = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'M', type: 'png', margin: 1, width: 250 });
+        qrBuffer = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'L', type: 'png', margin: 2, width: 300 });
       } catch(e){}
     }
 

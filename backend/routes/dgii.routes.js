@@ -308,15 +308,15 @@ function createDgiiRouter(pool, helpers = {}) {
 
     let qrUrl = '';
     if (typeof generateEcfQRCodeURL === 'function') {
-      qrUrl = generateEcfQRCodeURL(rncEmisor, rncComprador || idExtranjero || '', encf, total.toFixed(2), fechaEmision, fechaHoraFirma, codigoSeguridad, 'CerteCF');
+      qrUrl = generateEcfQRCodeURL(rncEmisor, rncComprador || idExtranjero || '', encf, total.toFixed(2), fechaEmision, fechaHoraFirma, codigoSeguridad, 'eCF');
     } else {
-      qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${codigoSeguridad}`;
+      qrUrl = `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${encodeURIComponent(fechaHoraFirma)}&CodigoSeguridad=${encodeURIComponent(codigoSeguridad)}`;
     }
 
     let qrBuffer = null;
     if (QRCode) {
       try {
-        qrBuffer = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'M', type: 'png', margin: 1, width: 250 });
+        qrBuffer = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'L', type: 'png', margin: 2, width: 300 });
       } catch(e){}
     }
 

@@ -48,12 +48,21 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
 
   const emisorRnc = '131917038';
   const compradorRnc = invoice.rnc_cliente || '';
+  // Normalized date for DGII ConsultaTimbre (DD-MM-YYYY)
+  const pad2 = n => String(n).padStart(2, '0');
+  const dgiiFecha = `${pad2(dateObj.getDate())}-${pad2(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
+  const dgiiHora = `${pad2(dateObj.getHours())}:${pad2(dateObj.getMinutes())}:${pad2(dateObj.getSeconds())}`;
+  const dgiiFechaHoraFirma = encodeURIComponent(`${dgiiFecha} ${dgiiHora}`);
+
   const qrUrl = isFiscalOfficial
-    ? (invoice.qr_code_url || (
-        encfNumber.startsWith('E32') && totalVal < 250000
-          ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&CodigoSeguridad=${securityCode}`
-          : `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&FechaEmision=${dateFormatted}&FechaFirma=${dateFormatted}&CodigoSeguridad=${securityCode}`
-      ))
+    ? (invoice.qr_code_url
+        ? invoice.qr_code_url.replace('https://fc.dgii.gov.do/eCF/ConsultaTimbre?', 'https://ecf.dgii.gov.do/eCF/ConsultaTimbre?')
+        : (
+            encfNumber.startsWith('E32') && totalVal < 250000
+              ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${emisorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&CodigoSeguridad=${securityCode}`
+              : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${emisorRnc}&RncComprador=${compradorRnc}&ENCF=${encfNumber}&MontoTotal=${totalVal.toFixed(2)}&FechaEmision=${dgiiFecha}&FechaFirma=${dgiiFechaHoraFirma}&CodigoSeguridad=${securityCode}`
+          )
+      )
     : `https://planbeauty.app/tickets/${invoice.ticket_number || invoice.id}`;
 
   return (
@@ -255,8 +264,8 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
 
             {/* 7. QR CODE OFICIAL DGII Y CÓDIGO DE SEGURIDAD */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '8px 0 4px' }}>
-              <div style={{ background: '#ffffff', padding: '2px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <QRCodeSVG value={qrUrl} size={68} level="M" />
+              <div style={{ background: '#ffffff', padding: '4px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <QRCodeSVG value={qrUrl} size={115} level="L" includeMargin={true} />
               </div>
               {isFiscalOfficial ? (
                 <div style={{ fontSize: '8px', fontWeight: 800, marginTop: '5px', textAlign: 'center' }}>
