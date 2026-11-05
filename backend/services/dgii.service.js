@@ -45,14 +45,34 @@ function createDgiiService(pool) {
     console.warn('⚠️ [DGII SERVICE] No se pudo inicializar certificado digital:', e.message);
   }
 
+  function formatDRDate(dateInput) {
+    const d = dateInput ? new Date(dateInput) : new Date();
+    const validDate = isNaN(d.getTime()) ? new Date() : d;
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Santo_Domingo',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).formatToParts(validDate);
+    const map = {};
+    parts.forEach(p => { map[p.type] = p.value; });
+    const fecha = `${map.day}-${map.month}-${map.year}`;
+    const hora = `${map.hour}:${map.minute}:${map.second}`;
+    return { fecha, fechaHora: `${fecha} ${hora}` };
+  }
+
   function buildAndSignEcfXml(visit, items) {
     const encf = visit.ncf || 'E320000000001';
     const tipoEcf = encf.startsWith('E31') ? '31' : '32';
     const total = Number(visit.total || 0);
-    const dateObj = new Date(visit.visited_at || Date.now());
-    const pad = (n) => String(n).padStart(2, '0');
-    const fechaEmision = `${pad(dateObj.getDate())}-${pad(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
-    const fechaHoraFirma = `${fechaEmision} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
+    const { fecha: fechaEmision, fechaHora: fechaHoraFirma } = formatDRDate(visit.visited_at || Date.now());
+
+    const rncClean = String(visit.rnc_cliente || '').replace(/\D/g, '');
+    const hasValidRnc = rncClean.length === 9 || rncClean.length === 11;
 
     const itemsXml = (items || []).map((item, idx) => {
       const precio = Number(item.precioAplicado || item.precio || 0);
@@ -64,10 +84,19 @@ function createDgiiService(pool) {
       <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
       <IndicadorBienoServicio>2</IndicadorBienoServicio>
       <CantidadItem>${cant.toFixed(2)}</CantidadItem>
+      <UnidadMedida>55</UnidadMedida>
       <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
       <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
     </Item>`;
     }).join('\n');
+
+    const fechaVencimientoXml = tipoEcf === '31'
+      ? `\n      <FechaVencimientoSecuencia>31-12-2027</FechaVencimientoSecuencia>`
+      : '';
+
+    const rncCompradorXml = hasValidRnc
+      ? `      <RNCComprador>${rncClean}</RNCComprador>\n`
+      : '';
 
     const rawXml = `<?xml version="1.0" encoding="utf-8"?>
 <ECF>
@@ -75,36 +104,30 @@ function createDgiiService(pool) {
     <Version>1.0</Version>
     <IdDoc>
       <TipoeCF>${tipoEcf}</TipoeCF>
-      <eNCF>${encf}</eNCF>
-      <FechaVencimientoSecuencia>31-12-2026</FechaVencimientoSecuencia>
+      <eNCF>${encf}</eNCF>${fechaVencimientoXml}
       <IndicadorMontoGravado>0</IndicadorMontoGravado>
       <TipoIngresos>01</TipoIngresos>
       <TipoPago>1</TipoPago>
-      <FechaEmision>${fechaEmision}</FechaEmision>
     </IdDoc>
     <Emisor>
       <RNCEmisor>131917038</RNCEmisor>
       <RazonSocialEmisor>ETEREAS SRL</RazonSocialEmisor>
       <NombreComercial>ETÉREAS</NombreComercial>
-      <Sucursal>01</Sucursal>
       <DireccionEmisor>LOS PALMEROS, No. 3, APTO. PLAZA BRAVO, BARRIO NUEVO</DireccionEmisor>
-      <Municipio>Santo Domingo Este</Municipio>
-      <Provincia>Santo Domingo</Provincia>
-      <TelefonoEmisor>8095615000</TelefonoEmisor>
-      <CorreoEmisor>hola@planbeautyrd.com</CorreoEmisor>
+      <Municipio>010100</Municipio>
+      <Provincia>010000</Provincia>
+      <TablaTelefonoEmisor>
+        <TelefonoEmisor>809-792-3555</TelefonoEmisor>
+      </TablaTelefonoEmisor>
+      <CorreoEmisor>RODRIGUEZ1619@HOTMAIL.COM</CorreoEmisor>
       <FechaEmision>${fechaEmision}</FechaEmision>
     </Emisor>
     <Comprador>
-      <RNCComprador>${escapeXml(visit.rnc_cliente || '')}</RNCComprador>
-      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
+${rncCompradorXml}      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
     </Comprador>
     <Totales>
-      <MontoTotal>${total.toFixed(2)}</MontoTotal>
-      <MontoGravadoTotal>0.00</MontoGravadoTotal>
-      <MontoGravadoI1>0.00</MontoGravadoI1>
       <MontoExento>${total.toFixed(2)}</MontoExento>
-      <TotalITBIS>0.00</TotalITBIS>
-      <TotalITBIS1>0.00</TotalITBIS1>
+      <MontoTotal>${total.toFixed(2)}</MontoTotal>
     </Totales>
   </Encabezado>
   <DetallesItems>
@@ -176,27 +199,31 @@ ${itemsXml}
 
   function buildAndSignNotaCreditoXml(visit, encfE34, voidReasonText, items) {
     const total = Number(visit.total || 0);
-    const dateObj = new Date();
-    const origDateObj = new Date(visit.visited_at || Date.now());
-    const pad = (n) => String(n).padStart(2, '0');
-    const fechaEmision = `${pad(dateObj.getDate())}-${pad(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
-    const fechaNCFModificado = `${pad(origDateObj.getDate())}-${pad(origDateObj.getMonth() + 1)}-${origDateObj.getFullYear()}`;
-    const fechaHoraFirma = `${fechaEmision} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
+    const { fecha: fechaEmision, fechaHora: fechaHoraFirma } = formatDRDate(new Date());
+    const { fecha: fechaNCFModificado } = formatDRDate(visit.visited_at || Date.now());
+
+    const rncClean = String(visit.rnc_cliente || '').replace(/\D/g, '');
+    const hasValidRnc = rncClean.length === 9 || rncClean.length === 11;
 
     const itemsXml = (items || []).map((item, idx) => {
       const precio = Number(item.precioAplicado || item.precio || 0);
       const cant = Number(item.cantidad || 1);
       const itemTotal = precio * cant;
       return `    <Item>
-        <NumeroLinea>${idx + 1}</NumeroLinea>
-        <IndicadorFacturacion>4</IndicadorFacturacion>
-        <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
-        <IndicadorBienoServicio>2</IndicadorBienoServicio>
-        <CantidadItem>${cant.toFixed(2)}</CantidadItem>
-        <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
-        <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
-      </Item>`;
+      <NumeroLinea>${idx + 1}</NumeroLinea>
+      <IndicadorFacturacion>4</IndicadorFacturacion>
+      <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
+      <IndicadorBienoServicio>2</IndicadorBienoServicio>
+      <CantidadItem>${cant.toFixed(2)}</CantidadItem>
+      <UnidadMedida>55</UnidadMedida>
+      <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
+      <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
+    </Item>`;
     }).join('\n');
+
+    const rncCompradorXml = hasValidRnc
+      ? `      <RNCComprador>${rncClean}</RNCComprador>\n`
+      : '';
 
     const rawXml = `<?xml version="1.0" encoding="utf-8"?>
 <ECF>
@@ -205,27 +232,29 @@ ${itemsXml}
     <IdDoc>
       <TipoeCF>34</TipoeCF>
       <eNCF>${encfE34}</eNCF>
-      <FechaVencimientoSecuencia>31-12-2028</FechaVencimientoSecuencia>
+      <IndicadorNotaCredito>0</IndicadorNotaCredito>
       <IndicadorMontoGravado>0</IndicadorMontoGravado>
       <TipoIngresos>01</TipoIngresos>
       <TipoPago>1</TipoPago>
-      <FechaEmision>${fechaEmision}</FechaEmision>
     </IdDoc>
     <Emisor>
       <RNCEmisor>131917038</RNCEmisor>
       <RazonSocialEmisor>ETEREAS SRL</RazonSocialEmisor>
       <NombreComercial>ETÉREAS</NombreComercial>
       <DireccionEmisor>LOS PALMEROS, No. 3, APTO. PLAZA BRAVO, BARRIO NUEVO</DireccionEmisor>
+      <Municipio>010100</Municipio>
+      <Provincia>010000</Provincia>
+      <TablaTelefonoEmisor>
+        <TelefonoEmisor>809-792-3555</TelefonoEmisor>
+      </TablaTelefonoEmisor>
+      <CorreoEmisor>RODRIGUEZ1619@HOTMAIL.COM</CorreoEmisor>
       <FechaEmision>${fechaEmision}</FechaEmision>
     </Emisor>
     <Comprador>
-      <RNCComprador>${visit.rnc_cliente || ''}</RNCComprador>
-      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
+${rncCompradorXml}      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
     </Comprador>
     <Totales>
-      <MontoGravadoTotal>0.00</MontoGravadoTotal>
       <MontoExento>${total.toFixed(2)}</MontoExento>
-      <TotalITBIS>0.00</TotalITBIS>
       <MontoTotal>${total.toFixed(2)}</MontoTotal>
     </Totales>
   </Encabezado>
@@ -345,19 +374,19 @@ ${itemsXml}
       return null;
     }
 
-    // Validación Fiscal 2: Prevención de doble emisión de Nota de Crédito para la misma factura
-    if (visit.ncf_nota_credito) {
-      console.warn(`ℹ️ [DGII NOTA CREDITO EXISTENTE]: La visita ${visit.id} ya posee Nota de Crédito emitida (${visit.ncf_nota_credito}). Reutilizando registro sin consumir secuencia adicional.`);
+    // Validación Fiscal 2: Prevención de doble consumo de secuencia para la misma factura
+    if (visit.ncf_nota_credito && visit.nota_credito_track_id) {
+      console.warn(`ℹ️ [DGII NOTA CREDITO EXISTENTE]: La visita ${visit.id} ya posee Nota de Crédito transmitida (${visit.ncf_nota_credito}, TrackID: ${visit.nota_credito_track_id}). Reutilizando registro sin consumir secuencia adicional.`);
       return Object.assign(new String(visit.ncf_nota_credito), {
         encf: visit.ncf_nota_credito,
-        trackId: visit.nota_credito_track_id || null,
+        trackId: visit.nota_credito_track_id,
         signedXml: visit.nota_credito_xml || null,
         alreadyIssued: true
       });
     }
 
     try {
-      const encfE34 = await allocateNextDgiiSequence('E34');
+      const encfE34 = visit.ncf_nota_credito || await allocateNextDgiiSequence('E34');
       if (!encfE34) {
         console.warn('⚠️ [DGII NOTA CREDITO]: No hay secuencias E34 disponibles.');
         return null;
