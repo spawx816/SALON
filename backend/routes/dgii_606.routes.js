@@ -50,6 +50,9 @@ function createDgii606Router(pool) {
         INDEX idx_ncf (ncf)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+    try {
+      await pool.query(`ALTER TABLE dgii_606_purchases ADD COLUMN errores_validacion TEXT DEFAULT NULL AFTER estado`);
+    } catch (_) {}
   };
 
   // Helper para determinar Tipo de Identificación (1 = RNC 9 dígitos, 2 = Cédula 11 dígitos, 3 = Pasaporte)

@@ -1258,6 +1258,9 @@ const ensureIt1Tables = async () => {
       INDEX idx_periodo (periodo)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+  try {
+    await pool.query(`ALTER TABLE dgii_606_purchases ADD COLUMN errores_validacion TEXT DEFAULT NULL AFTER estado`);
+  } catch (_) {}
 };
 
 // GET /api/dgii/it1 - Calculate IT-1 & Anexo A automatically from 606 and 607
@@ -1293,7 +1296,9 @@ router.get('/it1', async (req, res) => {
     const [rows607] = await pool.query(
       `SELECT 
         v.id, v.ncf, v.ncf_type, v.ncf_nota_credito, v.nota_credito_fecha,
-        v.total, v.metodo_pago, v.applied_payments, v.status, v.visited_at, v.created_at
+        v.total, v.metodo_pago, v.status, v.visited_at, v.voided_at,
+        DATE_FORMAT(v.visited_at, '%Y%m') as visited_period,
+        DATE_FORMAT(COALESCE(v.nota_credito_fecha, v.voided_at, v.visited_at), '%Y%m') as nc_period
        FROM visits v
        WHERE (v.ncf IS NOT NULL AND TRIM(v.ncf) != '' AND v.ncf != 'NONE')
        AND (DATE_FORMAT(v.visited_at, '%Y%m') = ? OR DATE_FORMAT(v.nota_credito_fecha, '%Y%m') = ?)
@@ -1328,35 +1333,37 @@ router.get('/it1', async (req, res) => {
 
     for (const v of rows607) {
       const totalAmount = Number(v.total || 0);
-      const breakdown = extractPaymentBreakdown(v.metodo_pago, totalAmount, v.applied_payments);
+      const breakdown = extractPaymentBreakdown(v.metodo_pago, totalAmount);
       const ncfClean = String(v.ncf || '').trim().toUpperCase();
 
-      summary607.cantidad_registros += 1;
-      summary607.monto_total += totalAmount;
-      summary607.por_tipo_venta.efectivo += breakdown.efectivo;
-      summary607.por_tipo_venta.cheque_transferencia += breakdown.transferencia;
-      summary607.por_tipo_venta.tarjeta += breakdown.tarjeta;
-      summary607.por_tipo_venta.bonos_certificados += breakdown.bonos;
-      summary607.por_tipo_venta.otras_formas += breakdown.otras;
+      if (!v.visited_period || v.visited_period === periodo) {
+        summary607.cantidad_registros += 1;
+        summary607.monto_total += totalAmount;
+        summary607.por_tipo_venta.efectivo += breakdown.efectivo;
+        summary607.por_tipo_venta.cheque_transferencia += breakdown.transferencia;
+        summary607.por_tipo_venta.tarjeta += breakdown.tarjeta;
+        summary607.por_tipo_venta.bonos_certificados += breakdown.bonos;
+        summary607.por_tipo_venta.otras_formas += breakdown.otras;
 
-      if (ncfClean.startsWith('B01') || ncfClean.startsWith('E31')) {
-        summary607.por_ncf.credito_fiscal.cantidad += 1;
-        summary607.por_ncf.credito_fiscal.monto += totalAmount;
-      } else if (ncfClean.startsWith('B02') || ncfClean.startsWith('E32')) {
-        summary607.por_ncf.consumo.cantidad += 1;
-        summary607.por_ncf.consumo.monto += totalAmount;
-      } else if (ncfClean.startsWith('B14') || ncfClean.startsWith('E44')) {
-        summary607.por_ncf.regimenes_especiales.cantidad += 1;
-        summary607.por_ncf.regimenes_especiales.monto += totalAmount;
-      } else if (ncfClean.startsWith('B15') || ncfClean.startsWith('E45')) {
-        summary607.por_ncf.gubernamentales.cantidad += 1;
-        summary607.por_ncf.gubernamentales.monto += totalAmount;
-      } else {
-        summary607.por_ncf.otras_operaciones.cantidad += 1;
-        summary607.por_ncf.otras_operaciones.monto += totalAmount;
+        if (ncfClean.startsWith('B01') || ncfClean.startsWith('E31')) {
+          summary607.por_ncf.credito_fiscal.cantidad += 1;
+          summary607.por_ncf.credito_fiscal.monto += totalAmount;
+        } else if (ncfClean.startsWith('B02') || ncfClean.startsWith('E32')) {
+          summary607.por_ncf.consumo.cantidad += 1;
+          summary607.por_ncf.consumo.monto += totalAmount;
+        } else if (ncfClean.startsWith('B14') || ncfClean.startsWith('E44')) {
+          summary607.por_ncf.regimenes_especiales.cantidad += 1;
+          summary607.por_ncf.regimenes_especiales.monto += totalAmount;
+        } else if (ncfClean.startsWith('B15') || ncfClean.startsWith('E45')) {
+          summary607.por_ncf.gubernamentales.cantidad += 1;
+          summary607.por_ncf.gubernamentales.monto += totalAmount;
+        } else {
+          summary607.por_ncf.otras_operaciones.cantidad += 1;
+          summary607.por_ncf.otras_operaciones.monto += totalAmount;
+        }
       }
 
-      if (v.status === 'Anulado' && v.ncf_nota_credito) {
+      if (v.status === 'Anulado' && v.ncf_nota_credito && (!v.nc_period || v.nc_period === periodo)) {
         summary607.cantidad_registros += 1;
         summary607.monto_total -= totalAmount;
         summary607.por_ncf.notas_credito.cantidad += 1;

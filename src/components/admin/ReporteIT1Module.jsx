@@ -47,8 +47,20 @@ export default function ReporteIT1Module() {
   const [saving, setSaving] = useState(false);
   const [salons, setSalons] = useState([]);
   const [selectedSalon, setSelectedSalon] = useState('all');
-  const [selectedYear, setSelectedYear] = useState(() => String(new Date().getFullYear()));
-  const [selectedMonth, setSelectedMonth] = useState(() => String(new Date().getMonth() + 1).padStart(2, '0'));
+  const [selectedYear, setSelectedYear] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('periodo');
+      if (p && /^\d{6}$/.test(p)) return p.slice(0, 4);
+    }
+    return String(new Date().getFullYear());
+  });
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('periodo');
+      if (p && /^\d{6}$/.test(p)) return p.slice(4, 6);
+    }
+    return String(new Date().getMonth() + 1).padStart(2, '0');
+  });
   const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'anexo_a' | 'it1'
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -487,7 +499,7 @@ export default function ReporteIT1Module() {
 
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(240px, 1.8fr) minmax(150px, 1fr) minmax(110px, 0.7fr) minmax(130px, 0.8fr)',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
             gap: '14px',
             alignItems: 'end'
           }}>
@@ -680,7 +692,7 @@ export default function ReporteIT1Module() {
                 </span>
               </div>
               <button
-                onClick={() => navigate('/contabilidad/reporte-606')}
+                onClick={() => navigate(`/contabilidad/reporte-606?periodo=${it1Data.periodo}`)}
                 style={{
                   background: 'transparent',
                   border: 'none',
@@ -711,7 +723,7 @@ export default function ReporteIT1Module() {
                 </span>
               </div>
               <button
-                onClick={() => navigate('/contabilidad/reporte-607')}
+                onClick={() => navigate(`/contabilidad/reporte-607?periodo=${it1Data.periodo}`)}
                 style={{
                   background: 'transparent',
                   border: 'none',
@@ -1977,3 +1989,4 @@ export default function ReporteIT1Module() {
     </div>
   );
 }
+

@@ -21,10 +21,22 @@ export default function Reporte606Module() {
   const [isValidating, setIsValidating] = useState(false);
   const [supplierSuggestion, setSupplierSuggestion] = useState(null);
 
-  // Month & Year state
+  // Month & Year state (supports ?periodo=YYYYMM from IT-1 Ver origen)
   const now = new Date();
-  const [selectedYear, setSelectedYear] = useState(() => String(now.getFullYear()));
-  const [selectedMonth, setSelectedMonth] = useState(() => String(now.getMonth() + 1).padStart(2, '0'));
+  const [selectedYear, setSelectedYear] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('periodo');
+      if (p && /^\d{6}$/.test(p)) return p.slice(0, 4);
+    }
+    return String(now.getFullYear());
+  });
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('periodo');
+      if (p && /^\d{6}$/.test(p)) return p.slice(4, 6);
+    }
+    return String(now.getMonth() + 1).padStart(2, '0');
+  });
   const [searchTerm, setSearchTerm] = useState('');
 
   const currentPeriod = `${selectedYear}${selectedMonth}`;
