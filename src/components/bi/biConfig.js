@@ -210,7 +210,6 @@ export const BI_REPORTS_BY_CATEGORY = {
       id: 'employee_productivity',
       name: 'Productividad',
       chartType: 'productivity_ranking',
-      hasEmployeeFilter: true,
       hasServiceFilter: true,
       description: 'Ranking del equipo ordenado por total de servicios realizados (facturados y lavados de membresía), participación, servicios por día, monto generado y variación.',
       note: 'Los lavados de membresía cuentan como servicios, sin asignarles valor monetario.'

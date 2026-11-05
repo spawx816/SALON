@@ -912,280 +912,690 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         })}
       </div>
 
-      {/* RENDERIZADO CONDICIONAL: VISTA ESPECIALIZADA FLUJO DE EFECTIVO O VISTA ESTÁNDAR BI */}
-      {selectedReportId === 'cash_flow' ? (
-        <div data-testid="cash-flow-executive-view" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
-          {/* Header Superior con Breadcrumbs y Badge */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '0.75rem',
-            marginBottom: '1rem'
-          }}>
-            <div>
-              <span style={{
-                display: 'inline-block',
-                padding: '0.25rem 0.75rem',
-                background: '#ede9fe',
-                color: '#7c3aed',
-                fontSize: '0.72rem',
-                fontWeight: 800,
-                borderRadius: '9999px',
-                letterSpacing: '0.05em',
-                marginBottom: '0.4rem',
-                textTransform: 'uppercase'
-              }}>
-                INTELIGENCIA DE NEGOCIOS
-              </span>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                fontSize: '0.85rem',
-                color: '#64748b'
-              }}>
-                <Home size={14} color="#64748b" />
-                <span style={{ color: '#cbd5e1' }}>&gt;</span>
-                <span style={{ fontWeight: 600, color: '#334155' }}>Productividad y rentabilidad</span>
-                {availableReports.length > 1 && (
-                  <>
-                    <span style={{ color: '#cbd5e1' }}>&gt;</span>
-                    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                      <select
-                        value={selectedReportId}
-                        onChange={(e) => handleReportChange(e.target.value)}
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: '#2563eb',
-                          fontSize: '0.85rem',
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          outline: 'none',
-                          paddingRight: '1rem',
-                          appearance: 'none'
-                        }}
-                        title="Cambiar reporte dentro de Productividad y rentabilidad"
-                      >
-                        {availableReports.map(rep => (
-                          <option key={rep.id} value={rep.id}>{rep.name}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={12} color="#2563eb" style={{ pointerEvents: 'none', marginLeft: '-0.85rem' }} />
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Error Banner si la llamada al backend falló */}
-          {reportError && (
-            <div style={{
-              background: '#fff1f2',
-              border: '1px solid #fecdd3',
-              borderRadius: '0.75rem',
-              padding: '0.85rem 1.25rem',
-              marginBottom: '1.25rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '0.75rem',
-              color: '#9f1239',
-              fontSize: '0.88rem'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <AlertCircle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
-                <span>{reportError}</span>
-              </div>
-              <button
-                type="button"
-                onClick={loadReport}
+      {/* 3. Filter Bar (Single White Card - Homologado en todos los módulos BI) */}
+      <form
+        className="no-print"
+        onSubmit={handleApplyFilters}
+        style={{
+          background: '#ffffff',
+          borderRadius: '1rem',
+          padding: '1.25rem 1.5rem',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+          marginBottom: '1.5rem'
+        }}
+      >
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+          gap: '1rem',
+          alignItems: 'end'
+        }}>
+          {/* Selector 1: Reporte */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+              Reporte
+            </label>
+            <div style={{ position: 'relative' }}>
+              <select
+                value={selectedReportId}
+                onChange={(e) => handleReportChange(e.target.value)}
                 style={{
-                  padding: '0.35rem 0.75rem',
-                  background: '#e11d48',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  fontSize: '0.78rem',
+                  width: '100%',
+                  padding: '0.55rem 2rem 0.55rem 0.85rem',
+                  fontSize: '0.88rem',
                   fontWeight: 600,
+                  color: '#0f172a',
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '0.5rem',
+                  outline: 'none',
+                  appearance: 'none',
                   cursor: 'pointer'
                 }}
               >
-                Reintentar
-              </button>
+                {availableReports.map(rep => (
+                  <option key={rep.id} value={rep.id}>
+                    {rep.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
             </div>
-          )}
+          </div>
 
-          {/* Título Principal */}
-          <h1 style={{
-            fontSize: '2.4rem',
-            fontWeight: 800,
-            color: '#0f172a',
-            margin: '0 0 1.5rem 0',
-            letterSpacing: '-0.025em'
-          }}>
-            Flujo de efectivo
-          </h1>
+          {/* Selector 2: Período */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+              Período
+            </label>
+            <div style={{ position: 'relative' }}>
+              <select
+                value={period}
+                onChange={(e) => handlePeriodChange(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.55rem 2rem 0.55rem 0.85rem',
+                  fontSize: '0.88rem',
+                  color: '#0f172a',
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '0.5rem',
+                  outline: 'none',
+                  appearance: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                {(currentReportConfig.id === 'contracts_upcoming_renewal' ? FUTURE_PERIOD_OPTIONS : PERIOD_OPTIONS).map(opt => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))}
+              </select>
+              <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+            </div>
+          </div>
 
-          {/* Barra de Filtros Homologada a la Maqueta */}
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '1.25rem',
-            padding: '1.25rem 1.5rem',
-            border: '1px solid #f1f5f9',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-            marginBottom: '1.5rem',
-            display: 'flex',
-            alignItems: 'flex-end',
-            flexWrap: 'wrap',
-            gap: '1rem'
-          }}>
-            <div style={{ flex: '1 1 140px', minWidth: '140px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
-                Desde
+          {/* Desde */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+              Desde
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPeriod('custom');
+              }}
+              style={{
+                width: '100%',
+                padding: '0.5rem 0.85rem',
+                fontSize: '0.88rem',
+                color: '#0f172a',
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: '0.5rem',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          {/* Hasta */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+              Hasta
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPeriod('custom');
+              }}
+              style={{
+                width: '100%',
+                padding: '0.5rem 0.85rem',
+                fontSize: '0.88rem',
+                color: '#0f172a',
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: '0.5rem',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          {/* Selector 3: Sucursal */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+              Sucursal
+            </label>
+            <div style={{ position: 'relative' }}>
+              <select
+                value={selectedSalon}
+                onChange={(e) => setSelectedSalon(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.55rem 2rem 0.55rem 0.85rem',
+                  fontSize: '0.88rem',
+                  color: '#0f172a',
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '0.5rem',
+                  outline: 'none',
+                  appearance: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="all">Todas las sucursales</option>
+                {salons.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+            </div>
+          </div>
+
+          {/* Contextual Dynamic Filter: Servicio (Productividad) */}
+          {currentReportConfig.hasServiceFilter && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Servicio
               </label>
               <div style={{ position: 'relative' }}>
-                <Calendar size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} />
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    setPeriod('custom');
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 0.75rem 0.55rem 2.25rem',
-                    fontSize: '0.88rem',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '0.6rem',
-                    color: '#1e293b',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ flex: '1 1 140px', minWidth: '140px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
-                Hasta
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Calendar size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} />
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value);
-                    setPeriod('custom');
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 0.75rem 0.55rem 2.25rem',
-                    fontSize: '0.88rem',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '0.6rem',
-                    color: '#1e293b',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ flex: '2 1 200px', minWidth: '200px' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
-                Sucursal
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Building2 size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }} />
                 <select
-                  value={selectedSalon}
-                  onChange={(e) => setSelectedSalon(e.target.value)}
+                  value={selectedService}
+                  onChange={(e) => setSelectedService(e.target.value)}
                   style={{
                     width: '100%',
-                    padding: '0.55rem 2rem 0.55rem 2.25rem',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
                     fontSize: '0.88rem',
+                    color: '#0f172a',
                     background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '0.6rem',
-                    color: '#1e293b',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
                     outline: 'none',
                     appearance: 'none',
                     cursor: 'pointer'
                   }}
                 >
-                  <option value="all">Todas las sucursales</option>
-                  {salons.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                  <option value="all">Todos los servicios</option>
+                  {Array.from(new Set([
+                    ...(reportData?.available_services || []),
+                    ...servicesCatalog
+                      .map(s => String(s.nombre || s.name || '').replace(/\s*\(Plan Beauty\)\s*/i, '').trim())
+                      .filter(n => n && !n.toLowerCase().includes('producto prueba'))
+                  ])).sort((a, b) => a.localeCompare(b, 'es')).map(srvName => (
+                    <option key={srvName} value={srvName}>{srvName}</option>
                   ))}
                 </select>
-                <ChevronDown size={14} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
               </div>
             </div>
+          )}
 
+          {/* Contextual Dynamic Filter: Plan */}
+          {(currentReportConfig.hasPlanFilter || currentReportConfig.id === 'contracts_upcoming_renewal') && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Plan
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={selectedPlan}
+                  onChange={(e) => setSelectedPlan(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
+                    fontSize: '0.88rem',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">Todos los planes</option>
+                  {plans.map(p => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+                  {plans.length === 0 && (
+                    <option value="Plan Beauty">Plan Beauty</option>
+                  )}
+                </select>
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Contextual Dynamic Filter 1: Membresía */}
+          {currentReportConfig.hasMembershipFilter && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Membresía
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={selectedMembership}
+                  onChange={(e) => setSelectedMembership(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
+                    fontSize: '0.88rem',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">Todas las membresías</option>
+                  <option value="Plan Beauty">Plan Beauty (Lavados)</option>
+                  <option value="VIP">Plan VIP Full</option>
+                </select>
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Contextual Dynamic Filter 2: Días Inactivos */}
+          {currentReportConfig.hasDaysFilter && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Días de ausencia
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={daysInactive}
+                  onChange={(e) => setDaysInactive(Number(e.target.value))}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
+                    fontSize: '0.88rem',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={15}>Más de 15 días</option>
+                  <option value={30}>Más de 30 días</option>
+                  <option value={60}>Más de 60 días</option>
+                  <option value={90}>Más de 90 días</option>
+                </select>
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Contextual Dynamic Filter 3: Motivo Cancelación */}
+          {currentReportConfig.hasReasonFilter && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Motivo de cancelación
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={cancellationReason}
+                  onChange={(e) => setCancellationReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
+                    fontSize: '0.88rem',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {CANCELLATION_REASONS.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Contextual Dynamic Filter 4: Empleado */}
+          {currentReportConfig.hasEmployeeFilter && (
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Colaborador / Empleado
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={selectedEmployee}
+                  onChange={(e) => setSelectedEmployee(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.55rem 2rem 0.55rem 0.85rem',
+                    fontSize: '0.88rem',
+                    color: '#0f172a',
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '0.5rem',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">Todo el equipo</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name || emp.nombre}</option>
+                  ))}
+                </select>
+                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+              </div>
+            </div>
+          )}
+
+          {/* Primary Action: Aplicar */}
+          <div>
             <button
               type="button"
               onClick={handleApplyFilters}
               disabled={loading}
               style={{
-                padding: '0.65rem 1.75rem',
+                width: '100%',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                padding: '0.62rem 1.25rem',
                 background: loading ? '#93c5fd' : '#2563eb',
                 color: '#ffffff',
                 border: 'none',
-                borderRadius: '0.6rem',
+                borderRadius: '0.5rem',
                 fontWeight: 700,
-                fontSize: '0.88rem',
+                fontSize: '0.9rem',
                 cursor: loading ? 'wait' : 'pointer',
-                boxShadow: '0 2px 4px rgba(37,99,235,0.2)',
+                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
                 transition: 'all 0.15s ease'
               }}
+              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = '#1d4ed8'; }}
+              onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = '#2563eb'; }}
             >
-              {loading ? 'Aplicando...' : 'Aplicar'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                exportReportToExcel({
-                  title: 'Flujo de efectivo',
-                  periodText: `${startDate} al ${endDate}`,
-                  kpis: reportData?.kpis || [],
-                  columns: [
-                    { key: 'concept', label: 'Concepto' },
-                    { key: 'amount', label: 'Monto (RD$)', isCurrency: true },
-                    { key: 'percentage', label: '% del total pagado' }
-                  ],
-                  rows: (reportData?.concepts_breakdown || []).map(c => ({
-                    concept: c.concept,
-                    amount: c.amount,
-                    percentage: `${c.percentage}%`
-                  })),
-                  activeFilters: { salon: selectedSalon, period }
-                });
-              }}
-              style={{
-                padding: '0.65rem 0.95rem',
-                background: '#ffffff',
-                border: '1px solid #e2e8f0',
-                borderRadius: '0.6rem',
-                color: '#475569',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-              }}
-              title="Exportar reporte"
-            >
-              <Share2 size={16} />
+              {loading ? (
+                <>
+                  <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                  <span>Consultando...</span>
+                </>
+              ) : (
+                <>
+                  <Filter size={15} />
+                  <span>Aplicar</span>
+                </>
+              )}
             </button>
           </div>
+        </div>
+      </form>
 
+      {/* Top Loading Progress Bar (Linear style) */}
+      {loading && (
+        <div style={{
+          height: '3px',
+          width: '100%',
+          background: '#eff6ff',
+          borderRadius: '9999px',
+          overflow: 'hidden',
+          marginBottom: '1.25rem'
+        }}>
+          <div style={{
+            height: '100%',
+            width: '50%',
+            background: 'linear-gradient(90deg, #60a5fa, #2563eb)',
+            borderRadius: '9999px',
+            animation: 'pulse 1s ease-in-out infinite'
+          }} />
+        </div>
+      )}
+
+      {/* Error Banner with Retry */}
+      {reportError && (
+        <div style={{
+          background: '#fff1f2',
+          border: '1px solid #fecdd3',
+          borderRadius: '0.75rem',
+          padding: '1rem 1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          marginBottom: '1.5rem',
+          color: '#9f1239',
+          fontSize: '0.88rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <AlertCircle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
+            <span>{reportError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadReport}
+            style={{
+              padding: '0.4rem 0.85rem',
+              background: '#e11d48',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '0.375rem',
+              fontWeight: 600,
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      {/* 4. Report Header & Actions (Title, Date, Export, Print) */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '1rem',
+        marginBottom: '1.25rem'
+      }}>
+        <div>
+          <h2 style={{
+            margin: 0,
+            fontSize: '1.4rem',
+            fontWeight: 800,
+            color: '#0f172a'
+          }}>
+            {effectiveReportData?.title || reportData?.title || currentReportConfig.name}
+          </h2>
+          {isRecurringReport ? (
+            <div style={{ margin: '0.2rem 0 0', lineHeight: 1.45 }}>
+              <div style={{ fontSize: '0.88rem', color: '#64748b', fontWeight: 500 }}>
+                {effectiveReportData?.subtitle || `Cuotas con primer intento en el período · Corte: ${(() => {
+                  try {
+                    const d = new Date(endDate + 'T12:00:00');
+                    return !isNaN(d.getTime())
+                      ? d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : endDate;
+                  } catch (_) {
+                    return endDate;
+                  }
+                })()}`}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
+                {effectiveReportData?.baseText || `Base: ${reportData?.summary?.total_obligations || (reportData?.table?.rows?.length || 49)} cuotas únicas · RD$ ${((reportData?.summary?.total_obligations || (reportData?.table?.rows?.length || 49)) * 1950).toLocaleString('es-DO')}`}
+              </div>
+            </div>
+          ) : (
+            <p style={{
+              margin: '0.2rem 0 0',
+              fontSize: '0.85rem',
+              color: '#64748b'
+            }}>
+              {reportData?.periodText || `${startDate} al ${endDate}`}
+            </p>
+          )}
+        </div>
+
+        {/* Export & Print Buttons */}
+        <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          {/* Export Dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                padding: '0.45rem 0.95rem',
+                borderRadius: '0.5rem',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: '#334155',
+                cursor: 'pointer',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+              onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
+            >
+              <Download size={15} color="#475569" />
+              <span>Exportar</span>
+              <ChevronDown size={14} color="#64748b" />
+            </button>
+
+            {showExportMenu && (
+              <div style={{
+                position: 'absolute',
+                right: 0,
+                top: '110%',
+                background: '#ffffff',
+                borderRadius: '0.5rem',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                padding: '0.35rem 0',
+                zIndex: 50,
+                minWidth: '150px'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExportMenu(false);
+                    if (selectedReportId === 'cash_flow') {
+                      exportReportToExcel({
+                        title: 'Flujo de efectivo',
+                        periodText: `${startDate} al ${endDate}`,
+                        kpis: reportData?.kpis || [],
+                        columns: [
+                          { key: 'concept', label: 'Concepto' },
+                          { key: 'amount', label: 'Monto (RD$)', isCurrency: true },
+                          { key: 'percentage', label: '% del total pagado' }
+                        ],
+                        rows: (reportData?.concepts_breakdown || []).map(c => ({
+                          concept: c.concept,
+                          amount: c.amount,
+                          percentage: `${c.percentage}%`
+                        })),
+                        activeFilters: { salon: selectedSalon, period }
+                      });
+                    } else {
+                      exportReportToExcel({
+                        title: reportData?.title || currentReportConfig.name,
+                        periodText: reportData?.periodText || `${startDate} al ${endDate}`,
+                        kpis: reportData?.kpis || [],
+                        columns: displayedTable?.columns || reportData?.table?.columns || [],
+                        rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
+                        unmatchedTable: reportData?.unmatched_table,
+                        activeFilters: {
+                          salon: selectedSalon,
+                          plan: selectedPlan,
+                          service: selectedService,
+                          period
+                        }
+                      });
+                    }
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '0.5rem 1rem',
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    color: '#1e293b',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
+                  Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExportMenu(false);
+                    exportReportToCSV({
+                      title: reportData?.title || currentReportConfig.name,
+                      periodText: reportData?.periodText || `${startDate} al ${endDate}`,
+                      columns: displayedTable?.columns || reportData?.table?.columns || [],
+                      rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
+                      unmatchedTable: reportData?.unmatched_table,
+                      activeFilters: {
+                        salon: selectedSalon,
+                        plan: selectedPlan,
+                        service: selectedService,
+                        period
+                      }
+                    });
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '0.5rem 1rem',
+                    fontSize: '0.82rem',
+                    fontWeight: 500,
+                    color: '#1e293b',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
+                  CSV (.csv)
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Print Button */}
+          <button
+            type="button"
+            onClick={triggerPrintReport}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              background: '#ffffff',
+              border: '1px solid #cbd5e1',
+              padding: '0.45rem 0.85rem',
+              borderRadius: '0.5rem',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              color: '#334155',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+            onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
+            title="Imprimir informe actual"
+          >
+            <Printer size={16} color="#475569" />
+            <span className="hidden sm:inline">Imprimir</span>
+          </button>
+        </div>
+      </div>
+
+      {/* RENDERIZADO DE CONTENIDO SEGÚN REPORTE */}
+      {selectedReportId === 'cash_flow' ? (
+        <div data-testid="cash-flow-executive-view" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
           {/* Banner de Advertencia de Integridad y Cobertura */}
           {reportData?.warning && (
             <div
@@ -1796,114 +2206,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
         </div>
       ) : selectedReportId === 'employee_productivity' ? (
         <div data-testid="productivity-executive-view" style={{ animation: 'fadeIn 0.2s ease-in-out' }}>
-          {/* Header Superior con Breadcrumbs y Selector de Reportes */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '0.75rem',
-            marginBottom: '0.65rem'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              fontSize: '0.85rem',
-              color: '#64748b'
-            }}>
-              <Home size={14} color="#64748b" />
-              <span style={{ color: '#cbd5e1' }}>&gt;</span>
-              <span style={{ fontWeight: 600, color: '#334155' }}>Productividad y rentabilidad</span>
-              {availableReports.length > 1 && (
-                <>
-                  <span style={{ color: '#cbd5e1' }}>&gt;</span>
-                  <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                    <select
-                      value={selectedReportId}
-                      onChange={(e) => handleReportChange(e.target.value)}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#2563eb',
-                        fontSize: '0.85rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        outline: 'none',
-                        paddingRight: '1rem',
-                        appearance: 'none'
-                      }}
-                      title="Cambiar reporte dentro de Productividad y rentabilidad"
-                    >
-                      {availableReports.map(rep => (
-                        <option key={rep.id} value={rep.id}>{rep.name}</option>
-                      ))}
-                    </select>
-                    <ChevronDown size={12} color="#2563eb" style={{ pointerEvents: 'none', marginLeft: '-0.85rem' }} />
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Título Principal */}
-          <h1 style={{
-            fontSize: '2.35rem',
-            fontWeight: 800,
-            color: '#0f172a',
-            margin: '0 0 1.35rem 0',
-            letterSpacing: '-0.025em'
-          }}>
-            Productividad
-          </h1>
-
-          {/* Error Banner si la llamada al backend falló */}
-          {reportError && (
-            <div style={{
-              background: '#fff1f2',
-              border: '1px solid #fecdd3',
-              borderRadius: '0.75rem',
-              padding: '0.85rem 1.25rem',
-              marginBottom: '1.25rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '0.75rem',
-              color: '#9f1239',
-              fontSize: '0.88rem'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <AlertCircle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
-                <span>{reportError}</span>
-              </div>
-              <button
-                type="button"
-                onClick={loadReport}
-                style={{
-                  padding: '0.35rem 0.75rem',
-                  background: '#e11d48',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                Reintentar
-              </button>
-            </div>
-          )}
-
-          {/* Barra de Filtros Homologada: Desde · Hasta · Localidad · Servicio · Aplicar · Exportar */}
           {(() => {
-            const serviceOptions = Array.from(new Set([
-              ...(reportData?.available_services || []),
-              ...servicesCatalog
-                .map(s => String(s.nombre || s.name || '').replace(/\s*\(Plan Beauty\)\s*/i, '').trim())
-                .filter(n => n && !n.toLowerCase().includes('producto prueba'))
-            ])).sort((a, b) => a.localeCompare(b, 'es'));
-
             const rankingRows = reportData?.ranking_rows || reportData?.table?.rows || [];
             const teamTotals = reportData?.team_totals || {
               servicios_facturados: rankingRows.reduce((s, r) => s + Number(r.servicios_facturados || 0), 0),
@@ -1941,1001 +2244,159 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             };
 
             return (
-              <>
-                <div className="no-print" style={{
-                  background: '#ffffff',
-                  borderRadius: '1rem',
-                  padding: '1.15rem 1.5rem',
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-                  marginBottom: '1.5rem',
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  flexWrap: 'wrap',
-                  gap: '1rem'
-                }}>
-                  {/* Desde */}
-                  <div style={{ flex: '1 1 155px', minWidth: '150px' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                      Desde
-                    </label>
-                    <div style={{ position: 'relative' }}>
-                      <Calendar size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                      <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => {
-                          setStartDate(e.target.value);
-                          setPeriod('custom');
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '0.55rem 0.75rem 0.55rem 2.25rem',
-                          fontSize: '0.88rem',
-                          background: '#f8fafc',
-                          border: '1px solid #cbd5e1',
-                          borderRadius: '0.6rem',
-                          color: '#0f172a',
-                          outline: 'none'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Hasta */}
-                  <div style={{ flex: '1 1 155px', minWidth: '150px' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                      Hasta
-                    </label>
-                    <div style={{ position: 'relative' }}>
-                      <Calendar size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                      <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => {
-                          setEndDate(e.target.value);
-                          setPeriod('custom');
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '0.55rem 0.75rem 0.55rem 2.25rem',
-                          fontSize: '0.88rem',
-                          background: '#f8fafc',
-                          border: '1px solid #cbd5e1',
-                          borderRadius: '0.6rem',
-                          color: '#0f172a',
-                          outline: 'none'
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Localidad */}
-                  <div style={{ flex: '1.4 1 190px', minWidth: '185px' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                      Localidad
-                    </label>
-                    <div style={{ position: 'relative' }}>
-                      <MapPin size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                      <select
-                        value={selectedSalon}
-                        onChange={(e) => setSelectedSalon(e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '0.55rem 2rem 0.55rem 2.25rem',
-                          fontSize: '0.88rem',
-                          background: '#f8fafc',
-                          border: '1px solid #cbd5e1',
-                          borderRadius: '0.6rem',
-                          color: '#0f172a',
-                          outline: 'none',
-                          appearance: 'none',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <option value="all">Todas las localidades</option>
-                        {salons.map(s => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={14} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                    </div>
-                  </div>
-
-                  {/* Servicio */}
-                  <div style={{ flex: '1.4 1 190px', minWidth: '185px' }}>
-                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                      Servicio
-                    </label>
-                    <div style={{ position: 'relative' }}>
-                      <BarChart3 size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                      <select
-                        value={selectedService}
-                        onChange={(e) => setSelectedService(e.target.value)}
-                        style={{
-                          width: '100%',
-                          padding: '0.55rem 2rem 0.55rem 2.25rem',
-                          fontSize: '0.88rem',
-                          background: '#f8fafc',
-                          border: '1px solid #cbd5e1',
-                          borderRadius: '0.6rem',
-                          color: '#0f172a',
-                          outline: 'none',
-                          appearance: 'none',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <option value="all">Todos los servicios</option>
-                        {serviceOptions.map(srvName => (
-                          <option key={srvName} value={srvName}>{srvName}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={14} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                    </div>
-                  </div>
-
-                  {/* Botón Aplicar */}
-                  <button
-                    type="button"
-                    onClick={handleApplyFilters}
-                    disabled={loading}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.45rem',
-                      padding: '0.6rem 1.5rem',
-                      background: loading ? '#93c5fd' : '#1d4ed8',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '0.6rem',
-                      fontWeight: 700,
-                      fontSize: '0.88rem',
-                      cursor: loading ? 'wait' : 'pointer',
-                      boxShadow: '0 2px 4px rgba(29,78,216,0.2)',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <Filter size={15} />
-                    <span>{loading ? 'Aplicando...' : 'Aplicar'}</span>
-                  </button>
-
-                  {/* Botón Exportar */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      exportReportToExcel({
-                        title: 'Productividad - Ranking del equipo',
-                        periodText: `${startDate} al ${endDate}`,
-                        kpis: reportData?.kpis || [],
-                        columns: [
-                          { key: 'rank', label: '#' },
-                          { key: 'empleado', label: 'Empleado' },
-                          { key: 'servicios_facturados', label: 'Servicios facturados' },
-                          { key: 'lavados_membresia', label: 'Lavados de membresía' },
-                          { key: 'total_realizados', label: 'Total realizados' },
-                          { key: 'participacion_str', label: 'Participación %' },
-                          { key: 'servicios_por_dia', label: 'Servicios por día' },
-                          { key: 'monto_generado', label: 'Monto generado (RD$)', isCurrency: true },
-                          { key: 'variacion_str', label: 'Variación %' }
-                        ],
-                        rows: [
-                          ...rankingRows.map(r => ({
-                            rank: r.rank,
-                            empleado: r.empleado,
-                            servicios_facturados: r.servicios_facturados,
-                            lavados_membresia: r.lavados_membresia,
-                            total_realizados: r.total_realizados,
-                            participacion_str: `${Number(r.participacion_pct || 0).toFixed(1)}%`,
-                            servicios_por_dia: Number(r.servicios_por_dia || 0).toFixed(1),
-                            monto_generado: r.monto_generado,
-                            variacion_str: `${Number(r.variacion_pct || 0) > 0 ? '+' : ''}${Number(r.variacion_pct || 0).toFixed(1)}%`
-                          })),
-                          {
-                            rank: '',
-                            empleado: 'Total del equipo',
-                            servicios_facturados: teamTotals.servicios_facturados,
-                            lavados_membresia: teamTotals.lavados_membresia,
-                            total_realizados: teamTotals.total_realizados,
-                            participacion_str: '100%',
-                            servicios_por_dia: Number(teamTotals.servicios_por_dia || 0).toFixed(1),
-                            monto_generado: teamTotals.monto_generado,
-                            variacion_str: `${Number(teamTotals.variacion_pct || 0) > 0 ? '+' : ''}${Number(teamTotals.variacion_pct || 0).toFixed(1)}%`
-                          }
-                        ],
-                        activeFilters: { salon: selectedSalon, service: selectedService, period }
-                      });
-                    }}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.45rem',
-                      padding: '0.6rem 1.25rem',
-                      background: '#ffffff',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '0.6rem',
-                      color: '#1e293b',
-                      fontWeight: 600,
-                      fontSize: '0.88rem',
-                      cursor: 'pointer',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                    }}
-                  >
-                    <Download size={15} color="#334155" />
-                    <span>Exportar</span>
-                  </button>
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '1rem',
+                padding: '1.75rem 2rem',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                marginBottom: '1.5rem'
+              }}>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.25rem 0' }}>
+                    Ranking del equipo
+                  </h2>
+                  <p style={{ fontSize: '0.9rem', color: '#64748b', margin: 0, fontWeight: 500 }}>
+                    Ordenado por total de servicios realizados
+                  </p>
                 </div>
 
-                {/* Tarjeta Principal: Ranking del equipo */}
-                <div style={{
-                  background: '#ffffff',
-                  borderRadius: '1rem',
-                  padding: '1.75rem 2rem',
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
-                  marginBottom: '1.5rem'
-                }}>
-                  <div style={{ marginBottom: '1.25rem' }}>
-                    <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.25rem 0' }}>
-                      Ranking del equipo
-                    </h2>
-                    <p style={{ fontSize: '0.9rem', color: '#64748b', margin: 0, fontWeight: 500 }}>
-                      Ordenado por total de servicios realizados
-                    </p>
-                  </div>
-
-                  {/* Tabla de Ranking */}
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0' }}>
-                          <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b', width: '48px' }}>#</th>
-                          <th style={{ padding: '0.85rem 1rem', textAlign: 'left', fontWeight: 700, color: '#1e293b' }}>Empleado</th>
-                          <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
-                            <div>Servicios</div>
-                            <div>facturados</div>
-                          </th>
-                          <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
-                            <div>Lavados de</div>
-                            <div>membresía</div>
-                          </th>
-                          <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
-                            Total realizados <span style={{ color: '#475569' }}>↓</span>
-                          </th>
-                          <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>Participación %</th>
-                          <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
-                            <div>Servicios</div>
-                            <div>por día</div>
-                          </th>
-                          <th style={{ padding: '0.85rem 1rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>Monto generado</th>
-                          <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>Variación %</th>
+                {/* Tabla de Ranking */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b', width: '48px' }}>#</th>
+                        <th style={{ padding: '0.85rem 1rem', textAlign: 'left', fontWeight: 700, color: '#1e293b' }}>Empleado</th>
+                        <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
+                          <div>Servicios</div>
+                          <div>facturados</div>
+                        </th>
+                        <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
+                          <div>Lavados de</div>
+                          <div>membresía</div>
+                        </th>
+                        <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#0f172a' }}>
+                          Total realizados <span style={{ color: '#475569' }}>↓</span>
+                        </th>
+                        <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>Participación %</th>
+                        <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
+                          <div>Servicios</div>
+                          <div>por día</div>
+                        </th>
+                        <th style={{ padding: '0.85rem 1rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>Monto generado</th>
+                        <th style={{ padding: '0.85rem 0.75rem', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>Variación %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rankingRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#64748b', fontSize: '0.92rem' }}>
+                            {loading ? 'Consultando datos reales de productividad...' : 'No se registraron servicios realizados en el período y filtros seleccionados.'}
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {rankingRows.length === 0 ? (
-                          <tr>
-                            <td colSpan={9} style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#64748b', fontSize: '0.92rem' }}>
-                              {loading ? 'Consultando datos reales de productividad...' : 'No se registraron servicios realizados en el período y filtros seleccionados.'}
+                      ) : (
+                        rankingRows.map((row, idx) => (
+                          <tr
+                            key={row.employee_id || idx}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              background: idx % 2 === 1 ? '#fcfdff' : '#ffffff'
+                            }}
+                          >
+                            <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 600 }}>
+                              {row.rank || (idx + 1)}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#0f172a', fontWeight: 600 }}>
+                              {row.empleado || row.colaborador}
+                            </td>
+                            <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
+                              {Number(row.servicios_facturados || 0).toLocaleString('es-DO')}
+                            </td>
+                            <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
+                              {Number(row.lavados_membresia || 0).toLocaleString('es-DO')}
+                            </td>
+                            <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#0f172a', fontWeight: 800, fontSize: '0.96rem' }}>
+                              {Number(row.total_realizados || 0).toLocaleString('es-DO')}
+                            </td>
+                            <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
+                              {Number(row.participacion_pct || 0).toFixed(1)}%
+                            </td>
+                            <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
+                              {Number(row.servicios_por_dia || 0).toFixed(1)}
+                            </td>
+                            <td style={{ padding: '0.85rem 1rem', textAlign: 'center', color: '#1e293b', fontWeight: 600 }}>
+                              RD$ {Number(row.monto_generado || 0).toLocaleString('es-DO')}
+                            </td>
+                            <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center' }}>
+                              {renderVariacion(row.variacion_pct, false)}
                             </td>
                           </tr>
-                        ) : (
-                          rankingRows.map((row, idx) => (
-                            <tr
-                              key={row.employee_id || idx}
-                              style={{
-                                borderBottom: '1px solid #f1f5f9',
-                                background: idx % 2 === 1 ? '#fcfdff' : '#ffffff'
-                              }}
-                            >
-                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 600 }}>
-                                {row.rank || (idx + 1)}
-                              </td>
-                              <td style={{ padding: '0.85rem 1rem', textAlign: 'left', color: '#0f172a', fontWeight: 600 }}>
-                                {row.empleado || row.colaborador}
-                              </td>
-                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
-                                {Number(row.servicios_facturados || 0).toLocaleString('es-DO')}
-                              </td>
-                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
-                                {Number(row.lavados_membresia || 0).toLocaleString('es-DO')}
-                              </td>
-                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#0f172a', fontWeight: 800, fontSize: '0.96rem' }}>
-                                {Number(row.total_realizados || 0).toLocaleString('es-DO')}
-                              </td>
-                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
-                                {Number(row.participacion_pct || 0).toFixed(1)}%
-                              </td>
-                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center', color: '#334155', fontWeight: 500 }}>
-                                {Number(row.servicios_por_dia || 0).toFixed(1)}
-                              </td>
-                              <td style={{ padding: '0.85rem 1rem', textAlign: 'center', color: '#1e293b', fontWeight: 600 }}>
-                                RD$ {Number(row.monto_generado || 0).toLocaleString('es-DO')}
-                              </td>
-                              <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center' }}>
-                                {renderVariacion(row.variacion_pct, false)}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                      {rankingRows.length > 0 && (
-                        <tfoot>
-                          <tr style={{ background: '#e8f0fe', borderTop: '2px solid #cbd5e1', borderBottom: '1px solid #cbd5e1' }}>
-                            <td colSpan={2} style={{ padding: '0.9rem 1rem', textAlign: 'left', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
-                              Total del equipo
-                            </td>
-                            <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
-                              {Number(teamTotals.servicios_facturados || 0).toLocaleString('es-DO')}
-                            </td>
-                            <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
-                              {Number(teamTotals.lavados_membresia || 0).toLocaleString('es-DO')}
-                            </td>
-                            <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.96rem' }}>
-                              {Number(teamTotals.total_realizados || 0).toLocaleString('es-DO')}
-                            </td>
-                            <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
-                              {teamTotals.total_realizados > 0 ? '100%' : '0%'}
-                            </td>
-                            <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
-                              {Number(teamTotals.servicios_por_dia || 0).toFixed(1)}
-                            </td>
-                            <td style={{ padding: '0.9rem 1rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
-                              RD$ {Number(teamTotals.monto_generado || 0).toLocaleString('es-DO')}
-                            </td>
-                            <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center' }}>
-                              {renderVariacion(teamTotals.variacion_pct, true)}
-                            </td>
-                          </tr>
-                        </tfoot>
+                        ))
                       )}
-                    </table>
-                  </div>
+                    </tbody>
+                    {rankingRows.length > 0 && (
+                      <tfoot>
+                        <tr style={{ background: '#e8f0fe', borderTop: '2px solid #cbd5e1', borderBottom: '1px solid #cbd5e1' }}>
+                          <td colSpan={2} style={{ padding: '0.9rem 1rem', textAlign: 'left', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
+                            Total del equipo
+                          </td>
+                          <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
+                            {Number(teamTotals.servicios_facturados || 0).toLocaleString('es-DO')}
+                          </td>
+                          <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
+                            {Number(teamTotals.lavados_membresia || 0).toLocaleString('es-DO')}
+                          </td>
+                          <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.96rem' }}>
+                            {Number(teamTotals.total_realizados || 0).toLocaleString('es-DO')}
+                          </td>
+                          <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
+                            {teamTotals.total_realizados > 0 ? '100%' : '0%'}
+                          </td>
+                          <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
+                            {Number(teamTotals.servicios_por_dia || 0).toFixed(1)}
+                          </td>
+                          <td style={{ padding: '0.9rem 1rem', textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.94rem' }}>
+                            RD$ {Number(teamTotals.monto_generado || 0).toLocaleString('es-DO')}
+                          </td>
+                          <td style={{ padding: '0.9rem 0.75rem', textAlign: 'center' }}>
+                            {renderVariacion(teamTotals.variacion_pct, true)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
 
-                  {/* Notas Metodológicas al Pie (2 Columnas Homologadas) */}
-                  <div style={{
-                    marginTop: '1.35rem',
-                    paddingTop: '1.1rem',
-                    borderTop: '1px solid #f1f5f9',
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                    gap: '1.25rem',
-                    fontSize: '0.78rem',
-                    color: '#475569',
-                    lineHeight: 1.65
-                  }}>
-                    <div>
-                      <div><strong style={{ color: '#1e293b', textDecoration: 'underline' }}>Participación:</strong> proporción del total de servicios del equipo.</div>
-                      <div><strong style={{ color: '#1e293b', textDecoration: 'underline' }}>Variación:</strong> total realizado vs. período anterior.</div>
-                    </div>
-                    <div style={{ borderLeft: '2px solid #cbd5e1', paddingLeft: '1rem' }}>
-                      <div><strong style={{ color: '#1e293b', textDecoration: 'underline' }}>Servicios por día:</strong> total realizado ÷ días trabajados registrados.</div>
-                      <div>Los lavados de membresía cuentan como servicios, sin asignarles valor monetario.</div>
-                      <div><strong style={{ color: '#1e293b' }}>Fuentes:</strong> Facturación · Canjes de membresía · Control de asistencia</div>
-                    </div>
+                {/* Notas Metodológicas al Pie (2 Columnas Homologadas) */}
+                <div style={{
+                  marginTop: '1.35rem',
+                  paddingTop: '1.1rem',
+                  borderTop: '1px solid #f1f5f9',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: '1.25rem',
+                  fontSize: '0.78rem',
+                  color: '#475569',
+                  lineHeight: 1.65
+                }}>
+                  <div>
+                    <div><strong style={{ color: '#1e293b', textDecoration: 'underline' }}>Participación:</strong> proporción del total de servicios del equipo.</div>
+                    <div><strong style={{ color: '#1e293b', textDecoration: 'underline' }}>Variación:</strong> total realizado vs. período anterior.</div>
+                  </div>
+                  <div style={{ borderLeft: '2px solid #cbd5e1', paddingLeft: '1rem' }}>
+                    <div><strong style={{ color: '#1e293b', textDecoration: 'underline' }}>Servicios por día:</strong> total realizado ÷ días trabajados registrados.</div>
+                    <div>Los lavados de membresía cuentan como servicios, sin asignarles valor monetario.</div>
+                    <div><strong style={{ color: '#1e293b' }}>Fuentes:</strong> Facturación · Canjes de membresía · Control de asistencia</div>
                   </div>
                 </div>
-              </>
+              </div>
             );
           })()}
         </div>
       ) : (
         /* VISTAS ESTÁNDAR PARA LOS DEMÁS REPORTES */
         <>
-          {/* 3. Filter Bar (Single White Card) */}
-          <form
-            className="no-print"
-            onSubmit={handleApplyFilters}
-            style={{
-              background: '#ffffff',
-              borderRadius: '1rem',
-              padding: '1.25rem 1.5rem',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-              marginBottom: '1.5rem'
-            }}
-          >
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '1rem',
-              alignItems: 'end'
-            }}>
-          {/* Selector 1: Reporte */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-              Reporte
-            </label>
-            <div style={{ position: 'relative' }}>
-              <select
-                value={selectedReportId}
-                onChange={(e) => handleReportChange(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.55rem 2rem 0.55rem 0.85rem',
-                  fontSize: '0.88rem',
-                  fontWeight: 600,
-                  color: '#0f172a',
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '0.5rem',
-                  outline: 'none',
-                  appearance: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                {availableReports.map(rep => (
-                  <option key={rep.id} value={rep.id}>
-                    {rep.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-            </div>
-          </div>
-
-          {/* Selector 2: Período */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-              Período
-            </label>
-            <div style={{ position: 'relative' }}>
-              <select
-                value={period}
-                onChange={(e) => handlePeriodChange(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.55rem 2rem 0.55rem 0.85rem',
-                  fontSize: '0.88rem',
-                  color: '#0f172a',
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '0.5rem',
-                  outline: 'none',
-                  appearance: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                {(currentReportConfig.id === 'contracts_upcoming_renewal' ? FUTURE_PERIOD_OPTIONS : PERIOD_OPTIONS).map(opt => (
-                  <option key={opt.id} value={opt.id}>{opt.label}</option>
-                ))}
-              </select>
-              <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-            </div>
-          </div>
-
-          {/* Custom Date Pickers when period === 'custom' */}
-          {period === 'custom' && (
-            <>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-                  Desde
-                </label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 0.85rem',
-                    fontSize: '0.88rem',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem'
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-                  Hasta
-                </label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 0.85rem',
-                    fontSize: '0.88rem',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem'
-                  }}
-                />
-              </div>
-            </>
-          )}
-
-          {/* Selector 3: Sucursal */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-              Sucursal
-            </label>
-            <div style={{ position: 'relative' }}>
-              <select
-                value={selectedSalon}
-                onChange={(e) => setSelectedSalon(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.55rem 2rem 0.55rem 0.85rem',
-                  fontSize: '0.88rem',
-                  color: '#0f172a',
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '0.5rem',
-                  outline: 'none',
-                  appearance: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                <option value="all">Todas las sucursales</option>
-                {salons.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-            </div>
-          </div>
-
-          {/* Contextual Dynamic Filter: Plan */}
-          {(currentReportConfig.hasPlanFilter || currentReportConfig.id === 'contracts_upcoming_renewal') && (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-                Plan
-              </label>
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={selectedPlan}
-                  onChange={(e) => setSelectedPlan(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 2rem 0.55rem 0.85rem',
-                    fontSize: '0.88rem',
-                    color: '#0f172a',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem',
-                    outline: 'none',
-                    appearance: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value="all">Todos los planes</option>
-                  {plans.map(p => (
-                    <option key={p.id} value={p.id}>{p.title}</option>
-                  ))}
-                  {plans.length === 0 && (
-                    <option value="Plan Beauty">Plan Beauty</option>
-                  )}
-                </select>
-                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-              </div>
-            </div>
-          )}
-
-          {/* Contextual Dynamic Filter 1: Membresía */}
-          {currentReportConfig.hasMembershipFilter && (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-                Membresía
-              </label>
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={selectedMembership}
-                  onChange={(e) => setSelectedMembership(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 2rem 0.55rem 0.85rem',
-                    fontSize: '0.88rem',
-                    color: '#0f172a',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem',
-                    outline: 'none',
-                    appearance: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value="all">Todas las membresías</option>
-                  <option value="Plan Beauty">Plan Beauty (Lavados)</option>
-                  <option value="VIP">Plan VIP Full</option>
-                </select>
-                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-              </div>
-            </div>
-          )}
-
-          {/* Contextual Dynamic Filter 2: Días Inactivos */}
-          {currentReportConfig.hasDaysFilter && (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-                Días de ausencia
-              </label>
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={daysInactive}
-                  onChange={(e) => setDaysInactive(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 2rem 0.55rem 0.85rem',
-                    fontSize: '0.88rem',
-                    color: '#0f172a',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem',
-                    outline: 'none',
-                    appearance: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value={15}>Más de 15 días</option>
-                  <option value={30}>Más de 30 días</option>
-                  <option value={60}>Más de 60 días</option>
-                  <option value={90}>Más de 90 días</option>
-                </select>
-                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-              </div>
-            </div>
-          )}
-
-          {/* Contextual Dynamic Filter 3: Motivo Cancelación */}
-          {currentReportConfig.hasReasonFilter && (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-                Motivo de cancelación
-              </label>
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={cancellationReason}
-                  onChange={(e) => setCancellationReason(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 2rem 0.55rem 0.85rem',
-                    fontSize: '0.88rem',
-                    color: '#0f172a',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem',
-                    outline: 'none',
-                    appearance: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {CANCELLATION_REASONS.map(r => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </select>
-                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-              </div>
-            </div>
-          )}
-
-          {/* Contextual Dynamic Filter 4: Empleado */}
-          {currentReportConfig.hasEmployeeFilter && (
-            <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
-                Colaborador / Empleado
-              </label>
-              <div style={{ position: 'relative' }}>
-                <select
-                  value={selectedEmployee}
-                  onChange={(e) => setSelectedEmployee(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.55rem 2rem 0.55rem 0.85rem',
-                    fontSize: '0.88rem',
-                    color: '#0f172a',
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '0.5rem',
-                    outline: 'none',
-                    appearance: 'none',
-                    cursor: 'pointer'
-                  }}
-                >
-                  <option value="all">Todo el equipo</option>
-                  {employees.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.name || emp.nombre}</option>
-                  ))}
-                </select>
-                <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-              </div>
-            </div>
-          )}
-
-          {/* Primary Action: Aplicar */}
-          <div>
-            <button
-              type="button"
-              onClick={handleApplyFilters}
-              disabled={loading}
-              style={{
-                width: '100%',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                padding: '0.62rem 1.25rem',
-                background: loading ? '#93c5fd' : '#2563eb',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '0.5rem',
-                fontWeight: 700,
-                fontSize: '0.9rem',
-                cursor: loading ? 'wait' : 'pointer',
-                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
-                transition: 'all 0.15s ease'
-              }}
-              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.background = '#1d4ed8'; }}
-              onMouseLeave={(e) => { if (!loading) e.currentTarget.style.background = '#2563eb'; }}
-            >
-              {loading ? (
-                <>
-                  <RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} />
-                  <span>Consultando...</span>
-                </>
-              ) : (
-                <>
-                  <Filter size={15} />
-                  <span>Aplicar</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </form>
-
-      {/* Top Loading Progress Bar (Linear style) */}
-      {loading && (
-        <div style={{
-          height: '3px',
-          width: '100%',
-          background: '#eff6ff',
-          borderRadius: '9999px',
-          overflow: 'hidden',
-          marginBottom: '1.25rem'
-        }}>
-          <div style={{
-            height: '100%',
-            width: '50%',
-            background: 'linear-gradient(90deg, #60a5fa, #2563eb)',
-            borderRadius: '9999px',
-            animation: 'pulse 1s ease-in-out infinite'
-          }} />
-        </div>
-      )}
-
-      {/* Error Banner with Retry */}
-      {reportError && (
-        <div style={{
-          background: '#fff1f2',
-          border: '1px solid #fecdd3',
-          borderRadius: '0.75rem',
-          padding: '1rem 1.25rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem',
-          marginBottom: '1.5rem',
-          color: '#9f1239',
-          fontSize: '0.88rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <AlertCircle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
-            <span>{reportError}</span>
-          </div>
-          <button
-            type="button"
-            onClick={loadReport}
-            style={{
-              padding: '0.4rem 0.85rem',
-              background: '#e11d48',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '0.375rem',
-              fontWeight: 600,
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            Reintentar
-          </button>
-        </div>
-      )}
-
-      {/* 4. Report Header & Actions (Title, Date, Export, Print) */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '1rem',
-        marginBottom: '1.25rem'
-      }}>
-        <div>
-          <h2 style={{
-            margin: 0,
-            fontSize: '1.4rem',
-            fontWeight: 800,
-            color: '#0f172a'
-          }}>
-            {effectiveReportData?.title || reportData?.title || currentReportConfig.name}
-          </h2>
-          {isRecurringReport ? (
-            <div style={{ margin: '0.2rem 0 0', lineHeight: 1.45 }}>
-              <div style={{ fontSize: '0.88rem', color: '#64748b', fontWeight: 500 }}>
-                {effectiveReportData?.subtitle || `Cuotas con primer intento en el período · Corte: ${(() => {
-                  try {
-                    const d = new Date(endDate + 'T12:00:00');
-                    return !isNaN(d.getTime())
-                      ? d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })
-                      : endDate;
-                  } catch (_) {
-                    return endDate;
-                  }
-                })()}`}
-              </div>
-              <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
-                {effectiveReportData?.baseText || `Base: ${reportData?.summary?.total_obligations || (reportData?.table?.rows?.length || 49)} cuotas únicas · RD$ ${((reportData?.summary?.total_obligations || (reportData?.table?.rows?.length || 49)) * 1950).toLocaleString('es-DO')}`}
-              </div>
-            </div>
-          ) : (
-            <p style={{
-              margin: '0.2rem 0 0',
-              fontSize: '0.85rem',
-              color: '#64748b'
-            }}>
-              {reportData?.periodText || `${startDate} al ${endDate}`}
-            </p>
-          )}
-        </div>
-
-        {/* Export & Print Buttons */}
-        <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          {/* Export Dropdown */}
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                padding: '0.45rem 0.95rem',
-                borderRadius: '0.5rem',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                color: '#334155',
-                cursor: 'pointer',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-                transition: 'all 0.15s ease'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-              onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
-            >
-              <Download size={15} color="#475569" />
-              <span>Exportar</span>
-              <ChevronDown size={14} color="#64748b" />
-            </button>
-
-            {showExportMenu && (
-              <div style={{
-                position: 'absolute',
-                right: 0,
-                top: '110%',
-                background: '#ffffff',
-                borderRadius: '0.5rem',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
-                padding: '0.35rem 0',
-                zIndex: 50,
-                minWidth: '150px'
-              }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    exportReportToExcel({
-                      title: reportData?.title || currentReportConfig.name,
-                      periodText: reportData?.periodText || `${startDate} al ${endDate}`,
-                      kpis: reportData?.kpis || [],
-                      columns: displayedTable?.columns || reportData?.table?.columns || [],
-                      rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
-                      unmatchedTable: reportData?.unmatched_table,
-                      activeFilters: {
-                        salon: selectedSalon,
-                        plan: selectedPlan,
-                        period
-                      }
-                    });
-                  }}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '0.5rem 1rem',
-                    fontSize: '0.82rem',
-                    fontWeight: 500,
-                    color: '#1e293b',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
-                >
-                  Excel (.xlsx)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowExportMenu(false);
-                    exportReportToCSV({
-                      title: reportData?.title || currentReportConfig.name,
-                      periodText: reportData?.periodText || `${startDate} al ${endDate}`,
-                      columns: displayedTable?.columns || reportData?.table?.columns || [],
-                      rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
-                      unmatchedTable: reportData?.unmatched_table,
-                      activeFilters: {
-                        salon: selectedSalon,
-                        plan: selectedPlan,
-                        period
-                      }
-                    });
-                  }}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    padding: '0.5rem 1rem',
-                    fontSize: '0.82rem',
-                    fontWeight: 500,
-                    color: '#1e293b',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
-                >
-                  CSV (.csv)
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Print Button */}
-          <button
-            type="button"
-            onClick={triggerPrintReport}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              background: '#ffffff',
-              border: '1px solid #cbd5e1',
-              padding: '0.45rem 0.85rem',
-              borderRadius: '0.5rem',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              color: '#334155',
-              cursor: 'pointer',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-              transition: 'all 0.15s ease'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-            onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
-            title="Imprimir informe actual"
-          >
-            <Printer size={16} color="#475569" />
-            <span className="hidden sm:inline">Imprimir</span>
-          </button>
-        </div>
-      </div>
-
       {/* 5. Alert Info Banner (if applicable, e.g. Mockup 2 - excluido en cohortes para diseño limpio) */}
       {!isRecurringReport && (reportData?.alertInfo || currentReportConfig.alertInfo) && (
         <div style={{
