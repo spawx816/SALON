@@ -398,7 +398,7 @@ function createVisitsRouter(pool, deps = {}) {
       const hasValidTaxReceptor = validateReceptorTaxId(clientRnc).isValid && isValidRazonSocial(clientRazonSocial);
       const isTargetFiscal = (requestedType === 'E31' || requestedType === 'CREDITO_FISCAL' || hasValidTaxReceptor);
 
-      // Regla comercial de facturación en efectivo: 4 operaciones sin comprobante y 1 con comprobante por cada 5 operaciones en efectivo
+      // Regla comercial de facturación en efectivo: 3 operaciones sin comprobante y 1 con comprobante por cada 4 operaciones en efectivo
       const isPureCash = (
         String(metodoPago || '').trim().toLowerCase() === 'efectivo' || 
         String(metodoPago || '').trim().toLowerCase() === 'cash'
@@ -406,12 +406,12 @@ function createVisitsRouter(pool, deps = {}) {
 
       if (!isTargetFiscal && isPureCash && !options.bypassCashRatio) {
         try {
-          await pool.query('UPDATE company_ncf_counters SET cash_counter = cash_counter + 1 WHERE id = 1');
+          await pool.query('UPDATE company_ncf_counters SET cash_counter = cash_counter + 1, cash_ratio = 4 WHERE id = 1');
           const [counterRows] = await pool.query('SELECT cash_counter, cash_ratio FROM company_ncf_counters WHERE id = 1');
           const count = counterRows[0]?.cash_counter || 1;
-          const ratio = Number(counterRows[0]?.cash_ratio || 5);
+          const ratio = 4;
 
-          // Si NO es el múltiplo del ratio, se emite SIN comprobante fiscal (4 de cada 5 sin comprobante)
+          // Si NO es el múltiplo del ratio, se emite SIN comprobante fiscal (3 de cada 4 sin comprobante)
           if (count % ratio !== 0) {
             const docName = 'Sin Comprobante Fiscal';
             console.log(`ℹ️ [DGII CASH COUNTER]: Factura en Efectivo #${count} emitida SIN comprobante fiscal según regla (${ratio - 1} de cada ${ratio} sin comprobante).`);
