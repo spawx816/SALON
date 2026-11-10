@@ -45,18 +45,18 @@ Este backlog organiza las 41 incidencias y oportunidades de mejora identificadas
 | **REM-P1-16** | Optimizar cálculo de comisiones eliminando consultas N+1 con inserts en batch y complejidad O(1) | `P1` | **M** | Ninguno | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
 | **REM-P1-17** | Implementar exportación completa de datos de tenant (`tenant data portability` / GDPR con cifrado y re-auth) | `P1` | **L** | Ninguno | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
 | **REM-P1-18** | Agregar bloqueo pesimista (`FOR UPDATE`) en descuento de inventario en base relacional con reversión atómica | `P1` | **M** | Requiere PostgreSQL | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
-| **REM-P2-01** | Filtrar nombres de salones ajenos en autocompletados globales multi-tenant | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P2-02** | Incorporar alerta y confirmación doble ante discrepancias de arqueo de caja | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P2-03** | Crear módulo de toma física periódica y ajuste masivo de inventario | `P2` | **M** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P2-04** | Sanitizar logs de auditoría para evitar imprimir correos o teléfonos en texto plano | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P2-05** | Implementar virtualización de tablas DOM para historial de asistencia y ventas | `P2` | **M** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P2-06** | Corregir accesibilidad WCAG en modales de cobro POS (trampa de foco y aria-live) | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P2-07** | Configurar timeouts explícitos en servidor HTTP Express y clientes externos | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P2-08** | Crear índices compuestos en tablas relacionales (`visits`, `attendance`, `commissions`) | `P2` | **S** | Requiere PostgreSQL | **SÍ (PostgreSQL)** | En pausa |
-| **REM-P2-09** | Diseñar política automatizada de purga y retención de datos tras cancelación | `P2` | **M** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P3-01** | Armonizar espaciados tipográficos en vistas de reportes secundarios | `P3` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P3-02** | Sincronizar esquemas Swagger / OpenAPI con endpoints de Fase 2E | `P3` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P3-03** | Estandarizar logging estructurado en formato JSON para CloudWatch / Datadog | `P3` | **S** | Ninguno | **NO (Local)** | Pendiente |
+| **REM-P2-01** | Filtrar nombres de salones ajenos en autocompletados globales multi-tenant | `P2` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:pagination)** |
+| **REM-P2-02** | Incorporar alerta y confirmación doble ante discrepancias de arqueo de caja | `P2` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:cash-reconciliation)** |
+| **REM-P2-03** | Crear módulo de toma física periódica y ajuste masivo de inventario | `P2` | **M** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:physical-inventory)** |
+| **REM-P2-04** | Sanitizar logs de auditoría para evitar imprimir correos o teléfonos en texto plano | `P2` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:logging)** |
+| **REM-P2-05** | Implementar virtualización de tablas DOM para historial de asistencia y ventas | `P2` | **M** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:pagination)** |
+| **REM-P2-06** | Corregir accesibilidad WCAG en modales de cobro POS (trampa de foco y aria-live) | `P2` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:accessibility)** |
+| **REM-P2-07** | Configurar timeouts explícitos en servidor HTTP Express y clientes externos | `P2` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:performance)** |
+| **REM-P2-08** | Crear índices compuestos en tablas relacionales (`visits`, `attendance`, `commissions`) | `P2` | **S** | Requiere PostgreSQL | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.3 / test:performance)** |
+| **REM-P2-09** | Diseñar política automatizada de purga y retención de datos tras cancelación | `P2` | **M** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:retention:dry-run)** |
+| **REM-P3-01** | Armonizar espaciados tipográficos en vistas de reportes secundarios | `P3` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / UI Token Harmony)** |
+| **REM-P3-02** | Sincronizar esquemas Swagger / OpenAPI con endpoints de Fase 2E | `P3` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:openapi)** |
+| **REM-P3-03** | Estandarizar logging estructurado en formato JSON para CloudWatch / Datadog | `P3` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.3 / test:logging)** |
 
 ---
 

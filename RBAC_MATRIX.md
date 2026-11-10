@@ -65,9 +65,9 @@
 | :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: |
 | `/api/cash-registers/current` | `GET` | `propietario`, `admin`, `cajero`, `recepcionista` | `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | NO | **Vulnerable (P1)** |
 | `/api/cash-registers/open` | `POST` | `propietario`, `admin`, `cajero`, `recepcionista` | `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Vulnerable (suplantación de operador) |
-| `/api/cash-registers/:id/close` | `POST` | `propietario`, `admin`, `cajero` | `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Vulnerable (suplantación de operador) |
+| `/api/cash-registers/:id/close` | `POST` | `propietario`, `admin`, `cajero` (con PIN si diferencia > umbral) | `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | **Protegido (Fase 3B.3 / REM-P2-02)** |
 | `/api/cash-registers/:id/movements` | `POST` | `propietario`, `admin`, `cajero` | `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Protegido |
-| `/api/cash-registers/:id/close-report` | `GET` | `propietario`, `admin` | `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Vulnerable |
+| `/api/cash-registers/:id/close-report` | `GET` | `propietario`, `admin` | `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Protegido |
 
 ---
 
@@ -126,6 +126,28 @@
 | `/api/tenant/branding` | `PUT` | `propietario`, `admin` | `superadmin`, `recepcionista`, `cajero`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Protegido (Fase 2H-C) |
 | `/api/tenant/branding/reset` | `POST` | `propietario`, `admin` | `superadmin`, `recepcionista`, `cajero`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Protegido (Fase 2H-C) |
 | `/api/public/branding/:slug` | `GET` | *Público / Todos* | Ninguno (Sin datos internos ni PII) | SÍ (Por slug público) | Ninguno | NO | Protegido (Fase 2H-C) |
+
+---
+
+### 2.10 Toma Física y Ajuste Masivo de Inventario (Fase 3B.3 / REM-P2-03)
+
+| Endpoint HTTP | Método | Roles Permitidos | Roles Bloqueados | Requiere Tenant Scoping | Feature Flag | Requiere Auditoría | Estado Actual |
+| :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: |
+| `/api/inventory/physical-sessions` | `GET` | `propietario`, `admin` | `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | `inventory` | NO | Protegido (Fase 3B.3) |
+| `/api/inventory/physical-sessions` | `POST` | `propietario`, `admin` | `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | `inventory` | SÍ | Protegido (Fase 3B.3) |
+| `/api/inventory/physical-sessions/:id` | `GET` | `propietario`, `admin` | `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | `inventory` | NO | Protegido (Fase 3B.3) |
+| `/api/inventory/physical-sessions/:id/items` | `POST` | `propietario`, `admin` | `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | `inventory` | SÍ | Protegido (Fase 3B.3) |
+| `/api/inventory/physical-sessions/:id/apply` | `POST` | `propietario`, `admin` (con PIN) | `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | `inventory` | SÍ | Protegido (Fase 3B.3) |
+
+---
+
+### 2.11 Retención de Datos y Derecho al Olvido (Fase 3B.3 / REM-P2-09)
+
+| Endpoint HTTP | Método | Roles Permitidos | Roles Bloqueados | Requiere Tenant Scoping | Feature Flag | Requiere Auditoría | Estado Actual |
+| :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: |
+| `/api/retention/dry-run` | `POST` | `propietario` | `admin`, `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | SÍ | Protegido (Fase 3B.3) |
+| `/api/retention/policies` | `GET` | `propietario` | `admin`, `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | NO | Protegido (Fase 3B.3) |
+| `/api/retention/runs` | `GET` | `propietario` | `admin`, `cajero`, `recepcionista`, `estilista`, `empleado`, `cliente_b2c` | SÍ | Ninguno | NO | Protegido (Fase 3B.3) |
 
 ---
 
