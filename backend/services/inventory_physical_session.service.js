@@ -20,6 +20,25 @@ class InventoryPhysicalSessionService {
     this.pool = pool;
   }
 
+  async resolveLocationId(conn, tenantId, locationId) {
+    if (locationId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(locationId)) {
+      const [rows] = await conn.query(`SELECT id FROM inventory_locations WHERE tenant_id = ? AND id = ?`, [tenantId, locationId]);
+      if (rows.length > 0) return rows[0].id;
+    }
+    const [byCode] = await conn.query(
+      `SELECT id FROM inventory_locations WHERE tenant_id = ? AND (code = ? OR name = ? OR is_default = true) ORDER BY is_default DESC LIMIT 1`,
+      [tenantId, locationId || 'ALM-01', locationId || 'Almacén Principal']
+    );
+    if (byCode.length > 0) return byCode[0].id;
+
+    const [created] = await conn.query(`
+      INSERT INTO inventory_locations (tenant_id, name, code, is_default, is_active)
+      VALUES (?, 'Almacén Principal', 'ALM-01', true, true)
+      RETURNING id
+    `, [tenantId]);
+    return created[0].id;
+  }
+
   async createSession({ tenantId, branchId = null, locationId = 'main_storage', notes = '', userId = null }) {
     if (!tenantId) {
       const err = new Error('TENANT_REQUIRED: tenantId is mandatory.');
@@ -69,7 +88,7 @@ class InventoryPhysicalSessionService {
       // 3. Take initial system stock snapshot
       const [products] = await conn.query(`
         SELECT p.id,
-               COALESCE(p.costo_unitario_cents, CAST(ROUND(COALESCE(p.costo, 0) * 100) AS INTEGER), 0) as cost_cents,
+               CAST(ROUND(COALESCE(p.cost, 0) * 100) AS INTEGER) as cost_cents,
                COALESCE(s.quantity, 0) as current_qty
         FROM inventory_products p
         LEFT JOIN inventory_stock s ON s.product_id = p.id AND s.tenant_id = p.tenant_id
@@ -304,6 +323,7 @@ class InventoryPhysicalSessionService {
         if (Math.abs(varianceQty) > 0.0001) {
           totalAdjustmentsCount++;
           const newActualStock = currentDbStock + varianceQty;
+          const resolvedLocationId = await this.resolveLocationId(conn, tenantId, session.location_id);
 
           if (stockRows.length > 0) {
             await conn.query(`
@@ -313,24 +333,25 @@ class InventoryPhysicalSessionService {
             `, [newActualStock, tenantId, item.product_id]);
           } else {
             await conn.query(`
-              INSERT INTO inventory_stock (tenant_id, product_id, quantity)
-              VALUES (?, ?, ?)
-            `, [tenantId, item.product_id, newActualStock]);
+              INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity)
+              VALUES (?, ?, ?, ?)
+            `, [tenantId, item.product_id, resolvedLocationId, newActualStock]);
           }
 
           // Record formal inventory movement
           await conn.query(`
             INSERT INTO inventory_movements (
-              tenant_id, product_id, type, quantity, previous_quantity, new_quantity,
-              unit_cost_cents, notes, created_at
-            ) VALUES (?, ?, 'AJUSTE_TOMA_FISICA', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+              tenant_id, product_id, location_id, movement_type, quantity,
+              unit_cost, total_cost, balance_after, reason, created_at
+            ) VALUES (?, ?, ?, 'ADJUSTMENT', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           `, [
             tenantId,
             item.product_id,
+            resolvedLocationId,
             varianceQty,
-            currentDbStock,
+            unitCostCents / 100,
+            Math.abs(varianceQty * (unitCostCents / 100)),
             newActualStock,
-            unitCostCents,
             `Ajuste automático por toma física sesión ${session.session_number} (Conteo: ${physicalCount}, Esperado: ${expectedAtPost})`
           ]);
         }

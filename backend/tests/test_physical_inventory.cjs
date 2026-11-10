@@ -25,6 +25,7 @@ async function runPhysicalInventoryTests() {
     const tenantB = '22222222-0000-0000-0000-000000000002';
     const prodId1 = '33333333-0000-0000-0000-000000000001';
     const prodId2 = '44444444-0000-0000-0000-000000000002';
+    const locId1 = '55555555-0000-0000-0000-000000000001';
 
     // Seed tenants and test products
     await conn.query(`
@@ -34,19 +35,25 @@ async function runPhysicalInventoryTests() {
     `, [tenantA, tenantB]);
 
     await conn.query(`
-      INSERT INTO inventory_products (id, tenant_id, nombre, codigo, costo_unitario_cents, is_active)
+      INSERT INTO inventory_locations (id, tenant_id, name, code, type, is_default, is_active)
+      VALUES ($1, $2, 'Almacén Principal', 'ALM-01', 'STORE', true, true)
+      ON CONFLICT (id) DO NOTHING;
+    `, [locId1, tenantA]);
+
+    await conn.query(`
+      INSERT INTO inventory_products (id, tenant_id, sku, name, cost, is_active)
       VALUES
-        ($1, $2, 'Shampoo Keratina 500ml', 'SH-001', 50000, true),
-        ($3, $2, 'Acondicionador Argan 500ml', 'AC-001', 60000, true)
+        ($1, $2, 'SH-001', 'Shampoo Keratina 500ml', 500.00, true),
+        ($3, $2, 'AC-001', 'Acondicionador Argan 500ml', 600.00, true)
       ON CONFLICT (id) DO NOTHING;
     `, [prodId1, tenantA, prodId2]);
 
     // Initial stock: 10 units for prod1, 20 units for prod2
     await conn.query(`
-      INSERT INTO inventory_stock (tenant_id, product_id, quantity)
-      VALUES ($1, $2, 10.0000), ($1, $3, 20.0000)
-      ON CONFLICT (tenant_id, product_id) DO UPDATE SET quantity = EXCLUDED.quantity;
-    `, [tenantA, prodId1, prodId2]);
+      INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity)
+      VALUES ($1, $2, $4, 10.0000), ($1, $3, $4, 20.0000)
+      ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET quantity = EXCLUDED.quantity;
+    `, [tenantA, prodId1, prodId2, locId1]);
 
     // --- TEST 1: Creación de sesión e inicialización de snapshots ---
     console.log('--- TEST 1: Creación de sesión y captura inicial de snapshot ---');
@@ -89,9 +96,10 @@ async function runPhysicalInventoryTests() {
       UPDATE inventory_stock SET quantity = quantity - 3.0000 WHERE tenant_id = $1 AND product_id = $2;
     `, [tenantA, prodId1]);
     await conn.query(`
-      INSERT INTO inventory_movements (tenant_id, product_id, type, quantity, previous_quantity, new_quantity, unit_cost_cents, notes, created_at)
-      VALUES ($1, $2, 'VENTA_POS', -3.0000, 10.0000, 7.0000, 50000, 'Venta ticket #9901', CURRENT_TIMESTAMP);
-    `, [tenantA, prodId1]);
+      INSERT INTO inventory_movements (
+        tenant_id, product_id, location_id, movement_type, quantity, unit_cost, total_cost, balance_after, reason, created_at
+      ) VALUES ($1, $2, $3, 'VENTA_POS', -3.0000, 500.00, 1500.00, 7.0000, 'Venta ticket #9901', CURRENT_TIMESTAMP);
+    `, [tenantA, prodId1, locId1]);
     console.log('  📊 Venta en vuelo procesada: stock en DB pasó de 10 a 7 (-3 unidades)');
 
     // --- TEST 4: Registro de conteo físico (El conteo arrojó 6 unidades reales) ---
