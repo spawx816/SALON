@@ -42,8 +42,8 @@ async function runStoragePrivateSuite() {
 
   try {
     // 0. Setup test tenants
-    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant A Storage', 'tenant-a-storage', 'storage-a@test.com') ON CONFLICT DO NOTHING`, [tenantA]);
-    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant B Storage', 'tenant-b-storage', 'storage-b@test.com') ON CONFLICT DO NOTHING`, [tenantB]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant A Storage', $2, 'storage-a@test.com') ON CONFLICT (id) DO NOTHING`, [tenantA, `tenant-a-storage-${tenantA.slice(0, 8)}`]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant B Storage', $2, 'storage-b@test.com') ON CONFLICT (id) DO NOTHING`, [tenantB, `tenant-b-storage-${tenantB.slice(0, 8)}`]);
 
     // --- TEST 1: Cifrado y almacenamiento en disco ---
     console.log('--- TEST 1: Cifrado AES-256-GCM en reposo ---');

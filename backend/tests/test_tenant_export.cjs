@@ -39,8 +39,8 @@ async function runTenantExportSuite() {
 
   try {
     // 0. Setup tenants and users
-    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant A Export', 'tenant-a-export', 'export-a@test.com') ON CONFLICT DO NOTHING`, [tenantA]);
-    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant B Export', 'tenant-b-export', 'export-b@test.com') ON CONFLICT DO NOTHING`, [tenantB]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant A Export', $2, 'export-a@test.com') ON CONFLICT (id) DO NOTHING`, [tenantA, `tenant-a-export-${tenantA.slice(0, 8)}`]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant B Export', $2, 'export-b@test.com') ON CONFLICT (id) DO NOTHING`, [tenantB, `tenant-b-export-${tenantB.slice(0, 8)}`]);
 
     await conn.query(`
       INSERT INTO users (id, tenant_id, name, email, password_hash, role, is_active, admin_pin)
