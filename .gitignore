@@ -40,6 +40,8 @@ secrets/
 backend/.superadmin_credential.json
 backend/backups/*
 !backend/backups/independent_schema.sql
+!backend/backups/restore_manifest.json
+!backend/backups/sanitized_test_snapshot.json
 backend/certs/*.p12
 backend/dgii_reception_output/
 backend/dgii_test_output/

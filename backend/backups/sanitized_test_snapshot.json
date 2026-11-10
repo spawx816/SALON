@@ -1,0 +1,2549 @@
+{
+  "metadata": {
+    "generated_at": "2026-11-08T15:45:47.433Z",
+    "is_sanitized": true,
+    "environment": "test"
+  },
+  "tables": {
+    "account_lockouts": {
+      "count": 0,
+      "rows": []
+    },
+    "appointments": {
+      "count": 0,
+      "rows": []
+    },
+    "attendance": {
+      "count": 0,
+      "rows": []
+    },
+    "attendance_logs": {
+      "count": 0,
+      "rows": []
+    },
+    "audit_logs": {
+      "count": 0,
+      "rows": []
+    },
+    "billing_codes": {
+      "count": 0,
+      "rows": []
+    },
+    "blocked_ips": {
+      "count": 0,
+      "rows": []
+    },
+    "branches": {
+      "count": 3,
+      "rows": [
+        {
+          "id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "name": "Sede Central Piantini",
+          "phone": "809-555-0000",
+          "address": "Av. Winston Churchill #109, Piantini, Santo Domingo",
+          "city": "Santo Domingo",
+          "maps_url": null,
+          "is_main": true,
+          "status": "active",
+          "created_at": "2026-10-10T00:03:26.416Z"
+        },
+        {
+          "id": "77743f65-4399-43ea-bead-1c4354b74522",
+          "tenant_id": "dd4ec04e-b26b-42dd-93ab-c63bf05eb7a1",
+          "name": "Sede Principal",
+          "phone": null,
+          "address": null,
+          "city": null,
+          "maps_url": null,
+          "is_main": true,
+          "status": "active",
+          "created_at": "2026-11-08T02:39:36.012Z"
+        },
+        {
+          "id": "f2e764c9-5d05-4e3d-832e-40ce1f5adfcd",
+          "tenant_id": "b755e0a4-f25d-4f22-8a7e-f9782ad06f1a",
+          "name": "Sede Principal",
+          "phone": "809-555-0000",
+          "address": null,
+          "city": null,
+          "maps_url": null,
+          "is_main": true,
+          "status": "active",
+          "created_at": "2026-11-08T03:39:45.107Z"
+        }
+      ]
+    },
+    "cash_register_movements": {
+      "count": 2,
+      "rows": [
+        {
+          "id": 1,
+          "cash_register_id": "d39c296c-9a2d-43ac-9204-c56ee1a0c33e",
+          "type": "Ingreso_Venta",
+          "payment_method": "Efectivo",
+          "amount": "600.00",
+          "concept": "Cobro Factura #SCP-0001 (Efectivo)",
+          "user_name": null,
+          "visit_id": "1791819025880",
+          "created_at": "2026-10-12T15:34:18.585Z",
+          "user_id": null,
+          "employee_id": null,
+          "employee_name": null,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "cash_register_id": "d39c296c-9a2d-43ac-9204-c56ee1a0c33e",
+          "type": "Ingreso_Venta",
+          "payment_method": "Efectivo",
+          "amount": "600.00",
+          "concept": "Cobro Factura #SD-0101",
+          "user_name": null,
+          "visit_id": "TEST-CHECKOUT-1791819547935",
+          "created_at": "2026-10-12T15:39:09.451Z",
+          "user_id": null,
+          "employee_id": null,
+          "employee_name": null,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "cash_registers": {
+      "count": 1,
+      "rows": [
+        {
+          "id": "d39c296c-9a2d-43ac-9204-c56ee1a0c33e",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "branch_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "name": null,
+          "status": "Abierta",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "opened_by_name": null,
+          "closed_by_name": null,
+          "monto_inicial": "1000.00",
+          "monto_final": null,
+          "observaciones": null,
+          "opened_at": "2026-10-10T16:56:31.713Z",
+          "closed_at": null,
+          "created_at": "2026-10-10T16:56:31.713Z",
+          "register_number": "CAJA-SD-20261010-2070",
+          "employee_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "employee_name": "Laura Martínez (Dueña)",
+          "diferencia": "0.00"
+        }
+      ]
+    },
+    "cash_shifts": {
+      "count": 0,
+      "rows": []
+    },
+    "clients": {
+      "count": 0,
+      "rows": []
+    },
+    "commission_categories": {
+      "count": 4,
+      "rows": [
+        {
+          "id": 1,
+          "nombre": "Peluquería General",
+          "porcentaje": "40.00",
+          "tipo": "servicios",
+          "estado": "activo",
+          "created_at": "2026-10-10T21:58:42.952Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "nombre": "Químicos y Tintes",
+          "porcentaje": "35.00",
+          "tipo": "servicios",
+          "estado": "activo",
+          "created_at": "2026-10-10T21:58:42.952Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "nombre": "Lavado y Secado",
+          "porcentaje": "30.00",
+          "tipo": "servicios",
+          "estado": "activo",
+          "created_at": "2026-10-10T21:58:42.952Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "nombre": "Uñas y Manicura",
+          "porcentaje": "50.00",
+          "tipo": "servicios",
+          "estado": "activo",
+          "created_at": "2026-10-10T21:58:42.952Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "commission_payouts": {
+      "count": 0,
+      "rows": []
+    },
+    "commission_scheme_rules": {
+      "count": 0,
+      "rows": []
+    },
+    "commission_schemes": {
+      "count": 0,
+      "rows": []
+    },
+    "company_ncf_counters": {
+      "count": 1,
+      "rows": [
+        {
+          "id": 1,
+          "tipo_comprobante": "E32",
+          "ultimo_numero": "0",
+          "updated_at": "2026-10-12T15:37:56.886Z",
+          "cash_counter": 1,
+          "cash_ratio": 4,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "contact_messages": {
+      "count": 0,
+      "rows": []
+    },
+    "contract_settings": {
+      "count": 1,
+      "rows": [
+        {
+          "id": 1,
+          "title": "CONTRATO DE SERVICIOS DE BELLEZA",
+          "company_name": "GLAMOUR BEAUTY STUDIO",
+          "company_rnc": null,
+          "company_address": "Av. Winston Churchill #109, Piantini",
+          "renewal_fee": "800.00",
+          "min_duration_months": 12,
+          "notice_cancellation_days": 30,
+          "content": null,
+          "created_at": "2026-10-10T22:07:45.879Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "contracts": {
+      "count": 0,
+      "rows": []
+    },
+    "dgii_606_purchases": {
+      "count": 0,
+      "rows": []
+    },
+    "dgii_ncf_sequences": {
+      "count": 0,
+      "rows": []
+    },
+    "email_logs": {
+      "count": 0,
+      "rows": []
+    },
+    "email_settings": {
+      "count": 1,
+      "rows": [
+        {
+          "id": 1,
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 465,
+          "smtp_user": null,
+          "smtp_pass": null,
+          "smtp_from": "notificaciones@salonpro.io",
+          "smtp_secure": 1,
+          "created_at": "2026-10-10T17:59:04.141Z",
+          "updated_at": "2026-10-10T17:59:04.141Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "employee_commission_rules": {
+      "count": 0,
+      "rows": []
+    },
+    "employee_commissions_log": {
+      "count": 0,
+      "rows": []
+    },
+    "employee_consumptions": {
+      "count": 0,
+      "rows": []
+    },
+    "employee_discounts": {
+      "count": 0,
+      "rows": []
+    },
+    "employees": {
+      "count": 0,
+      "rows": []
+    },
+    "gift_card_logs": {
+      "count": 0,
+      "rows": []
+    },
+    "gift_cards": {
+      "count": 0,
+      "rows": []
+    },
+    "holidays": {
+      "count": 12,
+      "rows": [
+        {
+          "id": 1,
+          "date": "2026-01-01T04:00:00.000Z",
+          "name": "Año Nuevo",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "date": "2026-01-06T04:00:00.000Z",
+          "name": "Día de los Santos Reyes",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "date": "2026-01-21T04:00:00.000Z",
+          "name": "Día de la Altagracia",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "date": "2026-01-26T04:00:00.000Z",
+          "name": "Día de Duarte",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 5,
+          "date": "2026-02-27T04:00:00.000Z",
+          "name": "Día de la Independencia",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 6,
+          "date": "2026-04-03T04:00:00.000Z",
+          "name": "Viernes Santo",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 7,
+          "date": "2026-05-01T04:00:00.000Z",
+          "name": "Día del Trabajo",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 8,
+          "date": "2026-06-04T04:00:00.000Z",
+          "name": "Corpus Christi",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 9,
+          "date": "2026-08-16T04:00:00.000Z",
+          "name": "Día de la Restauración",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 10,
+          "date": "2026-09-24T04:00:00.000Z",
+          "name": "Día de las Mercedes",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 11,
+          "date": "2026-11-06T04:00:00.000Z",
+          "name": "Día de la Constitución",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 12,
+          "date": "2026-12-25T04:00:00.000Z",
+          "name": "Navidad",
+          "type": "Oficial",
+          "rate_multiplier": "1.00",
+          "is_active": 1,
+          "notes": null,
+          "created_at": "2026-10-10T22:07:46.019Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "invoice_items": {
+      "count": 0,
+      "rows": []
+    },
+    "invoices": {
+      "count": 0,
+      "rows": []
+    },
+    "login_attempts": {
+      "count": 0,
+      "rows": []
+    },
+    "marketing_settings": {
+      "count": 1,
+      "rows": [
+        {
+          "id": 1,
+          "birthday_automation_enabled": true,
+          "birthday_discount": 15,
+          "birthday_flyer_url": null,
+          "birthday_email_subject": "¡Feliz Cumpleaños! 🎉",
+          "birthday_email_template": null,
+          "mass_email_template": null,
+          "created_at": "2026-10-10T21:58:42.303Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "membership_contracts": {
+      "count": 0,
+      "rows": []
+    },
+    "membership_plans": {
+      "count": 0,
+      "rows": []
+    },
+    "payments": {
+      "count": 0,
+      "rows": []
+    },
+    "payroll_audit_logs": {
+      "count": 6,
+      "rows": [
+        {
+          "id": 1,
+          "payroll_id": 3,
+          "employee_id": "1",
+          "employee_name": "Ana Recepcionista",
+          "field_name": "Bono Especial Auditoría",
+          "old_value": "0.00",
+          "new_value": "500.00",
+          "action_type": "Cambio Masivo",
+          "reason": "Incentivo de prueba auditoría",
+          "user_name": "QA Auditor",
+          "created_at": "2026-10-10T22:33:04.293Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "payroll_id": 3,
+          "employee_id": null,
+          "employee_name": null,
+          "field_name": "ESTADO_NOMINA",
+          "old_value": "En preparación",
+          "new_value": "Aprobada",
+          "action_type": "Aprobación Definitiva",
+          "reason": "Nómina aprobada e inmutable. Descuentos saldados y comisiones liquidadas.",
+          "user_name": "Director Elvys Rodriguez",
+          "created_at": "2026-10-10T22:33:05.484Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "payroll_id": 4,
+          "employee_id": "1",
+          "employee_name": "Ana Recepcionista",
+          "field_name": "Bono Especial Auditoría",
+          "old_value": "0.00",
+          "new_value": "500.00",
+          "action_type": "Cambio Masivo",
+          "reason": "Incentivo de prueba auditoría",
+          "user_name": "QA Auditor",
+          "created_at": "2026-10-10T23:47:00.394Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "payroll_id": 4,
+          "employee_id": null,
+          "employee_name": null,
+          "field_name": "ESTADO_NOMINA",
+          "old_value": "En preparación",
+          "new_value": "Aprobada",
+          "action_type": "Aprobación Definitiva",
+          "reason": "Nómina aprobada e inmutable. Descuentos saldados y comisiones liquidadas.",
+          "user_name": "Director Elvys Rodriguez",
+          "created_at": "2026-10-10T23:47:00.959Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 5,
+          "payroll_id": 5,
+          "employee_id": "1",
+          "employee_name": "Ana Recepcionista",
+          "field_name": "Bono Especial Auditoría",
+          "old_value": "0.00",
+          "new_value": "500.00",
+          "action_type": "Cambio Masivo",
+          "reason": "Incentivo de prueba auditoría",
+          "user_name": "QA Auditor",
+          "created_at": "2026-10-10T23:49:04.589Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 6,
+          "payroll_id": 5,
+          "employee_id": null,
+          "employee_name": null,
+          "field_name": "ESTADO_NOMINA",
+          "old_value": "En preparación",
+          "new_value": "Aprobada",
+          "action_type": "Aprobación Definitiva",
+          "reason": "Nómina aprobada e inmutable. Descuentos saldados y comisiones liquidadas.",
+          "user_name": "Director Elvys Rodriguez",
+          "created_at": "2026-10-10T23:49:05.774Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "payroll_calculation_settings": {
+      "count": 1,
+      "rows": [
+        {
+          "id": 1,
+          "salario_mensual_base": "18421.00",
+          "dias_laborables_mes": "23.83",
+          "horas_jornada_completa": "8.00",
+          "horas_media_jornada": "4.00",
+          "recargo_horas_extras": "1.35",
+          "recargo_feriado": "1.00",
+          "updated_at": "2026-10-11T00:09:24.025Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "payroll_concepts": {
+      "count": 11,
+      "rows": [
+        {
+          "id": 2,
+          "code": "SAL_FIJO",
+          "name": "Salario Fijo",
+          "type": "Ingreso",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.280Z",
+          "activo": 1,
+          "tipo": "Ingreso",
+          "nombre": "Salario fijo",
+          "formula_tipo": "Fijo",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "code": "COMISION",
+          "name": "Comisiones",
+          "type": "Ingreso",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.349Z",
+          "activo": 1,
+          "tipo": "Ingreso",
+          "nombre": "Comisiones",
+          "formula_tipo": "Variable",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "code": "FERIADO",
+          "name": "Feriados",
+          "type": "Ingreso",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.417Z",
+          "activo": 1,
+          "tipo": "Ingreso",
+          "nombre": "Feriados",
+          "formula_tipo": "Fijo",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 5,
+          "code": "HORA_EXT",
+          "name": "Horas Extras",
+          "type": "Ingreso",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.485Z",
+          "activo": 1,
+          "tipo": "Ingreso",
+          "nombre": "Horas extras",
+          "formula_tipo": "Variable",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 6,
+          "code": "OTRO_ING",
+          "name": "Otros Ingresos / Bonos",
+          "type": "Ingreso",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.553Z",
+          "activo": 1,
+          "tipo": "Ingreso",
+          "nombre": "Otros ingresos / Bonos",
+          "formula_tipo": "Fijo",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 7,
+          "code": "TSS_EMP",
+          "name": "TSS (Seguridad Social RD)",
+          "type": "Descuento",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.621Z",
+          "activo": 1,
+          "tipo": "Descuento",
+          "nombre": "TSS (Seguridad Social RD)",
+          "formula_tipo": "Porcentaje",
+          "porcentaje": "5.91",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 8,
+          "code": "SERV_SAL",
+          "name": "Servicios de Salón",
+          "type": "Descuento",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.690Z",
+          "activo": 1,
+          "tipo": "Descuento",
+          "nombre": "Servicios de Salón",
+          "formula_tipo": "Variable",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 9,
+          "code": "PRESTAMO",
+          "name": "Préstamos y Anticipos",
+          "type": "Descuento",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.758Z",
+          "activo": 1,
+          "tipo": "Descuento",
+          "nombre": "Préstamos y Anticipos",
+          "formula_tipo": "Fijo",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 10,
+          "code": "AUSENCIA",
+          "name": "Ausencias",
+          "type": "Descuento",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.826Z",
+          "activo": 1,
+          "tipo": "Descuento",
+          "nombre": "Ausencias",
+          "formula_tipo": "Variable",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 11,
+          "code": "TARDANZA",
+          "name": "Tardanzas",
+          "type": "Descuento",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.895Z",
+          "activo": 1,
+          "tipo": "Descuento",
+          "nombre": "Tardanzas",
+          "formula_tipo": "Variable",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 12,
+          "code": "OTRO_DESC",
+          "name": "Otros Descuentos",
+          "type": "Descuento",
+          "is_taxable": 1,
+          "is_active": 1,
+          "created_at": "2026-10-10T22:29:47.964Z",
+          "activo": 1,
+          "tipo": "Descuento",
+          "nombre": "Otros descuentos",
+          "formula_tipo": "Fijo",
+          "porcentaje": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "payroll_items": {
+      "count": 6,
+      "rows": [
+        {
+          "id": 1,
+          "payroll_id": 1,
+          "employee_id": "1",
+          "employee_name": "Ana Recepcionista",
+          "posicion": "Recepción",
+          "sucursal": "Abatte Peluquería San Vicente",
+          "departamento": "Recepción",
+          "salario_fijo": "11000.00",
+          "comisiones": "0.00",
+          "feriados": "0.00",
+          "horas_extras": "0.00",
+          "otros_ingresos": "0.00",
+          "total_ingresos": "11000.00",
+          "tss": "650.10",
+          "servicios": "0.00",
+          "prestamos": "0.00",
+          "ausencias": "0.00",
+          "tardanzas": "0.00",
+          "otros_descuentos": "0.00",
+          "total_descuentos": "650.10",
+          "neto_pagar": "10349.90",
+          "detalles_json": "{\"conceptos_ingresos\":[{\"id\":\"c1\",\"label\":\"Salario fijo\",\"monto\":11000},{\"id\":\"c2\",\"label\":\"Comisiones\",\"monto\":0},{\"id\":\"c3\",\"label\":\"Feriados\",\"monto\":0},{\"id\":\"c4\",\"label\":\"Horas extras\",\"monto\":0},{\"id\":\"c5\",\"label\":\"Otros ingresos / Bonos\",\"monto\":0}],\"conceptos_descuentos\":[{\"id\":\"d1\",\"label\":\"TSS (Ley 5.91%)\",\"monto\":650.1},{\"id\":\"d2\",\"label\":\"Servicios de Salón\",\"monto\":0},{\"id\":\"d3\",\"label\":\"Préstamos / Adelantos\",\"monto\":0},{\"id\":\"d4\",\"label\":\"Ausencias\",\"monto\":0},{\"id\":\"d5\",\"label\":\"Tardanzas\",\"monto\":0},{\"id\":\"d6\",\"label\":\"Otros descuentos\",\"monto\":0}]}",
+          "created_at": "2026-10-10T22:24:42.238Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "payroll_id": 2,
+          "employee_id": "1",
+          "employee_name": "Ana Recepcionista",
+          "posicion": "Recepción",
+          "sucursal": "Abatte Peluquería San Vicente",
+          "departamento": "Recepción",
+          "salario_fijo": "11000.00",
+          "comisiones": "0.00",
+          "feriados": "0.00",
+          "horas_extras": "0.00",
+          "otros_ingresos": "0.00",
+          "total_ingresos": "11000.00",
+          "tss": "650.10",
+          "servicios": "0.00",
+          "prestamos": "0.00",
+          "ausencias": "0.00",
+          "tardanzas": "0.00",
+          "otros_descuentos": "0.00",
+          "total_descuentos": "650.10",
+          "neto_pagar": "10349.90",
+          "detalles_json": "{\"conceptos_ingresos\":[{\"id\":\"c1\",\"label\":\"Salario fijo\",\"monto\":11000},{\"id\":\"c2\",\"label\":\"Comisiones\",\"monto\":0},{\"id\":\"c3\",\"label\":\"Feriados\",\"monto\":0},{\"id\":\"c4\",\"label\":\"Horas extras\",\"monto\":0},{\"id\":\"c5\",\"label\":\"Otros ingresos / Bonos\",\"monto\":0}],\"conceptos_descuentos\":[{\"id\":\"d1\",\"label\":\"TSS (Ley 5.91%)\",\"monto\":650.1},{\"id\":\"d2\",\"label\":\"Servicios de Salón\",\"monto\":0},{\"id\":\"d3\",\"label\":\"Préstamos / Adelantos\",\"monto\":0},{\"id\":\"d4\",\"label\":\"Ausencias\",\"monto\":0},{\"id\":\"d5\",\"label\":\"Tardanzas\",\"monto\":0},{\"id\":\"d6\",\"label\":\"Otros descuentos\",\"monto\":0}]}",
+          "created_at": "2026-10-10T22:24:42.321Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "payroll_id": 1,
+          "employee_id": "2",
+          "employee_name": "Carmen Estilista",
+          "posicion": "Estilista Master",
+          "sucursal": "Abatte Peluquería San Vicente",
+          "departamento": "Estilista Master",
+          "salario_fijo": "10000.00",
+          "comisiones": "0.00",
+          "feriados": "0.00",
+          "horas_extras": "0.00",
+          "otros_ingresos": "0.00",
+          "total_ingresos": "10000.00",
+          "tss": "591.00",
+          "servicios": "0.00",
+          "prestamos": "0.00",
+          "ausencias": "0.00",
+          "tardanzas": "0.00",
+          "otros_descuentos": "0.00",
+          "total_descuentos": "591.00",
+          "neto_pagar": "9409.00",
+          "detalles_json": "{\"conceptos_ingresos\":[{\"id\":\"c1\",\"label\":\"Salario fijo\",\"monto\":10000},{\"id\":\"c2\",\"label\":\"Comisiones\",\"monto\":0},{\"id\":\"c3\",\"label\":\"Feriados\",\"monto\":0},{\"id\":\"c4\",\"label\":\"Horas extras\",\"monto\":0},{\"id\":\"c5\",\"label\":\"Otros ingresos / Bonos\",\"monto\":0}],\"conceptos_descuentos\":[{\"id\":\"d1\",\"label\":\"TSS (Ley 5.91%)\",\"monto\":591},{\"id\":\"d2\",\"label\":\"Servicios de Salón\",\"monto\":0},{\"id\":\"d3\",\"label\":\"Préstamos / Adelantos\",\"monto\":0},{\"id\":\"d4\",\"label\":\"Ausencias\",\"monto\":0},{\"id\":\"d5\",\"label\":\"Tardanzas\",\"monto\":0},{\"id\":\"d6\",\"label\":\"Otros descuentos\",\"monto\":0}]}",
+          "created_at": "2026-10-10T22:24:42.565Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "payroll_id": 2,
+          "employee_id": "2",
+          "employee_name": "Carmen Estilista",
+          "posicion": "Estilista Master",
+          "sucursal": "Abatte Peluquería San Vicente",
+          "departamento": "Estilista Master",
+          "salario_fijo": "10000.00",
+          "comisiones": "0.00",
+          "feriados": "0.00",
+          "horas_extras": "0.00",
+          "otros_ingresos": "0.00",
+          "total_ingresos": "10000.00",
+          "tss": "591.00",
+          "servicios": "0.00",
+          "prestamos": "0.00",
+          "ausencias": "0.00",
+          "tardanzas": "0.00",
+          "otros_descuentos": "0.00",
+          "total_descuentos": "591.00",
+          "neto_pagar": "9409.00",
+          "detalles_json": "{\"conceptos_ingresos\":[{\"id\":\"c1\",\"label\":\"Salario fijo\",\"monto\":10000},{\"id\":\"c2\",\"label\":\"Comisiones\",\"monto\":0},{\"id\":\"c3\",\"label\":\"Feriados\",\"monto\":0},{\"id\":\"c4\",\"label\":\"Horas extras\",\"monto\":0},{\"id\":\"c5\",\"label\":\"Otros ingresos / Bonos\",\"monto\":0}],\"conceptos_descuentos\":[{\"id\":\"d1\",\"label\":\"TSS (Ley 5.91%)\",\"monto\":591},{\"id\":\"d2\",\"label\":\"Servicios de Salón\",\"monto\":0},{\"id\":\"d3\",\"label\":\"Préstamos / Adelantos\",\"monto\":0},{\"id\":\"d4\",\"label\":\"Ausencias\",\"monto\":0},{\"id\":\"d5\",\"label\":\"Tardanzas\",\"monto\":0},{\"id\":\"d6\",\"label\":\"Otros descuentos\",\"monto\":0}]}",
+          "created_at": "2026-10-10T22:24:43.146Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 5,
+          "payroll_id": 1,
+          "employee_id": "3",
+          "employee_name": "Lucía Manicurista",
+          "posicion": "Técnica de Uñas",
+          "sucursal": "Abatte Peluquería San Vicente",
+          "departamento": "Técnica de Uñas",
+          "salario_fijo": "10000.00",
+          "comisiones": "0.00",
+          "feriados": "0.00",
+          "horas_extras": "0.00",
+          "otros_ingresos": "0.00",
+          "total_ingresos": "10000.00",
+          "tss": "591.00",
+          "servicios": "0.00",
+          "prestamos": "0.00",
+          "ausencias": "0.00",
+          "tardanzas": "0.00",
+          "otros_descuentos": "0.00",
+          "total_descuentos": "591.00",
+          "neto_pagar": "9409.00",
+          "detalles_json": "{\"conceptos_ingresos\":[{\"id\":\"c1\",\"label\":\"Salario fijo\",\"monto\":10000},{\"id\":\"c2\",\"label\":\"Comisiones\",\"monto\":0},{\"id\":\"c3\",\"label\":\"Feriados\",\"monto\":0},{\"id\":\"c4\",\"label\":\"Horas extras\",\"monto\":0},{\"id\":\"c5\",\"label\":\"Otros ingresos / Bonos\",\"monto\":0}],\"conceptos_descuentos\":[{\"id\":\"d1\",\"label\":\"TSS (Ley 5.91%)\",\"monto\":591},{\"id\":\"d2\",\"label\":\"Servicios de Salón\",\"monto\":0},{\"id\":\"d3\",\"label\":\"Préstamos / Adelantos\",\"monto\":0},{\"id\":\"d4\",\"label\":\"Ausencias\",\"monto\":0},{\"id\":\"d5\",\"label\":\"Tardanzas\",\"monto\":0},{\"id\":\"d6\",\"label\":\"Otros descuentos\",\"monto\":0}]}",
+          "created_at": "2026-10-10T22:24:43.414Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 6,
+          "payroll_id": 2,
+          "employee_id": "3",
+          "employee_name": "Lucía Manicurista",
+          "posicion": "Técnica de Uñas",
+          "sucursal": "Abatte Peluquería San Vicente",
+          "departamento": "Técnica de Uñas",
+          "salario_fijo": "10000.00",
+          "comisiones": "0.00",
+          "feriados": "0.00",
+          "horas_extras": "0.00",
+          "otros_ingresos": "0.00",
+          "total_ingresos": "10000.00",
+          "tss": "591.00",
+          "servicios": "0.00",
+          "prestamos": "0.00",
+          "ausencias": "0.00",
+          "tardanzas": "0.00",
+          "otros_descuentos": "0.00",
+          "total_descuentos": "591.00",
+          "neto_pagar": "9409.00",
+          "detalles_json": "{\"conceptos_ingresos\":[{\"id\":\"c1\",\"label\":\"Salario fijo\",\"monto\":10000},{\"id\":\"c2\",\"label\":\"Comisiones\",\"monto\":0},{\"id\":\"c3\",\"label\":\"Feriados\",\"monto\":0},{\"id\":\"c4\",\"label\":\"Horas extras\",\"monto\":0},{\"id\":\"c5\",\"label\":\"Otros ingresos / Bonos\",\"monto\":0}],\"conceptos_descuentos\":[{\"id\":\"d1\",\"label\":\"TSS (Ley 5.91%)\",\"monto\":591},{\"id\":\"d2\",\"label\":\"Servicios de Salón\",\"monto\":0},{\"id\":\"d3\",\"label\":\"Préstamos / Adelantos\",\"monto\":0},{\"id\":\"d4\",\"label\":\"Ausencias\",\"monto\":0},{\"id\":\"d5\",\"label\":\"Tardanzas\",\"monto\":0},{\"id\":\"d6\",\"label\":\"Otros descuentos\",\"monto\":0}]}",
+          "created_at": "2026-10-10T22:24:43.964Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "payroll_periods": {
+      "count": 2,
+      "rows": [
+        {
+          "id": 1,
+          "period_name": "1ra quincena · Octubre 2026",
+          "start_date": "2026-10-01T04:00:00.000Z",
+          "end_date": "2026-10-15T04:00:00.000Z",
+          "total_empleados": 3,
+          "total_neto": "29167.90",
+          "total_ingresos": "31000.00",
+          "total_descuentos": "1832.10",
+          "status": "En preparación",
+          "sucursal": "Todas",
+          "departamento": "Todos",
+          "is_immutable": 0,
+          "approved_by": null,
+          "approved_at": null,
+          "snapshot_json": null,
+          "created_at": "2026-10-10T22:24:41.908Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "period_name": "1ra quincena · Octubre 2026",
+          "start_date": "2026-10-01T04:00:00.000Z",
+          "end_date": "2026-10-15T04:00:00.000Z",
+          "total_empleados": 3,
+          "total_neto": "29167.90",
+          "total_ingresos": "31000.00",
+          "total_descuentos": "1832.10",
+          "status": "En preparación",
+          "sucursal": "Todas",
+          "departamento": "Todos",
+          "is_immutable": 0,
+          "approved_by": null,
+          "approved_at": null,
+          "snapshot_json": null,
+          "created_at": "2026-10-10T22:24:41.975Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "payroll_records": {
+      "count": 0,
+      "rows": []
+    },
+    "pending_surveys": {
+      "count": 0,
+      "rows": []
+    },
+    "plans": {
+      "count": 3,
+      "rows": [
+        {
+          "id": "silver",
+          "title": "PLAN SILVER",
+          "price": "1500.00",
+          "activation_fee": "500.00",
+          "discount": "0.00",
+          "color": "blue",
+          "location": "Abatte Peluquería San Vicente",
+          "services": [
+            "Lavado y Secado",
+            "Tratamiento Profundo"
+          ],
+          "promo_services": [
+            "Corte de Puntas"
+          ],
+          "promo_duration_months": 1,
+          "usage_limits": {
+            "visits": 4,
+            "services": "Ilimitados"
+          },
+          "created_at": "2026-10-10T16:14:09.476Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "gold",
+          "title": "PLAN GOLD",
+          "price": "2500.00",
+          "activation_fee": "500.00",
+          "discount": "0.00",
+          "color": "amber",
+          "location": "Abatte Peluquería San Vicente",
+          "services": [
+            "Lavado y Secado",
+            "Manicura Simple",
+            "Pedicura Simple"
+          ],
+          "promo_services": [
+            "Tinte Completo"
+          ],
+          "promo_duration_months": 1,
+          "usage_limits": {
+            "visits": 6,
+            "services": "Ilimitados"
+          },
+          "created_at": "2026-10-10T16:14:09.476Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "black",
+          "title": "PLAN BLACK",
+          "price": "4500.00",
+          "activation_fee": "500.00",
+          "discount": "0.00",
+          "color": "slate",
+          "location": "Abatte Peluquería San Vicente",
+          "services": [
+            "Lavado y Secado",
+            "Manicura SPA",
+            "Pedicura SPA",
+            "Masaje Relajante"
+          ],
+          "promo_services": [
+            "Balayage"
+          ],
+          "promo_duration_months": 1,
+          "usage_limits": {
+            "visits": 8,
+            "services": "Ilimitados"
+          },
+          "created_at": "2026-10-10T16:14:09.476Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "roles": {
+      "count": 4,
+      "rows": [
+        {
+          "id": 1,
+          "nombre": "Administrador",
+          "permisos": "{\"all\":true,\"process_payments\":true,\"record_visits\":true,\"manage_services\":true,\"manage_clients\":true,\"manage_salons\":true,\"view_analytics\":true}",
+          "description": "Acceso total y configuración",
+          "created_at": "2026-10-10T21:58:42.166Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "nombre": "Recepción",
+          "permisos": "{\"all\":true,\"process_payments\":true,\"record_visits\":true,\"manage_services\":true,\"manage_clients\":true,\"manage_salons\":true,\"view_analytics\":true}",
+          "description": "Gestión de cobro, tickets y citas",
+          "created_at": "2026-10-10T21:58:42.166Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "nombre": "Cajero",
+          "permisos": "{\"all\":true,\"process_payments\":true,\"record_visits\":true,\"manage_services\":true,\"manage_clients\":true,\"manage_salons\":true,\"view_analytics\":true}",
+          "description": "Control de caja y pagos",
+          "created_at": "2026-10-10T21:58:42.166Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "nombre": "Peluquera",
+          "permisos": "{}",
+          "description": "Estilista comisionista",
+          "created_at": "2026-10-10T21:58:42.166Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "saas_plans": {
+      "count": 2,
+      "rows": [
+        {
+          "id": 1,
+          "name": "Plan Base",
+          "code": "base",
+          "price": "49.00",
+          "billing_cycle": "monthly",
+          "max_branches": 1,
+          "max_employees": 5,
+          "included_features": {
+            "pos": true,
+            "cajas": true,
+            "clients": false,
+            "payroll": true,
+            "reports": true,
+            "dgii_ecf": true,
+            "inventory": true,
+            "attendance": true,
+            "memberships": false,
+            "services_catalog": true
+          },
+          "is_active": true,
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "is_public": true,
+          "users_per_branch": 3,
+          "extra_user_price": "15.00",
+          "price_per_branch": "49.00",
+          "description": "Plan operativo de salón: Facturación, POS (Consumidor Final), Catálogo de Productos y Servicios, Cajas Registradoras y Creación de Usuarios. No permite registrar clientes ni suscripciones.",
+          "price_monthly": "49.00",
+          "price_yearly": "0.00",
+          "slug": "base",
+          "badge_text": null,
+          "is_featured": false,
+          "max_users": 5
+        },
+        {
+          "id": 2,
+          "name": "Plan Pro",
+          "code": "pro",
+          "price": "99.00",
+          "billing_cycle": "monthly",
+          "max_branches": 3,
+          "max_employees": 15,
+          "included_features": {
+            "pos": true,
+            "cajas": true,
+            "clients": true,
+            "payroll": true,
+            "reports": true,
+            "dgii_ecf": true,
+            "inventory": true,
+            "attendance": true,
+            "memberships": true,
+            "services_catalog": true
+          },
+          "is_active": true,
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "is_public": true,
+          "users_per_branch": 3,
+          "extra_user_price": "15.00",
+          "price_per_branch": "99.00",
+          "description": "Plan completo con Clientes y Suscripciones (Plan Beauty): Incluye todo el Plan Base + Registro de Clientes, Directorio CRM, Membresías Recurrentes, Contratos Digitales, Pagos Automáticos y Gift Cards.",
+          "price_monthly": "99.00",
+          "price_yearly": "0.00",
+          "slug": "pro",
+          "badge_text": null,
+          "is_featured": false,
+          "max_users": 5
+        }
+      ]
+    },
+    "salons": {
+      "count": 2,
+      "rows": [
+        {
+          "id": "1",
+          "name": "Glamour Beauty Studio - Sede Central",
+          "address": "Av. Abraham Lincoln #102",
+          "phone": "809-555-0000",
+          "maps_url": null,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "nombre": "Salón Glamour",
+          "direccion": "Av. Lincoln #102",
+          "telefono": "809-555-0000"
+        },
+        {
+          "id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "name": "Sede Central Piantini",
+          "address": "Av. Winston Churchill #109, Piantini, Santo Domingo",
+          "phone": "809-555-0000",
+          "maps_url": null,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "nombre": "Sede Central Piantini",
+          "direccion": "Av. Winston Churchill #109, Piantini, Santo Domingo",
+          "telefono": "809-555-0000"
+        }
+      ]
+    },
+    "schedule_overrides": {
+      "count": 0,
+      "rows": []
+    },
+    "security_audit_logs": {
+      "count": 13,
+      "rows": [
+        {
+          "id": 1,
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T04:33:43.234Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T05:27:59.038Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T05:38:16.489Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T05:38:50.796Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 5,
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T05:41:25.797Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 6,
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T06:17:51.294Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 7,
+          "user_id": "1",
+          "user_name": "Administrador",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T18:00:19.981Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 8,
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T18:46:07.241Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 9,
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T19:09:24.192Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 10,
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-10-12T19:54:36.453Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 11,
+          "user_id": "2cf9e128-cb69-444c-9ca5-46558516dd16",
+          "user_name": "Super Administrador SaaS",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-11-08T06:32:22.125Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 12,
+          "user_id": "d55ea8dc-69ec-477d-984c-24936ce9fb77",
+          "user_name": "ace",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-11-08T06:40:41.100Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 13,
+          "user_id": "3131b1e3-40ea-48a4-8e66-e0f94299a6f5",
+          "user_name": "casc",
+          "action": "LOGOUT",
+          "details": "Cierre de sesión regular",
+          "ip_address": null,
+          "user_agent": null,
+          "created_at": "2026-11-08T07:41:58.560Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "security_requests": {
+      "count": 0,
+      "rows": []
+    },
+    "security_settings": {
+      "count": 1,
+      "rows": [
+        {
+          "id": 1,
+          "max_login_attempts": 5,
+          "lockout_duration_minutes": 30,
+          "require_pin_for_discounts": true,
+          "session_timeout_minutes": 45,
+          "ip_whitelist": null,
+          "created_at": "2026-10-10T21:58:42.439Z",
+          "active_otp_pin": null,
+          "otp_expires_at": null,
+          "admin_pin": "1234",
+          "require_pin_for_settings": true,
+          "lockout_minutes": 30,
+          "pin_notification_emails": null,
+          "max_failed_attempts": 5,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "service_categories": {
+      "count": 1,
+      "rows": [
+        {
+          "id": "09069b3e-7fc0-42ba-bdb3-a0dc39be1c67",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "name": "Peluquería y Peinados",
+          "icon": "scissors",
+          "sort_order": 0,
+          "created_at": "2026-10-10T00:03:26.416Z"
+        }
+      ]
+    },
+    "services": {
+      "count": 3,
+      "rows": [
+        {
+          "id": "55e9a482-3411-4731-8548-e77bdb4b6dff",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "category_id": "09069b3e-7fc0-42ba-bdb3-a0dc39be1c67",
+          "name": "Lavado y Secado Regular",
+          "description": "Lavado con shampoo premium y secado a blower",
+          "price": "600.00",
+          "duration_minutes": 45,
+          "commission_percentage": "15.00",
+          "is_active": true,
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "nombre": "Lavado y Secado Regular",
+          "descripcion": "Lavado con shampoo premium y secado a blower",
+          "categoria": "General",
+          "precio": "600.00",
+          "activo": 1,
+          "genera_comision": 1,
+          "tipo_comision": "Porcentaje",
+          "comision_valor": "15.00",
+          "aplica_itbis": 0,
+          "orden_visualizacion": 0,
+          "imagen_url": null,
+          "subcategoria": "General",
+          "costo": "0.00",
+          "duracion": 30,
+          "category": "General"
+        },
+        {
+          "id": "7df84b54-2cd5-446a-ba85-f3b7574a0a04",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "category_id": "09069b3e-7fc0-42ba-bdb3-a0dc39be1c67",
+          "name": "Corte de Puntas / Estilo",
+          "description": "Corte personalizado con acabado profesional",
+          "price": "800.00",
+          "duration_minutes": 30,
+          "commission_percentage": "20.00",
+          "is_active": true,
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "nombre": "Corte de Puntas / Estilo",
+          "descripcion": "Corte personalizado con acabado profesional",
+          "categoria": "General",
+          "precio": "800.00",
+          "activo": 1,
+          "genera_comision": 1,
+          "tipo_comision": "Porcentaje",
+          "comision_valor": "20.00",
+          "aplica_itbis": 0,
+          "orden_visualizacion": 0,
+          "imagen_url": null,
+          "subcategoria": "General",
+          "costo": "0.00",
+          "duracion": 30,
+          "category": "General"
+        },
+        {
+          "id": "fbbd6e55-702c-45d0-a8c6-e209d44fc681",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "category_id": "09069b3e-7fc0-42ba-bdb3-a0dc39be1c67",
+          "name": "Tratamiento de Hidratación Profunda",
+          "description": "Mascarilla intensiva de argán y keratina",
+          "price": "1200.00",
+          "duration_minutes": 60,
+          "commission_percentage": "25.00",
+          "is_active": true,
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "nombre": "Tratamiento de Hidratación Profunda",
+          "descripcion": "Mascarilla intensiva de argán y keratina",
+          "categoria": "General",
+          "precio": "1200.00",
+          "activo": 1,
+          "genera_comision": 1,
+          "tipo_comision": "Porcentaje",
+          "comision_valor": "25.00",
+          "aplica_itbis": 0,
+          "orden_visualizacion": 0,
+          "imagen_url": null,
+          "subcategoria": "General",
+          "costo": "0.00",
+          "duracion": 30,
+          "category": "General"
+        }
+      ]
+    },
+    "staff_positions": {
+      "count": 6,
+      "rows": [
+        {
+          "id": 1,
+          "name": "Peluquera",
+          "description": "Estilista / Especialista en cabello y secado",
+          "base_salary": "18000.00",
+          "created_at": "2026-10-10T21:58:42.028Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "name": "Lava pelo",
+          "description": "Lavado, tratamientos capilares y asistencia",
+          "base_salary": "18421.00",
+          "created_at": "2026-10-10T21:58:42.028Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "name": "Manicurista",
+          "description": "Cuidado y diseño de uñas",
+          "base_salary": "15351.00",
+          "created_at": "2026-10-10T21:58:42.028Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "name": "Encargada",
+          "description": "Supervisión de operaciones y caja",
+          "base_salary": "20000.00",
+          "created_at": "2026-10-10T21:58:42.028Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 5,
+          "name": "Recepcionista",
+          "description": "Atención al cliente, cobro y agendamiento",
+          "base_salary": "18000.00",
+          "created_at": "2026-10-10T21:58:42.028Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 6,
+          "name": "Cajera",
+          "description": "Facturación y arqueo de caja",
+          "base_salary": "18000.00",
+          "created_at": "2026-10-10T21:58:42.028Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "staff_records": {
+      "count": 3,
+      "rows": [
+        {
+          "id": 2,
+          "nombre": "Carmen Estilista",
+          "cedula": null,
+          "contacto": "809-555-0102",
+          "posicion": "Estilista Master",
+          "direccion": null,
+          "localidad": null,
+          "fecha_entrada": null,
+          "fecha_salida": null,
+          "motivo_salida": null,
+          "status": "Activo",
+          "profile_photo": null,
+          "hora_entrada": "08:00:00",
+          "hora_salida": "18:00:00",
+          "dias_laborables": "Lunes a Sábado",
+          "tolerancia_minutos": 15,
+          "salon_id": "1",
+          "email": null,
+          "created_at": "2026-10-10T16:14:09.476Z",
+          "commission_scheme_id": null,
+          "scheme_effective_date": null,
+          "tipo_salario": "quincenal",
+          "salario_base": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "nombre": "Lucía Manicurista",
+          "cedula": null,
+          "contacto": "809-555-0103",
+          "posicion": "Técnica de Uñas",
+          "direccion": null,
+          "localidad": null,
+          "fecha_entrada": null,
+          "fecha_salida": null,
+          "motivo_salida": null,
+          "status": "Activo",
+          "profile_photo": null,
+          "hora_entrada": "08:00:00",
+          "hora_salida": "18:00:00",
+          "dias_laborables": "Lunes a Sábado",
+          "tolerancia_minutos": 15,
+          "salon_id": "1",
+          "email": null,
+          "created_at": "2026-10-10T16:14:09.476Z",
+          "commission_scheme_id": null,
+          "scheme_effective_date": null,
+          "tipo_salario": "quincenal",
+          "salario_base": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 1,
+          "nombre": "Ana Recepcionista",
+          "cedula": null,
+          "contacto": "809-555-0101",
+          "posicion": "Recepción",
+          "direccion": null,
+          "localidad": null,
+          "fecha_entrada": null,
+          "fecha_salida": null,
+          "motivo_salida": null,
+          "status": "Activo",
+          "profile_photo": null,
+          "hora_entrada": "08:00:00",
+          "hora_salida": "18:00:00",
+          "dias_laborables": "Lunes a Sábado",
+          "tolerancia_minutos": 15,
+          "salon_id": "1",
+          "email": "test_fixture_2@test-fixtures.local",
+          "created_at": "2026-10-10T16:14:09.476Z",
+          "commission_scheme_id": null,
+          "scheme_effective_date": null,
+          "tipo_salario": "quincenal",
+          "salario_base": "0.00",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "surveys": {
+      "count": 0,
+      "rows": []
+    },
+    "tenant_settings": {
+      "count": 0,
+      "rows": []
+    },
+    "tenant_subscriptions": {
+      "count": 0,
+      "rows": []
+    },
+    "tenants": {
+      "count": 3,
+      "rows": [
+        {
+          "id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "business_name": "Glamour Beauty Studio",
+          "legal_name": "Glamour Studio SRL",
+          "rnc": null,
+          "slug": "glamour",
+          "status": "active",
+          "email": "test_fixture_0@test-fixtures.local",
+          "phone": "809-555-0000",
+          "country": "DO",
+          "currency": "DOP",
+          "logo_url": "/uploads/logos/logo_e05317cb-dde3-412c-af6a-543b31c24a59_1791647937845.png",
+          "primary_color": "#0f172a",
+          "secondary_color": "#d4af37",
+          "has_memberships": true,
+          "has_dgii_ecf": false,
+          "has_attendance_kiosk": true,
+          "has_payroll": true,
+          "trial_ends_at": null,
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "updated_at": "2026-11-08T02:09:56.806Z",
+          "address": "Av. Winston Churchill #109, Piantini, Santo Domingo",
+          "website": "@glamour_rd",
+          "receipt_footer": "¡Gracias por preferir Glamour Beauty Studio! ♡ Síguenos en @glamour_rd",
+          "plan_id": 2,
+          "licensed_branches": 1,
+          "extra_user_seats": 0,
+          "memberships_price": "29.00"
+        },
+        {
+          "id": "dd4ec04e-b26b-42dd-93ab-c63bf05eb7a1",
+          "business_name": "Glow",
+          "legal_name": "Glow",
+          "rnc": null,
+          "slug": "glow",
+          "status": "active",
+          "email": "test_fixture_1@test-fixtures.local",
+          "phone": null,
+          "country": "DO",
+          "currency": "DOP",
+          "logo_url": null,
+          "primary_color": "#0f172a",
+          "secondary_color": "#d4af37",
+          "has_memberships": true,
+          "has_dgii_ecf": true,
+          "has_attendance_kiosk": true,
+          "has_payroll": true,
+          "trial_ends_at": null,
+          "created_at": "2026-11-08T02:39:35.937Z",
+          "updated_at": "2026-11-08T02:39:35.937Z",
+          "address": null,
+          "website": null,
+          "receipt_footer": null,
+          "plan_id": 2,
+          "licensed_branches": 1,
+          "extra_user_seats": 0,
+          "memberships_price": "29.00"
+        },
+        {
+          "id": "b755e0a4-f25d-4f22-8a7e-f9782ad06f1a",
+          "business_name": "cea",
+          "legal_name": "cea",
+          "rnc": null,
+          "slug": "cea-119",
+          "status": "active",
+          "email": "test_fixture_2@test-fixtures.local",
+          "phone": "809-555-0000",
+          "country": "DO",
+          "currency": "DOP",
+          "logo_url": null,
+          "primary_color": "#0f172a",
+          "secondary_color": "#d4af37",
+          "has_memberships": false,
+          "has_dgii_ecf": true,
+          "has_attendance_kiosk": true,
+          "has_payroll": true,
+          "trial_ends_at": null,
+          "created_at": "2026-11-08T03:39:45.038Z",
+          "updated_at": "2026-11-08T03:39:45.038Z",
+          "address": null,
+          "website": null,
+          "receipt_footer": null,
+          "plan_id": 1,
+          "licensed_branches": 1,
+          "extra_user_seats": 0,
+          "memberships_price": "29.00"
+        }
+      ]
+    },
+    "ticket_sequences": {
+      "count": 3,
+      "rows": [
+        {
+          "id": 3,
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "prefix": "SD",
+          "last_sequence": 100,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "salon_id": "7",
+          "prefix": "SCP",
+          "last_sequence": 1,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 1,
+          "salon_id": "1",
+          "prefix": "SD",
+          "last_sequence": 101,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "user_sessions": {
+      "count": 34,
+      "rows": [
+        {
+          "id": "sess_1791645739443_ejtlrc4",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:22:20.797Z",
+          "created_at": "2026-10-10T19:22:20.797Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791645784246_nmuwg7h",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:23:05.587Z",
+          "created_at": "2026-10-10T19:23:05.587Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791598625812_v8yhk3j",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T06:17:06.251Z",
+          "created_at": "2026-10-10T06:17:06.251Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791598632407_ilp8w0f",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T06:17:12.848Z",
+          "created_at": "2026-10-10T06:17:12.848Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791645713296_uirjtbr",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:21:54.650Z",
+          "created_at": "2026-10-10T19:21:54.650Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791645719465_bu9ttg8",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:22:00.818Z",
+          "created_at": "2026-10-10T19:22:00.818Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791645728749_fkbotj5",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:22:10.103Z",
+          "created_at": "2026-10-10T19:22:10.103Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791646266992_6zcpql5",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:31:08.343Z",
+          "created_at": "2026-10-10T19:31:08.343Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791646267253_11zva3h",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:31:08.615Z",
+          "created_at": "2026-10-10T19:31:08.615Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791769147519_fg1y74j",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T05:39:07.231Z",
+          "created_at": "2026-10-12T05:39:07.231Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791646394262_p28o4u1",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-10T19:33:15.613Z",
+          "created_at": "2026-10-10T19:33:15.613Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791765235618_6efae5q",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T04:33:55.270Z",
+          "created_at": "2026-10-12T04:33:55.270Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791768487709_5chko90",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T05:28:07.411Z",
+          "created_at": "2026-10-12T05:28:07.411Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791769122680_qmpz18u",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T05:38:42.379Z",
+          "created_at": "2026-10-12T05:38:42.379Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791769266028_plq18ys",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T05:41:05.745Z",
+          "created_at": "2026-10-12T05:41:05.745Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791771416369_py01lyl",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T06:16:56.111Z",
+          "created_at": "2026-10-12T06:16:56.111Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1794103735207_24ds50o",
+          "user_id": "2cf9e128-cb69-444c-9ca5-46558516dd16",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Navegador Web (SO Desconocido)",
+          "is_active": 0,
+          "last_activity": "2026-11-08T06:08:56.637Z",
+          "created_at": "2026-11-08T06:08:56.637Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791813644680_updq83d",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T18:00:45.101Z",
+          "created_at": "2026-10-12T18:00:45.101Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791817642413_g6s1y0m",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T19:07:22.903Z",
+          "created_at": "2026-10-12T19:07:22.903Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791818413959_9f1hsgs",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T19:20:14.475Z",
+          "created_at": "2026-10-12T19:20:14.475Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791817777406_l269w49",
+          "user_id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "user_name": "Laura Martínez (Dueña)",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T19:09:37.910Z",
+          "created_at": "2026-10-12T19:09:37.910Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1794103788815_dheo0go",
+          "user_id": "2cf9e128-cb69-444c-9ca5-46558516dd16",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-11-08T06:09:50.232Z",
+          "created_at": "2026-11-08T06:09:50.232Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1791820499968_1fyw3p4",
+          "user_id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-10-12T19:55:00.518Z",
+          "created_at": "2026-10-12T19:55:00.518Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1794105576131_mps65xc",
+          "user_id": "d55ea8dc-69ec-477d-984c-24936ce9fb77",
+          "user_name": "ace",
+          "role": "owner",
+          "salon_id": "77743f65-4399-43ea-bead-1c4354b74522",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-11-08T06:39:37.575Z",
+          "created_at": "2026-11-08T06:39:37.575Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "sess_1794109191319_ylmcrku",
+          "user_id": "3131b1e3-40ea-48a4-8e66-e0f94299a6f5",
+          "user_name": "casc",
+          "role": "owner",
+          "salon_id": "f2e764c9-5d05-4e3d-832e-40ce1f5adfcd",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": "Google Chrome (Windows 10/11)",
+          "is_active": 0,
+          "last_activity": "2026-11-08T07:39:52.827Z",
+          "created_at": "2026-11-08T07:39:52.827Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "SES-1794144486051-6370",
+          "user_id": "2cf9e128-cb69-444c-9ca5-46558516dd16",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:28:08.116Z",
+          "created_at": "2026-11-08T17:28:08.116Z",
+          "tenant_id": null
+        },
+        {
+          "id": "SES-1794144486326-7530",
+          "user_id": "61458a92-15bf-4411-823c-d9fcace0c373",
+          "user_name": "Admin Glamour Studio",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:28:08.391Z",
+          "created_at": "2026-11-08T17:28:08.391Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "SES-1794144486595-4766",
+          "user_id": "d55ea8dc-69ec-477d-984c-24936ce9fb77",
+          "user_name": "ace",
+          "role": "owner",
+          "salon_id": "77743f65-4399-43ea-bead-1c4354b74522",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:28:08.660Z",
+          "created_at": "2026-11-08T17:28:08.660Z",
+          "tenant_id": "dd4ec04e-b26b-42dd-93ab-c63bf05eb7a1"
+        },
+        {
+          "id": "SES-1794144574980-5092",
+          "user_id": "2cf9e128-cb69-444c-9ca5-46558516dd16",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:29:37.060Z",
+          "created_at": "2026-11-08T17:29:37.060Z",
+          "tenant_id": null
+        },
+        {
+          "id": "SES-1794144575295-1714",
+          "user_id": "61458a92-15bf-4411-823c-d9fcace0c373",
+          "user_name": "Admin Glamour Studio",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:29:37.373Z",
+          "created_at": "2026-11-08T17:29:37.373Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "SES-1794144575592-3684",
+          "user_id": "d55ea8dc-69ec-477d-984c-24936ce9fb77",
+          "user_name": "ace",
+          "role": "owner",
+          "salon_id": "77743f65-4399-43ea-bead-1c4354b74522",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:29:37.670Z",
+          "created_at": "2026-11-08T17:29:37.670Z",
+          "tenant_id": "dd4ec04e-b26b-42dd-93ab-c63bf05eb7a1"
+        },
+        {
+          "id": "SES-1794144608403-5404",
+          "user_id": "2cf9e128-cb69-444c-9ca5-46558516dd16",
+          "user_name": "Super Administrador SaaS",
+          "role": "superadmin",
+          "salon_id": "1",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:30:10.476Z",
+          "created_at": "2026-11-08T17:30:10.476Z",
+          "tenant_id": null
+        },
+        {
+          "id": "SES-1794144608682-8598",
+          "user_id": "61458a92-15bf-4411-823c-d9fcace0c373",
+          "user_name": "Admin Glamour Studio",
+          "role": "owner",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:30:10.754Z",
+          "created_at": "2026-11-08T17:30:10.754Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "SES-1794144608957-6569",
+          "user_id": "d55ea8dc-69ec-477d-984c-24936ce9fb77",
+          "user_name": "ace",
+          "role": "owner",
+          "salon_id": "77743f65-4399-43ea-bead-1c4354b74522",
+          "ip_address": null,
+          "user_agent": null,
+          "device_info": null,
+          "is_active": 1,
+          "last_activity": "2026-11-08T17:30:11.029Z",
+          "created_at": "2026-11-08T17:30:11.029Z",
+          "tenant_id": "dd4ec04e-b26b-42dd-93ab-c63bf05eb7a1"
+        }
+      ]
+    },
+    "users": {
+      "count": 6,
+      "rows": [
+        {
+          "id": "61458a92-15bf-4411-823c-d9fcace0c373",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "branch_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "name": "Admin Glamour Studio",
+          "email": "test_fixture_0@test-fixtures.local",
+          "password_hash": "",
+          "role": "owner",
+          "phone": null,
+          "profile_photo": null,
+          "admin_pin": null,
+          "is_active": true,
+          "last_login": null,
+          "created_at": "2026-11-08T02:08:42.558Z",
+          "nombre": "Admin Glamour Studio",
+          "role_id": null,
+          "salon_id": null,
+          "hora_entrada": null,
+          "hora_salida": null,
+          "dias_laborables": null,
+          "tolerancia_minutos": 15,
+          "tipo": "employee",
+          "password": null,
+          "username": "admin@test-fixtures.local",
+          "estado": "Activo"
+        },
+        {
+          "id": "d55ea8dc-69ec-477d-984c-24936ce9fb77",
+          "tenant_id": "dd4ec04e-b26b-42dd-93ab-c63bf05eb7a1",
+          "branch_id": "77743f65-4399-43ea-bead-1c4354b74522",
+          "name": "ace",
+          "email": "test_fixture_1@test-fixtures.local",
+          "password_hash": "",
+          "role": "owner",
+          "phone": null,
+          "profile_photo": null,
+          "admin_pin": null,
+          "is_active": true,
+          "last_login": "2026-11-08T02:39:37.501Z",
+          "created_at": "2026-11-08T02:39:36.158Z",
+          "nombre": "ace",
+          "role_id": null,
+          "salon_id": null,
+          "hora_entrada": null,
+          "hora_salida": null,
+          "dias_laborables": null,
+          "tolerancia_minutos": 15,
+          "tipo": "employee",
+          "password": null,
+          "username": "noxus@test-fixtures.local",
+          "estado": "Activo"
+        },
+        {
+          "id": "2cf9e128-cb69-444c-9ca5-46558516dd16",
+          "tenant_id": null,
+          "branch_id": null,
+          "name": "Super Administrador SaaS",
+          "email": "test_fixture_2@test-fixtures.local",
+          "password_hash": "",
+          "role": "superadmin",
+          "phone": null,
+          "profile_photo": null,
+          "admin_pin": null,
+          "is_active": true,
+          "last_login": "2026-11-08T02:09:50.158Z",
+          "created_at": "2026-11-08T02:08:42.558Z",
+          "nombre": "Super Administrador SaaS",
+          "role_id": null,
+          "salon_id": null,
+          "hora_entrada": null,
+          "hora_salida": null,
+          "dias_laborables": null,
+          "tolerancia_minutos": 15,
+          "tipo": "employee",
+          "password": null,
+          "username": "superadmin@salonsaas.com",
+          "estado": "Activo"
+        },
+        {
+          "id": "3131b1e3-40ea-48a4-8e66-e0f94299a6f5",
+          "tenant_id": "b755e0a4-f25d-4f22-8a7e-f9782ad06f1a",
+          "branch_id": "f2e764c9-5d05-4e3d-832e-40ce1f5adfcd",
+          "name": "casc",
+          "email": "test_fixture_3@test-fixtures.local",
+          "password_hash": "",
+          "role": "owner",
+          "phone": null,
+          "profile_photo": null,
+          "admin_pin": null,
+          "is_active": true,
+          "last_login": "2026-11-08T03:39:52.758Z",
+          "created_at": "2026-11-08T03:39:45.242Z",
+          "nombre": "casc",
+          "role_id": null,
+          "salon_id": null,
+          "hora_entrada": null,
+          "hora_salida": null,
+          "dias_laborables": null,
+          "tolerancia_minutos": 15,
+          "tipo": "employee",
+          "password": null,
+          "username": "ramirez@test-fixtures.local",
+          "estado": "Activo"
+        },
+        {
+          "id": "5dae3314-81f4-4f0a-b758-cc088687f2b5",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59",
+          "branch_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "name": "Laura Martínez (Dueña)",
+          "email": "test_fixture_4@test-fixtures.local",
+          "password_hash": "",
+          "role": "owner",
+          "phone": null,
+          "profile_photo": null,
+          "admin_pin": null,
+          "is_active": true,
+          "last_login": "2026-10-12T15:20:14.407Z",
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "nombre": "Laura Martínez (Dueña)",
+          "role_id": null,
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "hora_entrada": null,
+          "hora_salida": null,
+          "dias_laborables": null,
+          "tolerancia_minutos": 15,
+          "tipo": "employee",
+          "password": null,
+          "username": "laura@test-fixtures.local",
+          "estado": "Activo"
+        },
+        {
+          "id": "82be9b02-a514-4bdf-9973-d30716da0e6c",
+          "tenant_id": null,
+          "branch_id": null,
+          "name": "Super Administrador SaaS",
+          "email": "test_fixture_5@test-fixtures.local",
+          "password_hash": "",
+          "role": "superadmin",
+          "phone": null,
+          "profile_photo": null,
+          "admin_pin": null,
+          "is_active": true,
+          "last_login": "2026-10-12T15:55:00.450Z",
+          "created_at": "2026-10-10T00:03:26.416Z",
+          "nombre": "Super Administrador SaaS",
+          "role_id": null,
+          "salon_id": null,
+          "hora_entrada": null,
+          "hora_salida": null,
+          "dias_laborables": null,
+          "tolerancia_minutos": 15,
+          "tipo": "employee",
+          "password": null,
+          "username": "superadmin@salonpro.io",
+          "estado": "Activo"
+        }
+      ]
+    },
+    "verification_codes": {
+      "count": 4,
+      "rows": [
+        {
+          "id": 1,
+          "client_id": "COMM-1",
+          "code": "436309",
+          "is_used": 0,
+          "created_at": "2026-10-10T20:03:01.356Z",
+          "expires_at": "2026-10-10T20:17:59.456Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 2,
+          "client_id": "COMM-1",
+          "code": "677949",
+          "is_used": 0,
+          "created_at": "2026-10-10T20:06:45.279Z",
+          "expires_at": "2026-10-10T20:21:43.653Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 3,
+          "client_id": "COMM-1",
+          "code": "373424",
+          "is_used": 1,
+          "created_at": "2026-10-10T20:06:55.938Z",
+          "expires_at": "2026-10-10T20:21:54.317Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": 4,
+          "client_id": "COMM-1",
+          "code": "835371",
+          "is_used": 0,
+          "created_at": "2026-10-10T20:09:24.239Z",
+          "expires_at": "2026-10-10T20:24:22.613Z",
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    },
+    "visits": {
+      "count": 2,
+      "rows": [
+        {
+          "id": "1791819025880",
+          "client_id": "INVITADO",
+          "client_name": "21",
+          "servicios": [
+            "Lavado y Secado Regular"
+          ],
+          "empleado_peluquera": "Ana Recepcionista",
+          "empleado_manicurista": "N/A",
+          "proxima_fecha": null,
+          "recordatorio_auto": 0,
+          "total": "600.00",
+          "subtotal": "0.00",
+          "descuento": "0.00",
+          "itbis": "0.00",
+          "status": "Facturado",
+          "metodo_pago": "Efectivo",
+          "ticket_number": "SCP-0001",
+          "salon_id": "7f546f61-6410-4002-8198-bce72379d9f9",
+          "cash_register_id": "d39c296c-9a2d-43ac-9204-c56ee1a0c33e",
+          "nota": null,
+          "ncf": null,
+          "ncf_type": null,
+          "void_reason": null,
+          "voided_by": null,
+          "voided_at": null,
+          "visited_at": "2026-10-12T15:34:18.034Z",
+          "items_detail": [
+            {
+              "id": 1791819248217.3965,
+              "nombre": "Lavado y Secado Regular",
+              "cantidad": 1,
+              "empleado": "Ana Recepcionista",
+              "descuento": 0,
+              "isPlanWash": false,
+              "precioBase": "600.00",
+              "service_id": "55e9a482-3411-4731-8548-e77bdb4b6dff",
+              "empleado_id": 1,
+              "aplica_itbis": 0,
+              "precioAplicado": "600.00",
+              "empleado_nombre": "Ana Recepcionista",
+              "descuentoPercent": "0"
+            }
+          ],
+          "monto_recibido": "600.00",
+          "devuelta": "0.00",
+          "qr_code_url": null,
+          "xml_signature": null,
+          "secuencia_id": null,
+          "codigo_seguridad": null,
+          "rnc": null,
+          "rnc_cliente": null,
+          "rzn_soc_cliente": null,
+          "employee_consumption": "0.00",
+          "gift_card_redemption": "0.00",
+          "applied_payments": [],
+          "draft_data": {
+            "lineItems": [
+              {
+                "id": 1791819248217.3965,
+                "nombre": "Lavado y Secado Regular",
+                "cantidad": 1,
+                "empleado": "Ana Recepcionista",
+                "descuento": 0,
+                "isPlanWash": false,
+                "precioBase": "600.00",
+                "service_id": "55e9a482-3411-4731-8548-e77bdb4b6dff",
+                "empleado_id": 1,
+                "aplica_itbis": 0,
+                "precioAplicado": "600.00",
+                "empleado_nombre": "Ana Recepcionista",
+                "descuentoPercent": "0"
+              }
+            ],
+            "selectedPlanId": "none"
+          },
+          "empleado_lava_pelo": "N/A",
+          "ncf_nota_credito": null,
+          "nota_credito_motivo": null,
+          "nota_credito_fecha": null,
+          "nota_credito_track_id": null,
+          "nota_credito_xml": null,
+          "nota_credito_qr_url": null,
+          "ncf_name": null,
+          "codigo_seguridad_ecf": null,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        },
+        {
+          "id": "TEST-CHECKOUT-1791819547935",
+          "client_id": "INVITADO",
+          "client_name": "Cliente General",
+          "servicios": [
+            "Lavado y Secado"
+          ],
+          "empleado_peluquera": null,
+          "empleado_manicurista": null,
+          "proxima_fecha": null,
+          "recordatorio_auto": 0,
+          "total": "600.00",
+          "subtotal": "0.00",
+          "descuento": "0.00",
+          "itbis": "0.00",
+          "status": "Facturado",
+          "metodo_pago": "Efectivo",
+          "ticket_number": "SD-0101",
+          "salon_id": "1",
+          "cash_register_id": "d39c296c-9a2d-43ac-9204-c56ee1a0c33e",
+          "nota": null,
+          "ncf": null,
+          "ncf_type": null,
+          "void_reason": null,
+          "voided_by": null,
+          "voided_at": null,
+          "visited_at": "2026-10-12T15:39:08.779Z",
+          "items_detail": [
+            {
+              "nombre": "Lavado y Secado",
+              "precio": 600
+            }
+          ],
+          "monto_recibido": "1000.00",
+          "devuelta": "400.00",
+          "qr_code_url": null,
+          "xml_signature": null,
+          "secuencia_id": null,
+          "codigo_seguridad": null,
+          "rnc": null,
+          "rnc_cliente": null,
+          "rzn_soc_cliente": null,
+          "employee_consumption": "0.00",
+          "gift_card_redemption": "0.00",
+          "applied_payments": [],
+          "draft_data": null,
+          "empleado_lava_pelo": null,
+          "ncf_nota_credito": null,
+          "nota_credito_motivo": null,
+          "nota_credito_fecha": null,
+          "nota_credito_track_id": null,
+          "nota_credito_xml": null,
+          "nota_credito_qr_url": null,
+          "ncf_name": null,
+          "codigo_seguridad_ecf": null,
+          "tenant_id": "e05317cb-dde3-412c-af6a-543b31c24a59"
+        }
+      ]
+    }
+  }
+}

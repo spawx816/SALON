@@ -36,3 +36,4 @@ async function down(pool, targetSchema = 'public') {
 }
 
 module.exports = { up, down };
+

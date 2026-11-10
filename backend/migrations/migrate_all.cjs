@@ -191,13 +191,13 @@ async function migrateAll(options = {}) {
   const conn = await targetPool.getConnection();
   try {
     const schema = targetSchema || 'public';
-    await conn.query(`SET search_path TO "${schema}", public;`);
+    await conn.query(`SET search_path TO "${schema}";`);
 
     // Dedicated connection adapter ensuring any connection acquired by migrations explicitly applies target schema
     const dedicatedTargetPool = {
       async getConnection() {
         const c = await targetPool.getConnection();
-        await c.query(`SET search_path TO "${schema}", public;`);
+        await c.query(`SET search_path TO "${schema}";`);
         return c;
       },
       async query(sql, params) {
@@ -207,7 +207,7 @@ async function migrateAll(options = {}) {
 
     // 1. Asegurar tabla schema_migrations
     await conn.query(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
+      CREATE TABLE IF NOT EXISTS "${schema}".schema_migrations (
         version VARCHAR(100) PRIMARY KEY,
         applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         actor VARCHAR(100) NOT NULL,
@@ -216,7 +216,7 @@ async function migrateAll(options = {}) {
     `);
 
     // 2. Consultar migraciones ya aplicadas
-    const [appliedRows] = await conn.query('SELECT version FROM schema_migrations WHERE status IN (\'APPLIED\', \'RE_VERIFIED\');');
+    const [appliedRows] = await conn.query(`SELECT version FROM "${schema}".schema_migrations WHERE status IN ('APPLIED', 'applied', 'RE_VERIFIED');`);
     const appliedSet = new Set(appliedRows.map(r => r.version));
 
     let executedCount = 0;
@@ -237,10 +237,10 @@ async function migrateAll(options = {}) {
 
       // Registrar versión aplicada
       await conn.query(`
-        INSERT INTO schema_migrations (version, actor, status)
-        VALUES (?, 'canonical_migrate_all_runner', 'APPLIED')
+        INSERT INTO "${schema}".schema_migrations (version, actor, status)
+        VALUES (?, 'canonical_migrate_all_runner', 'applied')
         ON CONFLICT (version) DO UPDATE
-        SET applied_at = NOW(), status = 'APPLIED';
+        SET applied_at = NOW(), status = 'applied';
       `, [mig.version]);
 
       appliedSet.add(mig.version);

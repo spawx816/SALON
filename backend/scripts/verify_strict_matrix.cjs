@@ -119,22 +119,18 @@ const EXPECTED_MIGRATION_VERSIONS = [
 ];
 
 const EXPECTED_CANONICAL_SEQUENCES = [
-  'appointments_id_seq',
-  'attendance_id_seq',
-  'attendance_logs_id_seq',
+  'account_lockouts_id_seq',
   'audit_logs_id_seq',
-  'branches_id_seq',
+  'billing_codes_id_seq',
+  'blocked_ips_id_seq',
   'cash_register_movements_id_seq',
-  'cash_registers_id_seq',
-  'cash_shifts_id_seq',
-  'clients_id_seq',
   'commission_categories_id_seq',
   'commission_payouts_id_seq',
   'commission_scheme_rules_id_seq',
   'commission_schemes_id_seq',
   'company_ncf_counters_id_seq',
+  'contact_messages_id_seq',
   'contract_settings_id_seq',
-  'contracts_id_seq',
   'dgii_606_purchases_id_seq',
   'dgii_ncf_sequences_id_seq',
   'email_logs_id_seq',
@@ -143,43 +139,28 @@ const EXPECTED_CANONICAL_SEQUENCES = [
   'employee_commissions_log_id_seq',
   'employee_consumptions_id_seq',
   'employee_discounts_id_seq',
-  'employees_id_seq',
-  'expenses_id_seq',
   'gift_card_logs_id_seq',
   'gift_cards_id_seq',
   'holidays_id_seq',
-  'invoice_items_id_seq',
-  'invoices_id_seq',
+  'login_attempts_id_seq',
   'marketing_settings_id_seq',
-  'membership_contracts_id_seq',
-  'membership_plans_id_seq',
-  'payments_id_seq',
   'payroll_audit_logs_id_seq',
   'payroll_calculation_settings_id_seq',
   'payroll_concepts_id_seq',
   'payroll_items_id_seq',
   'payroll_periods_id_seq',
   'payroll_records_id_seq',
-  'pending_surveys_id_seq',
-  'plans_id_seq',
+  'pending_tenant_reconciliations_id_seq',
   'roles_id_seq',
-  'salons_id_seq',
+  'saas_plans_id_seq',
   'schedule_overrides_id_seq',
   'security_audit_logs_id_seq',
   'security_requests_id_seq',
   'security_settings_id_seq',
-  'service_categories_id_seq',
-  'services_id_seq',
   'staff_positions_id_seq',
   'staff_records_id_seq',
-  'surveys_id_seq',
-  'tenant_settings_id_seq',
-  'tenant_subscriptions_id_seq',
   'ticket_sequences_id_seq',
-  'user_sessions_id_seq',
-  'users_id_seq',
-  'verification_codes_id_seq',
-  'visits_id_seq'
+  'verification_codes_id_seq'
 ];
 
 async function verifyStrictMatrix(customPool = null) {
@@ -510,7 +491,7 @@ async function verifyStrictMatrix(customPool = null) {
         const status = migrationStatusMap.get(expVer);
         if (!status) {
           violations.push({ table: 'SCHEMA_MIGRATIONS', error: `Versión de migración ausente en schema_migrations: ${expVer}` });
-        } else if (status !== 'applied') {
+        } else if (String(status).toLowerCase() !== 'applied') {
           violations.push({ table: 'SCHEMA_MIGRATIONS', error: `Estado inválido para versión ${expVer}: "${status}" (esperado: applied)` });
         }
       }
