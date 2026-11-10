@@ -34,7 +34,7 @@ const {
   streamDecryptBackup
 } = require('./secure_backup.cjs');
 const {
-  CANONICAL_97_TABLES,
+  CANONICAL_101_TABLES,
   CANONICAL_QUARANTINE_TRIGGERS,
   CANONICAL_44_SEQUENCES
 } = require('./canonical_schema_contract.cjs');
@@ -213,8 +213,8 @@ async function testCurrentBackupRestoration() {
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = ? AND table_type = 'BASE TABLE';
     `, [sandboxSchema]);
-    assert.strictEqual(tables.length, CANONICAL_97_TABLES.length, `Expected exactly ${CANONICAL_97_TABLES.length} tables, found ${tables.length}`);
-    console.log(`  📊 [PASS] Exactamente ${CANONICAL_97_TABLES.length} tablas creadas en "${sandboxSchema}".`);
+    assert.strictEqual(tables.length, CANONICAL_101_TABLES.length, `Expected exactly ${CANONICAL_101_TABLES.length} tables, found ${tables.length}`);
+    console.log(`  📊 [PASS] Exactamente ${CANONICAL_101_TABLES.length} tablas creadas en "${sandboxSchema}".`);
 
     const [sequences] = await conn.query(`
       SELECT sequence_name FROM information_schema.sequences
