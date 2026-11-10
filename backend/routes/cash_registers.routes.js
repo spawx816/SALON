@@ -328,6 +328,8 @@ function createCashRegistersRouter(pool) {
       res.json({
         success: true,
         id,
+        closed_by: effectiveClosedBy,
+        closed_by_user_id: closedByUserId,
         opening_balance: openingBalance,
         cash_sales: cashSales,
         ingresos_manuales: ingresos,
