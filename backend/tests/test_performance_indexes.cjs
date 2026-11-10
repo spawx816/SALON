@@ -26,14 +26,14 @@ async function runPerformanceIndexesTests() {
     console.log('[FASE 1] Verificando presencia de índices compuestos de alto rendimiento...');
 
     const expectedIndexes = [
-      { indexName: 'idx_visits_tenant_created', tableName: 'visits' },
+      { indexName: 'idx_visits_tenant_visited', tableName: 'visits' },
       { indexName: 'idx_visits_tenant_client', tableName: 'visits' },
       { indexName: 'idx_attendance_tenant_time', tableName: 'attendance' },
       { indexName: 'idx_attendance_tenant_emp_time', tableName: 'attendance' },
       { indexName: 'idx_emp_comm_tenant_emp_date', tableName: 'employee_commissions_log' },
       { indexName: 'idx_invoices_tenant_created', tableName: 'invoices' },
       { indexName: 'idx_invoices_tenant_ncf', tableName: 'invoices' },
-      { indexName: 'idx_cash_mov_tenant_shift', tableName: 'cash_register_movements' }
+      { indexName: 'idx_cash_mov_tenant_reg', tableName: 'cash_register_movements' }
     ];
 
     const [existingIndexes] = await conn.query(`
@@ -70,10 +70,10 @@ async function runPerformanceIndexesTests() {
 
     const [explainRes] = await conn.query(`
       EXPLAIN (ANALYZE, BUFFERS)
-      SELECT id, ticket_number, total, created_at
+      SELECT id, ticket_number, total, visited_at
       FROM visits
       WHERE tenant_id = $1
-      ORDER BY created_at DESC
+      ORDER BY visited_at DESC
       LIMIT 20;
     `, [dummyTenant]);
 
@@ -82,7 +82,7 @@ async function runPerformanceIndexesTests() {
     console.log('  📊 Plan de ejecución:\n' + planLines.map(l => `     ${l}`).join('\n'));
 
     // Verify index scan or bitmap index scan is chosen
-    const usesIndex = planText.includes('idx_visits_tenant_created') || planText.includes('Index Scan') || planText.includes('Bitmap Index Scan') || planText.includes('Index Only Scan');
+    const usesIndex = planText.includes('idx_visits_tenant_visited') || planText.includes('Index Scan') || planText.includes('Bitmap Index Scan') || planText.includes('Index Only Scan');
     console.log(`  ✅ [PASS] Consulta optimizada mediante índices compuestos`);
 
     // -------------------------------------------------------------
