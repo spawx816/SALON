@@ -26,7 +26,7 @@ async function runPaginationCursorTests() {
     const tenantB = 'bbbbbbbb-1111-2222-3333-444444444444';
 
     await conn.query(`
-      INSERT INTO tenants (id, name, slug)
+      INSERT INTO tenants (id, business_name, slug)
       VALUES ($1, 'Tenant A Pagin', 'tenant-a-pagin'), ($2, 'Tenant B Pagin', 'tenant-b-pagin')
       ON CONFLICT (id) DO NOTHING;
     `, [tenantA, tenantB]);

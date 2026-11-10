@@ -24,7 +24,7 @@ async function runRetentionDryRunTests() {
     const tenantId = '88888888-0000-0000-0000-000000000001';
 
     await conn.query(`
-      INSERT INTO tenants (id, name, slug)
+      INSERT INTO tenants (id, business_name, slug)
       VALUES ($1, 'Tenant Retencion', 'tenant-retencion')
       ON CONFLICT (id) DO NOTHING;
     `, [tenantId]);

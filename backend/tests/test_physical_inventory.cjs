@@ -28,7 +28,7 @@ async function runPhysicalInventoryTests() {
 
     // Seed tenants and test products
     await conn.query(`
-      INSERT INTO tenants (id, name, slug)
+      INSERT INTO tenants (id, business_name, slug)
       VALUES ($1, 'Tenant A Inv', 'tenant-a-inv'), ($2, 'Tenant B Inv', 'tenant-b-inv')
       ON CONFLICT (id) DO NOTHING;
     `, [tenantA, tenantB]);
