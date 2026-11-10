@@ -190,9 +190,12 @@ function createPublicRouter(pool, options = {}) {
         return res.json(defaultSafe);
       }
 
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(slug);
       let targetTenantId = slug;
       if (pool) {
-        const [rows] = await pool.query('SELECT id FROM tenants WHERE slug = ? OR id = ? LIMIT 1', [slug, slug]);
+        const [rows] = isUuid
+          ? await pool.query('SELECT id FROM tenants WHERE id = ? OR slug = ? LIMIT 1', [slug, slug])
+          : await pool.query('SELECT id FROM tenants WHERE slug = ? LIMIT 1', [slug]);
         if (rows && rows.length > 0) {
           targetTenantId = rows[0].id;
         }
