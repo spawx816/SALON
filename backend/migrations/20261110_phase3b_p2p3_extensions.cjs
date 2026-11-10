@@ -135,7 +135,8 @@ async function up(targetPool, targetSchema = 'public') {
       ADD COLUMN IF NOT EXISTS supervisor_user_id UUID REFERENCES "${schema}".users(id) ON DELETE SET NULL,
       ADD COLUMN IF NOT EXISTS supervisor_authorized_at TIMESTAMPTZ,
       ADD COLUMN IF NOT EXISTS authorization_event_type VARCHAR(50),
-      ADD COLUMN IF NOT EXISTS correlation_id UUID;
+      ADD COLUMN IF NOT EXISTS correlation_id UUID,
+      ADD COLUMN IF NOT EXISTS closed_by VARCHAR(255);
     `);
 
     await conn.query(`
