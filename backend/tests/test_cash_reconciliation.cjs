@@ -28,8 +28,8 @@ async function runCashReconciliationTests() {
 
     // Ensure tenant and supervisor user exist
     await conn.query(`
-      INSERT INTO tenants (id, business_name, slug)
-      VALUES ($1, 'Salon Arqueo Test', 'salon-arqueo-test')
+      INSERT INTO tenants (id, business_name, slug, email)
+      VALUES ($1, 'Salon Arqueo Test', 'salon-arqueo-test', 'arqueo@test.local')
       ON CONFLICT (id) DO NOTHING;
     `, [tenantId]);
 
