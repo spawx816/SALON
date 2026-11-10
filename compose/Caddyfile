@@ -38,6 +38,8 @@ staging.etereasapp.com {
         header_up -Authorization
         header_up Host {host}
         header_up X-Real-IP {remote_host}
+        # Eliminar cualquier cabecera HSTS del upstream para que Caddy mantenga control exclusivo
+        header_down -Strict-Transport-Security
 
         transport http {
             dial_timeout 5s

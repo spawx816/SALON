@@ -130,7 +130,12 @@ async function runE2E() {
     recordTest('Edge', 'X-Robots-Tag: noindex, nofollow, noarchive', okAuth.headers['x-robots-tag'] === 'noindex, nofollow, noarchive', okAuth.headers['x-robots-tag']);
     recordTest('Edge', 'X-Content-Type-Options: nosniff', okAuth.headers['x-content-type-options'] === 'nosniff', okAuth.headers['x-content-type-options']);
     recordTest('Edge', 'X-Frame-Options: DENY', okAuth.headers['x-frame-options'] === 'DENY', okAuth.headers['x-frame-options']);
-    recordTest('Edge', 'Strict-Transport-Security configurado', !!okAuth.headers['strict-transport-security'], okAuth.headers['strict-transport-security']);
+    const hstsRaw = okAuth.headers['strict-transport-security'];
+    const isSingleHsts = !Array.isArray(hstsRaw) && typeof hstsRaw === 'string';
+    const isExactHsts = hstsRaw === 'max-age=31536000';
+    const hasNoIncludeSubdomains = !hstsRaw?.includes('includeSubDomains');
+    const hasNoPreload = !hstsRaw?.includes('preload');
+    recordTest('Edge', 'HSTS centralizado exacto (max-age=31536000, sin includeSubDomains/preload, sin duplicados)', isSingleHsts && isExactHsts && hasNoIncludeSubdomains && hasNoPreload, `Valor: "${hstsRaw}"`);
 
     const robots = await request({ path: '/robots.txt', headers: { 'Authorization': `Basic ${BASIC_AUTH}` } });
     recordTest('Edge', 'robots.txt Disallow: /', robots.body.includes('Disallow: /'), robots.body.trim());

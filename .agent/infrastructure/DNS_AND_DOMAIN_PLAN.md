@@ -1,10 +1,10 @@
-# Plan de Dominio, DNS y Estrategia de Certificados TLS (Fase 3B)
+# Plan de Dominio, DNS y Estrategia de Certificados TLS (Fase 3B.2A)
 
 **Dominio Raíz:** `etereasapp.com`  
 **IP Pública VPS (Staging):** `179.66.139.67`  
 **Proveedor DNS:** Gestionado externamente por el operador  
-**Fecha de Planificación:** 10 de Noviembre de 2026  
-**Estado:** `STAGING PLANIFICADO / PRODUCCIÓN RESERVADA / SIN PROXY CDN ACTIVO`
+**Fecha de Actualización:** 10 de Noviembre de 2026  
+**Estado:** `TODOS LOS REGISTROS A CONFIGURADOS / STAGING ACTIVO / APP, APEX Y WWW SIN APLICACIÓN / CERO CAMBIOS DNS PENDIENTES`
 
 ---
 
@@ -16,45 +16,40 @@
           ┌───────────────────────┴───────────────────────┐
           │                                               │
           ▼                                               ▼
-  staging.etereasapp.com                         etereasapp.com / www
-  (Tipo A -> 179.66.139.67)                      (RESERVADO - CERO TRÁFICO)
-  [Ambiente de Staging & QA]                     [Producción Futura Comercial]
+  staging.etereasapp.com                         app / etereasapp.com / www
+  (Tipo A -> 179.66.139.67)                      (Tipo A / CNAME -> 179.66.139.67)
+  [Ambiente Staging Activo y Operativo]          [Sin aplicación / Handshake Rechazado]
 ```
 
 | Hostname / FQDN | Registro DNS | Destino / Valor | TTL | Estado Actual | Rol en la Plataforma |
 | :--- | :---: | :---: | :---: | :---: | :--- |
-| **`staging.etereasapp.com`** | **A** | **`179.66.139.67`** | **300s (5m)** | ⏳ **Acción requerida del operador** | Portal de Staging, QA de Tenancy y Certificación |
-| `etereasapp.com` | A | `179.66.139.67` | - | ✅ Registrado (Reservado) | Dominio comercial apex (Sin app activa aún) |
-| `www.etereasapp.com` | A | `179.66.139.67` | - | ✅ Registrado (Reservado) | Alias canónico de producción |
+| **`staging.etereasapp.com`** | **A** | **`179.66.139.67`** | **14400s** | ✅ **Configurado y Activo** | Entorno Staging Privado con TLS y Basic Auth |
+| `app.etereasapp.com` | A | `179.66.139.67` | 14400s | 🛡️ **Configurado (Sin app)** | Futura aplicación de producción (Caddy no lo sirve) |
+| `etereasapp.com` | A | `179.66.139.67` | 14400s | 🛡️ **Configurado (Sin app)** | Dominio comercial apex (Caddy no lo sirve) |
+| `www.etereasapp.com` | CNAME | `etereasapp.com` | 300s | 🛡️ **Configurado (Sin app)** | Alias canónico de producción (Caddy no lo sirve) |
+
+> **Nota:** Todos los registros DNS tipo A requeridos están configurados y propagados. No hay acciones pendientes del operador en el panel DNS.
 
 ---
 
-## 2. Instrucciones para el Operador en el Panel DNS
+## 2. Estado de Seguridad DNS & Firewall
 
-En el panel de gestión de DNS del dominio `etereasapp.com` (Hostinger DNS / Cloudflare / Registrador):
-
-1. **Crear registro tipo `A`:**
-   - **Tipo:** `A`
-   - **Nombre / Subdominio:** `staging`
-   - **Dirección IPv4:** `179.66.139.67`
-   - **TTL:** `300` segundos (5 minutos) para rápida propagación.
-   - **Proxy de CDN:** Desactivado (DNS Only / Directo), para asegurar emisión de certificados Let's Encrypt sin interferencias de edge.
-2. **Registro `AAAA` (IPv6):**
-   - 🛑 **NO CREAR REGISTRO AAAA** en esta fase (el VPS tiene IPv6 deshabilitado en firewall para minimizar vector de ataque).
-3. **Comprobación de resolución:**
-   - Una vez guardado el registro, el sistema verificará periódicamente mediante `socket.gethostbyname('staging.etereasapp.com')`.
+1. **Registros A:** Todos apuntan a `179.66.139.67`.
+2. **Registros AAAA (IPv6):** Sin registros IPv6 (IPv6 deshabilitado a nivel host/firewall para reducir superficie de ataque).
+3. **Aislamiento a nivel Edge:**
+   - Caddy atiende exclusivamente `staging.etereasapp.com`.
+   - Cualquier petición hacia `app.etereasapp.com`, `etereasapp.com` o `www.etereasapp.com` tiene el handshake TLS cerrado de inmediato sin exponer ningún backend ni responder en nombre de Staging.
 
 ---
 
 ## 3. Estrategia de Emisión TLS / HTTPS (Caddy)
 
-Cuando se autorice el despliegue del reverse proxy en la Fase 3B.1:
-- Caddy se vinculará exclusivamente al subdominio `staging.etereasapp.com`.
-- Desafío ACME HTTP-01 automático a través de los puertos públicos `80` y `443` (ya autorizados en UFW).
-- Cabeceras de seguridad estrictas:
-  - `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- Emisor: **Let's Encrypt Authority** (vía ACME ALPN-01).
+- Renovación automática gestionada en volumen Docker persistente `caddy_data`.
+- Cabeceras de seguridad estrictas centralizadas en Caddy:
+  - `Strict-Transport-Security: max-age=31536000` (sin `includeSubDomains` ni `preload` en staging; sin duplicados).
+  - `X-Robots-Tag: noindex, nofollow, noarchive`
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: strict-origin-when-cross-origin`
-- Aislamiento: Caddy no tendrá acceso directo a la red `salon_infra_net` de PostgreSQL; se comunicará únicamente con la red edge del contenedor `salonpro_app`.
-
+- Aislamiento de Red: Caddy reside en `salon_edge_net` y no tiene conectividad hacia `salon_infra_net`.

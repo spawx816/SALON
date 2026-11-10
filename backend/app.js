@@ -301,7 +301,7 @@ function createApp(dependencies = {}) {
 
   // Security Headers
   app.use((req, res, next) => {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    // HSTS is strictly centralized at Edge reverse proxy (Caddy) to prevent conflicting policies
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');

@@ -27,24 +27,24 @@ Este backlog organiza las 41 incidencias y oportunidades de mejora identificadas
 | **REM-P0-07** | Proteger directorio estático `/uploads` con autorización por tenant | `P0` | **M** | Ninguno | **NO (Local)** | **RESUELTO LOCALMENTE (Fase 2H-A)** |
 | **REM-P0-08** | Separación estricta SuperAdmin Control Plane vs Tenant Plane (Bloqueo backend y frontend) | `P0` | **M** | RBAC-005 | **NO (Local)** | **RESUELTO LOCALMENTE (Fase 2H-C)** |
 | **REM-P0-09** | Branding multi-tenant personalizable y eliminación de marca global 'Abatte' (Tokens CSS, WCAG) | `P0` | **M** | TENANT-003 | **NO (Local)** | **RESUELTO LOCALMENTE (Fase 2H-C)** |
-| **REM-P1-01** | Implementar revocación de tokens JWT mediante `token_version` en usuarios | `P1` | **M** | REM-P0-01 | **NO (Local)** | Pendiente |
-| **REM-P1-02** | Robustecer validación CSRF para requerir Origin/Referer en métodos mutantes | `P1` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-03** | Aplicar Rate Limiting estricto en login de clientes B2C y recuperación de contraseñas | `P1` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-04** | Proteger o eliminar endpoint público no autenticado `/api/contact-messages` | `P1` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-05** | Bloquear acceso de tokens de clientes B2C (`isClient: true`) a rutas de personal y cajas | `P1` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-06** | Exigir PIN de supervisor o rol administrativo en anulación de facturas | `P1` | **S** | REM-P0-02 | **NO (Local)** | Pendiente |
-| **REM-P1-07** | Garantizar idempotencia en anulación de facturas (prevenir duplicación de stock) | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO LOCALMENTE (Fase 2H-B)** |
-| **REM-P1-08** | Asignar operador de caja (`opened_by`/`closed_by`) exclusivamente desde `req.auth` | `P1` | **S** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-09** | Incorporar cabecera `x-cron-secret` en disparador diario de cumpleaños | `P1` | **S** | Ninguno | **NO (Local)** | Pendiente |
+| **REM-P1-01** | Implementar revocación de tokens JWT mediante `token_version` en usuarios | `P1` | **M** | REM-P0-01 | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
+| **REM-P1-02** | Robustecer validación CSRF para requerir Origin/Referer en métodos mutantes | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
+| **REM-P1-03** | Aplicar Rate Limiting estricto en login de clientes B2C y recuperación de contraseñas | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
+| **REM-P1-04** | Proteger o eliminar endpoint público no autenticado `/api/contact-messages` | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
+| **REM-P1-05** | Bloquear acceso de tokens de clientes B2C (`isClient: true`) a rutas de personal y cajas | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
+| **REM-P1-06** | Exigir PIN de supervisor o rol administrativo en anulación de facturas | `P1` | **S** | REM-P0-02 | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
+| **REM-P1-07** | Garantizar idempotencia en anulación de facturas (prevenir duplicación de stock) | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-B / test:phase2h:p1-security)** |
+| **REM-P1-08** | Asignar operador de caja (`opened_by`/`closed_by`) exclusivamente desde `req.auth` | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
+| **REM-P1-09** | Disparador de cumpleaños seguro: firma HMAC (`x-job-signature`), timestamp, nonce de un solo uso, protección anti-replay y persistencia fail-closed en `job_request_nonces` | `P1` | **M** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.0.1 / test:jobs:hmac)** |
 | **REM-P1-10** | Migrar almacenamiento de fotos biométricas en `attendance` a URLs o referencias externas | `P1` | **L** | Storage adapter | **NO (Local con Fake)** | Pendiente |
 | **REM-P1-11** | Cifrar o desacoplar almacenamiento de firmas digitales en contratos | `P1` | **M** | Storage adapter | **NO (Local)** | Pendiente |
 | **REM-P1-12** | Optimizar bundle frontend: code-splitting y lazy loading de `xlsx` y módulos pesados | `P1` | **M** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-13** | Crear middleware global de captura de errores y sanitización de respuestas 500 | `P1` | **S** | Ninguno | **NO (Local)** | Pendiente |
+| **REM-P1-13** | Crear middleware global de captura de errores y sanitización de respuestas 500 (sin fuga de stack traces) | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
 | **REM-P1-14** | Actualizar dependencias vulnerables en backend (`proxy-addr`, `axios`, `nodemailer`) | `P1` | **M** | Tests de regresión | **NO (Local)** | Pendiente |
 | **REM-P1-15** | Reemplazar librería vulnerable `xlsx` por alternativa segura (`exceljs` o CSV nativo) | `P1` | **M** | REM-P1-12 | **NO (Local)** | Pendiente |
 | **REM-P1-16** | Optimizar cálculo de comisiones eliminando consultas N+1 con inserts en batch | `P1` | **M** | Ninguno | **NO (Local)** | Pendiente |
 | **REM-P1-17** | Implementar exportación completa de datos de tenant (`tenant data portability`) | `P1` | **L** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-18** | Agregar bloqueo pesimista (`FOR UPDATE`) en descuento de inventario en base relacional | `P1` | **M** | Requiere PostgreSQL | **SÍ (PostgreSQL)** | En pausa |
+| **REM-P1-18** | Agregar bloqueo pesimista (`FOR UPDATE`) en descuento de inventario en base relacional | `P1` | **M** | Requiere PostgreSQL | **SÍ (PostgreSQL)** | Pendiente |
 | **REM-P2-01** | Filtrar nombres de salones ajenos en autocompletados globales multi-tenant | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
 | **REM-P2-02** | Incorporar alerta y confirmación doble ante discrepancias de arqueo de caja | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
 | **REM-P2-03** | Crear módulo de toma física periódica y ajuste masivo de inventario | `P2` | **M** | Ninguno | **NO (Local)** | Pendiente |
