@@ -186,3 +186,23 @@ Ejecución contra `salon_saas_test`:
 | **Pruebas Unit/HTTP** | Cero fallos en `test:phase2h:all` y `test:scanner` | **DETENERSE.** No desplegar contenedor de aplicación. |
 | **Restauración Backup** | Backup restaurado y validado en base desechable | **DETENERSE.** Un backup no comprobado no es válido para Staging. |
 
+---
+
+## 4. Estado de Ejecución de Fases
+
+- [x] **Fase 3A.0 — Inventario de solo lectura**: Completado.
+- [x] **Fase 3A.1 — Hardening inicial sin swap**: Completado.
+- [x] **Fase 3A.2 — Cierre SSH, Docker Engine y directorios seguros**: Completado.
+- [x] **Fase 3A.3 — Secretos, PostgreSQL privado y preflight**: Completado.
+- [x] **Fase 3B.0 — Correcciones premigración, DNS y migraciones en test**: **COMPLETADA**
+  - PostgreSQL actualizado a versión 17.11 (`postgres:17.11-bookworm@sha256:665dc7b37ac52a17e298511414c21d23ffa4e6a6ef6225b3e5d59c7afb35e994`).
+  - Red interna estricta `salon_infra_net` con `internal: true` (sin salida a Internet y sin puerto 5432 expuesto).
+  - Límites de recursos verificados en HostConfig (1280m RAM, 0.80 CPUs).
+  - Gate 0.5 de reinicio determinista ejecutado limpiamente.
+  - Bloque 8 de migraciones canónicas ejecutado dos veces en `salon_saas_test` (13 migraciones aplicadas en la primera, 0 en la segunda demostrando 100% de idempotencia).
+  - Bloque 9 verificado: 94 tablas en `salon_saas_test`, 89 FKs a `tenants`, `salon_saas_staging` y `salon_saas_prod` 100% vacías (0 tablas).
+  - Bloque 10 completado con éxito: Todas las suites de integración ejecutadas contra PostgreSQL (`preflight`, `test:phase1` con 69/69 pasadas, `test:phase2h:all` con suites de seguridad, money, jobs, shutdown, superadmin y branding pasando al 100%).
+  - Memoria RAM monitoreada en 19.5% de uso máximo (pico 766 MiB / 3,910 MiB).
+- [ ] **Fase 3B.1 — Despliegue de Staging**: Pendiente.
+
+

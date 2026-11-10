@@ -57,3 +57,4 @@ Cuando se autorice el despliegue del reverse proxy en la Fase 3B.1:
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: strict-origin-when-cross-origin`
 - Aislamiento: Caddy no tendrá acceso directo a la red `salon_infra_net` de PostgreSQL; se comunicará únicamente con la red edge del contenedor `salonpro_app`.
+
