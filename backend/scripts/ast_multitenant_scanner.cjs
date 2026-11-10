@@ -319,7 +319,24 @@ function scanFile(filePath) {
         }
       }
 
-      // 4. Multi-tenant database query analysis
+      // 4. Prohibit hardcoded Basic Auth credentials or Buffer.from('user:pass')
+      if (callee.type === 'MemberExpression' && callee.object && callee.object.name === 'Buffer' && callee.property && callee.property.name === 'from') {
+        const firstArg = path.node.arguments[0];
+        if (firstArg && firstArg.type === 'StringLiteral' && firstArg.value.includes(':')) {
+          const [u, p] = firstArg.value.split(':');
+          if (p && p.length >= 4 && !firstArg.value.includes('${') && !firstArg.value.startsWith('$')) {
+            violations.push({
+              type: 'PROHIBITED_HARDCODED_BASIC_AUTH_SECRET',
+              reason: 'Hardcoded basic auth credential string in Buffer.from() is strictly prohibited. Use environment variables.',
+              file: filePath,
+              line,
+              snippet: `${u}:***`
+            });
+          }
+        }
+      }
+
+      // 5. Multi-tenant database query analysis
       let isQueryCall = false;
 
       // Match pool.query, conn.query, client.query, this.pool.query, etc.
@@ -389,7 +406,7 @@ function scanDirectory(dir, fileList = []) {
 /**
  * Main scanner execution.
  */
-function runScanner(targetPaths = ['backend/server.js', 'backend/routes', 'backend/middleware', 'backend/services', 'backend/repositories', 'backend/workers', 'backend/utils', 'backend/domain']) {
+function runScanner(targetPaths = ['backend/server.js', 'backend/routes', 'backend/middleware', 'backend/services', 'backend/repositories', 'backend/workers', 'backend/utils', 'backend/domain', 'scripts']) {
   console.log('=== AST MULTI-TENANT SQL STATIC ANALYSIS SCANNER ===\n');
   const allFiles = [];
   for (const p of targetPaths) {
@@ -432,7 +449,7 @@ function runScanner(targetPaths = ['backend/server.js', 'backend/routes', 'backe
 // CLI Execution
 if (require.main === module) {
   const args = process.argv.slice(2);
-  const targets = args.length > 0 ? args : ['backend/server.js', 'backend/routes', 'backend/middleware', 'backend/services', 'backend/repositories', 'backend/workers', 'backend/utils', 'backend/domain'];
+  const targets = args.length > 0 ? args : ['backend/server.js', 'backend/routes', 'backend/middleware', 'backend/services', 'backend/repositories', 'backend/workers', 'backend/utils', 'backend/domain', 'scripts'];
   const result = runScanner(targets);
   process.exit(result.success ? 0 : 1);
 }

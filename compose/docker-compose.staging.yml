@@ -42,7 +42,7 @@ services:
         max-file: "3"
 
   salonpro_app:
-    image: ${APP_IMAGE:-salonpro-app:dc1c440}
+    image: ${APP_IMAGE:-salonpro-app:8fbe4ae}
     container_name: salonpro_app
     restart: unless-stopped
     read_only: true

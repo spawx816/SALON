@@ -109,5 +109,12 @@ assert(fix13.length >= 2, 'Fixture 13 must yield at least 2 violations');
 assert(fix13.every(v => v.type === 'PROHIBITED_SENSITIVE_DATA_LOGGING'), 'Fixture 13 must flag PROHIBITED_SENSITIVE_DATA_LOGGING');
 console.log('  [PASS] Fixture 13 correctly caught: PROHIBITED_SENSITIVE_DATA_LOGGING\n');
 
-console.log('=== TEST RESULT: ALL 13 SCANNER NEGATIVE CHECKS PASSED (PASS) ===\n');
+// Case 14: Hardcoded Basic Auth and credentials in code
+console.log('Testing Fixture 14: Hardcoded Basic Auth credential strings...');
+const fix14 = scanFile(path.join(fixturesDir, 'fixture_14_hardcoded_credentials.js'));
+assert(fix14.length >= 2, 'Fixture 14 must yield at least 2 violations');
+assert(fix14.some(v => v.type === 'PROHIBITED_HARDCODED_BASIC_AUTH_SECRET'), 'Fixture 14 must flag PROHIBITED_HARDCODED_BASIC_AUTH_SECRET');
+console.log('  [PASS] Fixture 14 correctly caught: PROHIBITED_HARDCODED_BASIC_AUTH_SECRET\n');
+
+console.log('=== TEST RESULT: ALL 14 SCANNER NEGATIVE CHECKS PASSED (PASS) ===\n');
 process.exit(0);
