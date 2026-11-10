@@ -68,9 +68,11 @@ async function runPaginationCursorTests() {
 
     // --- TEST 2: Rechazo criptográfico de cursor alterado o manipulado ---
     console.log('\n--- TEST 2: Detección y rechazo de cursor alterado (INVALID_CURSOR) ---');
-    const rawCursor = Buffer.from(validCursor, 'base64url').toString('utf8');
-    const tamperedRaw = rawCursor.replace('"last_id":"10000000-0000-0000-0000-000000000005"', '"last_id":"00000000-0000-0000-0000-000000000000"');
-    const tamperedCursor = Buffer.from(tamperedRaw, 'utf8').toString('base64url');
+    const rawObj = JSON.parse(Buffer.from(validCursor, 'base64url').toString('utf8'));
+    const payloadObj = JSON.parse(rawObj.p);
+    payloadObj.i = '00000000-0000-0000-0000-000000000000';
+    rawObj.p = JSON.stringify(payloadObj);
+    const tamperedCursor = Buffer.from(JSON.stringify(rawObj), 'utf8').toString('base64url');
 
     let tamperedCaught = false;
     try {
