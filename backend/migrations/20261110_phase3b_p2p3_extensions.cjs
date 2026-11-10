@@ -154,8 +154,8 @@ async function up(targetPool, targetSchema = 'public') {
 
     // Visits: index for recent visits per tenant and for client search per tenant
     await conn.query(`
-      CREATE INDEX IF NOT EXISTS idx_visits_tenant_created
-      ON "${schema}".visits (tenant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_visits_tenant_visited
+      ON "${schema}".visits (tenant_id, visited_at DESC);
     `);
     await conn.query(`
       CREATE INDEX IF NOT EXISTS idx_visits_tenant_client
@@ -178,20 +178,16 @@ async function up(targetPool, targetSchema = 'public') {
       ON "${schema}".employee_commissions_log (tenant_id, employee_id, created_at DESC);
     `);
 
-    // Invoices: index for invoice list sorted by date, and NCF lookup per tenant
-    await conn.query(`
-      CREATE INDEX IF NOT EXISTS idx_invoices_tenant_created
-      ON "${schema}".invoices (tenant_id, created_at DESC);
-    `);
+    // Invoices: index for NCF lookup per tenant
     await conn.query(`
       CREATE INDEX IF NOT EXISTS idx_invoices_tenant_ncf
       ON "${schema}".invoices (tenant_id, ncf);
     `);
 
-    // Cash register movements: index for shift movements in descending order
+    // Cash register movements: index for register movements in descending order
     await conn.query(`
-      CREATE INDEX IF NOT EXISTS idx_cash_mov_tenant_shift
-      ON "${schema}".cash_register_movements (tenant_id, cash_shift_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_cash_mov_tenant_reg
+      ON "${schema}".cash_register_movements (tenant_id, cash_register_id, created_at DESC);
     `);
 
     console.log(`✅ [MIGRATION 20261110_phase3b_p2p3_extensions] Extensiones P2/P3 instaladas exitosamente.`);
@@ -201,3 +197,4 @@ async function up(targetPool, targetSchema = 'public') {
 }
 
 module.exports = { up };
+
