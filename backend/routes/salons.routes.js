@@ -1,31 +1,38 @@
 const express = require('express');
+const crypto = require('crypto');
+const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
 
-function createSalonsRouter(pool) {
+/**
+ * Salons / Branches Management Router (Scoped strictly by tenant_id)
+ */
+function createSalonsRouter(pool, options = {}) {
   const router = express.Router();
+
+  // Fail-Closed Quarantine Protection Guard on Salon Resources
+  router.use('/:id', createQuarantineGuard(pool, 'salons', 'id'));
 
   // GET /api/salons
   router.get('/', async (req, res) => {
     try {
-      const [rows] = await pool.query(`
-        SELECT 
-          s.*, 
-          COUNT(DISTINCT active_contracts.client_id) as client_count,
-          COALESCE(SUM(active_contracts.effective_price), 0) as total_revenue
-        FROM salons s
-        LEFT JOIN (
-          SELECT 
-            COALESCE(co.salon_id, cl.salon_id) as salon_id,
-            co.client_id,
-            MAX(COALESCE(co.contract_price, p.price)) as effective_price
-          FROM contracts co
-          JOIN plans p ON co.plan_id = p.id
-          LEFT JOIN clients cl ON co.client_id = cl.id
-          WHERE co.status IN ('Active', 'Activo')
-          GROUP BY co.client_id, COALESCE(co.salon_id, cl.salon_id)
-        ) active_contracts ON s.id = active_contracts.salon_id
-        GROUP BY s.id
-        ORDER BY s.name ASC
-      `);
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
+      const [branches] = await pool.query(`
+        SELECT id, tenant_id, name, address, phone,
+               CASE WHEN is_active THEN 'Active' ELSE 'Inactive' END as status,
+               is_main, created_at
+        FROM branches
+        WHERE tenant_id = ?
+        ORDER BY is_main DESC, created_at ASC
+      `, [tenantId]);
+
+      if (branches && branches.length > 0) {
+        return res.json(branches);
+      }
+
+      const [rows] = await pool.query('SELECT * FROM salons WHERE tenant_id = ? ORDER BY id ASC', [tenantId]);
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -34,13 +41,54 @@ function createSalonsRouter(pool) {
 
   // POST /api/salons
   router.post('/', async (req, res) => {
+    const { name, address, phone } = req.body;
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+    }
+
     try {
-      const { name, address, phone, maps_url } = req.body;
-      const [result] = await pool.query(
-        'INSERT INTO salons (name, address, phone, maps_url) VALUES (?, ?, ?, ?)',
-        [name, address, phone || '', maps_url || '']
+      if (!req.auth?.isSuperAdmin) {
+        if (options.entitlementsService) {
+          const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'branches');
+          if (!limitCheck.allowed) {
+            return res.status(403).json({
+              error: limitCheck.reason || 'Has alcanzado el límite permitido por tu plan.',
+              code: limitCheck.code || 'PLAN_LIMIT_REACHED',
+              limit: 'branches',
+              current: limitCheck.current,
+              maximum: limitCheck.maximum
+            });
+          }
+        } else {
+          const [tenantRows] = await pool.query('SELECT max_branches FROM tenants WHERE id = ?', [tenantId]);
+          const [branchCount] = await pool.query('SELECT COUNT(*) as total FROM branches WHERE tenant_id = ?', [tenantId]);
+          const maxBranches = parseInt(tenantRows[0]?.max_branches || 1, 10);
+          const currentBranches = parseInt(branchCount[0]?.total || 0, 10);
+
+          if (currentBranches >= maxBranches) {
+            return res.status(403).json({
+              error: 'Has alcanzado el límite permitido por tu plan.',
+              code: 'PLAN_LIMIT_REACHED',
+              limit: 'branches',
+              current: currentBranches,
+              maximum: maxBranches
+            });
+          }
+        }
+      }
+
+      const branchId = crypto.randomUUID();
+      await pool.query(
+        'INSERT INTO branches (id, tenant_id, name, address, phone, is_main, is_active) VALUES (?, ?, ?, ?, ?, false, true)',
+        [branchId, tenantId, name, address || '', phone || '']
       );
-      res.json({ id: result.insertId, name, address, phone, maps_url });
+
+      await pool.query(
+        "INSERT INTO salons (id, tenant_id, name, address, phone, status) VALUES (?, ?, ?, ?, ?, 'Active')",
+        [branchId, tenantId, name, address || '', phone || '']
+      );
+      return res.json({ id: branchId, success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -48,13 +96,19 @@ function createSalonsRouter(pool) {
 
   // PUT /api/salons/:id
   router.put('/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, address, phone, status } = req.body;
+    const tenantId = req.tenantId;
     try {
-      const { name, address, phone, maps_url } = req.body;
       await pool.query(
-        'UPDATE salons SET name = ?, address = ?, phone = ?, maps_url = ? WHERE id = ?',
-        [name, address, phone || '', maps_url || '', req.params.id]
+        'UPDATE branches SET name = ?, address = ?, phone = ?, is_active = ? WHERE id::text = ? AND tenant_id = ?',
+        [name, address, phone, status !== 'Inactive', String(id), tenantId]
       );
-      res.json({ success: true, id: req.params.id, name, address, phone, maps_url });
+      await pool.query(
+        'UPDATE salons SET name = ?, address = ?, phone = ?, status = ? WHERE id::text = ? AND tenant_id = ?',
+        [name, address, phone, status || 'Active', String(id), tenantId]
+      );
+      res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -62,8 +116,11 @@ function createSalonsRouter(pool) {
 
   // DELETE /api/salons/:id
   router.delete('/:id', async (req, res) => {
+    const { id } = req.params;
+    const tenantId = req.tenantId;
     try {
-      await pool.query('DELETE FROM salons WHERE id = ?', [req.params.id]);
+      await pool.query('DELETE FROM branches WHERE id::text = ? AND tenant_id = ? AND is_main = false', [String(id), tenantId]);
+      await pool.query('DELETE FROM salons WHERE id::text = ? AND tenant_id = ?', [String(id), tenantId]);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

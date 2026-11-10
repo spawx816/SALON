@@ -1423,8 +1423,8 @@ export default function SecurityModule() {
                       🌐 Global (Todas las sucursales)
                     </option>
                     {(salons && salons.length > 0 ? salons : [
-                      { id: 1, name: 'Abatte Peluquería San Vicente' },
-                      { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' },
+                      { id: 1, name: 'Salón Principal Sede Norte' },
+                      { id: 4, name: 'Salón Sucursal Centro' },
                       { id: 6, name: 'Disponibles (*)' }
                     ])
                     .filter(s => s && (s.name || s.nombre) && String(s.name || s.nombre).trim() !== '')

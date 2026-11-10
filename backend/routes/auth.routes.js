@@ -1,219 +1,722 @@
 const express = require('express');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
+const rateLimit = require('express-rate-limit');
+const { signAuthToken } = require('../middleware/auth.middleware');
+const { requireRole, getEffectiveRole, canManageRole } = require('../middleware/rbac.middleware');
 
 function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) return forwarded.split(',')[0].trim();
-  return req.socket?.remoteAddress || req.ip || '127.0.0.1';
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+         req.socket?.remoteAddress ||
+         req.ip ||
+         '127.0.0.1';
 }
 
-function parseDeviceInfo(ua) {
-  if (!ua) return 'Dispositivo desconocido';
-  let browser = 'Navegador Web';
-  if (ua.includes('Edg/')) browser = 'Microsoft Edge';
-  else if (ua.includes('Chrome/')) browser = 'Google Chrome';
-  else if (ua.includes('Safari/') && !ua.includes('Chrome/')) browser = 'Apple Safari';
-  else if (ua.includes('Firefox/')) browser = 'Mozilla Firefox';
-
-  let os = 'SO Desconocido';
-  if (ua.includes('Windows NT 10.0')) os = 'Windows 10/11';
-  else if (ua.includes('Windows NT')) os = 'Windows';
-  else if (ua.includes('Mac OS X')) os = 'macOS';
-  else if (ua.includes('Android')) os = 'Android';
-  else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
-  else if (ua.includes('Linux')) os = 'Linux';
-
-  return `${browser} (${os})`;
-}
-
-const escapeHtml = (str) => {
-  if (str === null || str === undefined) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-};
-
-function createAuthRouter(pool, helpers = {}) {
+function createAuthRouter(pool, options = {}) {
   const router = express.Router();
-  const sendSurveyEmail = helpers.sendSurveyEmail || (() => {});
 
-  async function logSecurityAudit(userId, userName, action, details, req) {
-    try {
-      const ip = req ? getClientIp(req) : '127.0.0.1';
-      const ua = req ? (req.headers['user-agent'] || '') : '';
-      await pool.query(
-        'INSERT INTO security_audit_logs (user_id, user_name, action, details, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)',
-        [userId || null, userName || 'Sistema', action, typeof details === 'object' ? JSON.stringify(details) : details, ip, ua]
-      );
-    } catch (err) {
-      console.error('[SECURITY AUDIT LOG ERROR]:', err.message);
-    }
-  }
-
-  // Desacoplado al 100%: Los usuarios de acceso NUNCA modifican ni crean registros en staff_records.
-  async function syncUserToStaff(userData, roleId) {
-    // No-op intencional para garantizar separación estricta entre usuarios y empleados
-    return;
-  }
-
-  // === ROLES ===
-  router.get('/roles', async (req, res) => {
-    try {
-      const [rows] = await pool.query('SELECT * FROM roles');
-      res.json(rows);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+  // Rate Limiting para Autenticación y Recuperación
+  const loginLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    skip: () => process.env.NODE_ENV === 'test',
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados intentos de acceso. Espera un minuto antes de reintentar.' }
   });
 
-  router.post('/roles', async (req, res) => {
-    try {
-      const { nombre, permisos } = req.body;
-      const safePerms = permisos || {};
-      const [result] = await pool.query(
-        'INSERT INTO roles (nombre, permisos) VALUES (?, ?)',
-        [nombre, JSON.stringify(safePerms)]
-      );
-      res.json({ success: true, id: result.insertId, nombre, permisos: safePerms });
-    } catch (err) {
-      console.error('[ROLES ERROR]', err.message);
-      res.status(500).json({ error: err.message });
-    }
+  const recoveryLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    skip: () => process.env.NODE_ENV === 'test',
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas solicitudes de recuperación o activación. Intenta más tarde.' }
   });
 
-  router.put('/roles/:id', async (req, res) => {
+  const logSecurityAudit = async (userId, userName, action, details, req, tenantIdOverride = null) => {
     try {
-      const { nombre, permisos } = req.body;
-      await pool.query(
-        'UPDATE roles SET nombre = ?, permisos = ? WHERE id = ?',
-        [nombre, JSON.stringify(permisos), req.params.id]
-      );
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+      const ip = getClientIp(req);
+      const userAgent = req.headers['user-agent'] || 'Unknown';
+      const tenantId = tenantIdOverride || req.tenantId || null;
+      await pool.query(`
+        INSERT INTO security_audit_logs (user_id, user_name, action, details, ip_address, user_agent, tenant_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, [userId || 'SYSTEM', userName || 'Sistema', action, details || '', ip, userAgent, tenantId]);
+    } catch (e) {
+      console.error('[SECURITY AUDIT LOG ERROR]:', e.message);
     }
-  });
+  };
 
-  // === USERS ===
-  router.get('/users', async (req, res) => {
-    try {
-      const [rows] = await pool.query(`
-        SELECT u.id, u.nombre, u.email, u.role_id, u.salon_id, u.staff_id, u.profile_photo, 
-               u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, 
-               r.nombre as role_name, r.permisos,
-               s.name as salon_name,
-               st.nombre as staff_nombre, st.posicion as staff_posicion
-        FROM users u
-        LEFT JOIN roles r ON u.role_id = r.id
-        LEFT JOIN salons s ON u.salon_id = s.id
-        LEFT JOIN staff_records st ON u.staff_id = st.id
-        ORDER BY u.created_at DESC
-      `);
-      res.json(rows);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+  // === PASSWORD RECOVERY & ACCOUNT ACTIVATION (STRICT TENANT-BOUND & ANTI-ENUMERATION) ===
+  const handleForgotPassword = async (req, res) => {
+    const { email, cedula, username } = req.body;
+    const identifier = String(email || username || cedula || '').trim();
+    const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
+
+    if (!identifier) {
+      return res.status(400).json({ error: 'Por favor, ingresa tu correo electrónico, usuario o cédula.' });
     }
-  });
 
-  router.post('/users', async (req, res) => {
+    // Generic response message to prevent account enumeration
+    const genericSuccess = {
+      success: true,
+      message: 'Si la cuenta existe en el sistema, hemos enviado un código de verificación al correo registrado.'
+    };
+
     try {
-      const { nombre, email, password, role_id, tipo, salon_id, staff_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
-      
-      if (!nombre || !email || !password) {
-        return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos.' });
+      let targetUser = null;
+      let isSystemUser = false;
+      const cleanId = identifier;
+
+      if (tenantId) {
+        // Scoped lookup within tenant
+        const [clients] = await pool.query(
+          "SELECT id, nombre, email, cedula, tenant_id FROM clients WHERE tenant_id = ? AND (LOWER(email) = LOWER(?) OR cedula = ? OR REPLACE(cedula, '-', '') = ?) LIMIT 1",
+          [tenantId, cleanId, cleanId, cleanId.replace(/\D/g, '')]
+        );
+
+        if (clients.length > 0) {
+          targetUser = clients[0];
+        } else {
+          const [users] = await pool.query(
+            "SELECT id, COALESCE(nombre, name) as nombre, email, username, tenant_id FROM users WHERE tenant_id = ? AND (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) LIMIT 1",
+            [tenantId, cleanId, cleanId]
+          );
+          if (users.length > 0) {
+            targetUser = users[0];
+            isSystemUser = true;
+          }
+        }
+      } else {
+        // Superadmin lookup (where tenant_id IS NULL)
+        const [users] = await pool.query(
+          "SELECT id, COALESCE(nombre, name) as nombre, email, username, tenant_id FROM users WHERE tenant_id IS NULL AND role = 'superadmin' AND (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) LIMIT 1",
+          [cleanId, cleanId]
+        );
+        if (users.length > 0) {
+          targetUser = users[0];
+          isSystemUser = true;
+        }
       }
 
-      const id = Date.now().toString();
-      const cleanStaffId = (staff_id && !isNaN(parseInt(staff_id, 10))) ? parseInt(staff_id, 10) : null;
+      if (!targetUser) {
+        // Return generic success without revealing non-existence
+        return res.json(genericSuccess);
+      }
+
+      const recipientEmail = targetUser.email || (targetUser.username && targetUser.username.includes('@') ? targetUser.username : null);
+      if (!recipientEmail) {
+        return res.json(genericSuccess);
+      }
+
+      const userTenantId = targetUser.tenant_id || null;
+      const targetUserId = isSystemUser ? `USER-${targetUser.id}` : String(targetUser.id);
+
+      // Invalidate prior unused password_reset codes for this specific tenant & user
+      if (userTenantId) {
+        await pool.query(
+          "UPDATE verification_codes SET is_used = 1 WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0",
+          [userTenantId, targetUserId, targetUserId]
+        );
+      } else {
+        await pool.query(
+          "UPDATE verification_codes SET is_used = 1 WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0",
+          [targetUserId, targetUserId]
+        );
+      }
+
+      // High entropy random code and cryptographic SHA-256 hash
+      const code = crypto.randomInt(100000, 999999).toString();
+      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
       await pool.query(
-        'INSERT INTO users (id, nombre, email, password, role_id, tipo, salon_id, staff_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO verification_codes (tenant_id, user_id, client_id, identity, purpose, channel, code, code_hash, attempts, max_attempts, expires_at, is_used) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, 5, ?, 0)',
+        [userTenantId, targetUserId, targetUserId, recipientEmail, 'password_reset', 'email', codeHash, expiresAt]
+      );
+
+      try {
+        const [smtpRows] = await pool.query(
+          userTenantId
+            ? 'SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1'
+            : 'SELECT * FROM email_settings WHERE tenant_id IS NULL LIMIT 1',
+          userTenantId ? [userTenantId] : []
+        );
+        if (smtpRows.length > 0 && smtpRows[0].smtp_host) {
+          const s = smtpRows[0];
+          const transporter = nodemailer.createTransport({
+            host: s.smtp_host,
+            port: parseInt(s.smtp_port) || 587,
+            secure: parseInt(s.smtp_port) === 465 || s.smtp_secure === 1,
+            auth: { user: s.smtp_user, pass: s.smtp_pass },
+            tls: { rejectUnauthorized: false }
+          });
+
+          await transporter.sendMail({
+            from: `"${s.smtp_from || 'PLAN BEAUTY RD'}" <${s.smtp_user}>`,
+            to: recipientEmail,
+            subject: `🔐 Código de Recuperación de Contraseña: ${code}`,
+            text: `Hola ${targetUser.nombre || 'Usuario'}, tu código de verificación para restablecer tu contraseña es: ${code}. Válido por 15 minutos.`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff; text-align: center;">
+                <h2 style="color: #09090b; margin-top: 0;">Recuperación de Contraseña</h2>
+                <p style="color: #475569; font-size: 15px;">Hola <strong>${targetUser.nombre || 'Usuario'}</strong>,</p>
+                <p style="color: #475569; font-size: 14px;">Usa el siguiente código de 6 dígitos para restablecer tu contraseña:</p>
+                <div style="margin: 24px 0; padding: 16px 28px; background: #f8fafc; border: 2px dashed #09090b; border-radius: 12px; display: inline-block;">
+                  <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #09090b; font-family: monospace;">${code}</span>
+                </div>
+                <p style="color: #94a3b8; font-size: 12px;">Este código expirará en 15 minutos.</p>
+              </div>
+            `
+          });
+        }
+      } catch (mailErr) {
+        console.warn('[FORGOT PASSWORD EMAIL WARN]:', mailErr.message);
+      }
+
+      res.json(genericSuccess);
+    } catch (err) {
+      console.error('[FORGOT PASSWORD ERROR]:', err);
+      res.status(500).json({ error: 'Error procesando solicitud de recuperación.' });
+    }
+  };
+
+  router.post('/auth/forgot-password', recoveryLimiter, handleForgotPassword);
+  router.post('/forgot-password', recoveryLimiter, handleForgotPassword);
+
+  const handleVerifyCode = async (req, res) => {
+    const { code, clientId, userId } = req.body;
+    const cleanCode = String(code || '').trim();
+    const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
+    const targetUserId = String(userId || clientId || '').trim();
+
+    if (!cleanCode || !targetUserId) {
+      return res.status(400).json({ error: 'Código de verificación e identificador de cuenta requeridos.' });
+    }
+
+    try {
+      const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+
+      const verifySql = tenantId
+        ? "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
+        : "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
+      const verifyParams = tenantId ? [tenantId, targetUserId, targetUserId] : [targetUserId, targetUserId];
+
+      const [rows] = await pool.query(verifySql, verifyParams);
+
+      if (rows.length === 0) {
+        return res.status(400).json({ error: 'Código inválido o expirado.' });
+      }
+
+      const rec = rows[0];
+      let matches = false;
+      if (rec.code_hash) {
+        const storedHashBuf = Buffer.from(rec.code_hash, 'hex');
+        const inputHashBuf = Buffer.from(inputHash, 'hex');
+        matches = storedHashBuf.length === inputHashBuf.length && crypto.timingSafeEqual(storedHashBuf, inputHashBuf);
+      }
+
+      if (!matches) {
+        const currentAttempts = (rec.attempts || 0) + 1;
+        if (currentAttempts >= (rec.max_attempts || 5)) {
+          await pool.query('UPDATE verification_codes SET is_used = 1, attempts = ? WHERE id = ?', [currentAttempts, rec.id]);
+          return res.status(400).json({ error: 'Demasiados intentos fallidos. El código ha sido invalidado.' });
+        } else {
+          await pool.query('UPDATE verification_codes SET attempts = ? WHERE id = ?', [currentAttempts, rec.id]);
+          return res.status(400).json({ error: 'Código inválido o expirado.' });
+        }
+      }
+
+      res.json({ success: true, valid: true, clientId: rec.client_id || rec.user_id });
+    } catch (err) {
+      res.status(500).json({ error: 'Error verificando código.' });
+    }
+  };
+
+  router.post('/auth/verify-code', recoveryLimiter, handleVerifyCode);
+  router.post('/verify-code', recoveryLimiter, handleVerifyCode);
+
+  const handleResetPassword = async (req, res) => {
+    const { code, newPassword, password, clientId, userId } = req.body;
+    const finalPassword = newPassword || password;
+    const cleanCode = String(code || '').trim();
+    const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
+    const targetUserId = String(userId || clientId || '').trim();
+
+    if (!finalPassword || String(finalPassword).length < 4) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 4 caracteres.' });
+    }
+
+    if (!cleanCode || !targetUserId) {
+      return res.status(400).json({ error: 'Código de verificación e identificador de cuenta requeridos.' });
+    }
+
+    try {
+      const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+
+      const verifySql = tenantId
+        ? "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
+        : "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
+      const verifyParams = tenantId ? [tenantId, targetUserId, targetUserId] : [targetUserId, targetUserId];
+
+      const [rows] = await pool.query(verifySql, verifyParams);
+
+      if (rows.length === 0) {
+        return res.status(400).json({ error: 'El código de verificación es inválido o ha expirado.' });
+      }
+
+      const rec = rows[0];
+      let matches = false;
+      if (rec.code_hash) {
+        const storedHashBuf = Buffer.from(rec.code_hash, 'hex');
+        const inputHashBuf = Buffer.from(inputHash, 'hex');
+        matches = storedHashBuf.length === inputHashBuf.length && crypto.timingSafeEqual(storedHashBuf, inputHashBuf);
+      }
+
+      if (!matches) {
+        const currentAttempts = (rec.attempts || 0) + 1;
+        if (currentAttempts >= (rec.max_attempts || 5)) {
+          await pool.query('UPDATE verification_codes SET is_used = 1, attempts = ? WHERE id = ?', [currentAttempts, rec.id]);
+          return res.status(400).json({ error: 'Demasiados intentos fallidos. El código ha sido invalidado.' });
+        } else {
+          await pool.query('UPDATE verification_codes SET attempts = ? WHERE id = ?', [currentAttempts, rec.id]);
+          return res.status(400).json({ error: 'El código de verificación es inválido o ha expirado.' });
+        }
+      }
+
+      // Mark code used immediately
+      if (rec.tenant_id) {
+        await pool.query('UPDATE verification_codes SET is_used = 1, used_at = NOW() WHERE id = ? AND tenant_id = ?', [rec.id, rec.tenant_id]);
+      } else {
+        await pool.query('UPDATE verification_codes SET is_used = 1, used_at = NOW() WHERE id = ? AND tenant_id IS NULL', [rec.id]);
+      }
+
+      const hashedPass = await bcrypt.hash(String(finalPassword), 10);
+      const resolvedUserId = rec.user_id || rec.client_id;
+
+      if (resolvedUserId && String(resolvedUserId).startsWith('USER-')) {
+        const realUserId = String(resolvedUserId).replace('USER-', '');
+        let uQuery = 'UPDATE users SET password_hash = ?, password = NULL WHERE id::text = ?';
+        const uParams = [hashedPass, realUserId];
+        if (rec.tenant_id) {
+          uQuery += ' AND tenant_id = ?';
+          uParams.push(rec.tenant_id);
+        } else {
+          uQuery += ' AND tenant_id IS NULL';
+        }
+        await pool.query(uQuery, uParams);
+        return res.json({ success: true, message: 'Contraseña actualizada exitosamente.' });
+      }
+
+      if (resolvedUserId) {
+        let cQuery = 'UPDATE clients SET password = ? WHERE id = ?';
+        const cParams = [hashedPass, resolvedUserId];
+        if (rec.tenant_id) {
+          cQuery += ' AND tenant_id = ?';
+          cParams.push(rec.tenant_id);
+        } else {
+          cQuery += ' AND tenant_id IS NULL';
+        }
+        await pool.query(cQuery, cParams);
+        return res.json({ success: true, message: 'Contraseña restablecida correctamente.' });
+      }
+
+      res.status(404).json({ error: 'No se encontró la cuenta vinculada al código de verificación.' });
+    } catch (err) {
+      console.error('[RESET PASSWORD ERROR]:', err);
+      res.status(500).json({ error: 'Error restableciendo la contraseña.' });
+    }
+  };
+
+  router.post('/auth/reset-password', recoveryLimiter, handleResetPassword);
+  router.post('/reset-password', recoveryLimiter, handleResetPassword);
+
+  // Account activation for new B2C clients (Strict Tenant & Identity Binding)
+  router.post('/auth/activate', recoveryLimiter, async (req, res) => {
+    const { clientId, code, password } = req.body;
+    const cleanCode = String(code || '').trim();
+    const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
+
+    if (!clientId) {
+      return res.status(400).json({ error: 'El identificador de cliente (clientId) es requerido.' });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+    }
+
+    if (!cleanCode) {
+      return res.status(400).json({ error: 'El código de activación es requerido.' });
+    }
+
+    try {
+      const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+
+      const activateSql = tenantId
+        ? "SELECT id, code_hash, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (client_id = ? OR user_id = ?) AND purpose = 'account_activation' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
+        : "SELECT id, code_hash, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (client_id = ? OR user_id = ?) AND purpose = 'account_activation' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
+      const activateParams = tenantId ? [tenantId, String(clientId), String(clientId)] : [String(clientId), String(clientId)];
+
+      const [verRows] = await pool.query(activateSql, activateParams);
+
+      if (verRows.length === 0) {
+        return res.status(400).json({ error: 'Código de activación inválido o expirado.' });
+      }
+
+      const rec = verRows[0];
+      let matches = false;
+      if (rec.code_hash) {
+        const storedHashBuf = Buffer.from(rec.code_hash, 'hex');
+        const inputHashBuf = Buffer.from(inputHash, 'hex');
+        matches = storedHashBuf.length === inputHashBuf.length && crypto.timingSafeEqual(storedHashBuf, inputHashBuf);
+      }
+
+      if (!matches) {
+        return res.status(400).json({ error: 'Código de activación inválido o expirado.' });
+      }
+
+      // Identity validation: confirm client exists within the exact tenant
+      if (!rec.tenant_id) {
+        return res.status(400).json({ error: 'El código de activación no tiene un salón asociado.' });
+      }
+      const [clientCheck] = await pool.query(
+        'SELECT id FROM clients WHERE id = ? AND tenant_id = ?',
+        [String(clientId), rec.tenant_id]
+      );
+      if (clientCheck.length === 0) {
+        return res.status(403).json({ error: 'Acceso no autorizado: el cliente no pertenece al inquilino del código.' });
+      }
+
+      const hashedPassword = await bcrypt.hash(String(password), 10);
+      
+      let updateQuery = "UPDATE clients SET password = ?, status = 'Active' WHERE id = ?";
+      const updateParams = [hashedPassword, String(clientId)];
+      if (rec.tenant_id) {
+        updateQuery += ' AND tenant_id = ?';
+        updateParams.push(rec.tenant_id);
+      } else {
+        updateQuery += ' AND tenant_id IS NULL';
+      }
+
+      await pool.query(updateQuery, updateParams);
+      await pool.query('UPDATE verification_codes SET is_used = 1, used_at = NOW() WHERE id = ?', [rec.id]);
+
+      res.json({ success: true, message: 'Cuenta activada exitosamente.' });
+    } catch (err) {
+      console.error('[ACTIVATE ACCOUNT ERROR]:', err);
+      res.status(500).json({ error: 'Error activando la cuenta.' });
+    }
+  });
+
+  // === USERS & ROLES MANAGEMENT (SCOPED BY TENANT) ===
+  const rejectControlPlaneOnTenantUsers = (req, res, next) => {
+    const role = getEffectiveRole(req);
+    if (role === 'superadmin' || req.auth?.isSuperAdmin) {
+      return res.status(403).json({
+        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+        code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
+      });
+    }
+    next();
+  };
+
+  router.get('/users', rejectControlPlaneOnTenantUsers, requireRole('propietario', 'admin'), async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
+      const [rows] = await pool.query(`
+        SELECT u.id,
+               u.tenant_id,
+               u.branch_id,
+               COALESCE(u.nombre, u.name) as nombre,
+               COALESCE(u.name, u.nombre) as name,
+               u.username,
+               u.email,
+               u.role_id,
+               u.role,
+               COALESCE(u.salon_id, u.branch_id::text) as salon_id,
+               COALESCE(u.estado, CASE WHEN u.is_active THEN 'Activo' ELSE 'Inactivo' END) as estado,
+               u.is_active,
+               u.hora_entrada,
+               u.hora_salida,
+               u.dias_laborables,
+               u.tolerancia_minutos,
+               u.created_at,
+               COALESCE(r.nombre, u.role, 'Administrador') as role_name,
+               COALESCE(r.permisos, '["all"]') as role_permissions,
+               COALESCE(b.name, s.name, 'Sucursal Principal') as salon_name
+        FROM users u
+        LEFT JOIN roles r ON u.role_id = r.id
+        LEFT JOIN branches b ON u.branch_id = b.id
+        LEFT JOIN salons s ON u.salon_id = s.id
+        WHERE u.tenant_id = ? AND (u.role IS NULL OR u.role != 'superadmin')
+        ORDER BY u.created_at DESC
+      `, [tenantId]);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/users', rejectControlPlaneOnTenantUsers, requireRole('propietario', 'admin'), async (req, res) => {
+    const { nombre, name, username, email, password, role_id, role, salon_id, branch_id, estado, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'No se pudo determinar el salón (Tenant) para crear el usuario.' });
+      }
+
+      const actorRole = getEffectiveRole(req);
+      const targetRole = role ? String(role).trim().toLowerCase() : 'empleado';
+
+      if (!canManageRole(actorRole, targetRole)) {
+        return res.status(403).json({
+          error: `No tienes autorización para crear usuarios con el rol '${targetRole}'.`,
+          code: 'PRIVILEGE_ESCALATION_DENIED'
+        });
+      }
+
+      const finalName = (nombre || name || '').trim();
+      const finalEmail = (email || username || '').trim();
+      if (!finalName || !finalEmail || !password) {
+        return res.status(400).json({ error: 'Nombre, correo electrónico y contraseña son obligatorios.' });
+      }
+
+      // Check license limit for users in this tenant
+      if (!req.auth?.isSuperAdmin) {
+        if (options.entitlementsService) {
+          const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users');
+          if (!limitCheck.allowed) {
+            return res.status(403).json({
+              error: limitCheck.reason || 'Has alcanzado el límite permitido por tu plan.',
+              code: limitCheck.code || 'PLAN_LIMIT_REACHED',
+              limit: 'users',
+              current: limitCheck.current,
+              maximum: limitCheck.maximum
+            });
+          }
+        } else {
+          const [tenantRows] = await pool.query('SELECT max_users FROM tenants WHERE id = ?', [tenantId]);
+          const [userCount] = await pool.query('SELECT COUNT(*) as total FROM users WHERE tenant_id = ?', [tenantId]);
+          const maxUsers = parseInt(tenantRows[0]?.max_users || 3, 10);
+          const currentUsers = parseInt(userCount[0]?.total || 0, 10);
+          if (currentUsers >= maxUsers) {
+            return res.status(403).json({
+              error: 'Has alcanzado el límite permitido por tu plan.',
+              code: 'PLAN_LIMIT_REACHED',
+              limit: 'users',
+              current: currentUsers,
+              maximum: maxUsers
+            });
+          }
+        }
+      }
+
+      // Check email uniqueness
+      const [existingEmail] = await pool.query('SELECT id, tenant_id FROM users WHERE LOWER(email) = LOWER(?)', [finalEmail]);
+      if (existingEmail.length > 0) {
+        return res.status(400).json({ error: 'Ya existe un usuario con ese correo electrónico.' });
+      }
+
+      // Resolve branch_id within the same tenant
+      let resolvedBranchId = branch_id || null;
+      if (!resolvedBranchId && salon_id) {
+        const [bRows] = await pool.query('SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(salon_id), tenantId]);
+        if (bRows.length > 0) resolvedBranchId = bRows[0].id;
+      }
+      if (!resolvedBranchId) {
+        const [mainBranch] = await pool.query('SELECT id FROM branches WHERE tenant_id = ? ORDER BY is_main DESC, created_at ASC LIMIT 1', [tenantId]);
+        if (mainBranch.length > 0) resolvedBranchId = mainBranch[0].id;
+      }
+
+      const passwordHash = await bcrypt.hash(String(password), 10);
+      const effectiveRole = targetRole !== 'superadmin' ? targetRole : 'admin';
+      const isActive = String(estado || 'Activo').toLowerCase() !== 'inactivo';
+
+      const [result] = await pool.query(
+        `INSERT INTO users (
+           tenant_id, branch_id, name, nombre, username, email, password_hash, password,
+           role_id, role, salon_id, estado, is_active, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING id`,
         [
-          id,
-          nombre, 
-          email, 
-          password, 
-          role_id || null, 
-          tipo || 'employee',
-          salon_id || null,
-          cleanStaffId,
-          profile_photo || null,
-          hora_entrada || null,
-          hora_salida || null,
-          dias_laborables || null,
+          tenantId,
+          resolvedBranchId,
+          finalName,
+          finalName,
+          username || finalEmail,
+          finalEmail,
+          passwordHash,
+          role_id || 1,
+          effectiveRole,
+          salon_id || (resolvedBranchId ? String(resolvedBranchId) : '1'),
+          estado || 'Activo',
+          isActive,
+          hora_entrada || '09:00:00',
+          hora_salida || '18:00:00',
+          typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables || null),
           tolerancia_minutos !== undefined ? tolerancia_minutos : 15
         ]
       );
 
-      // Separación estricta: No alterar jamás la tabla staff_records al crear usuarios
-      res.json({ success: true, id });
+      // Audit log without password
+      try {
+        await pool.query(`
+          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+          VALUES (?, ?, 'USER_CREATED', ?, ?)
+        `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario creado con rol ${effectiveRole}: ${finalEmail}`, tenantId]);
+      } catch (e) {}
+
+      res.json({ id: result.insertId || result[0]?.id, success: true });
     } catch (err) {
-      console.error('[USERS CREATE ERROR] Full Stack:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/users/:id', async (req, res) => {
+  router.put('/users/:id', rejectControlPlaneOnTenantUsers, requireRole('propietario', 'admin'), async (req, res) => {
+    const { id } = req.params;
+    const { nombre, name, username, email, password, role_id, role, salon_id, branch_id, estado, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
     try {
-      const { nombre, email, password, role_id, salon_id, staff_id, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
-      const cleanStaffId = (staff_id && !isNaN(parseInt(staff_id, 10))) ? parseInt(staff_id, 10) : null;
-
-      if (password && String(password).trim() !== '') {
-        await pool.query(
-          'UPDATE users SET nombre = ?, email = ?, password = ?, role_id = ?, salon_id = ?, staff_id = ?, profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ? WHERE id = ?',
-          [
-            nombre, 
-            email, 
-            password, 
-            role_id || null, 
-            salon_id || null,
-            cleanStaffId,
-            profile_photo || null, 
-            hora_entrada || null, 
-            hora_salida || null, 
-            dias_laborables || null, 
-            tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-            req.params.id
-          ]
-        );
-      } else {
-        await pool.query(
-          'UPDATE users SET nombre = ?, email = ?, role_id = ?, salon_id = ?, staff_id = ?, profile_photo = ?, hora_entrada = ?, hora_salida = ?, dias_laborables = ?, tolerancia_minutos = ? WHERE id = ?',
-          [
-            nombre, 
-            email, 
-            role_id || null, 
-            salon_id || null,
-            cleanStaffId,
-            profile_photo || null, 
-            hora_entrada || null, 
-            hora_salida || null, 
-            dias_laborables || null, 
-            tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-            req.params.id
-          ]
-        );
+      const tenantId = req.tenantId;
+      // Verify the user belongs to this tenant (anti-IDOR, anti-enumeration: returns 404)
+      const [existing] = await pool.query('SELECT id, tenant_id, role, is_active FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(id), tenantId]);
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Usuario no encontrado en este salón.' });
       }
 
-      // Separación estricta: No alterar jamás la tabla staff_records al editar usuarios
+      const actorRole = getEffectiveRole(req);
+      const currentTargetRole = String(existing[0].role || 'empleado').toLowerCase();
+
+      // Hierarchy check: can actor manage this existing user?
+      if (!canManageRole(actorRole, currentTargetRole) && String(existing[0].id) !== String(req.auth.userId || req.auth.id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para modificar a este usuario.',
+          code: 'FORBIDDEN_CANNOT_MANAGE_USER'
+        });
+      }
+
+      // If updating role, check if actor can assign the new role
+      if (role) {
+        const newTargetRole = String(role).trim().toLowerCase();
+        if (!canManageRole(actorRole, newTargetRole)) {
+          return res.status(403).json({
+            error: `No tienes autorización para asignar el rol '${newTargetRole}'.`,
+            code: 'PRIVILEGE_ESCALATION_DENIED'
+          });
+        }
+      }
+
+      const finalName = nombre || name;
+      const isActive = estado !== undefined ? (String(estado).toLowerCase() !== 'inactivo') : undefined;
+      const safeRole = role && role !== 'superadmin' ? String(role).toLowerCase() : undefined;
+
+      let query = `
+        UPDATE users SET 
+          nombre = COALESCE(?, nombre),
+          name = COALESCE(?, name),
+          username = COALESCE(?, username),
+          email = COALESCE(?, email),
+          role_id = COALESCE(?, role_id),
+          role = COALESCE(?, role),
+          salon_id = COALESCE(?, salon_id),
+          branch_id = COALESCE(?, branch_id),
+          estado = COALESCE(?, estado),
+          is_active = COALESCE(?, is_active),
+          hora_entrada = COALESCE(?, hora_entrada),
+          hora_salida = COALESCE(?, hora_salida),
+          dias_laborables = COALESCE(?, dias_laborables),
+          tolerancia_minutos = COALESCE(?, tolerancia_minutos)
+      `;
+      const params = [
+        finalName ?? null,
+        finalName ?? null,
+        username ?? null,
+        email ?? null,
+        role_id ?? null,
+        safeRole ?? null,
+        salon_id ?? null,
+        branch_id ?? null,
+        estado ?? null,
+        isActive !== undefined ? isActive : null,
+        hora_entrada ?? null,
+        hora_salida ?? null,
+        typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables ?? null),
+        tolerancia_minutos ?? null
+      ];
+
+      if (password && String(password).trim() !== '') {
+        const hashed = await bcrypt.hash(String(password), 10);
+        query += `, password_hash = ?, password = NULL`;
+        params.push(hashed);
+      }
+
+      query += ` WHERE id::text = ? AND tenant_id = ?`;
+      params.push(String(id), tenantId);
+
+      await pool.query(query, params);
+
+      // Audit log
+      try {
+        await pool.query(`
+          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+          VALUES (?, ?, 'USER_UPDATED', ?, ?)
+        `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario modificado con ID ${id}`, tenantId]);
+      } catch (e) {}
+
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.delete('/users/:id', async (req, res) => {
+  router.delete('/users/:id', rejectControlPlaneOnTenantUsers, requireRole('propietario'), async (req, res) => {
     try {
-      const [userRows] = await pool.query('SELECT nombre, email FROM users WHERE id = ?', [req.params.id]);
-      const uName = userRows[0]?.nombre || req.params.id;
+      const { id } = req.params;
+      const tenantId = req.tenantId;
+      const [existing] = await pool.query('SELECT id, tenant_id, role, is_active FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(id), tenantId]);
+      if (!existing || existing.length === 0) {
+        return res.status(404).json({ error: 'Usuario no encontrado en este salón.' });
+      }
 
-      await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
-      await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [req.params.id]);
+      const targetRole = String(existing[0].role || '').toLowerCase();
+      // Nadie puede eliminar al último propietario activo del tenant
+      if (targetRole === 'propietario' || targetRole === 'owner') {
+        const [allTenantUsers] = await pool.query(
+          "SELECT id, role, is_active, estado FROM users WHERE tenant_id = ?",
+          [tenantId]
+        );
+        const remainingOwners = allTenantUsers.filter(u => {
+          const r = String(u.role || '').toLowerCase();
+          const isAct = u.is_active === true || u.is_active === 1 || String(u.estado || '').toLowerCase() === 'activo';
+          return (r === 'propietario' || r === 'owner') && String(u.id) !== String(id) && isAct;
+        }).length;
 
-      await logSecurityAudit(req.headers['x-user-id'] || 'admin', req.headers['x-user-name'] || 'Administrador', 'USER_DELETED', `Usuario eliminado del sistema: ${uName} (ID: ${req.params.id}) y sus sesiones activas fueron cerradas forzosamente.`, req);
+        if (remainingOwners < 1) {
+          return res.status(409).json({
+            error: 'No es posible eliminar al único propietario activo del salón.',
+            code: 'CANNOT_DELETE_LAST_OWNER'
+          });
+        }
+      }
+
+      await pool.query('DELETE FROM users WHERE id::text = ? AND tenant_id = ?', [String(id), tenantId]);
+      try {
+        await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ?', [String(id), tenantId]);
+      } catch (e) {}
+
+      // Audit log
+      try {
+        await pool.query(`
+          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+          VALUES (?, ?, 'USER_DELETED', ?, ?)
+        `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario eliminado con ID ${id}`, tenantId]);
+      } catch (e) {}
 
       res.json({ success: true });
     } catch (err) {
@@ -222,601 +725,397 @@ function createAuthRouter(pool, helpers = {}) {
   });
 
   router.post('/users/verify', async (req, res) => {
+    const { username, email, password } = req.body;
+    const id = username || email;
     try {
-      const { id, password } = req.body;
-      if (!id || !password) {
-        return res.status(400).json({ error: 'ID y contraseña son requeridos.' });
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query(
+        'SELECT * FROM users WHERE (username = ? OR email = ?) AND tenant_id = ? LIMIT 1',
+        [id, id, tenantId]
+      );
+      if (rows.length === 0) return res.status(401).json({ valid: false });
+
+      const user = rows[0];
+      const storedHash = user.password_hash || user.password || '';
+      let valid = false;
+      if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
+        valid = await bcrypt.compare(String(password || ''), storedHash);
+      } else {
+        valid = storedHash === password;
       }
-      
-      const [rows] = await pool.query('SELECT password FROM users WHERE id = ?', [id]);
-      if (rows.length === 0) {
-        return res.status(404).json({ error: 'Usuario no encontrado.' });
-      }
-      
-      const matches = (password === rows[0].password);
-      res.json({ success: matches });
+
+      res.json({ valid, user: valid ? { id: user.id, nombre: user.nombre || user.name } : null });
     } catch (err) {
-      console.error('[USERS VERIFY ERROR]:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // === AUTHENTICATION / LOGIN ===
-  router.post(['/auth/login', '/login'], async (req, res) => {
-    const clientIp = getClientIp(req);
-    const ua = req.headers['user-agent'] || '';
-    const deviceInfo = parseDeviceInfo(ua);
-
+  router.get('/roles', async (req, res) => {
     try {
-      const { email: rawEmail, password } = req.body;
-      const email = rawEmail ? String(rawEmail).trim() : '';
-
-      // 1. Validar bloqueo de cuenta específica
-      const [accBlocked] = await pool.query(`
-        SELECT * FROM account_lockouts 
-        WHERE account_identifier = ? AND (blocked_until IS NULL OR blocked_until > NOW())
-      `, [email]);
-
-      if (accBlocked.length > 0) {
-        await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'blocked']);
-        const blockedRow = accBlocked[0];
-        const blockedUntil = blockedRow.blocked_until ? new Date(blockedRow.blocked_until) : null;
-        let timeRemainingText = 'temporalmente';
-        if (blockedUntil) {
-          const remainingMs = Math.max(0, blockedUntil.getTime() - Date.now());
-          const remainingSecs = Math.ceil(remainingMs / 1000);
-          if (remainingSecs > 60) {
-            const remainingMins = Math.ceil(remainingSecs / 60);
-            timeRemainingText = `por ${remainingMins} ${remainingMins === 1 ? 'minuto' : 'minutos'}`;
-          } else {
-            timeRemainingText = `por ${remainingSecs} ${remainingSecs === 1 ? 'segundo' : 'segundos'}`;
-          }
-        }
-        return res.status(403).json({ 
-          error: `Esta cuenta (${email}) ha superado el límite de intentos fallidos y se encuentra bloqueada ${timeRemainingText} por seguridad.` 
-        });
-      }
-
-      // 2. Validar bloqueo de IP
-      const [ipBlocked] = await pool.query(`
-        SELECT * FROM blocked_ips 
-        WHERE ip_address = ? AND (blocked_until IS NULL OR blocked_until > NOW())
-      `, [clientIp]);
-      if (ipBlocked.length > 0) {
-        await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'blocked']);
-        return res.status(403).json({ 
-          error: 'Esta dirección IP se encuentra temporalmente en pausa por seguridad ante tráfico anómalo masivo.' 
-        });
-      }
-
-      // 3. Usuarios de sistema
-      const cleanIdent = String(email || '').trim().toLowerCase();
-      const [users] = await pool.query(`
-        SELECT u.*, r.nombre as role_name, r.permisos 
-        FROM users u
-        LEFT JOIN roles r ON u.role_id = r.id
-        LEFT JOIN staff_records s ON (LOWER(TRIM(s.nombre)) = LOWER(TRIM(u.nombre)) OR (s.email IS NOT NULL AND LOWER(TRIM(s.email)) = LOWER(TRIM(u.email))))
-        WHERE (
-          LOWER(TRIM(u.email)) = ?
-          OR LOWER(TRIM(u.email)) = CONCAT(?, '@planbeautyrd.com')
-          OR (? IN ('enmelyn', 'emelyn', 'enmelyn@planbeautyrd.com', 'emelyn@planbeautyrd.com') AND LOWER(TRIM(u.email)) IN ('enmelyn@planbeautyrd.com', 'emelyn@planbeautyrd.com'))
-          OR (? IN ('yafreisi', 'yafreisi@planbeautyrd.com', 'yafreisidonejimenez@gmail.com') AND (LOWER(TRIM(u.email)) IN ('yafreisi@planbeautyrd.com', 'yafreisidonejimenez@gmail.com') OR LOWER(TRIM(u.nombre)) LIKE '%yafreisi%'))
-          OR (? IN ('antia', 'antia@planbeautyrd.com') AND (LOWER(TRIM(u.email)) = 'antia@planbeautyrd.com' OR LOWER(TRIM(u.nombre)) LIKE '%antia%'))
-          OR (s.cedula IS NOT NULL AND REPLACE(s.cedula, '-', '') = REPLACE(?, '-', ''))
-        ) AND u.password = ? AND u.tipo != 'client'
-      `, [cleanIdent, cleanIdent, cleanIdent, cleanIdent, cleanIdent, cleanIdent, password]);
-
-      if (users.length > 0) {
-        const user = users[0];
-        await pool.query('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
-
-        const sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-        const computedRole = (user.role_name === 'Administrador' || user.role_name === 'admin')
-          ? 'admin'
-          : ((user.role_name && user.role_name.toLowerCase() === 'contador') ? 'contador' : 'employee');
-
-        await pool.query(`
-          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
-        `, [sessionId, user.id, user.nombre, computedRole, user.salon_id || null, clientIp, ua, deviceInfo]);
-
-        await pool.query('DELETE FROM account_lockouts WHERE account_identifier = ?', [email]);
-        await pool.query("DELETE FROM login_attempts WHERE email_or_cedula = ? AND status = 'failed'", [email]);
-        await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'success']);
-        await logSecurityAudit(user.id, user.nombre, 'LOGIN_SUCCESS', `Inicio de sesión exitoso desde ${clientIp} (${deviceInfo})`, req);
-
-        return res.json({
-          id: user.id,
-          sessionId,
-          nombre: user.nombre,
-          email: user.email,
-          role: (user.role_name === 'Administrador' || user.role_name === 'admin') ? 'admin' : ((user.role_name && user.role_name.toLowerCase() === 'contador') ? 'contador' : 'employee'),
-          role_id: user.role_id,
-          role_name: user.role_name,
-          salon_id: user.salon_id,
-          permissions: typeof user.permisos === 'string' ? JSON.parse(user.permisos) : user.permisos
-        });
-      }
-
-      // 4. Clientes
-      const [clients] = await pool.query('SELECT * FROM clients WHERE (email = ? OR cedula = ?) AND password = ?', [email, email, password]);
-      if (clients.length > 0) {
-        const client = clients[0];
-        const sessionId = 'sess_cli_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-
-        await pool.query(`
-          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
-          VALUES (?, ?, ?, 'client', NULL, ?, ?, ?, 1, NOW())
-        `, [sessionId, client.id, client.nombre, clientIp, ua, deviceInfo]);
-
-        await pool.query('DELETE FROM account_lockouts WHERE account_identifier = ?', [email]);
-        await pool.query("DELETE FROM login_attempts WHERE email_or_cedula = ? AND status = 'failed'", [email]);
-        await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'success']);
-        await logSecurityAudit(client.id, client.nombre, 'CLIENT_LOGIN_SUCCESS', `Acceso de cliente desde ${clientIp} (${deviceInfo})`, req);
-
-        return res.json({
-          id: client.id,
-          sessionId,
-          nombre: client.nombre,
-          email: client.email,
-          cedula: client.cedula,
-          role: 'client',
-          mustChangePassword: client.must_change_password === 1
-        });
-      }
-
-      // 5. Fallo de login
-      await pool.query('INSERT INTO login_attempts (email_or_cedula, ip_address, status) VALUES (?, ?, ?)', [email, clientIp, 'failed']);
-      
-      const [secSettingsRows] = await pool.query('SELECT max_failed_attempts, lockout_minutes FROM security_settings WHERE id = 1');
-      const maxAttempts = secSettingsRows[0]?.max_failed_attempts || 5;
-      const configuredLockout = secSettingsRows[0]?.lockout_minutes || 30;
-
-      const [recentFails] = await pool.query(`
-        SELECT COUNT(*) as fail_count 
-        FROM login_attempts 
-        WHERE email_or_cedula = ? AND status = 'failed' AND attempt_time >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)
-      `, [email]);
-
-      const failCount = recentFails[0]?.fail_count || 1;
-
-      if (failCount >= maxAttempts) {
-        const [prevBlockRows] = await pool.query('SELECT strike_count FROM account_lockouts WHERE account_identifier = ?', [email]);
-        const prevStrikes = prevBlockRows.length > 0 ? (prevBlockRows[0].strike_count || 0) : 0;
-        const currentStrikes = prevStrikes + 1;
-
-        let progressiveMinutes = 1;
-        if (currentStrikes === 1) progressiveMinutes = 1;
-        else if (currentStrikes === 2) progressiveMinutes = 3;
-        else if (currentStrikes === 3) progressiveMinutes = 5;
-        else if (currentStrikes === 4) progressiveMinutes = 15;
-        else progressiveMinutes = Math.max(30, configuredLockout);
-
-        await pool.query(`
-          INSERT INTO account_lockouts (account_identifier, reason, attempts_count, blocked_until, strike_count, last_ip)
-          VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), ?, ?)
-          ON DUPLICATE KEY UPDATE 
-            attempts_count = ?, 
-            strike_count = ?,
-            last_ip = ?,
-            blocked_until = DATE_ADD(NOW(), INTERVAL ? MINUTE)
-        `, [email, `Bloqueo progresivo nivel ${currentStrikes} tras ${failCount} intentos fallidos`, failCount, progressiveMinutes, currentStrikes, clientIp, failCount, currentStrikes, clientIp, progressiveMinutes]);
-
-        await logSecurityAudit(null, email || 'Desconocido', 'ACCOUNT_BLOCKED_BRUTE_FORCE', `Cuenta ${email} bloqueada progresivamente por ${progressiveMinutes} min (Nivel ${currentStrikes}) desde IP ${clientIp}`, req);
-
-        return res.status(403).json({ 
-          error: `Has superado el límite de intentos fallidos. Tu cuenta (${email}) ha sido bloqueada temporalmente por ${progressiveMinutes} ${progressiveMinutes === 1 ? 'minuto' : 'minutos'} por motivos de seguridad.` 
-        });
-      }
-
-      const remaining = maxAttempts - failCount;
-      res.status(401).json({ 
-        error: `Credenciales inválidas. Te quedan ${remaining} ${remaining === 1 ? 'intento' : 'intentos'} antes de que se bloquee temporalmente esta cuenta.` 
-      });
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query(
+        'SELECT * FROM roles WHERE tenant_id = ? ORDER BY id ASC',
+        [tenantId]
+      );
+      res.json(rows.map(r => ({
+        ...r,
+        permisos: typeof r.permisos === 'string' ? JSON.parse(r.permisos || '[]') : (r.permisos || [])
+      })));
     } catch (err) {
-      console.error('[AUTH LOGIN ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // === SESSION STATUS (HEARTBEAT) ===
-  router.get('/auth/session-status', async (req, res) => {
+  router.post('/roles', async (req, res) => {
+    const { nombre, descripcion, permisos } = req.body;
     try {
-      const sessionId = req.headers['x-session-id'] || req.query.sessionId;
-      const userId = req.headers['x-user-id'] || req.query.userId;
-      const userRole = req.headers['x-user-role'] || req.query.role;
-      const clientIp = getClientIp(req);
-      const ua = req.headers['user-agent'] || '';
-      const deviceInfo = parseDeviceInfo(ua);
-
-      if (!sessionId && !userId) {
-        return res.json({ valid: true });
-      }
-
-      if (userId && userRole !== 'client') {
-        const [u] = await pool.query('SELECT u.id, u.nombre, u.email, r.nombre as role_name, u.salon_id FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.id = ?', [userId]);
-        if (u.length === 0) {
-          if (sessionId) {
-            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ?', [sessionId]);
-          }
-          return res.json({ valid: false, reason: 'user_deleted' });
-        }
-
-        const userData = u[0];
-
-        if (sessionId) {
-          const [sess] = await pool.query('SELECT * FROM user_sessions WHERE id = ?', [sessionId]);
-          if (sess.length > 0) {
-            if (sess[0].is_active !== 1) {
-              return res.json({ valid: false, reason: 'terminated' });
-            }
-            await pool.query('UPDATE user_sessions SET last_activity = NOW(), ip_address = ?, device_info = ?, is_active = 1 WHERE id = ?', [clientIp, deviceInfo, sessionId]);
-            return res.json({ valid: true, sessionId });
-          }
-        }
-
-        const newSessionId = sessionId || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
-        await pool.query(`
-          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())
-          ON DUPLICATE KEY UPDATE is_active = 1, last_activity = NOW(), ip_address = VALUES(ip_address), device_info = VALUES(device_info)
-        `, [newSessionId, userData.id, userData.nombre, userData.role_name || 'admin', userData.salon_id || null, clientIp, ua, deviceInfo]);
-
-        return res.json({ valid: true, sessionId: newSessionId });
-      }
-
-      if (userId && userRole === 'client') {
-        const [c] = await pool.query('SELECT id, nombre FROM clients WHERE id = ?', [userId]);
-        if (c.length === 0) {
-          return res.json({ valid: false, reason: 'user_deleted' });
-        }
-        const clientData = c[0];
-        const newSessionId = sessionId || ('sess_cli_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9));
-        await pool.query(`
-          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, device_info, is_active, last_activity)
-          VALUES (?, ?, ?, 'client', NULL, ?, ?, ?, 1, NOW())
-          ON DUPLICATE KEY UPDATE is_active = 1, last_activity = NOW(), ip_address = VALUES(ip_address), device_info = VALUES(device_info)
-        `, [newSessionId, clientData.id, clientData.nombre, clientIp, ua, deviceInfo]);
-        return res.json({ valid: true, sessionId: newSessionId });
-      }
-
-      res.json({ valid: true });
+      const tenantId = req.tenantId;
+      const [result] = await pool.query(
+        'INSERT INTO roles (nombre, descripcion, permisos, tenant_id) VALUES (?, ?, ?, ?) RETURNING id',
+        [nombre, descripcion || '', JSON.stringify(permisos || []), tenantId]
+      );
+      res.json({ id: result.insertId || result[0]?.id, success: true });
     } catch (err) {
-      console.error('[SESSION STATUS ERROR]:', err.message);
-      res.json({ valid: true });
+      res.status(500).json({ error: err.message });
     }
   });
 
-  // === LOGOUT ===
-  router.post('/auth/logout', async (req, res) => {
+  router.put('/roles/:id', async (req, res) => {
+    const { id } = req.params;
+    const { nombre, descripcion, permisos } = req.body;
     try {
-      const sessionId = req.headers['x-session-id'] || req.body.sessionId;
-      const userId = req.headers['x-user-id'] || req.body.userId;
-      const userName = req.headers['x-user-name'] || req.body.userName;
-
-      if (sessionId) {
-        await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ?', [sessionId]);
-      }
-      await logSecurityAudit(userId, userName, 'LOGOUT', `Cierre de sesión regular`, req);
+      const tenantId = req.tenantId;
+      await pool.query(
+        'UPDATE roles SET nombre = ?, descripcion = ?, permisos = ? WHERE id = ? AND tenant_id = ?',
+        [nombre, descripcion || '', JSON.stringify(permisos || []), id, tenantId]
+      );
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // === FORGOT PASSWORD ===
-  router.post('/auth/forgot-password', async (req, res) => {
-    const { emailOrCedula } = req.body;
-    const rawInput = emailOrCedula || req.body.email;
-    const input = rawInput ? String(rawInput).trim() : '';
-    
-    if (!input) return res.status(400).json({ error: 'Debes proporcionar un correo o cédula.' });
+  // === LOGIN & SESSION LIFECYCLE ===
+  const handleLogin = async (req, res) => {
+    const { email, username, cedula, password } = req.body;
+    const identifier = String(email || username || cedula || '').trim();
+    const clientIp = getClientIp(req);
+    const userAgent = req.headers['user-agent'] || 'Unknown';
 
-    try {
-      const [clients] = await pool.query('SELECT id, nombre, email FROM clients WHERE email = ? OR cedula = ?', [input, input]);
-      const [users] = await pool.query('SELECT id, nombre, email FROM users WHERE email = ?', [input]);
-      
-      const account = clients[0] || users[0];
-      if (!account) {
-        return res.status(404).json({ error: 'No se encontró ninguna cuenta asociada.' });
-      }
-
-      const targetEmail = account.email;
-      if (!targetEmail) {
-        return res.status(400).json({ error: 'La cuenta encontrada no tiene un correo electrónico asociado.' });
-      }
-
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 3600000);
-
-      await pool.query(
-        'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
-        [account.id, code, expiresAt]
-      );
-
-      const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
-      const s = settings[0] || {};
-      const smtp_host = s.smtp_host || process.env.SMTP_HOST;
-      const smtp_port = s.smtp_port || process.env.SMTP_PORT;
-      const smtp_user = s.smtp_user || process.env.SMTP_USER;
-      const smtp_pass = s.smtp_pass || process.env.SMTP_PASS;
-      let smtp_from = process.env.SMTP_FROM || s.smtp_from || 'hola@planbeautyrd.com';
-      
-      if (!smtp_from || !smtp_from.includes('@')) {
-        smtp_from = 'hola@planbeautyrd.com';
-      }
-
-      if (!smtp_host || !smtp_user || !smtp_pass) {
-        return res.status(500).json({ error: 'Configuración de correo incompleta. Contacte al administrador.' });
-      }
-
-      const transporter = nodemailer.createTransport({
-        host: smtp_host,
-        port: smtp_port,
-        secure: smtp_port == 465,
-        auth: { user: smtp_user, pass: smtp_pass }
-      });
-
-      await transporter.sendMail({
-        from: smtp_from.trim(),
-        to: targetEmail,
-        subject: "Restablecer tu contraseña - Plan Beauty",
-        html: `
-          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; borderRadius: 10px;">
-            <h2 style="color: #d4af37; text-align: center;">Recuperación de Contraseña</h2>
-            <p>Hola <strong>${escapeHtml(account.nombre)}</strong>,</p>
-            <p>Has solicitado restablecer tu contraseña para tu cuenta (${escapeHtml(targetEmail)}). Usa el siguiente código de verificación:</p>
-            <div style="background: #f8f9fa; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 10px; color: #09090b; margin: 20px 0;">
-              ${code}
-            </div>
-            <p>Este código expirará en 1 hora.</p>
-            <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-            <p style="font-size: 12px; color: #666; text-align: center;">Plan Beauty RD - Abatte Peluquería</p>
-          </div>
-        `
-      });
-
-      res.json({ success: true, message: 'Código enviado al correo asociado.' });
-    } catch (err) {
-      console.error('[AUTH] Forgot Password Error:', err);
-      res.status(500).json({ error: 'Error al procesar la solicitud. ' + err.message });
+    if (!identifier || !password) {
+      return res.status(400).json({ error: 'Por favor ingresa tus credenciales.' });
     }
-  });
 
-  // === RESET PASSWORD ===
-  router.post('/auth/reset-password', async (req, res) => {
-    const { emailOrCedula, code, newPassword } = req.body;
-    const rawInput = emailOrCedula || req.body.email;
-    const input = rawInput ? String(rawInput).trim() : '';
-    
     try {
-      const [clients] = await pool.query('SELECT id FROM clients WHERE email = ? OR cedula = ?', [input, input]);
-      const [users] = await pool.query('SELECT id FROM users WHERE email = ?', [input]);
-      const account = clients[0] || users[0];
-      const isClient = !!clients[0];
+      if (pool.isPostgres) {
+        const [pgUsers] = await pool.query(`
+          SELECT u.*, b.name as branch_name, u.tenant_id
+          FROM users u
+          LEFT JOIN branches b ON (u.branch_id::text = b.id::text AND b.tenant_id = u.tenant_id)
+          WHERE (LOWER(u.email) = LOWER(?) OR LOWER(u.username) = LOWER(?))
+            AND COALESCE(u.is_active, true) = true
+          LIMIT 1
+        `, [identifier, identifier]);
 
-      if (!account) return res.status(404).json({ error: 'Cuenta no encontrada.' });
+        if (pgUsers && pgUsers.length > 0) {
+          const u = pgUsers[0];
+          const storedHash = u.password_hash || u.password || '';
+          let isPassValid = false;
 
-      const [codes] = await pool.query(
-        'SELECT id, expires_at FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
-        [account.id, code]
-      );
-
-      if (codes.length === 0) {
-        return res.status(400).json({ error: 'Código inválido o expirado.' });
-      }
-
-      const codeRecord = codes[0];
-      const expiresAtTime = codeRecord.expires_at instanceof Date 
-        ? codeRecord.expires_at.getTime() 
-        : new Date(codeRecord.expires_at).getTime();
-
-      if (Date.now() > expiresAtTime) {
-        return res.status(400).json({ error: 'Código inválido o expirado.' });
-      }
-
-      const table = isClient ? 'clients' : 'users';
-      await pool.query(`UPDATE ${table} SET password = ? WHERE id = ?`, [newPassword, account.id]);
-      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [codeRecord.id]);
-
-      res.json({ success: true, message: 'Contraseña actualizada con éxito.' });
-    } catch (err) {
-      console.error('[AUTH] Reset Password Error:', err);
-      res.status(500).json({ error: 'Error al restablecer la contraseña.' });
-    }
-  });
-
-  // === OTP GENERATION & VERIFICATION ===
-  router.post('/otp/generate', async (req, res) => {
-    const { clientId, clientEmail } = req.body;
-    console.log(`[OTP] Request to generate code for client: ${clientId} (${clientEmail})`);
-    
-    try {
-      let emailToSend = clientEmail;
-      let clientName = 'Cliente';
-
-      if (clientId) {
-        const [rows] = await pool.query('SELECT nombre, email FROM clients WHERE id = ?', [clientId]);
-        if (rows && rows.length > 0) {
-          emailToSend = emailToSend || rows[0].email;
-          clientName = rows[0].nombre || clientName;
-        }
-      }
-
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-
-      const targetClientId = clientId || 'INVITADO';
-      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE client_id = ? AND is_used = 0', [targetClientId]);
-      await pool.query(
-        'INSERT INTO verification_codes (client_id, code, expires_at, is_used) VALUES (?, ?, ?, 0)',
-        [targetClientId, code, expiresAt]
-      );
-
-      if (emailToSend && emailToSend.includes('@')) {
-        try {
-          const [settingsRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
-          if (settingsRows && settingsRows.length > 0) {
-            const s = settingsRows[0];
-            const transporter = nodemailer.createTransport({
-              host: s.smtp_host || 'smtp.hostinger.com',
-              port: s.smtp_port || 465,
-              secure: s.smtp_secure === 1,
-              auth: {
-                user: s.smtp_user || 'hola@planbeautyrd.com',
-                pass: s.smtp_pass || 'z5!CIiplZ'
-              }
-            });
-
-            await transporter.sendMail({
-              from: `"${s.smtp_from || 'Plan Beauty'}" <${s.smtp_user || 'hola@planbeautyrd.com'}>`,
-              to: emailToSend,
-              subject: `🔐 Código de Seguridad Plan Beauty: ${code}`,
-              html: `
-                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 25px; border-radius: 16px; background: #fff5f8; border: 1px solid #fce7f3; text-align: center;">
-                  <div style="font-size: 36px; margin-bottom: 10px;">💎</div>
-                  <h2 style="color: #be185d; margin: 0 0 8px 0; font-weight: 900;">Plan Beauty</h2>
-                  <p style="color: #475569; font-size: 15px; margin-bottom: 20px;">
-                    Hola <strong>${escapeHtml(clientName)}</strong>, has solicitado canjear un servicio de tu membresía. Utiliza el siguiente código de seguridad en caja:
-                  </p>
-                  <div style="background: #ffffff; border: 2px dashed #be185d; border-radius: 12px; padding: 14px 24px; display: inline-block; font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #0f172a; margin-bottom: 20px;">
-                    ${code}
-                  </div>
-                  <p style="color: #94a3b8; font-size: 13px; margin: 0;">
-                    Este código es de uso único y vence en 15 minutos. Si no realizaste esta solicitud, por favor ignora este correo.
-                  </p>
-                </div>
-              `
-            });
-            console.log(`[OTP] ✅ Email successfully sent to ${emailToSend}`);
+          if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
+            isPassValid = await bcrypt.compare(String(password), storedHash);
+          } else if (storedHash) {
+            isPassValid = (password === storedHash);
+            if (isPassValid) {
+              const upgradedHash = await bcrypt.hash(String(password), 10);
+              await pool.query('UPDATE users SET password_hash = ?, password = NULL WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)', [upgradedHash, u.id, u.tenant_id]);
+            }
           }
-        } catch (mailErr) {
-          console.error(`[OTP] ⚠️ Error sending email via SMTP:`, mailErr.message);
+
+          if (!isPassValid) {
+            return res.status(401).json({ error: 'Contraseña incorrecta.' });
+          }
+
+          const effectiveRole = String(u.role || 'admin').toLowerCase();
+          const isSuperAdmin = effectiveRole === 'superadmin';
+
+          // Obtener configuración del Tenant si el usuario pertenece a un salón
+          let tenantInfo = null;
+          if (!isSuperAdmin && u.tenant_id) {
+            const [tRows] = await pool.query(`
+              SELECT t.*, sp.name as plan_name, sp.slug as plan_slug
+              FROM tenants t
+              LEFT JOIN saas_plans sp ON t.plan_id = sp.id
+              WHERE t.id = ?
+            `, [u.tenant_id]);
+            tenantInfo = tRows[0] || null;
+            if (!tenantInfo) {
+              return res.status(403).json({ error: 'El salón asociado a este usuario no existe.' });
+            }
+            if (tenantInfo.status === 'terminated' || tenantInfo.status === 'inactive') {
+              return res.status(403).json({ error: 'La cuenta de este salón se encuentra inactiva o finalizada. Contacte a soporte.' });
+            }
+          }
+
+          const sessionId = crypto.randomUUID();
+          // Inserción obligatoria de sesión (FAIL-CLOSED: Si falla la BD, no se emite token)
+          await pool.query(`
+            INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW(), ?)
+          `, [
+            sessionId,
+            String(u.id),
+            u.name || u.nombre,
+            effectiveRole,
+            u.branch_id ? String(u.branch_id) : (u.salon_id || '1'),
+            clientIp,
+            userAgent,
+            u.tenant_id || null
+          ]);
+
+          const token = signAuthToken({
+            sub: String(u.id),
+            id: String(u.id),
+            email: u.email,
+            name: u.name || u.nombre,
+            role: effectiveRole,
+            tenantId: isSuperAdmin ? null : u.tenant_id,
+            branchId: u.branch_id || u.salon_id || null,
+            sessionId,
+            isSuperAdmin
+          });
+
+          res.cookie('auth_token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 24 * 60 * 60 * 1000
+          });
+
+          // NUNCA devolver el token en el body JSON; se transmite exclusivamente vía cookie HttpOnly
+          return res.json({
+            id: u.id,
+            tenant_id: u.tenant_id,
+            branch_id: u.branch_id,
+            nombre: u.name || u.nombre,
+            name: u.name || u.nombre,
+            email: u.email,
+            role: effectiveRole,
+            rol: effectiveRole,
+            isSuperAdmin: Boolean(isSuperAdmin),
+            is_superadmin: Boolean(isSuperAdmin),
+            permissions: ['all'],
+            salon_id: u.branch_id || u.salon_id || 1,
+            salon_name: u.branch_name || tenantInfo?.business_name || 'Sucursal Principal',
+            tenant: tenantInfo,
+            sessionId
+          });
         }
       }
 
-      res.json({
-        success: true,
-        message: 'Código de seguridad enviado exitosamente al correo.',
-        code: code,
-        email: emailToSend
-      });
-    } catch (err) {
-      console.error('[OTP ERROR]:', err);
-      res.status(500).json({ error: err.message });
-    }
-  });
+      // Check brute-force lockouts
+      const [secSettings] = await pool.query('SELECT max_failed_attempts, lockout_minutes, tenant_id FROM security_settings LIMIT 1');
+      const maxAttempts = secSettings[0]?.max_failed_attempts || 5;
+      const lockoutMins = secSettings[0]?.lockout_minutes || 30;
 
-  router.get('/otp/active/:clientId', async (req, res) => {
-    const { clientId } = req.params;
-    try {
-      const [rows] = await pool.query(
-        'SELECT * FROM verification_codes WHERE client_id = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
-        [clientId]
+      const [ipBlocks] = await pool.query(
+        'SELECT * FROM blocked_ips WHERE ip_address = ? AND (blocked_until IS NULL OR blocked_until > NOW()) LIMIT 1',
+        [clientIp]
       );
-      if (rows && rows.length > 0) {
-        return res.json(rows[0]);
+      if (ipBlocks.length > 0) {
+        return res.status(403).json({ error: 'Tu dirección IP ha sido bloqueada temporalmente por múltiples intentos fallidos.' });
       }
 
-      // Fallback: check if there is an active billing/cancellation code for any contract of this client
-      const userRole = (req.headers['x-user-role'] || '').toLowerCase();
-      const isAdmin = ['admin', 'administrador'].includes(userRole);
+      const [accBlocks] = await pool.query(
+        'SELECT * FROM account_lockouts WHERE account_identifier = ? AND (blocked_until IS NULL OR blocked_until > NOW()) LIMIT 1',
+        [identifier]
+      );
+      if (accBlocks.length > 0) {
+        return res.status(403).json({ error: 'Esta cuenta se encuentra bloqueada temporalmente por seguridad.' });
+      }
 
-      const [billingRows] = await pool.query(`
-        SELECT bc.code, bc.action_type, bc.expires_at, bc.created_at 
-        FROM billing_codes bc
-        JOIN contracts c ON bc.contract_id = c.id
-        WHERE c.client_id = ? AND bc.is_used = 0 AND bc.expires_at > NOW()
-        ORDER BY bc.id DESC LIMIT 1
-      `, [clientId]);
+      // Check clients table (B2C client portal login)
+      const cleanCedula = identifier.replace(/\D/g, '');
+      const [clients] = await pool.query(`
+        SELECT c.*, s.name as salon_name, c.tenant_id
+        FROM clients c
+        LEFT JOIN salons s ON c.salon_id = s.id AND s.tenant_id = c.tenant_id
+        WHERE c.email = ? OR c.cedula = ? OR (LENGTH(?) >= 8 AND REPLACE(c.cedula, '-', '') = ?)
+        LIMIT 1
+      `, [identifier, identifier, cleanCedula, cleanCedula]);
 
-      if (billingRows && billingRows.length > 0) {
-        if (billingRows[0].action_type === 'cancellation' && !isAdmin) {
-          return res.status(403).json({ error: 'El código de cancelación solo está disponible para administradores.' });
+      if (clients.length > 0) {
+        const client = clients[0];
+
+        if (!client.password || client.status === 'Pending_Activation') {
+          return res.status(403).json({
+            error: 'Debes activar tu cuenta y configurar tu contraseña primero.',
+            status: 'Pending_Activation',
+            id: client.id
+          });
         }
-        return res.json(billingRows[0]);
+
+        let isClientPassValid = false;
+        if (String(client.password).startsWith('$2a$') || String(client.password).startsWith('$2b$')) {
+          isClientPassValid = await bcrypt.compare(String(password), client.password);
+        } else {
+          isClientPassValid = (client.password === password);
+          if (isClientPassValid) {
+            const upgraded = await bcrypt.hash(String(password), 10);
+            await pool.query('UPDATE clients SET password = ? WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)', [upgraded, client.id, client.tenant_id]);
+          }
+        }
+
+        if (!isClientPassValid) {
+          return res.status(401).json({ error: 'Contraseña incorrecta.' });
+        }
+
+        const sessionId = crypto.randomUUID();
+        // Inserción obligatoria de sesión para cliente B2C (FAIL-CLOSED)
+        await pool.query(`
+          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
+          VALUES (?, ?, ?, 'client', ?, ?, ?, 1, NOW(), NOW(), ?)
+        `, [
+          sessionId,
+          String(client.id),
+          client.nombre || 'Cliente',
+          String(client.salon_id || '1'),
+          clientIp,
+          userAgent,
+          client.tenant_id || null
+        ]);
+
+        const token = signAuthToken({
+          sub: String(client.id),
+          id: String(client.id),
+          email: client.email,
+          name: client.nombre,
+          role: 'client',
+          tenantId: client.tenant_id,
+          branchId: client.salon_id,
+          sessionId,
+          isSuperAdmin: false,
+          isClient: true
+        });
+
+        res.cookie('auth_token', token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 24 * 60 * 60 * 1000
+        });
+
+        // NUNCA devolver el token en el body JSON; se transmite exclusivamente vía cookie HttpOnly
+        return res.json({
+          id: client.id,
+          tenant_id: client.tenant_id,
+          nombre: client.nombre,
+          email: client.email,
+          cedula: client.cedula,
+          telefono: client.telefono,
+          role: 'client',
+          rol: 'client',
+          salon_id: client.salon_id || 1,
+          salon_name: client.salon_name || 'Principal',
+          sessionId
+        });
       }
 
-      res.status(404).json({ error: 'No hay código activo para este cliente.' });
+      return res.status(401).json({ error: 'Credenciales inválidas o usuario inactivo.' });
     } catch (err) {
+      console.error('[LOGIN ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
 
-  router.post('/otp/verify', async (req, res) => {
-    const { clientId, code, visitData } = req.body;
-    const cleanCode = String(code || '').trim();
+  router.post('/auth/login', loginLimiter, handleLogin);
+  router.post('/login', loginLimiter, handleLogin);
 
+  // Heartbeat session status validation (AUTHENTICATED & FAIL CLOSED)
+  router.post('/auth/session-check', async (req, res) => {
     try {
-      let verified = false;
-
-      if (['2026', '1234', '8888', '0000'].includes(cleanCode)) {
-        verified = true;
-      } else {
-        let rows = [];
-        if (clientId) {
-          const [res1] = await pool.query(
-            'SELECT * FROM verification_codes WHERE client_id = ? AND code = ? AND is_used = 0 AND (expires_at > NOW() OR created_at > DATE_SUB(NOW(), INTERVAL 20 MINUTE)) ORDER BY id DESC LIMIT 1',
-            [clientId, cleanCode]
-          );
-          rows = res1;
-        }
-
-        if (!rows || rows.length === 0) {
-          const [res2] = await pool.query(
-            'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND (expires_at > NOW() OR created_at > DATE_SUB(NOW(), INTERVAL 20 MINUTE)) ORDER BY id DESC LIMIT 1',
-            [cleanCode]
-          );
-          rows = res2;
-        }
-
-        if (!rows || rows.length === 0) {
-          return res.status(400).json({ error: 'Código de verificación incorrecto o expirado.' });
-        }
-
-        await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
-        verified = true;
+      const auth = req.auth;
+      if (!auth || !auth.id) {
+        return res.status(401).json({ valid: false, error: 'No autenticado o token ausente.' });
       }
 
-      let visitId = null;
-      if (verified && visitData && (clientId || visitData.clientId)) {
-        const targetClientId = clientId || visitData.clientId;
-        visitId = Date.now().toString();
-        const serviciosArray = Array.isArray(visitData.servicios) ? visitData.servicios : [visitData.servicios || 'Servicio Facturado'];
+      const userId = String(auth.id);
+      const role = String(auth.role || '').toLowerCase();
+      const sessionId = auth.sessionId || null;
 
-        await pool.query(
-          'INSERT INTO visits (id, client_id, client_name, servicios, empleado_peluquera, empleado_lava_pelo, empleado_manicurista, salon_id, visited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
-          [
-            visitId,
-            targetClientId,
-            visitData.clientName || 'Cliente',
-            JSON.stringify(serviciosArray),
-            visitData.empleadoPeluquera || 'N/A',
-            visitData.empleadoLavaPelo || 'N/A',
-            visitData.empleadoManicurista || 'N/A',
-            visitData.salon_id || 1
-          ]
+      if (sessionId) {
+        const [sessions] = await pool.query('SELECT is_active, tenant_id FROM user_sessions WHERE id = ? LIMIT 1', [sessionId]);
+        if (!sessions || sessions.length === 0 || !sessions[0].is_active) {
+          return res.status(401).json({ valid: false, reason: 'remote_terminated', error: 'Sesión finalizada remotamente.' });
+        }
+        if (auth.tenantId) {
+          await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ? AND tenant_id = ?', [sessionId, auth.tenantId]);
+        } else {
+          await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ? AND tenant_id IS NULL', [sessionId]);
+        }
+      }
+
+      if (role !== 'client') {
+        const [users] = await pool.query(
+          "SELECT id, nombre, name, role, salon_id, branch_id, tenant_id, estado, is_active FROM users WHERE id::text = ? LIMIT 1",
+          [userId]
         );
-
-        try {
-          const [clientData] = await pool.query('SELECT email FROM clients WHERE id = ?', [targetClientId]);
-          if (clientData[0]?.email) {
-            sendSurveyEmail(targetClientId, visitData.clientName || 'Cliente', clientData[0].email);
-          }
-        } catch (surveyErr) {
-          console.error('[OTP SURVEY ERROR]:', surveyErr);
+        if (!users || users.length === 0 || users[0].estado === 'Inactivo' || users[0].is_active === false) {
+          return res.status(401).json({ valid: false, reason: 'user_deleted', error: 'Usuario desactivado o eliminado.' });
         }
+
+        const u = users[0];
+        let tenantInfo = null;
+        if (u.tenant_id) {
+          const [tRows] = await pool.query(`
+            SELECT t.*, sp.name as plan_name, sp.slug as plan_slug
+            FROM tenants t
+            LEFT JOIN saas_plans sp ON t.plan_id = sp.id
+            WHERE t.id = ?
+          `, [u.tenant_id]);
+          tenantInfo = tRows[0] || null;
+          if (tenantInfo && tenantInfo.status === 'suspended') {
+            return res.status(403).json({ valid: false, reason: 'tenant_suspended', error: 'Salón suspendido.' });
+          }
+        }
+        return res.json({ valid: true, tenant: tenantInfo });
       }
 
-      res.json({ success: true, verified: true, visitId });
+      return res.json({ valid: true });
     } catch (err) {
-      console.error('[OTP VERIFY ERROR]:', err);
-      res.status(500).json({ error: err.message });
+      console.error('[SESSION CHECK ERROR]:', err);
+      // FAIL CLOSED: NUNCA responder valid: true ante error
+      return res.status(500).json({ valid: false, error: 'Error verificando sesión en base de datos.' });
     }
   });
 
-  return { router, syncUserToStaff, logSecurityAudit, getClientIp, parseDeviceInfo };
+  // Explicit Logout endpoint
+  router.post('/auth/logout', async (req, res) => {
+    try {
+      const sessionId = req.auth?.sessionId || req.body?.sessionId;
+      const userId = req.auth?.id;
+      const userName = req.auth?.name;
+      if (sessionId) {
+        if (req.auth?.tenantId) {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id = ?', [sessionId, req.auth.tenantId]);
+        } else {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id IS NULL', [sessionId]);
+        }
+      }
+      if (userId) {
+        await logSecurityAudit(userId, userName, 'USER_LOGOUT', 'Cierre de sesión voluntario', req);
+      }
+      res.clearCookie('auth_token');
+      res.json({ success: true, message: 'Sesión finalizada exitosamente.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Error procesando cierre de sesión.' });
+    }
+  });
+
+  router.router = router;
+  return router;
 }
 
 module.exports = { createAuthRouter };

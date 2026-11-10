@@ -5,7 +5,7 @@ let forge = null;
 try { forge = require('node-forge'); } catch(e) { console.warn('node-forge optional require notice in dgii.service:', e.message); }
 let dgiiEcfLib = {};
 try { dgiiEcfLib = require('dgii-ecf'); } catch(e) { console.warn('dgii-ecf optional require notice in dgii.service:', e.message); }
-const { Signature, ECF, ENVIRONMENT, convertECF32ToRFCE, getCodeSixDigitfromSignature } = dgiiEcfLib;
+const { Signature, ECF, ENVIRONMENT, convertECF32ToRFCE } = dgiiEcfLib;
 
 function escapeXml(str) {
   if (!str) return '';
@@ -45,34 +45,14 @@ function createDgiiService(pool) {
     console.warn('⚠️ [DGII SERVICE] No se pudo inicializar certificado digital:', e.message);
   }
 
-  function formatDRDate(dateInput) {
-    const d = dateInput ? new Date(dateInput) : new Date();
-    const validDate = isNaN(d.getTime()) ? new Date() : d;
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'America/Santo_Domingo',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    }).formatToParts(validDate);
-    const map = {};
-    parts.forEach(p => { map[p.type] = p.value; });
-    const fecha = `${map.day}-${map.month}-${map.year}`;
-    const hora = `${map.hour}:${map.minute}:${map.second}`;
-    return { fecha, fechaHora: `${fecha} ${hora}` };
-  }
-
   function buildAndSignEcfXml(visit, items) {
     const encf = visit.ncf || 'E320000000001';
     const tipoEcf = encf.startsWith('E31') ? '31' : '32';
     const total = Number(visit.total || 0);
-    const { fecha: fechaEmision, fechaHora: fechaHoraFirma } = formatDRDate(visit.visited_at || Date.now());
-
-    const rncClean = String(visit.rnc_cliente || '').replace(/\D/g, '');
-    const hasValidRnc = rncClean.length === 9 || rncClean.length === 11;
+    const dateObj = new Date(visit.visited_at || Date.now());
+    const pad = (n) => String(n).padStart(2, '0');
+    const fechaEmision = `${pad(dateObj.getDate())}-${pad(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
+    const fechaHoraFirma = `${fechaEmision} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
 
     const itemsXml = (items || []).map((item, idx) => {
       const precio = Number(item.precioAplicado || item.precio || 0);
@@ -84,19 +64,10 @@ function createDgiiService(pool) {
       <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
       <IndicadorBienoServicio>2</IndicadorBienoServicio>
       <CantidadItem>${cant.toFixed(2)}</CantidadItem>
-      <UnidadMedida>55</UnidadMedida>
       <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
       <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
     </Item>`;
     }).join('\n');
-
-    const fechaVencimientoXml = tipoEcf === '31'
-      ? `\n      <FechaVencimientoSecuencia>31-12-2027</FechaVencimientoSecuencia>`
-      : '';
-
-    const rncCompradorXml = hasValidRnc
-      ? `      <RNCComprador>${rncClean}</RNCComprador>\n`
-      : '';
 
     const rawXml = `<?xml version="1.0" encoding="utf-8"?>
 <ECF>
@@ -104,30 +75,36 @@ function createDgiiService(pool) {
     <Version>1.0</Version>
     <IdDoc>
       <TipoeCF>${tipoEcf}</TipoeCF>
-      <eNCF>${encf}</eNCF>${fechaVencimientoXml}
+      <eNCF>${encf}</eNCF>
+      <FechaVencimientoSecuencia>31-12-2026</FechaVencimientoSecuencia>
       <IndicadorMontoGravado>0</IndicadorMontoGravado>
       <TipoIngresos>01</TipoIngresos>
       <TipoPago>1</TipoPago>
+      <FechaEmision>${fechaEmision}</FechaEmision>
     </IdDoc>
     <Emisor>
       <RNCEmisor>131917038</RNCEmisor>
       <RazonSocialEmisor>ETEREAS SRL</RazonSocialEmisor>
       <NombreComercial>ETÉREAS</NombreComercial>
+      <Sucursal>01</Sucursal>
       <DireccionEmisor>LOS PALMEROS, No. 3, APTO. PLAZA BRAVO, BARRIO NUEVO</DireccionEmisor>
-      <Municipio>010100</Municipio>
-      <Provincia>010000</Provincia>
-      <TablaTelefonoEmisor>
-        <TelefonoEmisor>809-792-3555</TelefonoEmisor>
-      </TablaTelefonoEmisor>
-      <CorreoEmisor>RODRIGUEZ1619@HOTMAIL.COM</CorreoEmisor>
+      <Municipio>Santo Domingo Este</Municipio>
+      <Provincia>Santo Domingo</Provincia>
+      <TelefonoEmisor>8095615000</TelefonoEmisor>
+      <CorreoEmisor>hola@planbeautyrd.com</CorreoEmisor>
       <FechaEmision>${fechaEmision}</FechaEmision>
     </Emisor>
     <Comprador>
-${rncCompradorXml}      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
+      <RNCComprador>${escapeXml(visit.rnc_cliente || '')}</RNCComprador>
+      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
     </Comprador>
     <Totales>
-      <MontoExento>${total.toFixed(2)}</MontoExento>
       <MontoTotal>${total.toFixed(2)}</MontoTotal>
+      <MontoGravadoTotal>0.00</MontoGravadoTotal>
+      <MontoGravadoI1>0.00</MontoGravadoI1>
+      <MontoExento>${total.toFixed(2)}</MontoExento>
+      <TotalITBIS>0.00</TotalITBIS>
+      <TotalITBIS1>0.00</TotalITBIS1>
     </Totales>
   </Encabezado>
   <DetallesItems>
@@ -149,17 +126,21 @@ ${itemsXml}
     return { signedXml, fechaEmision, fechaHoraFirma };
   }
 
-  async function allocateNextDgiiSequence(tipo = 'E34') {
+  async function allocateNextDgiiSequence(tipo = 'E34', tenantId = null) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
 
-      const [batches] = await connection.query(
-        `SELECT * FROM dgii_ncf_sequences 
-         WHERE tipo_comprobante = ? AND estado = 'Activo' AND cantidad_usada < cantidad_aprobada 
-         ORDER BY id ASC LIMIT 1 FOR UPDATE`,
-        [tipo]
-      );
+      const querySql = tenantId
+        ? `SELECT * FROM dgii_ncf_sequences 
+           WHERE tipo_comprobante = ? AND estado = 'Activo' AND cantidad_usada < cantidad_aprobada AND tenant_id = ? 
+           ORDER BY id ASC LIMIT 1 FOR UPDATE`
+        : `SELECT * FROM dgii_ncf_sequences 
+           WHERE tipo_comprobante = ? AND estado = 'Activo' AND cantidad_usada < cantidad_aprobada AND tenant_id IS NULL 
+           ORDER BY id ASC LIMIT 1 FOR UPDATE`;
+      const queryParams = tenantId ? [tipo, tenantId] : [tipo];
+
+      const [batches] = await connection.query(querySql, queryParams);
 
       if (batches.length === 0) {
         await connection.rollback();
@@ -178,12 +159,18 @@ ${itemsXml}
       const newSecuenciaActual = currentAssignedNum;
       const newEstado = newCantidadUsada >= seq.cantidad_aprobada ? 'Agotado' : 'Activo';
 
-      await connection.query(
-        `UPDATE dgii_ncf_sequences 
-         SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
-         WHERE id = ?`,
-        [newCantidadUsada, newSecuenciaActual, newEstado, seq.id]
-      );
+      const updateSql = tenantId
+        ? `UPDATE dgii_ncf_sequences 
+           SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
+           WHERE id = ? AND tenant_id = ?`
+        : `UPDATE dgii_ncf_sequences 
+           SET cantidad_usada = ?, secuencia_actual = ?, estado = ?, updated_at = NOW() 
+           WHERE id = ? AND tenant_id IS NULL`;
+      const updateParams = tenantId
+        ? [newCantidadUsada, newSecuenciaActual, newEstado, seq.id, tenantId]
+        : [newCantidadUsada, newSecuenciaActual, newEstado, seq.id];
+
+      await connection.query(updateSql, updateParams);
 
       await connection.commit();
       console.log(`✅ [DGII NOTA CRÉDITO SECUENCIA ATÓMICA]: Asignado ${encfNumber} (Usados ${newCantidadUsada}/${seq.cantidad_aprobada})`);
@@ -199,31 +186,27 @@ ${itemsXml}
 
   function buildAndSignNotaCreditoXml(visit, encfE34, voidReasonText, items) {
     const total = Number(visit.total || 0);
-    const { fecha: fechaEmision, fechaHora: fechaHoraFirma } = formatDRDate(new Date());
-    const { fecha: fechaNCFModificado } = formatDRDate(visit.visited_at || Date.now());
-
-    const rncClean = String(visit.rnc_cliente || '').replace(/\D/g, '');
-    const hasValidRnc = rncClean.length === 9 || rncClean.length === 11;
+    const dateObj = new Date();
+    const origDateObj = new Date(visit.visited_at || Date.now());
+    const pad = (n) => String(n).padStart(2, '0');
+    const fechaEmision = `${pad(dateObj.getDate())}-${pad(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
+    const fechaNCFModificado = `${pad(origDateObj.getDate())}-${pad(origDateObj.getMonth() + 1)}-${origDateObj.getFullYear()}`;
+    const fechaHoraFirma = `${fechaEmision} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
 
     const itemsXml = (items || []).map((item, idx) => {
       const precio = Number(item.precioAplicado || item.precio || 0);
       const cant = Number(item.cantidad || 1);
       const itemTotal = precio * cant;
       return `    <Item>
-      <NumeroLinea>${idx + 1}</NumeroLinea>
-      <IndicadorFacturacion>4</IndicadorFacturacion>
-      <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
-      <IndicadorBienoServicio>2</IndicadorBienoServicio>
-      <CantidadItem>${cant.toFixed(2)}</CantidadItem>
-      <UnidadMedida>55</UnidadMedida>
-      <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
-      <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
-    </Item>`;
+        <NumeroLinea>${idx + 1}</NumeroLinea>
+        <IndicadorFacturacion>4</IndicadorFacturacion>
+        <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
+        <IndicadorBienoServicio>2</IndicadorBienoServicio>
+        <CantidadItem>${cant.toFixed(2)}</CantidadItem>
+        <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
+        <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
+      </Item>`;
     }).join('\n');
-
-    const rncCompradorXml = hasValidRnc
-      ? `      <RNCComprador>${rncClean}</RNCComprador>\n`
-      : '';
 
     const rawXml = `<?xml version="1.0" encoding="utf-8"?>
 <ECF>
@@ -232,29 +215,27 @@ ${itemsXml}
     <IdDoc>
       <TipoeCF>34</TipoeCF>
       <eNCF>${encfE34}</eNCF>
-      <IndicadorNotaCredito>0</IndicadorNotaCredito>
+      <FechaVencimientoSecuencia>31-12-2028</FechaVencimientoSecuencia>
       <IndicadorMontoGravado>0</IndicadorMontoGravado>
       <TipoIngresos>01</TipoIngresos>
       <TipoPago>1</TipoPago>
+      <FechaEmision>${fechaEmision}</FechaEmision>
     </IdDoc>
     <Emisor>
       <RNCEmisor>131917038</RNCEmisor>
       <RazonSocialEmisor>ETEREAS SRL</RazonSocialEmisor>
       <NombreComercial>ETÉREAS</NombreComercial>
       <DireccionEmisor>LOS PALMEROS, No. 3, APTO. PLAZA BRAVO, BARRIO NUEVO</DireccionEmisor>
-      <Municipio>010100</Municipio>
-      <Provincia>010000</Provincia>
-      <TablaTelefonoEmisor>
-        <TelefonoEmisor>809-792-3555</TelefonoEmisor>
-      </TablaTelefonoEmisor>
-      <CorreoEmisor>RODRIGUEZ1619@HOTMAIL.COM</CorreoEmisor>
       <FechaEmision>${fechaEmision}</FechaEmision>
     </Emisor>
     <Comprador>
-${rncCompradorXml}      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
+      <RNCComprador>${visit.rnc_cliente || ''}</RNCComprador>
+      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
     </Comprador>
     <Totales>
+      <MontoGravadoTotal>0.00</MontoGravadoTotal>
       <MontoExento>${total.toFixed(2)}</MontoExento>
+      <TotalITBIS>0.00</TotalITBIS>
       <MontoTotal>${total.toFixed(2)}</MontoTotal>
     </Totales>
   </Encabezado>
@@ -283,16 +264,22 @@ ${itemsXml}
     return { signedXml: rawXml, fechaHoraFirma, fechaEmision };
   }
 
-  async function transmitInvoiceDirectlyToDgii(visitId) {
+  async function transmitInvoiceDirectlyToDgii(visitId, tenantId = null) {
     try {
       if (!dgiiPrivateKeyPem || !dgiiCertificatePem || !ECF) {
         console.warn('[DGII AUTO-TRANSMIT] Certificado digital o librería no disponible.');
         return null;
       }
 
-      const [visitRows] = await pool.query('SELECT * FROM visits WHERE id = ?', [visitId]);
+      if (!tenantId) {
+        console.warn('[DGII AUTO-TRANSMIT] tenantId es requerido para aislar la consulta.');
+        return null;
+      }
+
+      const [visitRows] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [visitId, tenantId]);
       if (!visitRows || visitRows.length === 0) return null;
       const visit = visitRows[0];
+      const resolvedTenantId = tenantId;
       if (!visit.ncf) return null;
 
       let items = [];
@@ -333,24 +320,16 @@ ${itemsXml}
         
         qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${rncEmisor}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&CodigoSeguridad=${securityCode}`;
       } else {
-        if (typeof getCodeSixDigitfromSignature === 'function') {
-          try {
-            securityCode = getCodeSixDigitfromSignature(signedXml) || securityCode;
-          } catch (_) {}
-        } else {
-          const sigMatch = signedXml.match(/<SignatureValue>\s*([^<\s]{6})/);
-          if (sigMatch && sigMatch[1]) securityCode = sigMatch[1];
-        }
         const fileName = `${rncEmisor}${encf}.xml`;
         const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
         console.log(`✅ [DGII TRANSMISIÓN EN TIEMPO REAL e-CF]: ${encf} -> TrackID: ${resp?.trackId}`);
         
-        qrUrl = `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${visit.rnc_cliente || ''}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${encodeURIComponent(fechaHoraFirma)}&CodigoSeguridad=${encodeURIComponent(securityCode)}`;
+        qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${visit.rnc_cliente || ''}&ENCF=${encf}&MontoTotal=${totalNum.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${securityCode}`;
       }
 
       await pool.query(
-        'UPDATE visits SET codigo_seguridad_ecf = ?, qr_code_url = ? WHERE id = ?',
-        [securityCode, qrUrl, visitId]
+        'UPDATE visits SET codigo_seguridad_ecf = ?, qr_code_url = ? WHERE id = ? AND tenant_id = ?',
+        [securityCode, qrUrl, visitId, resolvedTenantId]
       );
 
       return { success: true, encf, securityCode, qrUrl };
@@ -360,41 +339,11 @@ ${itemsXml}
     }
   }
 
-  async function generateAndTransmitNotaCredito(visit, voidReasonText, userWhoVoided) {
-    if (!visit) return null;
-
-    if (typeof visit === 'string' || typeof visit === 'number') {
-      const [rows] = await pool.query('SELECT * FROM visits WHERE id = ?', [visit]);
-      visit = rows[0];
-      if (!visit) return null;
-    }
-
-    // Validación Fiscal 1: No generar nota de crédito para facturas sin comprobante o no fiscales
-    const originalNcf = (visit.ncf || '').trim();
-    const isFiscalNcf = originalNcf && originalNcf !== 'NONE' && (
-      originalNcf.startsWith('E31') || 
-      originalNcf.startsWith('E32') || 
-      originalNcf.startsWith('E34') || 
-      originalNcf.startsWith('B')
-    );
-    if (!isFiscalNcf) {
-      console.warn(`⚠️ [DGII NOTA CREDITO OMITIDA]: La visita ${visit.id} no posee e-NCF fiscal válido (NCF='${originalNcf}'). No se emite Nota de Crédito E34.`);
-      return null;
-    }
-
-    // Validación Fiscal 2: Prevención de doble consumo de secuencia para la misma factura
-    if (visit.ncf_nota_credito && visit.nota_credito_track_id) {
-      console.warn(`ℹ️ [DGII NOTA CREDITO EXISTENTE]: La visita ${visit.id} ya posee Nota de Crédito transmitida (${visit.ncf_nota_credito}, TrackID: ${visit.nota_credito_track_id}). Reutilizando registro sin consumir secuencia adicional.`);
-      return Object.assign(new String(visit.ncf_nota_credito), {
-        encf: visit.ncf_nota_credito,
-        trackId: visit.nota_credito_track_id,
-        signedXml: visit.nota_credito_xml || null,
-        alreadyIssued: true
-      });
-    }
-
+  async function generateAndTransmitNotaCredito(visit, voidReasonText, userWhoVoided, tenantId = null) {
+    if (!visit || !visit.ncf) return null;
     try {
-      const encfE34 = visit.ncf_nota_credito || await allocateNextDgiiSequence('E34');
+      const resolvedTenantId = tenantId || visit.tenant_id || null;
+      const encfE34 = await allocateNextDgiiSequence('E34', resolvedTenantId);
       if (!encfE34) {
         console.warn('⚠️ [DGII NOTA CREDITO]: No hay secuencias E34 disponibles.');
         return null;
@@ -418,37 +367,27 @@ ${itemsXml}
       const rncEmisor = '131917038';
       const fileName = `${rncEmisor}${encfE34}.xml`;
 
-      let trackId = null;
       if (dgiiPrivateKeyPem && dgiiCertificatePem && ECF) {
-        try {
-          const ecfClient = new ECF({ key: dgiiPrivateKeyPem, cert: dgiiCertificatePem }, ENVIRONMENT.PROD);
-          await ecfClient.authenticate();
-          const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
-          trackId = resp?.trackId || null;
-          console.log(`✅ [DGII NOTA DE CRÉDITO TRANSMITIDA]: ${encfE34} modificando ${visit.ncf} -> TrackID: ${trackId}`);
-        } catch (txErr) {
-          console.error(`⚠️ [DGII NOTA DE CRÉDITO TRANSMISIÓN FALLÓ]: ${encfE34}:`, txErr.message);
-        }
+        const ecfClient = new ECF({ key: dgiiPrivateKeyPem, cert: dgiiCertificatePem }, ENVIRONMENT.PROD);
+        await ecfClient.authenticate();
+        const resp = await ecfClient.sendElectronicDocument(signedXml, fileName);
+        console.log(`✅ [DGII NOTA DE CRÉDITO TRANSMITIDA]: ${encfE34} modificando ${visit.ncf} -> TrackID: ${resp?.trackId}`);
       }
 
-      await pool.query(
-        `UPDATE visits SET 
+      if (!resolvedTenantId) {
+        console.warn('[DGII NOTA CREDITO] tenant_id es requerido para aislar la actualización.');
+        return null;
+      }
+
+      const updateVoidSql = `UPDATE visits SET 
           ncf_nota_credito = ?, 
           nota_credito_motivo = ?, 
-          nota_credito_fecha = NOW(),
-          nota_credito_track_id = ?,
-          nota_credito_xml = ?
-         WHERE id = ?`,
-        [encfE34, voidReasonText, trackId, signedXml, visit.id]
-      );
+          nota_credito_fecha = NOW() 
+         WHERE id = ? AND tenant_id = ?`;
 
-      const result = Object.assign(new String(encfE34), {
-        encf: encfE34,
-        trackId: trackId,
-        signedXml: signedXml
-      });
+      await pool.query(updateVoidSql, [encfE34, voidReasonText, visit.id, resolvedTenantId]);
 
-      return result;
+      return encfE34;
     } catch (err) {
       console.error('❌ [DGII NOTA CREDITO ERROR]:', err);
       return null;

@@ -408,7 +408,7 @@ const AUDIENCE_OPTIONS = [
                     onClick={() => setCampaignType('image')}
                     style={{
                       flex: 1, padding: '0.75rem 1rem',
-                      borderRadius: '12px', border: 'none',
+                      borderRadius: '12px',
                       cursor: 'pointer', fontWeight: 700, fontSize: '0.875rem',
                       background: campaignType === 'image' ? '#09090b' : 'transparent',
                       color: campaignType === 'image' ? 'white' : 'var(--text-secondary)',

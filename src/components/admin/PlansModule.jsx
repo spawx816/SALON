@@ -24,7 +24,7 @@ const PlanCard = ({ plan, onEdit, onDelete, t }) => {
   const hasDiscount = plan.discount && plan.discount > 0;
   const originalPrice = parseFloat(plan.price || 0);
   const discountedPrice = hasDiscount ? (originalPrice - (originalPrice * plan.discount / 100)).toFixed(2) : plan.price;
-  const isFeatured = (plan.location || '').includes('Abatte') || (plan.title || '').toLowerCase().includes('beauty');
+  const isFeatured = (plan.location || '').toLowerCase().includes('principal') || (plan.title || '').toLowerCase().includes('beauty');
 
   const regularServices = safeArray(plan.services);
   const promoServices = safeArray(plan.promo_services);

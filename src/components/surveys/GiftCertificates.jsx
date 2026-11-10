@@ -22,7 +22,7 @@ const GiftCertificates = () => {
 
   const handleSendWhatsApp = (code) => {
     const targetCode = code || generatedCode;
-    const text = `¡Hola! Te he enviado un regalo de Abatte Peluquería por valor de RD$ ${preview.m}. Tu código de canje es: ${targetCode}. Úsalo en nuestra sucursal San Vicente De Paul. ✨`;
+    const text = `¡Hola! Te he enviado una tarjeta de regalo por valor de RD$ ${preview.m}. Tu código de canje es: ${targetCode}. ¡Disfrútala en tu próxima visita! ✨`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
@@ -111,7 +111,7 @@ const GiftCertificates = () => {
 
       // 2. Configurar el Iframe de CardNet (sin logo externo roto)
       window.PWCheckout.SetProperties({
-        "name": "Abatte Peluquería",
+        "name": user?.salon_name || "SalonPro / Plan Beauty",
         "email": user?.email || "correo@default.com",
         "button_label": `Pagar Regalo RD$ ${preview.m}`,
         "description": "Compra de Tarjeta de Regalo",

@@ -6,10 +6,15 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
 
   router.post('/force-retry', async (req, res) => {
     const { clientId } = req.body;
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+    }
+
     try {
       const [result] = await pool.query(
-        "UPDATE contracts SET status = 'Pending_Retry', retry_count = 1, next_retry_date = DATE_SUB(NOW(), INTERVAL 5 MINUTE) WHERE client_id = ?",
-        [clientId]
+        "UPDATE contracts SET status = 'Pending_Retry', retry_count = 1, next_retry_date = DATE_SUB(NOW(), INTERVAL 5 MINUTE) WHERE client_id = ? AND tenant_id = ?",
+        [clientId, tenantId]
       );
       res.json({ success: true, message: `Contrato ${clientId} listo para reintento.`, affectedRows: result.affectedRows });
     } catch (err) {
@@ -19,10 +24,15 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
 
   router.post('/manual-charge', async (req, res) => {
     const { clientId, amount } = req.body;
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+    }
+
     try {
       const [contracts] = await pool.query(
-        "SELECT card_token, id FROM contracts WHERE client_id = ? AND status = 'Active' LIMIT 1",
-        [clientId]
+        "SELECT card_token, id FROM contracts WHERE client_id = ? AND tenant_id = ? AND status = 'Active' LIMIT 1",
+        [clientId, tenantId]
       );
 
       if (!contracts[0]?.card_token) {
@@ -62,8 +72,8 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
       });
 
       await pool.query(
-        'INSERT INTO payments (id, client_id, amount, method, status, gateway_ref, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [`PAY-TEST-${Date.now()}`, clientId, amount, 'CardNet_Manual_Test', 'Test', purchasePayload.Order, 'Prueba Manual de Certificación', JSON.stringify(purchaseRes.data)]
+        'INSERT INTO payments (id, tenant_id, client_id, amount, method, status, gateway_ref, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [`PAY-TEST-${Date.now()}`, tenantId, clientId, amount, 'CardNet_Manual_Test', 'Test', purchasePayload.Order, 'Prueba Manual de Certificación', JSON.stringify(purchaseRes.data)]
       );
 
     } catch (err) {
@@ -73,8 +83,13 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
   });
 
   router.get('/clients', async (req, res) => {
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+    }
+
     try {
-      const [rows] = await pool.query("SELECT id, nombre, email, cardnet_customer_id FROM clients");
+      const [rows] = await pool.query("SELECT id, nombre, email, cardnet_customer_id FROM clients WHERE tenant_id = ?", [tenantId]);
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -84,4 +99,6 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
   return router;
 }
 
-module.exports = { createTestRouter };
+module.exports = {
+  createTestRouter
+};

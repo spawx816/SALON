@@ -23,7 +23,7 @@ const getWhatsAppUrl = (phone, clientName) => {
   const digits = String(phone).replace(/\D/g, '');
   if (!digits || digits.length < 7) return null;
   const cleanNumber = digits.length === 10 ? `1${digits}` : digits;
-  const msg = encodeURIComponent(`¡Hola ${clientName || ''}! Te saludamos de Abatte Peluquería / Plan Beauty RD.`);
+  const msg = encodeURIComponent(`¡Hola ${clientName || ''}! Te saludamos de Plan Beauty RD / SalonPro.`);
   return `https://wa.me/${cleanNumber}?text=${msg}`;
 };
 
@@ -479,7 +479,7 @@ const ClientProfile = () => {
 
       // Configurar propiedades correctas para el Iframe (sin imagen rota de Imgur)
       window.PWCheckout.SetProperties({
-        "name": "Abatte Peluquería",
+        "name": client.salon_name || "Plan Beauty RD / SalonPro",
         "email": client.email || "correo@default.com",
         "button_label": "Guardar Tarjeta",
         "description": "Actualización de Método de Pago",

@@ -189,7 +189,7 @@ const Payments = () => {
     const cleanPhone = rawPhone.length === 10 ? `1${rawPhone}` : rawPhone;
     const clientName = payment.client_name ? payment.client_name.split(' ')[0] : 'Estimada clienta';
     const message = encodeURIComponent(
-      `Hola ${clientName}, te saludamos de Plan Beauty RD / Abatte Peluquería ✨\n\nTe escribimos porque tuvimos un inconveniente al procesar el cobro automático de tu suscripción de RD$ ${payment.amount}.\n\nPor favor contáctanos o ingresa a tu perfil para actualizar tu tarjeta y mantener tus beneficios de lavado y belleza activos sin interrupciones 💕`
+      `Hola ${clientName}, te saludamos de tu salón en Plan Beauty RD ✨\n\nTe escribimos porque tuvimos un inconveniente al procesar el cobro automático de tu suscripción de RD$ ${payment.amount}.\n\nPor favor contáctanos o ingresa a tu perfil para actualizar tu tarjeta y mantener tus beneficios de lavado y belleza activos sin interrupciones 💕`
     );
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
   };

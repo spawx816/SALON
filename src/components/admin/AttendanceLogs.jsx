@@ -1527,7 +1527,7 @@ const AttendanceLogs = () => {
         <body>
           <div class="header-container">
             <div class="logo-area">
-              <span class="logo-brand">ABATTE</span><span class="logo-sub">PELUQUERÍA</span>
+              <span class="logo-brand">${activeSalon?.name || 'SALONPRO'}</span>
             </div>
             <div class="report-meta">
               <span class="report-tag">DOCUMENTO ADMINISTRATIVO</span>
@@ -1624,7 +1624,7 @@ const AttendanceLogs = () => {
           </div>
           
           <div class="footer">
-            Este reporte es confidencial y para uso exclusivo administrativo de Abatte Peluquería.
+            Este reporte es confidencial y para uso exclusivo administrativo del establecimiento.
           </div>
         </body>
       </html>
@@ -4908,7 +4908,6 @@ const AttendanceLogs = () => {
                                 type="button"
                                 onClick={() => handleToggleHolidayActive(holiday)}
                                 style={{
-                                  border: 'none',
                                   background: holiday.is_active ? '#dcfce7' : '#f1f5f9',
                                   color: holiday.is_active ? '#15803d' : '#94a3b8',
                                   padding: '0.35rem 0.75rem',

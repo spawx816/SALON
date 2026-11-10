@@ -377,14 +377,14 @@ const PlanBelleza = () => {
               </p>
             </div>
 
-            {/* 11. Calidad Abatte */}
+            {/* 11. Calidad Salones Afiliados */}
             <div className="surface-card" style={{ padding: '1.75rem', borderRadius: '20px', border: '1px solid #e2e8f0', background: 'white' }}>
               <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(212, 175, 55, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem' }}>
                 <CheckCircle2 size={20} color="#d4af37" />
               </div>
               <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>Calidad y Confianza</h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', lineHeight: 1.6 }}>
-                Disfruta de la experiencia, atención y calidad excepcional en lavados y secados que distinguen a Abatte Peluquería.
+                Disfruta de la experiencia, atención y calidad excepcional en lavados y secados que distinguen a nuestra red de salones afiliados.
               </p>
             </div>
 

@@ -1,24 +1,24 @@
 const express = require('express');
 
 /**
- * Creates and configures the Express Router for Holidays & Calendar management.
- * @param {import('mysql2/promise').Pool} pool - Database connection pool
- * @returns {express.Router}
+ * Holidays & Calendar management Router (Scoped strictly by tenant_id)
  */
 function createHolidaysRouter(pool) {
   const router = express.Router();
 
-  // 1. Obtener todos los días feriados (con opción de filtrar por año)
+  // 1. Obtener todos los días feriados del tenant
   router.get('/', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { year } = req.query;
       let query = `
         SELECT id, DATE_FORMAT(date, '%Y-%m-%d') as date, name, type, rate_multiplier, is_active, notes, created_at 
         FROM holidays
+        WHERE tenant_id = ?
       `;
-      const params = [];
+      const params = [tenantId];
       if (year) {
-        query += ` WHERE YEAR(date) = ?`;
+        query += ` AND YEAR(date) = ?`;
         params.push(year);
       }
       query += ` ORDER BY date ASC`;
@@ -31,42 +31,40 @@ function createHolidaysRouter(pool) {
     }
   });
 
-  // 2. Crear un nuevo día feriado
+  // 2. Crear un nuevo día feriado en el tenant
   router.post('/', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { date, name, type, rate_multiplier, is_active, notes } = req.body;
       if (!date || !name) {
         return res.status(400).json({ error: 'La fecha y el nombre del día feriado son obligatorios.' });
       }
 
       const [result] = await pool.query(`
-        INSERT INTO holidays (date, name, type, rate_multiplier, is_active, notes)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE 
-          name = VALUES(name), 
-          type = VALUES(type), 
-          rate_multiplier = VALUES(rate_multiplier), 
-          is_active = VALUES(is_active),
-          notes = VALUES(notes)
+        INSERT INTO holidays (tenant_id, date, name, type, rate_multiplier, is_active, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
       `, [
-        date, 
-        name, 
-        type || 'Oficial', 
-        rate_multiplier !== undefined ? rate_multiplier : 1.00, 
-        is_active !== undefined ? is_active : 1, 
+        tenantId,
+        date,
+        name,
+        type || 'Oficial',
+        rate_multiplier !== undefined ? rate_multiplier : 1.00,
+        is_active !== undefined ? is_active : 1,
         notes || null
       ]);
 
-      res.json({ success: true, id: result.insertId || result.id, message: 'Día feriado guardado exitosamente.' });
+      res.json({ success: true, id: result.insertId || result[0]?.id, message: 'Día feriado guardado exitosamente.' });
     } catch (err) {
       console.error('[HOLIDAYS CREATE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 3. Actualizar un día feriado existente
+  // 3. Actualizar un día feriado existente en el tenant
   router.put('/:id', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
       const { date, name, type, rate_multiplier, is_active, notes } = req.body;
 
@@ -78,8 +76,8 @@ function createHolidaysRouter(pool) {
             rate_multiplier = COALESCE(?, rate_multiplier),
             is_active = COALESCE(?, is_active),
             notes = COALESCE(?, notes)
-        WHERE id = ?
-      `, [date, name, type, rate_multiplier, is_active, notes, id]);
+        WHERE id = ? AND tenant_id = ?
+      `, [date, name, type, rate_multiplier, is_active, notes, id, tenantId]);
 
       if (result.affectedRows === 0) {
         return res.status(404).json({ error: 'Día feriado no encontrado.' });
@@ -92,11 +90,12 @@ function createHolidaysRouter(pool) {
     }
   });
 
-  // 4. Eliminar un día feriado
+  // 4. Eliminar un día feriado en el tenant
   router.delete('/:id', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      const [result] = await pool.query('DELETE FROM holidays WHERE id = ?', [id]);
+      const [result] = await pool.query('DELETE FROM holidays WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (result.affectedRows === 0) {
         return res.status(404).json({ error: 'Día feriado no encontrado.' });
       }
@@ -107,9 +106,10 @@ function createHolidaysRouter(pool) {
     }
   });
 
-  // 5. Re-sembrar feriados oficiales de República Dominicana
+  // 5. Re-sembrar feriados oficiales de República Dominicana en el tenant
   router.post('/seed', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const year = req.body.year || 2026;
       const defaultHolidays = [
         [`${year}-01-01`, 'Año Nuevo', 'Oficial', 2.00, 1],
@@ -126,15 +126,18 @@ function createHolidaysRouter(pool) {
         [`${year}-12-25`, 'Día de Navidad', 'Oficial', 2.00, 1]
       ];
 
+      await pool.query('DELETE FROM holidays WHERE tenant_id = ? AND YEAR(date) = ?', [tenantId, year]);
       for (const h of defaultHolidays) {
         await pool.query(`
-          INSERT INTO holidays (date, name, type, rate_multiplier, is_active)
-          VALUES (?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE name = VALUES(name), type = VALUES(type), rate_multiplier = VALUES(rate_multiplier), is_active = VALUES(is_active)
-        `, h);
+          INSERT INTO holidays (tenant_id, date, name, type, rate_multiplier, is_active)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [tenantId, ...h]);
       }
 
-      const [rows] = await pool.query("SELECT id, DATE_FORMAT(date, '%Y-%m-%d') as date, name, type, rate_multiplier, is_active FROM holidays ORDER BY date ASC");
+      const [rows] = await pool.query(
+        "SELECT id, DATE_FORMAT(date, '%Y-%m-%d') as date, name, type, rate_multiplier, is_active FROM holidays WHERE tenant_id = ? ORDER BY date ASC",
+        [tenantId]
+      );
       res.json({ success: true, message: `Feriados del año ${year} restablecidos con éxito.`, holidays: rows });
     } catch (err) {
       console.error('[HOLIDAYS SEED ERROR]:', err.message);

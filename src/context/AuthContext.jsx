@@ -42,10 +42,29 @@ export const AuthProvider = ({ children }) => {
           localStorage.removeItem('salon_pro_user');
           alert(`⚠️ Sesión finalizada: ${reasonMsg}`);
           window.location.href = '/login';
-        } else if (check && check.sessionId && check.sessionId !== currentUser.sessionId) {
-          const updated = { ...currentUser, sessionId: check.sessionId };
-          setUser(updated);
-          localStorage.setItem('salon_pro_user', JSON.stringify(updated));
+        } else if (check) {
+          let needsUpdate = false;
+          let updated = { ...currentUser };
+
+          if (check.sessionId && check.sessionId !== currentUser.sessionId) {
+            updated.sessionId = check.sessionId;
+            needsUpdate = true;
+          }
+
+          if (check.tenant) {
+            const prevTenantJson = JSON.stringify(currentUser.tenant || {});
+            const nextTenantJson = JSON.stringify(check.tenant);
+            if (prevTenantJson !== nextTenantJson) {
+              updated.tenant = check.tenant;
+              updated.salon_name = check.tenant.business_name || updated.salon_name;
+              needsUpdate = true;
+            }
+          }
+
+          if (needsUpdate) {
+            setUser(updated);
+            localStorage.setItem('salon_pro_user', JSON.stringify(updated));
+          }
         }
       } catch (err) {
         // En caso de corte de conexión temporal se mantiene sesión

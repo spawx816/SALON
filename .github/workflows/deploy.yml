@@ -19,9 +19,13 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Build Frontend
+      - name: Run Phase 1 Security & Quality Gates
         run: |
           npm ci
+          npm run test:scanner
+          npm run test:pii
+          npm run test:parity
+          npm run lint
           npm run build
 
       - name: Copy Files to VPS via SSH

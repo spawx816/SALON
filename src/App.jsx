@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -6,131 +6,92 @@ import {
   FileSignature, PieChart, Bell, Settings, User, TrendingUp, Mail, Gift, Search, MapPin,
   Sparkles, Star, UserPlus, Clock, Phone, Percent, Receipt, Wallet, BadgePercent,
   Landmark, ChevronDown, ChevronRight, FileSpreadsheet, ArrowDownLeft, Shield, DollarSign, History,
-  Crown, ShoppingCart, UserCheck, Key, BarChart2, BarChart3, Banknote, ArrowDownCircle
+  Crown, ShoppingCart, UserCheck, Key, BarChart2, BarChart3, Banknote, ArrowDownCircle,
+  Building2, Package, Palette
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { EntitlementsProvider, useEntitlements } from './context/EntitlementsContext';
+import { TenantBrandingProvider, useTenantBranding } from './context/TenantBrandingContext';
 import { LanguageProvider, useTranslation } from './context/LanguageContext';
 import { NotificationProvider, useNotification } from './context/NotificationContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import FeatureForbiddenGate from './components/common/FeatureForbiddenGate';
+import NotFoundPage from './components/common/NotFoundPage';
 
-// Pages & Components
+// Core Eager Pages & Components (High-frequency entry routes)
 import Login from './pages/Login';
 import Dashboard from './components/admin/Dashboard';
-import ClientDashboard from './components/clients/ClientDashboard';
-import ClientRegistration from './components/clients/ClientRegistration';
 import VisitRecorder from './components/visits/VisitRecorder';
-import InvoiceHistory from './components/admin/InvoiceHistory';
-import CashRegistersModule from './components/admin/CashRegistersModule';
-import EmployeeDiscountsModule from './components/admin/EmployeeDiscountsModule';
-import SatisfactionSurvey from './components/surveys/SatisfactionSurvey';
-import GiftCertificates from './components/surveys/GiftCertificates';
-import ClientServices from './components/clients/ClientServices';
-import ActivateAccount from './pages/ActivateAccount';
-import CardNetTest from './pages/CardNetTest';
-import DigitalContract from './components/contracts/DigitalContract';
-import ServiceManagement from './components/services/ServiceManagement';
-import CommissionManagement from './components/commissions/CommissionManagement';
-import Payments from './components/admin/Payments';
-import PlansModule from './components/admin/PlansModule';
-import ClientProfile from './components/clients/ClientProfile';
-import MarketingModule from './components/admin/MarketingModule';
-import ServiceAnalytics from './components/admin/ServiceAnalytics';
-import BusinessIntelligence from './components/bi/BusinessIntelligence';
-import StaffModule from './components/admin/StaffModule';
-import SalonsModule from './components/admin/SalonsModule';
-import SettingsModule from './components/admin/SettingsModule';
-import AdminGiftCards from './components/admin/AdminGiftCards';
-import AdminSurveys from './components/surveys/AdminSurveys';
-import GiftCardValidator from './components/admin/GiftCardValidator';
-import AttendanceKiosk from './pages/AttendanceKiosk';
-import AttendanceLogs from './components/admin/AttendanceLogs';
-import DgiiSequencesModule from './components/admin/DgiiSequencesModule';
-import CreditNotesModule from './components/admin/CreditNotesModule';
-import Reporte607Module from './components/admin/Reporte607Module';
-import Reporte606Module from './components/admin/Reporte606Module';
-import ReporteIT1Module from './components/admin/ReporteIT1Module';
-import ExpensesModule from './components/admin/ExpensesModule';
-import PayrollModule from './components/payroll/PayrollModule';
-import SecurityModule from './components/admin/SecurityModule';
+import SuperAdminDashboard from './components/admin/SuperAdminDashboard';
 import ReceptionMotivationalModal from './components/common/ReceptionMotivationalModal';
 import ReceptionDashboard from './components/reception/ReceptionDashboard';
+import GiftCardValidator from './components/admin/GiftCardValidator';
+
+// Code-Split Lazy Modules (Reduced initial bundle size)
+const ClientDashboard = lazy(() => import('./components/clients/ClientDashboard'));
+const ClientRegistration = lazy(() => import('./components/clients/ClientRegistration'));
+const InvoiceHistory = lazy(() => import('./components/admin/InvoiceHistory'));
+const CashRegistersModule = lazy(() => import('./components/admin/CashRegistersModule'));
+const EmployeeDiscountsModule = lazy(() => import('./components/admin/EmployeeDiscountsModule'));
+const SatisfactionSurvey = lazy(() => import('./components/surveys/SatisfactionSurvey'));
+const GiftCertificates = lazy(() => import('./components/surveys/GiftCertificates'));
+const ClientServices = lazy(() => import('./components/clients/ClientServices'));
+const ActivateAccount = lazy(() => import('./pages/ActivateAccount'));
+const CardNetTest = lazy(() => import('./pages/CardNetTest'));
+const DigitalContract = lazy(() => import('./components/contracts/DigitalContract'));
+const ServiceManagement = lazy(() => import('./components/services/ServiceManagement'));
+const InventoryModule = lazy(() => import('./components/inventory/InventoryModule'));
+const SaasBillingModule = lazy(() => import('./components/saas/SaasBillingModule'));
+const CommissionManagement = lazy(() => import('./components/commissions/CommissionManagement'));
+const Payments = lazy(() => import('./components/admin/Payments'));
+const PlansModule = lazy(() => import('./components/admin/PlansModule'));
+const ClientProfile = lazy(() => import('./components/clients/ClientProfile'));
+const MarketingModule = lazy(() => import('./components/admin/MarketingModule'));
+const ServiceAnalytics = lazy(() => import('./components/admin/ServiceAnalytics'));
+const BusinessIntelligence = lazy(() => import('./components/bi/BusinessIntelligence'));
+const StaffModule = lazy(() => import('./components/admin/StaffModule'));
+const SalonsModule = lazy(() => import('./components/admin/SalonsModule'));
+const SettingsModule = lazy(() => import('./components/admin/SettingsModule'));
+const AdminGiftCards = lazy(() => import('./components/admin/AdminGiftCards'));
+const AdminSurveys = lazy(() => import('./components/surveys/AdminSurveys'));
+const AttendanceKiosk = lazy(() => import('./pages/AttendanceKiosk'));
+const AttendanceLogs = lazy(() => import('./components/admin/AttendanceLogs'));
+const DgiiSequencesModule = lazy(() => import('./components/admin/DgiiSequencesModule'));
+const CreditNotesModule = lazy(() => import('./components/admin/CreditNotesModule'));
+const Reporte607Module = lazy(() => import('./components/admin/Reporte607Module'));
+const Reporte606Module = lazy(() => import('./components/admin/Reporte606Module'));
+const ReporteIT1Module = lazy(() => import('./components/admin/ReporteIT1Module'));
+const ExpensesModule = lazy(() => import('./components/admin/ExpensesModule'));
+const PayrollModule = lazy(() => import('./components/payroll/PayrollModule'));
+const SecurityModule = lazy(() => import('./components/admin/SecurityModule'));
+const TenantCustomizationModule = lazy(() => import('./components/admin/TenantCustomizationModule'));
 
 import './index.css';
 import Landing from './pages/Landing';
-import PlanBelleza from './pages/PlanBelleza';
-import ComoFunciona from './pages/ComoFunciona';
-import Beneficios from './pages/Beneficios';
-import Salones from './pages/Salones';
-import SalonDetalle from './pages/SalonDetalle';
-import PreguntasFrecuentes from './pages/PreguntasFrecuentes';
-import Contacto from './pages/Contacto';
-import Legal from './pages/Legal';
+import { PublicHeader, PublicFooter } from './components/common/PublicLayout';
+const PlanBelleza = lazy(() => import('./pages/PlanBelleza'));
+const ComoFunciona = lazy(() => import('./pages/ComoFunciona'));
+const Beneficios = lazy(() => import('./pages/Beneficios'));
+const Salones = lazy(() => import('./pages/Salones'));
+const SalonDetalle = lazy(() => import('./pages/SalonDetalle'));
+const PreguntasFrecuentes = lazy(() => import('./pages/PreguntasFrecuentes'));
+const Contacto = lazy(() => import('./pages/Contacto'));
+const Legal = lazy(() => import('./pages/Legal'));
 
-// Public header and footer layouts for marketing pages (when not logged in)
-const PublicHeader = () => (
-  <header className="landing-header">
-    <div className="container">
-      <nav className="landing-nav">
-        <div className="logo">
-          <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
-          <p>TU PLAN, TU BELLEZA</p>
-        </div>
-        <ul className="nav-links">
-          <li><Link to="/">Inicio</Link></li>
-          <li><Link to="/plan-de-belleza">Plan</Link></li>
-          <li><Link to="/como-funciona">¿Cómo funciona?</Link></li>
-          <li><Link to="/salones">Sucursales</Link></li>
-        </ul>
-        <Link to="/login" className="login-btn-nav" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <User size={18} />
-          <span>INICIAR SESIÓN</span>
-        </Link>
-      </nav>
+const WorkspaceSkeleton = () => (
+  <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="skeleton-shimmer" style={{ width: '240px', height: '32px', borderRadius: '10px' }} />
+      <div className="skeleton-shimmer" style={{ width: '140px', height: '36px', borderRadius: '10px' }} />
     </div>
-  </header>
-);
-
-const PublicFooter = () => (
-  <footer className="landing-footer" style={{ marginTop: 'auto' }}>
-    <div className="container footer-grid">
-      <div className="footer-brand">
-        <div className="logo">
-          <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
-        </div>
-        <p>Belleza, confianza y profesionalismo en cada servicio.</p>
-      </div>
-      <div className="footer-links-col">
-        <h4>LEGAL</h4>
-        <ul>
-          <li><Link to="/terminos-y-condiciones">Términos y condiciones</Link></li>
-          <li><Link to="/politica-de-privacidad">Privacidad</Link></li>
-          <li><Link to="/cancelacion-y-reembolsos">Cancelaciones y Reembolsos</Link></li>
-          <li><Link to="/preguntas-frecuentes">Preguntas Frecuentes</Link></li>
-          <li><Link to="/contacto">Contacto</Link></li>
-        </ul>
-      </div>
-      <div className="footer-contact">
-        <h4>CONTACTO</h4>
-        <p><MapPin size={14} /> Santo Domingo Este, RD</p>
-        <p><Phone size={14} /> (809) 561-5000</p>
-      </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+      {[1, 2, 3, 4].map((n) => (
+        <div key={n} className="skeleton-shimmer" style={{ height: '132px', borderRadius: '16px' }} />
+      ))}
     </div>
-    <div className="footer-bottom">
-      <p style={{ margin: 0 }}>&copy; 2026 PlanBeautyRD. Todos los derechos reservados.</p>
-      <p style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: '#94a3b8' }}>
-        Plataforma desarrollada por{' '}
-        <a 
-          href="https://www.instagram.com/_spawx_/" 
-          target="_blank" 
-          rel="noopener noreferrer" 
-          style={{ color: '#d4af37', textDecoration: 'none', fontWeight: 700 }}
-        >
-          Anderson Ramirez
-        </a>
-      </p>
-    </div>
-  </footer>
+    <div className="skeleton-shimmer" style={{ height: '360px', borderRadius: '16px' }} />
+  </div>
 );
 
 const SidebarLink = ({ to, icon: Icon, label, active, onClick }) => (
@@ -142,6 +103,7 @@ const SidebarLink = ({ to, icon: Icon, label, active, onClick }) => (
 
 const AppContent = () => {
   const { user, logout } = useAuth();
+  const { branding } = useTenantBranding();
   const { lang, changeLanguage, t } = useTranslation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
@@ -157,16 +119,40 @@ const AppContent = () => {
   const navigate = useNavigate();
 
   const isSalesActive = location.pathname.startsWith('/visitas') || location.pathname.startsWith('/cajas') || location.pathname.startsWith('/facturas') || location.pathname.startsWith('/servicios') || location.pathname.startsWith('/marketing');
-  const isSubscriptionsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/contratos') || location.pathname.startsWith('/pagos') || location.pathname.startsWith('/encuesta') || location.pathname.startsWith('/planes') || location.pathname.startsWith('/sucursales') || location.pathname.startsWith('/regalos');
+  const isSubscriptionsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/contratos') || location.pathname.startsWith('/pagos') || location.pathname.startsWith('/encuesta') || location.pathname.startsWith('/planes') || location.pathname.startsWith('/regalos');
   const isTeamActive = location.pathname.startsWith('/equipo') || location.pathname.startsWith('/admin/asistencia');
-  const isAdministrationActive = location.pathname.startsWith('/seguridad') || location.pathname.startsWith('/configuracion');
+  const isAdministrationActive = location.pathname.startsWith('/seguridad') || location.pathname.startsWith('/configuracion') || location.pathname.startsWith('/sucursales') || location.pathname.startsWith('/personalizacion');
   const isAccountingActive = location.pathname.startsWith('/secuencias-dgii') || location.pathname.startsWith('/contabilidad') || location.pathname.startsWith('/notas-credito') || location.pathname.startsWith('/reporte-607') || location.pathname.startsWith('/reporte-606') || location.pathname.startsWith('/itbis-it1') || location.pathname.startsWith('/egresos');
   const isBiActive = location.pathname.startsWith('/analitica');
   const isPayrollActive = location.pathname.startsWith('/nomina') || location.pathname.startsWith('/comisiones') || location.pathname.startsWith('/descuentos-empleados');
 
-  const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
+  const isSuperAdmin = user?.role?.toLowerCase() === 'superadmin' || user?.role_name?.toLowerCase()?.includes('superadmin');
+  const isAdmin = !isSuperAdmin && (user?.role?.toLowerCase() === 'owner' || user?.role?.toLowerCase() === 'propietario' || user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador');
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
   const isAccountant = user?.role?.toLowerCase() === 'contador' || user?.role_name?.toLowerCase() === 'contador';
+
+  // Dynamic Entitlements State from SaaS Engine
+  const { isPro, isSuspended } = useEntitlements();
+
+  // Control de Planes SaaS (2 niveles: Plan Base vs Plan Pro)
+  // Plan Base: POS, Facturación, Catálogo de Productos/Servicios, Cajas, Usuarios (SIN registro de clientes ni suscripciones).
+  // Plan Pro: Habilita Registro de Clientes + Todo el ecosistema de Suscripciones (Plan Beauty).
+  const hasProPlan = Boolean(
+    !isSuperAdmin && (
+      isPro ||
+      (!user?.tenant && !user?.tenant_id) ||
+      (
+        user?.tenant?.plan_code !== 'base' &&
+        (
+          user?.tenant?.plan_code === 'pro' ||
+          user?.tenant?.has_memberships === true ||
+          user?.tenant?.has_clients === true ||
+          user?.tenant?.included_features?.clients === true ||
+          user?.tenant?.included_features?.memberships === true
+        )
+      )
+    )
+  );
   const isReceptionProfile = Boolean(
     !isAdmin &&
     !isClient &&
@@ -319,18 +305,20 @@ const AppContent = () => {
         <div className="landing-page" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
           <PublicHeader />
           <main style={{ flex: 1 }}>
-            <Routes>
-              <Route path="/plan-de-belleza" element={<PlanBelleza />} />
-              <Route path="/como-funciona" element={<ComoFunciona />} />
-              <Route path="/beneficios" element={<Beneficios />} />
-              <Route path="/salones" element={<Salones />} />
-              <Route path="/salones/:slug" element={<SalonDetalle />} />
-              <Route path="/preguntas-frecuentes" element={<PreguntasFrecuentes />} />
-              <Route path="/contacto" element={<Contacto />} />
-              <Route path="/terminos-y-condiciones" element={<Legal page="terms" />} />
-              <Route path="/politica-de-privacidad" element={<Legal page="privacy" />} />
-              <Route path="/cancelacion-y-reembolsos" element={<Legal page="refunds" />} />
-            </Routes>
+            <Suspense fallback={<WorkspaceSkeleton />}>
+              <Routes>
+                <Route path="/plan-de-belleza" element={<PlanBelleza />} />
+                <Route path="/como-funciona" element={<ComoFunciona />} />
+                <Route path="/beneficios" element={<Beneficios />} />
+                <Route path="/salones" element={<Salones />} />
+                <Route path="/salones/:slug" element={<SalonDetalle />} />
+                <Route path="/preguntas-frecuentes" element={<PreguntasFrecuentes />} />
+                <Route path="/contacto" element={<Contacto />} />
+                <Route path="/terminos-y-condiciones" element={<Legal page="terms" />} />
+                <Route path="/politica-de-privacidad" element={<Legal page="privacy" />} />
+                <Route path="/cancelacion-y-reembolsos" element={<Legal page="refunds" />} />
+              </Routes>
+            </Suspense>
           </main>
           <PublicFooter />
         </div>
@@ -343,9 +331,11 @@ const AppContent = () => {
 
   if (location.pathname === '/asistencia') {
     return (
-      <Routes>
-        <Route path="/asistencia" element={<AttendanceKiosk />} />
-      </Routes>
+      <Suspense fallback={<WorkspaceSkeleton />}>
+        <Routes>
+          <Route path="/asistencia" element={<AttendanceKiosk />} />
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -362,13 +352,26 @@ const AppContent = () => {
 
       {/* Floating Sidebar */}
       <aside className={`floating-sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
-        <div className="sidebar-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1.5rem', marginBottom: '1rem' }}>
-          <Link to="/" onClick={closeMobileMenu} className="brand" style={{ padding: '0.5rem 0', justifyContent: 'center', width: '100%', display: 'flex', textDecoration: 'none' }}>
-            <img 
-              src="/logo-black.png" 
-              alt="PLAN BEAUTY Logo" 
-              style={{ width: '100%', maxWidth: '240px', height: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))', cursor: 'pointer' }} 
-            />
+        <div className="sidebar-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1.25rem', marginBottom: '1rem' }}>
+          <Link to={isSuperAdmin ? "/saas" : "/"} onClick={closeMobileMenu} className="brand" style={{ padding: '0.5rem 0', justifyContent: 'center', width: '100%', display: 'flex', textDecoration: 'none' }}>
+            {isSuperAdmin ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem' }}>
+                <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.02em', color: '#ffffff' }}>Salon<span style={{ color: '#60a5fa' }}>Pro</span></span>
+                <span style={{ fontSize: '0.62rem', background: 'rgba(59,130,246,0.25)', color: '#93c5fd', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.05em' }}>CONTROL PLANE</span>
+              </div>
+            ) : branding?.logo_url ? (
+              <img 
+                src={branding.logo_url} 
+                alt={branding.business_name || 'SalonPro'} 
+                style={{ width: '100%', maxWidth: '220px', maxHeight: '55px', height: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))', cursor: 'pointer' }} 
+              />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.25rem', fontWeight: 900, letterSpacing: '-0.02em', color: '#ffffff' }}>
+                  {branding?.business_name || 'SalonPro'}
+                </span>
+              </div>
+            )}
           </Link>
         </div>
 
@@ -377,11 +380,54 @@ const AppContent = () => {
           <div className="user-info">
             <p className="user-name">{user?.nombre || user?.name || 'Usuario'}</p>
             <p className="user-role">{user?.role_name || user?.role || 'Visitante'}</p>
+            {!isClient && (
+              <span style={{
+                display: 'inline-block',
+                marginTop: '0.25rem',
+                padding: '0.1rem 0.45rem',
+                borderRadius: '4px',
+                fontSize: '0.65rem',
+                fontWeight: 800,
+                letterSpacing: '0.03em',
+                background: isSuperAdmin ? 'rgba(59,130,246,0.2)' : (hasProPlan ? 'rgba(212,175,55,0.2)' : 'rgba(148,163,184,0.2)'),
+                color: isSuperAdmin ? '#60a5fa' : (hasProPlan ? '#fbbf24' : '#cbd5e1'),
+                border: `1px solid ${isSuperAdmin ? 'rgba(59,130,246,0.4)' : (hasProPlan ? 'rgba(212,175,55,0.4)' : 'rgba(148,163,184,0.3)')}`
+              }}>
+                {isSuperAdmin ? 'CONTROL PLANE SAAS' : (hasProPlan ? 'PLAN PRO' : 'PLAN BASE')}
+              </span>
+            )}
           </div>
         </div>
 
         <nav className="sidebar-nav hide-scrollbar">
-          {isClient ? (
+          {isSuperAdmin ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <div style={{ marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                <p className="nav-group-title" style={{ color: '#60a5fa', letterSpacing: '0.05em' }}>CONTROL PLANE SAAS</p>
+                <SidebarLink
+                  to="/saas"
+                  icon={Building2}
+                  label="Salones & Licencias"
+                  active={location.pathname === '/saas' || location.pathname === '/saas/salones'}
+                  onClick={closeMobileMenu}
+                />
+                <SidebarLink
+                  to="/saas/planes"
+                  icon={Package}
+                  label="Planes (Base / Pro)"
+                  active={location.pathname === '/saas/planes'}
+                  onClick={closeMobileMenu}
+                />
+                <SidebarLink
+                  to="/saas/facturacion"
+                  icon={DollarSign}
+                  label="Facturación SaaS"
+                  active={location.pathname === '/saas/facturacion'}
+                  onClick={closeMobileMenu}
+                />
+              </div>
+            </div>
+          ) : isClient ? (
             <>
               <p className="nav-group-title">Mi Pantalla</p>
               <SidebarLink to="/" icon={LayoutDashboard} label="Mi Panel" active={location.pathname === '/'} onClick={closeMobileMenu} />
@@ -397,6 +443,7 @@ const AppContent = () => {
                 <>
                   <p className="nav-group-title">{t('menu.principal')}</p>
                   <SidebarLink to="/" icon={LayoutDashboard} label={t('menu.dashboard')} active={location.pathname === '/'} onClick={closeMobileMenu} />
+                  <SidebarLink to="/inventario" icon={Package} label="Inventario" active={location.pathname === '/inventario' || location.pathname === '/inventory'} onClick={closeMobileMenu} />
                 </>
               )}
               
@@ -431,7 +478,7 @@ const AppContent = () => {
                         <SidebarLink 
                           to="/visitas" 
                           icon={Calendar} 
-                          label="Facturación" 
+                          label="Cobro y Ventas (POS)" 
                           active={location.pathname === '/visitas'} 
                           onClick={closeMobileMenu} 
                         />
@@ -477,8 +524,8 @@ const AppContent = () => {
                 </div>
               )}
 
-              {/* Menú Desplegable Suscripciones */}
-              {!isAccountant && (isAdmin || (user?.permissions && (
+              {/* Menú Desplegable Suscripciones (Exclusivo para Plan Pro) */}
+              {hasProPlan && !isAccountant && (isAdmin || (user?.permissions && (
                 user.permissions.manage_clients || 
                 user.permissions.view_contracts || 
                 user.permissions.process_payments || 
@@ -725,6 +772,33 @@ const AppContent = () => {
                       )}
                       {isAdmin && (
                         <SidebarLink 
+                          to="/sucursales" 
+                          icon={MapPin} 
+                          label="Sucursales" 
+                          active={location.pathname === '/sucursales'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {isAdmin && (
+                        <SidebarLink 
+                          to="/personalizacion" 
+                          icon={Palette} 
+                          label="Personalización & Plan" 
+                          active={location.pathname === '/personalizacion'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {isAdmin && (
+                        <SidebarLink 
+                          to="/facturacion-saas" 
+                          icon={CreditCard} 
+                          label="Suscripción SaaS" 
+                          active={location.pathname === '/facturacion-saas' || location.pathname === '/billing'} 
+                          onClick={closeMobileMenu} 
+                        />
+                      )}
+                      {isAdmin && (
+                        <SidebarLink 
                           to="/configuracion" 
                           icon={Settings} 
                           label="Configuración" 
@@ -963,62 +1037,76 @@ const AppContent = () => {
                 margin: (location.pathname === '/visitas' || (location.pathname === '/' && isReceptionProfile)) ? '0' : '0 auto'
               }}
             >
-              <Routes location={location}>
-                <Route path="/" element={isClient ? <ClientDashboard /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />))} />
-                <Route path="/registro-cliente" element={isClient ? <Navigate to="/" /> : <ClientRegistration />} />
-                <Route path="/lista-clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
-                <Route path="/clientes" element={isClient ? <Navigate to="/" /> : <ClientProfile />} />
-                <Route path="/visitas" element={isAccountant ? <Navigate to="/egresos" replace /> : (isClient ? <Navigate to="/" /> : <VisitRecorder />)} />
-                <Route path="/cajas" element={isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || (user?.permissions && user.permissions.process_payments)) ? <CashRegistersModule /> : <Navigate to="/" />)} />
-                <Route path="/facturas" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <InvoiceHistory /> : <Navigate to="/" />)} />
-                <Route path="/descuentos-empleados" element={(isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) ? <EmployeeDiscountsModule /> : <Navigate to="/" />} />
-                <Route path="/servicios" element={isClient ? <Navigate to="/" /> : <ServiceManagement />} />
-                <Route path="/comisiones" element={isClient ? <Navigate to="/" /> : <CommissionManagement />} />
-                <Route path="/encuesta" element={(isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />} />
-                <Route path="/regalos" element={isAdmin ? <AdminGiftCards /> : <GiftCertificates />} />
-                <Route path="/regalar" element={<GiftCertificates />} />
-                <Route path="/mis-servicios" element={<ClientServices />} />
-                <Route path="/activar" element={<ActivateAccount />} />
-                <Route path="/equipo" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <StaffModule /> : <Navigate to="/" />)} />
-                <Route path="/nomina" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <PayrollModule /> : <Navigate to="/" />)} />
-                <Route path="/nomina/historial" element={isAdmin ? <PayrollModule initialTab="historical" /> : <Navigate to="/" />} />
-                <Route path="/nomina/regalias" element={isAdmin ? <PayrollModule initialTab="regalias" /> : <Navigate to="/" />} />
-                <Route path="/seguridad" element={isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <SecurityModule /> : <Navigate to="/" />)} />
-                <Route path="/sucursales" element={isAdmin ? <SalonsModule /> : <Navigate to="/" />} />
-                <Route path="/planes" element={isAdmin ? <PlansModule /> : <Navigate to="/" />} />
-                <Route path="/pagos" element={isAdmin ? <Payments /> : <Navigate to="/" />} />
-                <Route path="/marketing" element={isAdmin ? <MarketingModule /> : <Navigate to="/" />} />
-                <Route path="/analitica" element={(isAdmin || user?.permissions?.view_analytics) ? <ServiceAnalytics /> : <Navigate to="/" />} />
-                <Route path="/bi" element={(isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />} />
-                <Route path="/inteligencia-negocios" element={(isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />} />
-                <Route path="/contabilidad" element={(isAdmin || isAccountant) ? <Navigate to="/egresos" replace /> : <Navigate to="/" />} />
-                <Route path="/secuencias-dgii" element={(isAdmin || isAccountant) ? <DgiiSequencesModule /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/notas-credito" element={(isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />} />
-                <Route path="/notas-credito" element={(isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/reporte-607" element={(isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />} />
-                <Route path="/reporte-607" element={(isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/reporte-606" element={(isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />} />
-                <Route path="/reporte-606" element={(isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/itbis-it1" element={(isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />} />
-                <Route path="/itbis-it1" element={(isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />} />
-                <Route path="/contabilidad/egresos" element={(isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />} />
-                <Route path="/egresos" element={(isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />} />
-                <Route path="/configuracion" element={isAdmin ? <SettingsModule /> : <Navigate to="/" />} />
-                <Route path="/contratos" element={isClient ? <Navigate to="/" /> : <DigitalContract />} />
-                <Route path="/admin/asistencia" element={(isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />} />
-                <Route path="/test-cardnet" element={<CardNetTest />} />
-                {/* Public marketing pages inside logged-in dashboard wrapper */}
-                <Route path="/plan-de-belleza" element={<PlanBelleza />} />
-                <Route path="/como-funciona" element={<ComoFunciona />} />
-                <Route path="/beneficios" element={<Beneficios />} />
-                <Route path="/salones" element={<Salones />} />
-                <Route path="/salones/:slug" element={<SalonDetalle />} />
-                <Route path="/preguntas-frecuentes" element={<PreguntasFrecuentes />} />
-                <Route path="/contacto" element={<Contacto />} />
-                <Route path="/terminos-y-condiciones" element={<Legal page="terms" />} />
-                <Route path="/politica-de-privacidad" element={<Legal page="privacy" />} />
-                <Route path="/cancelacion-y-reembolsos" element={<Legal page="refunds" />} />
-              </Routes>
+              <Suspense fallback={<WorkspaceSkeleton />}>
+                <Routes location={location}>
+                  <Route path="/" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <ClientDashboard /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)))} />
+                  <Route path="/saas" element={isSuperAdmin ? <SuperAdminDashboard initialTab="tenants" /> : <Navigate to="/" replace />} />
+                  <Route path="/saas/salones" element={isSuperAdmin ? <SuperAdminDashboard initialTab="tenants" /> : <Navigate to="/" replace />} />
+                  <Route path="/saas/planes" element={isSuperAdmin ? <SuperAdminDashboard initialTab="plans" /> : <Navigate to="/" replace />} />
+                  <Route path="/saas/facturacion" element={isSuperAdmin ? <SuperAdminDashboard initialTab="invoices" /> : <Navigate to="/" replace />} />
+                  <Route path="/facturacion" element={<Navigate to={isSuperAdmin ? "/saas" : "/visitas"} replace />} />
+                  <Route path="/personalizacion" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <TenantCustomizationModule /> : <Navigate to="/" replace />)} />
+                  <Route path="/registro-cliente" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El registro de Clientas" /> : <ClientRegistration />))} />
+                  <Route path="/lista-clientes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El directorio CRM de Clientas" /> : <ClientProfile />))} />
+                  <Route path="/clientes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El directorio CRM de Clientas" /> : <ClientProfile />))} />
+                  <Route path="/visitas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isClient ? <Navigate to="/" /> : <VisitRecorder />))} />
+                  <Route path="/cajas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || (user?.permissions && user.permissions.process_payments)) ? <CashRegistersModule /> : <Navigate to="/" />))} />
+                  <Route path="/facturas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <InvoiceHistory /> : <Navigate to="/" />))} />
+                  <Route path="/descuentos-empleados" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) ? <EmployeeDiscountsModule /> : <Navigate to="/" />)} />
+                  <Route path="/servicios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <ServiceManagement />)} />
+                  <Route path="/inventario" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <InventoryModule />)} />
+                  <Route path="/inventory" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <InventoryModule />)} />
+                  <Route path="/billing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <SaasBillingModule />)} />
+                  <Route path="/facturacion-saas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <SaasBillingModule />)} />
+                  <Route path="/comisiones" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <CommissionManagement />)} />
+                  <Route path="/encuesta" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El sistema de Encuestas de Satisfacción" /> : ((isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />))} />
+                  <Route path="/regalos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El módulo de Gift Cards y Certificados" /> : (isAdmin ? <AdminGiftCards /> : <GiftCertificates />))} />
+                  <Route path="/regalar" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <GiftCertificates />} />
+                  <Route path="/mis-servicios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <ClientServices />} />
+                  <Route path="/activar" element={<ActivateAccount />} />
+                  <Route path="/equipo" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <StaffModule /> : <Navigate to="/" />))} />
+                  <Route path="/nomina" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <PayrollModule /> : <Navigate to="/" />))} />
+                  <Route path="/nomina/historial" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <PayrollModule initialTab="historical" /> : <Navigate to="/" />)} />
+                  <Route path="/nomina/regalias" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <PayrollModule initialTab="regalias" /> : <Navigate to="/" />)} />
+                  <Route path="/seguridad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <SecurityModule /> : <Navigate to="/" />))} />
+                  <Route path="/sucursales" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <SalonsModule /> : <Navigate to="/" />)} />
+                  <Route path="/planes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El catálogo de Membresías Plan Beauty" /> : <PlansModule />))} />
+                  <Route path="/pagos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El módulo de Pagos Recurrentes de Membresías" /> : <Payments />))} />
+                  <Route path="/marketing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <MarketingModule /> : <Navigate to="/" />)} />
+                  <Route path="/analitica" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <ServiceAnalytics /> : <Navigate to="/" />)} />
+                  <Route path="/bi" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />)} />
+                  <Route path="/inteligencia-negocios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Navigate to="/egresos" replace /> : <Navigate to="/" />)} />
+                  <Route path="/secuencias-dgii" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <DgiiSequencesModule /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/notas-credito" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />)} />
+                  <Route path="/notas-credito" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <CreditNotesModule /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/reporte-607" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />)} />
+                  <Route path="/reporte-607" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte607Module /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/reporte-606" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />)} />
+                  <Route path="/reporte-606" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Reporte606Module /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/itbis-it1" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />)} />
+                  <Route path="/itbis-it1" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ReporteIT1Module /> : <Navigate to="/" />)} />
+                  <Route path="/contabilidad/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />)} />
+                  <Route path="/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />)} />
+                  <Route path="/configuracion" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <SettingsModule /> : <Navigate to="/" />)} />
+                  <Route path="/contratos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El registro de Contratos Digitales" /> : <DigitalContract />))} />
+                  <Route path="/admin/asistencia" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />)} />
+                  <Route path="/test-cardnet" element={<CardNetTest />} />
+                  {/* Public marketing pages inside logged-in dashboard wrapper */}
+                  <Route path="/plan-de-belleza" element={<PlanBelleza />} />
+                  <Route path="/como-funciona" element={<ComoFunciona />} />
+                  <Route path="/beneficios" element={<Beneficios />} />
+                  <Route path="/salones" element={<Salones />} />
+                  <Route path="/salones/:slug" element={<SalonDetalle />} />
+                  <Route path="/preguntas-frecuentes" element={<PreguntasFrecuentes />} />
+                  <Route path="/contacto" element={<Contacto />} />
+                  <Route path="/terminos-y-condiciones" element={<Legal page="terms" />} />
+                  <Route path="/politica-de-privacidad" element={<Legal page="privacy" />} />
+                  <Route path="/cancelacion-y-reembolsos" element={<Legal page="refunds" />} />
+                  {/* 404 Catch-All Route */}
+                  <Route path="*" element={<NotFoundPage />} />
+                </Routes>
+              </Suspense>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -1095,13 +1183,80 @@ const NotificationBell = () => {
   );
 };
 
+const DemoBanner = () => {
+  const [isDemo, setIsDemo] = useState(() => {
+    return typeof window !== 'undefined' && (
+      Boolean(import.meta.env.VITE_DEMO_MODE) ||
+      Boolean(window.__SALON_PRO_DEMO__)
+    );
+  });
+
+  useEffect(() => {
+    if (isDemo) return;
+    let isMounted = true;
+    fetch('/api/demo/status')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (isMounted && data?.isDemo) {
+          setIsDemo(true);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [isDemo]);
+
+  if (!isDemo) return null;
+
+  return (
+    <aside
+      role="banner"
+      aria-label="Aviso de Modo Demostración"
+      style={{
+        backgroundColor: '#dc2626',
+        color: '#ffffff',
+        textAlign: 'center',
+        padding: '0.45rem 1rem',
+        fontSize: '0.8rem',
+        fontWeight: 800,
+        letterSpacing: '0.04em',
+        position: 'sticky',
+        top: 0,
+        zIndex: 9999999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '0.75rem',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        borderBottom: '1px solid rgba(255,255,255,0.2)'
+      }}
+    >
+      <span aria-hidden="true" style={{ fontSize: '1rem' }}>⚠️</span>
+      <span>DEMO LOCAL — DATOS NO PERSISTENTES</span>
+      <span style={{
+        fontSize: '0.65rem',
+        background: 'rgba(0,0,0,0.25)',
+        padding: '2px 8px',
+        borderRadius: '999px',
+        border: '1px solid rgba(255,255,255,0.3)'
+      }}>
+        MEMORIA VOLÁTIL (ZERO POSTGRESQL)
+      </span>
+    </aside>
+  );
+};
+
 const App = () => (
   <ErrorBoundary>
     <NotificationProvider>
       <AuthProvider>
         <LanguageProvider>
           <Router>
-            <AppContent />
+            <EntitlementsProvider>
+              <TenantBrandingProvider>
+                <DemoBanner />
+                <AppContent />
+              </TenantBrandingProvider>
+            </EntitlementsProvider>
           </Router>
         </LanguageProvider>
       </AuthProvider>

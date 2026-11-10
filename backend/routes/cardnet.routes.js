@@ -83,12 +83,13 @@ function createCardnetRouter(pool, options = {}) {
       }
 
       let existingCustomerId = null;
+      const tenantId = req.tenantId;
 
       // 1. Buscar en DB si ya tenemos ID
       if (clientId) {
         const [rows] = await pool.query(
-          'SELECT cardnet_customer_id FROM clients WHERE id = ?',
-          [clientId]
+          'SELECT cardnet_customer_id FROM clients WHERE id = ? AND tenant_id = ?',
+          [clientId, tenantId]
         );
         if (rows.length > 0) existingCustomerId = rows[0].cardnet_customer_id;
       }
@@ -114,7 +115,7 @@ function createCardnetRouter(pool, options = {}) {
         } catch (e) {
           console.warn('[CARDNET] Customer ID in DB failed, resetting in DB to regenerate: ', e.message);
           if (clientId) {
-            await pool.query('UPDATE clients SET cardnet_customer_id = NULL WHERE id = ?', [clientId]);
+            await pool.query('UPDATE clients SET cardnet_customer_id = NULL WHERE id = ? AND tenant_id = ?', [clientId, tenantId]);
           }
         }
       }
@@ -129,7 +130,7 @@ function createCardnetRouter(pool, options = {}) {
         const customer = response.data.Response || response.data;
         
         if (clientId && customer.CustomerId) {
-          await pool.query('UPDATE clients SET cardnet_customer_id = ? WHERE id = ?', [customer.CustomerId.toString(), clientId]);
+          await pool.query('UPDATE clients SET cardnet_customer_id = ? WHERE id = ? AND tenant_id = ?', [customer.CustomerId.toString(), clientId, tenantId]);
         }
 
         return res.json({
@@ -153,7 +154,7 @@ function createCardnetRouter(pool, options = {}) {
             );
             const finalCust = retryRes.data.Response || retryRes.data;
             if (clientId) {
-              await pool.query('UPDATE clients SET cardnet_customer_id = ? WHERE id = ?', [finalCust.CustomerId.toString(), clientId]);
+              await pool.query('UPDATE clients SET cardnet_customer_id = ? WHERE id = ? AND tenant_id = ?', [finalCust.CustomerId.toString(), clientId, tenantId]);
             }
             return res.json({
               success: true,
@@ -275,6 +276,10 @@ function createCardnetRouter(pool, options = {}) {
   router.post('/customer/:customerId/charge-profile', async (req, res) => {
     const { customerId } = req.params;
     const { paymentProfileId, amount, description, clientId } = req.body;
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ success: false, error: "Contexto de inquilino (tenant) obligatorio." });
+    }
     
     console.log(`[CARDNET] Cobro Ad-Hoc manual solicitado para Cliente: ${clientId}, CustomerID: ${customerId}, ProfileID: ${paymentProfileId}, Monto: RD$ ${amount}`);
     
@@ -312,8 +317,8 @@ function createCardnetRouter(pool, options = {}) {
         if (clientId) {
           try {
             const [cRows] = await pool.query(
-              'SELECT card_token, payment_profile_id FROM contracts WHERE client_id = ? AND status != "Cancelled" ORDER BY id DESC LIMIT 1',
-              [clientId]
+              'SELECT card_token, payment_profile_id FROM contracts WHERE client_id = ? AND tenant_id = ? AND status != "Cancelled" ORDER BY id DESC LIMIT 1',
+              [clientId, tenantId]
             );
             if (cRows.length > 0 && cRows[0].card_token && !String(cRows[0].card_token).startsWith('mock_')) {
               tokenToCharge = cRows[0].card_token;
@@ -436,35 +441,39 @@ function createCardnetRouter(pool, options = {}) {
 
       if (isApproved) {
         const gatewayRef = purchaseResult?.Transaction?.OrderNumber || purchaseResult?.Transaction?.RemoteId || `CN-${Date.now().toString().slice(-6)}`;
-        let targetSalonId = 1;
+        let targetSalonId = null;
         if (clientId) {
-          const [cRows] = await pool.query('SELECT salon_id FROM contracts WHERE client_id = ? LIMIT 1', [clientId]);
+          const [cRows] = await pool.query('SELECT salon_id FROM contracts WHERE client_id = ? AND tenant_id = ? LIMIT 1', [clientId, tenantId]);
           if (cRows.length > 0 && cRows[0].salon_id) targetSalonId = cRows[0].salon_id;
           else {
-            const [clRows] = await pool.query('SELECT salon_id FROM clients WHERE id = ? LIMIT 1', [clientId]);
+            const [clRows] = await pool.query('SELECT salon_id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [clientId, tenantId]);
             if (clRows.length > 0 && clRows[0].salon_id) targetSalonId = clRows[0].salon_id;
           }
         }
+        if (!targetSalonId) {
+          const [defaultBranch] = await pool.query('SELECT id FROM branches WHERE tenant_id = ? ORDER BY is_main DESC LIMIT 1', [tenantId]);
+          targetSalonId = defaultBranch[0]?.id || null;
+        }
 
         await pool.query(
-          'INSERT INTO payments (id, client_id, plan_id, amount, method, status, gateway_ref, description, salon_id, applied_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [payId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Aprobado', gatewayRef, description || 'Cobro Manual de Suscripción', targetSalonId, 'Admin']
+          'INSERT INTO payments (id, tenant_id, client_id, plan_id, amount, method, status, gateway_ref, description, salon_id, applied_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [payId, tenantId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Aprobado', gatewayRef, description || 'Cobro Manual de Suscripción', targetSalonId, 'Admin']
         );
 
         if (clientId) {
-          await pool.query('UPDATE clients SET status = "Active" WHERE id = ?', [clientId]);
-          const [contracts] = await pool.query('SELECT id, plan_id FROM contracts WHERE client_id = ? LIMIT 1', [clientId]);
+          await pool.query('UPDATE clients SET status = "Active" WHERE id = ? AND tenant_id = ?', [clientId, tenantId]);
+          const [contracts] = await pool.query('SELECT id, plan_id FROM contracts WHERE client_id = ? AND tenant_id = ? LIMIT 1', [clientId, tenantId]);
           if (contracts.length > 0) {
             const intervalUnit = CARDNET_CONFIG.ENV === 'PRODUCTION' ? 'MONTH' : 'HOUR';
             await pool.query(
-              `UPDATE contracts SET status = "Active", retry_count = 0, last_billed_date = NOW(), next_billing_date = DATE_ADD(NOW(), INTERVAL 1 ${intervalUnit}) WHERE id = ?`,
-              [contracts[0].id]
+              `UPDATE contracts SET status = "Active", retry_count = 0, last_billed_date = NOW(), next_billing_date = DATE_ADD(NOW(), INTERVAL 1 ${intervalUnit}) WHERE id = ? AND tenant_id = ?`,
+              [contracts[0].id, tenantId]
             );
           }
 
           // Enviar Factura Electrónica DGII (e-CF) al correo del cliente
           try {
-            const [cRows] = await pool.query('SELECT nombre, email, cedula, rnc FROM clients WHERE id = ? OR cedula = ? LIMIT 1', [clientId, clientId]);
+            const [cRows] = await pool.query('SELECT nombre, email, cedula, rnc FROM clients WHERE (id = ? OR cedula = ?) AND tenant_id = ? LIMIT 1', [clientId, clientId, tenantId]);
             if (cRows.length > 0 && cRows[0].email && sendPaymentReceiptEmail) {
               sendPaymentReceiptEmail(clientId, cRows[0].nombre, cRows[0].email, amount, description || 'Cobro de Membresía / Plan Beauty', gatewayRef);
             }
@@ -482,14 +491,14 @@ function createCardnetRouter(pool, options = {}) {
         });
       } else {
         await pool.query(
-          'INSERT INTO payments (id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [payId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Rechazado', description || 'Cobro Manual Fallido', JSON.stringify(purchaseResult)]
+          'INSERT INTO payments (id, tenant_id, client_id, plan_id, amount, method, status, description, cardnet_raw_response) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [payId, tenantId, clientId || null, null, amount, 'Tarjeta_Guardada', 'Rechazado', description || 'Cobro Manual Fallido', JSON.stringify(purchaseResult)]
         );
 
         if (clientId) {
-          await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ?', [clientId]);
+          await pool.query('UPDATE clients SET status = "Inactive" WHERE id = ? AND tenant_id = ?', [clientId, tenantId]);
 
-          const [contracts] = await pool.query('SELECT id, retry_count FROM contracts WHERE client_id = ? LIMIT 1', [clientId]);
+          const [contracts] = await pool.query('SELECT id, retry_count FROM contracts WHERE client_id = ? AND tenant_id = ? LIMIT 1', [clientId, tenantId]);
           if (contracts.length > 0) {
             const contract = contracts[0];
             const newRetryCount = contract.retry_count + 1;
@@ -505,8 +514,8 @@ function createCardnetRouter(pool, options = {}) {
               : `DATE_ADD(NOW(), INTERVAL 5 MINUTE)`;
 
             await pool.query(
-              `UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ${nextRetrySql} WHERE id = ?`,
-              [newStatus, newRetryCount, contract.id]
+              `UPDATE contracts SET status = ?, retry_count = ?, next_retry_date = ${nextRetrySql} WHERE id = ? AND tenant_id = ?`,
+              [newStatus, newRetryCount, contract.id, tenantId]
             );
             
             console.log(`[RETRY ENG] Cobro manual fallido de cliente: ${clientId}. Contrato establecido a ${newStatus} (Intento ${newRetryCount}/90)`);

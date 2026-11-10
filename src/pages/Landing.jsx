@@ -1,49 +1,131 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useTranslation } from '../context/LanguageContext';
 import { Link } from 'react-router-dom';
-import { 
-  User, Lock, Mail, CreditCard, ShieldCheck, CalendarDays, 
-  CheckCircle, CheckCircle2, Camera, Share2, MessageCircle, MapPin, Phone, Eye, EyeOff, Sparkles, X
+import {
+  User,
+  Lock,
+  Mail,
+  CreditCard,
+  ShieldCheck,
+  CalendarDays,
+  CheckCircle,
+  CheckCircle2,
+  MapPin,
+  Phone,
+  Eye,
+  EyeOff,
+  Sparkles,
+  X,
+  Clock,
+  Scissors,
+  ChevronDown,
+  ChevronUp,
+  HelpCircle,
+  Building2,
+  Receipt,
+  Users,
+  Crown,
+  Wallet
 } from 'lucide-react';
 import './Landing.css';
-import { formatCedula, validateName, cleanPhone, isValidCedula } from '../utils/formUtils';
+import { validateName, cleanPhone } from '../utils/formUtils';
+import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
+import { PublicHeader, PublicFooter } from '../components/common/PublicLayout';
+
+const SAAS_FAQS = [
+  {
+    question: '¿Cuál es la diferencia exacta entre el Plan Base y el Plan Pro?',
+    answer: 'El Plan Base ($49 USD/mes por sucursal) incluye el sistema POS de recepción, facturación fiscal DGII (606, 607, IT-1), catálogo de productos y servicios, cajas registradoras, control de personal, comisiones, nómina y creación de usuarios, pero NO incluye el directorio de clientes ni las suscripciones mensuales. El Plan Pro ($99 USD/mes por sucursal) incluye todo el Plan Base más el Registro/CRM de Clientes y el ecosistema completo de Suscripciones y Membresías (Plan Beauty, contratos digitales, cupos de lavados de 30 días, descuentos de cumpleaños, encuestas y Gift Cards).'
+  },
+  {
+    question: '¿Puedo comenzar con el Plan Base y luego subir mi salón al Plan Pro?',
+    answer: 'Sí. Tu salón puede iniciar operando su facturación diaria, inventario y comisiones en el Plan Base y activar el Plan Pro en cualquier momento desde el módulo de Personalización y Plan sin perder su historial contable ni sus configuraciones.'
+  },
+  {
+    question: '¿Cuántos usuarios y sucursales incluye cada licencia?',
+    answer: 'Cada sucursal licenciada incluye 3 usuarios operativos (por ejemplo: Administrador, Recepcionista/Cajera y Contador). Puedes agregar sucursales adicionales o asientos de usuario extra ($15 USD/mes por asiento adicional) según crezca tu equipo.'
+  },
+  {
+    question: '¿El sistema es compatible con impresoras térmicas de recepción y reportes de la DGII?',
+    answer: 'Sí. El POS cuenta con formato homologado para impresoras térmicas de 80mm (área útil de 60mm con código QR de verificación), manejo de secuencias de comprobantes fiscales (NCF / e-CF), Notas de Crédito y generación automática de los reportes 606, 607 e IT-1.'
+  },
+  {
+    question: '¿Cómo se protegen los descuentos manuales y cambios de precio en la caja?',
+    answer: 'El sistema cuenta con autorización mediante PIN de Administrador. Ningún cajero o recepcionista puede alterar manualmente un porcentaje de descuento ni rebajar un precio base sin ingresar el PIN o código dinámico autorizado.'
+  },
+  {
+    question: '¿Puedo personalizar el sistema con el logo y nombre de mi salón?',
+    answer: 'Sí. Cada salón registrado en la plataforma cuenta con aislamiento Multi-Tenant propio, pudiendo configurar su nombre comercial, RNC, logo, pie de factura y catálogo de servicios independiente.'
+  }
+];
 
 const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const { login } = useAuth();
-  const { t } = useTranslation();
-  
+
+  useDocumentMetadata({
+    title: 'Salon Pro & Plan Beauty SaaS | Software POS, Facturación y Membresías para Salones',
+    description: 'Plataforma SaaS Multi-Tenant para salones de belleza y centros estéticos: POS de recepción, facturación fiscal DGII (606, 607, IT-1), nómina, comisiones y membresías recurrentes.',
+    canonicalUrl: 'https://planbeautyrd.com/',
+    robots: 'index, follow'
+  });
+
+  // Datos estructurados Schema.org para SEO Técnico
+  const structuredData = {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Salon Pro & Plan Beauty SaaS',
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Web, Windows, macOS, iOS, Android',
+    offers: [
+      {
+        '@type': 'Offer',
+        name: 'Plan Base',
+        price: '49.00',
+        priceCurrency: 'USD',
+        description: 'POS de recepción, facturación fiscal DGII (606, 607, IT-1), cajas, comisiones y nómina para salones de belleza.'
+      },
+      {
+        '@type': 'Offer',
+        name: 'Plan Pro',
+        price: '99.00',
+        priceCurrency: 'USD',
+        description: 'Todo el Plan Base más directorio CRM de clientes, motor de membresías recurrentes tipo Plan Beauty y contratos digitales.'
+      }
+    ],
+    creator: {
+      '@type': 'Organization',
+      name: 'SalonPro SaaS',
+      url: 'https://planbeautyrd.com'
+    }
+  };
+
   const [isLogin, setIsLogin] = useState(initialIsLogin);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [nombre, setNombre] = useState('');
-  const [cedula, setCedula] = useState('');
+
+  // Estado para Registro Progresivo de Salón (Tenant SaaS en 3 pasos)
+  const [ownerName, setOwnerName] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [rnc, setRnc] = useState('');
+  const [selectedPlanCode, setSelectedPlanCode] = useState('pro'); // 'base' | 'pro'
+  const [licensedBranches, setLicensedBranches] = useState(1);
+  const [ownerPassword, setOwnerPassword] = useState('');
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [saasPlans, setSaasPlans] = useState([]);
+
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Success state for registration
+  // Control de pasos del registro
   const [regSuccess, setRegSuccess] = useState(false);
-  
   const [regStep, setRegStep] = useState(1);
-  const [salons, setSalons] = useState([]);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(initialAuthModal);
 
-  useEffect(() => {
-    setIsLogin(initialIsLogin);
-    setIsAuthModalOpen(initialAuthModal);
-  }, [initialIsLogin, initialAuthModal]);
-  const [telefono, setTelefono] = useState('');
-  const [salonId, setSalonId] = useState('');
-  const [calle, setCalle] = useState('');
-  const [numero, setNumero] = useState('');
-  const [sector, setSector] = useState('');
-  const [ciudad, setCiudad] = useState('');
-  const [fechaNacimiento, setFechaNacimiento] = useState('');
-  
-  // Forgot Password Flow
+  // Recuperación de contraseña
   const [showForgotModal, setShowForgotModal] = useState(false);
-  const [forgotStep, setForgotStep] = useState(1); // 1: Email, 2: Code & New Pass
+  const [forgotStep, setForgotStep] = useState(1);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -51,25 +133,124 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [forgotError, setForgotError] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
 
-  // Account Activation Flow
+  // Activación de cuenta
   const [showActivation, setShowActivation] = useState(false);
   const [activationCode, setActivationCode] = useState('');
   const [pendingClientId, setPendingClientId] = useState(null);
 
+  // FAQ Accordion
+  const [openFaqIndex, setOpenFaqIndex] = useState(0);
+
+  // Referencias para Accesibilidad de Modales (Focus Trap + Retorno de foco)
+  const authModalRef = useRef(null);
+  const forgotModalRef = useRef(null);
+  const activationModalRef = useRef(null);
+  const lastTriggerRef = useRef(null);
+
   useEffect(() => {
-    const loadSalons = async () => {
+    setIsLogin(initialIsLogin);
+    setIsAuthModalOpen(initialAuthModal);
+  }, [initialIsLogin, initialAuthModal]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadPlans = async () => {
       try {
-        const res = await fetch('/api/salons');
+        const res = await fetch('/api/saas/plans?public_only=true');
         if (res.ok) {
           const data = await res.json();
-          setSalons(data);
+          if (isMounted && Array.isArray(data) && data.length > 0) {
+            setSaasPlans(data);
+          }
         }
-      } catch (err) {
-        console.error("Error loading salons:", err);
+      } catch {
+        // Fallback silencioso a los dos planes oficiales Base ($49) y Pro ($99)
       }
     };
-    loadSalons();
+    loadPlans();
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  const openAuthModal = useCallback((loginMode, triggerElement = null, preselectedPlan = null) => {
+    if (triggerElement) {
+      lastTriggerRef.current = triggerElement;
+    } else if (document.activeElement instanceof HTMLElement) {
+      lastTriggerRef.current = document.activeElement;
+    }
+    if (preselectedPlan) {
+      setSelectedPlanCode(preselectedPlan);
+    }
+    setError('');
+    setRegSuccess(false);
+    setIsLogin(loginMode);
+    setIsAuthModalOpen(true);
+  }, []);
+
+  const closeAllModals = useCallback(() => {
+    setIsAuthModalOpen(false);
+    setShowForgotModal(false);
+    setShowActivation(false);
+    setError('');
+    setForgotError('');
+    if (lastTriggerRef.current && typeof lastTriggerRef.current.focus === 'function') {
+      setTimeout(() => {
+        lastTriggerRef.current?.focus();
+      }, 20);
+    }
+  }, []);
+
+  // Gestión de teclado (Escape y Focus Trap) en el modal activo
+  useEffect(() => {
+    const activeContainer = isAuthModalOpen
+      ? authModalRef.current
+      : showForgotModal
+      ? forgotModalRef.current
+      : showActivation
+      ? activationModalRef.current
+      : null;
+
+    if (!activeContainer) return undefined;
+
+    const focusableSelector =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = activeContainer.querySelectorAll(focusableSelector);
+    const firstInput = activeContainer.querySelector('input:not([disabled]), select:not([disabled])');
+    if (firstInput) {
+      firstInput.focus();
+    } else if (focusables.length > 0) {
+      focusables[0].focus();
+    }
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeAllModals();
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const currentFocusables = activeContainer.querySelectorAll(focusableSelector);
+        if (currentFocusables.length === 0) return;
+        const first = currentFocusables[0];
+        const last = currentFocusables[currentFocusables.length - 1];
+
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAuthModalOpen, showForgotModal, showActivation, isLogin, regStep, forgotStep, closeAllModals]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -83,35 +264,92 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     } catch (err) {
       if (err.status === 'Pendiente') {
         setPendingClientId(err.id);
-        setError(''); // Clear error to show activation screen properly
+        setError('');
+        setIsAuthModalOpen(false);
         setShowActivation(true);
       } else {
-        setError(err.message || 'Error al iniciar sesión');
+        setError(err.message || 'Credenciales inválidas o usuario inactivo.');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegister = async (e) => {
+  const handleRegisterStepValidation = (e) => {
     e.preventDefault();
+    setError('');
+
+    if (regStep === 1) {
+      if (!ownerName.trim() || !validateName(ownerName.trim())) {
+        setError('Ingresa el nombre del propietario o administrador usando solo letras.');
+        return;
+      }
+      if (cleanPhone(telefono).length < 10) {
+        setError('Ingresa un teléfono de contacto válido de 10 dígitos.');
+        return;
+      }
+      if (!email.trim() || !email.includes('@')) {
+        setError('Ingresa un correo electrónico corporativo o personal válido.');
+        return;
+      }
+      setRegStep(2);
+      return;
+    }
+
+    if (regStep === 2) {
+      if (!businessName.trim() || businessName.trim().length < 3) {
+        setError('Ingresa el nombre comercial de tu salón de belleza.');
+        return;
+      }
+      if (!ownerPassword || ownerPassword.length < 6) {
+        setError('Define una contraseña de acceso de al menos 6 caracteres.');
+        return;
+      }
+      setRegStep(3);
+      return;
+    }
+
+    if (regStep === 3) {
+      if (!acceptTerms) {
+        setError('Debes aceptar los términos y condiciones del servicio para registrar tu salón.');
+        return;
+      }
+      handleRegisterSalonSubmit();
+    }
+  };
+
+  const handleRegisterSalonSubmit = async () => {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/clients', {
+      const matchedPlan = saasPlans.find((p) => p.code === selectedPlanCode);
+      const planId = matchedPlan ? matchedPlan.id : selectedPlanCode === 'pro' ? 2 : 1;
+      const slugBase = businessName
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const uniqueSlug = `${slugBase || 'salon'}-${Math.floor(100 + Math.random() * 900)}`;
+
+      const res = await fetch('/api/public/onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          nombre, cedula, email, telefono, 
-          salon_id: salonId, calle, numero, sector, ciudad,
-          fechaNacimiento
+        body: JSON.stringify({
+          business_name: businessName.trim(),
+          owner_name: ownerName.trim(),
+          owner_email: email.trim(),
+          owner_phone: telefono,
+          admin_password: ownerPassword,
+          rnc: rnc.trim() || null,
+          address: 'Principal',
+          requested_plan: selectedPlanCode
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      
+      if (!res.ok) throw new Error(data.error || 'No se pudo registrar el salón.');
+
       setRegSuccess(true);
-      setIsAuthModalOpen(true); // Ensure modal is open to show success
+      setIsAuthModalOpen(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -122,6 +360,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const handleBackToLogin = () => {
     setRegSuccess(false);
     setIsLogin(true);
+    setPassword(ownerPassword);
     setError('');
     setRegStep(1);
   };
@@ -137,8 +376,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         body: JSON.stringify({ emailOrCedula: forgotEmail })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      
+      if (!res.ok) throw new Error(data.error || 'No se pudo enviar el código.');
+
       setForgotStep(2);
     } catch (err) {
       setForgotError(err.message);
@@ -155,15 +394,15 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
       const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           emailOrCedula: forgotEmail,
           code: resetCode,
           newPassword
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      
+      if (!res.ok) throw new Error(data.error || 'Código inválido o expirado.');
+
       setForgotSuccess(true);
       setTimeout(() => {
         setShowForgotModal(false);
@@ -174,7 +413,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         setNewPassword('');
         setIsLogin(true);
         setIsAuthModalOpen(true);
-      }, 3000);
+      }, 2500);
     } catch (err) {
       setForgotError(err.message);
     } finally {
@@ -192,9 +431,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         body: JSON.stringify({ clientId: pendingClientId, code: activationCode })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      
-      alert("¡Cuenta activada! Ya puedes iniciar sesión.");
+      if (!res.ok) throw new Error(data.error || 'Código de activación incorrecto.');
+
       setShowActivation(false);
       setActivationCode('');
       setIsLogin(true);
@@ -204,675 +442,1246 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     }
   };
 
+  const unitPrice = selectedPlanCode === 'pro' ? 99 : 49;
+  const totalEstimatedMonthly = unitPrice * (Number(licensedBranches) || 1);
+
   return (
     <div className="landing-page">
-      {/* Header */}
-      <header className="landing-header">
-        <div className="container">
-          <nav className="landing-nav">
-            <div className="logo">
-              <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
-              <p>TU PLAN, TU BELLEZA</p>
-            </div>
-            <ul className="nav-links">
-              <li><Link to="/">Inicio</Link></li>
-              <li><Link to="/plan-de-belleza">Plan</Link></li>
-              <li><Link to="/como-funciona">¿Cómo funciona?</Link></li>
-              <li><Link to="/salones">Sucursales</Link></li>
-            </ul>
-            <button onClick={() => { setIsLogin(true); setIsAuthModalOpen(true); }} className="login-btn-nav">
-              <User size={18} />
-              INICIAR SESIÓN
-            </button>
-          </nav>
-        </div>
-      </header>
+      {/* 0. SEO ESTRUCTURADO (JSON-LD) */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
 
-      {/* Hero Section */}
-      <section className="hero" id="inicio">
-        <div className="container hero-grid">
-          <div className="hero-content">
-            <h1>TU PLAN DE <span>BELLEZA</span> SIN COMPLICACIONES</h1>
-            <p>Un plan mensual para disfrutar de lavados y cuidados en nuestro salón de belleza.</p>
-            <button onClick={() => { setIsLogin(false); setIsAuthModalOpen(true); }} className="landing-btn btn-primary">QUIERO MI PLAN</button>
-          </div>
+      {/* 1. HEADER COMPACTO */}
+      <PublicHeader onOpenAuth={openAuthModal} />
 
-          <div className="login-container" id="login-section">
-            {isLogin ? (
-              <div className="login-card">
-                <h2>INICIA SESIÓN</h2>
-                <hr className="title-hr" />
-                {error && <div className="error-msg">{error}</div>}
-                <form onSubmit={handleLogin}>
-                  <div className="landing-form-group">
-                    <User className="input-icon" />
-                    <input 
-                      type="text" 
-                      placeholder="Cédula o correo electrónico"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="landing-form-group">
-                    <Lock className="input-icon" />
-                    <input 
-                      type={showPassword ? "text" : "password"} 
-                      placeholder="Contraseña"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      required
-                    />
-                    <button type="button" className="toggle-pass" onClick={() => setShowPassword(!showPassword)}>
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-                  <button type="submit" className="landing-btn btn-primary" disabled={loading}>
-                    {loading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
-                  </button>
-                  <a href="#" className="forgot-link" onClick={(e) => { 
-                    e.preventDefault(); 
-                    setIsAuthModalOpen(false);
-                    setShowForgotModal(true); 
-                    setForgotStep(1);
-                    setForgotError('');
-                  }}>¿Olvidaste tu contraseña?</a>
-                  <p className="landing-form-footer">¿No tienes cuenta? <span className="toggle-link" onClick={() => { setIsLogin(false); setError(''); }}>Crear cuenta</span></p>
-                </form>
-              </div>
-            ) : (
-              <div className="login-card">
-                <h2>REGÍSTRATE</h2>
-                <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', marginBottom: '1rem' }}>
-                  <div style={{ width: '20px', height: '4px', background: regStep === 1 ? 'var(--lp-accent)' : '#eee', borderRadius: '2px' }}></div>
-                  <div style={{ width: '20px', height: '4px', background: regStep === 2 ? 'var(--lp-accent)' : '#eee', borderRadius: '2px' }}></div>
+      <main>
+        {/* 2. HERO ORIENTADO A CONVERSIÓN SAAS */}
+        <section className="hero" id="inicio">
+          <div className="container">
+            <div className="hero-grid">
+              <div className="hero-content">
+                <div className="hero-eyebrow">
+                  <span className="live-pulse" aria-hidden="true" />
+                  <Sparkles size={15} aria-hidden="true" />
+                  <span>Plataforma SaaS para Salones en República Dominicana</span>
                 </div>
-                <hr className="title-hr" />
-                {error && <div className="error-msg">{error}</div>}
-                <form onSubmit={(e) => {
-                  e.preventDefault();
-                  if (regStep === 1) {
-                    if (!validateName(nombre)) return setError("El nombre no debe contener números");
-                    if (!isValidCedula(cedula)) return setError("La cédula debe tener 11 dígitos");
-                    setRegStep(2);
-                  } else {
-                    handleRegister(e);
-                  }
-                }}>
-                  {regStep === 1 ? (
-                    <>
-                      <div className="landing-form-group">
-                        <User className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="Nombre completo"
-                          value={nombre}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setNombre(val);
-                            if (val && !validateName(val)) setError("El nombre no debe contener números");
-                            else setError('');
-                          }}
-                          required
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <CreditCard className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="000-0000000-0"
-                          value={cedula}
-                          onChange={e => setCedula(formatCedula(e.target.value))}
-                          required
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <Phone className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="Teléfono"
-                          value={telefono}
-                          onChange={e => setTelefono(cleanPhone(e.target.value))}
-                          required
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <Mail className="input-icon" />
-                        <input 
-                          type="email" 
-                          placeholder="Correo electrónico"
-                          value={email}
-                          onChange={e => setEmail(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <CalendarDays className="input-icon" />
-                        <label style={{ position: 'absolute', top: '-1.2rem', left: '0.5rem', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--lp-accent)' }}>FECHA DE NACIMIENTO</label>
-                        <input 
-                          type="date" 
-                          placeholder="Fecha de Nacimiento"
-                          value={fechaNacimiento}
-                          onChange={e => setFechaNacimiento(e.target.value)}
-                          required
-                          style={{ color: fechaNacimiento ? 'var(--lp-text)' : '#999' }}
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <MapPin className="input-icon" />
-                        <select 
-                          value={salonId} 
-                          onChange={e => setSalonId(e.target.value)}
-                          required
-                          style={{ width: '100%', padding: '1rem 1rem 1rem 3rem', borderRadius: '12px', border: '1.5px solid #eee', outline: 'none', background: 'white' }}
-                        >
-                          <option value="">Selecciona tu sucursal</option>
-                          {salons.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <button type="submit" className="landing-btn btn-primary">
-                        SIGUIENTE
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="landing-form-group">
-                        <MapPin className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="Calle"
-                          value={calle}
-                          onChange={e => setCalle(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <Sparkles className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="Número"
-                          value={numero}
-                          onChange={e => setNumero(e.target.value)}
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <MapPin className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="Sector"
-                          value={sector}
-                          onChange={e => setSector(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="landing-form-group">
-                        <MapPin className="input-icon" />
-                        <select 
-                          value={ciudad} 
-                          onChange={e => setCiudad(e.target.value)} 
-                          required 
-                          style={{ 
-                            width: '100%', 
-                            padding: '1rem 3rem', 
-                            borderRadius: '12px', 
-                            border: '1.5px solid #eee',
-                            appearance: 'auto',
-                            background: 'white',
-                            color: ciudad ? 'var(--text-primary)' : '#999',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          <option value="">Selecciona Ciudad</option>
-                          <option value="Distrito Nacional">Distrito Nacional</option>
-                          <option value="Santo Domingo Este">Santo Domingo Este</option>
-                          <option value="Santo Domingo Norte">Santo Domingo Norte</option>
-                          <option value="Santo Domingo Oeste">Santo Domingo Oeste</option>
-                          <option value="Santiago">Santiago</option>
-                          <option value="Punta Cana">Punta Cana</option>
-                          <option value="La Romana">La Romana</option>
-                          <option value="Puerto Plata">Puerto Plata</option>
-                          <option value="Higüey">Higüey</option>
-                          <option value="San Pedro de Macorís">San Pedro de Macorís</option>
-                          <option value="San Francisco de Macorís">San Francisco de Macorís</option>
-                          <option value="La Vega">La Vega</option>
-                          <option value="San Cristóbal">San Cristóbal</option>
-                          <option value="Baní">Baní</option>
-                          <option value="Bonao">Bonao</option>
-                          <option value="Moca">Moca</option>
-                          <option value="Cotuí">Cotuí</option>
-                          <option value="Samaná">Samaná</option>
-                          <option value="Monte Plata">Monte Plata</option>
-                          <option value="Azua">Azua</option>
-                          <option value="Barahona">Barahona</option>
-                          <option value="San Juan">San Juan</option>
-                          <option value="Mao">Mao</option>
-                          <option value="Nagua">Nagua</option>
-                        </select>
-                      </div>
-                      <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                        <button type="button" onClick={() => setRegStep(1)} className="landing-btn" style={{ background: '#eee', flex: 1 }}>ATRÁS</button>
-                        <button type="submit" className="landing-btn btn-primary" style={{ flex: 2 }} disabled={loading}>
-                          {loading ? 'CARGANDO...' : 'CREAR CUENTA'}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  <p className="landing-form-footer">¿Ya tienes cuenta? <span className="toggle-link" onClick={() => { setIsLogin(true); setError(''); setRegStep(1); }}>Inicia sesión</span></p>
-                </form>
-              </div>
-            )}
-          </div>
-        </div>
 
-        <div className="hero-footer-badges">
-          <div className="container badges-grid">
-            <div className="badge-item">
-              <div className="badge-icon"><ShieldCheck /></div>
-              <div className="badge-text">
-                <h4>ACCESO SEGURO</h4>
-                <p>Validación con cédula</p>
-              </div>
-            </div>
-            <div className="badge-item">
-              <div className="badge-icon"><CalendarDays /></div>
-              <div className="badge-text">
-                <h4>SIN CITAS</h4>
-                <p>Llega y disfruta tu servicio</p>
-              </div>
-            </div>
-            <div className="badge-item">
-              <div className="badge-icon"><CheckCircle2 /></div>
-              <div className="badge-text">
-                <h4>ATENCIÓN PREMIUM</h4>
-                <p>Profesionales dedicados</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+                <h1>
+                  El software integral para administrar y escalar <span>tu salón de belleza</span>
+                </h1>
 
-      {/* Steps */}
-      <section className="steps-section" id="como-funciona">
-        <div className="container">
-          <h2 className="section-title">¿CÓMO <span>FUNCIONA</span>?</h2>
-          <div className="steps-grid">
-            <div className="step">
-              <div className="step-num">01</div>
-              <div className="step-icon-bg"><CalendarDays size={32} /></div>
-              <h3>ELIGE TU PLAN</h3>
-              <p>Suscríbete en minutos y comienza hoy.</p>
-            </div>
-            <div className="step">
-              <div className="step-num">02</div>
-              <div className="step-icon-bg"><MapPin size={32} /></div>
-              <h3>VISITA EL SALÓN</h3>
-              <p>Acude a tu sucursal seleccionada.</p>
-            </div>
-            <div className="step">
-              <div className="step-num">03</div>
-              <div className="step-icon-bg"><CheckCircle size={32} /></div>
-              <h3>DISFRUTA</h3>
-              <p>Vive la experiencia Abatte.</p>
-            </div>
-          </div>
-        </div>
-      </section>
+                <p className="hero-lead">
+                  Controla tu recepción con POS térmico de 80mm/60mm, facturación fiscal DGII (e-CF), cajas registradoras, comisiones de personal y nómina en el <strong>Plan Base</strong>, o impulsa ingresos recurrentes con membresías mensuales y CRM de clientas en el <strong>Plan Pro</strong>.
+                </p>
 
-      {/* Pricing */}
-      <section className="pricing-section" id="plan">
-        <div className="container">
-          <h2 className="section-title">NUESTRO PLAN <span>ÚNICO</span></h2>
-          <div className="pricing-box">
-            <div className="pricing-info">
-              <div className="pricing-header-inner">
-                <User size={32} />
-                <h3>PLAN <span>BEAUTY</span> RD</h3>
-              </div>
-              <ul className="pricing-list">
-                <li><CheckCircle size={18} /> 4 lavados cada 30 días</li>
-                <li><CheckCircle size={18} /> Sin importar el largo natural</li>
-                <li><CheckCircle size={18} /> Uso exclusivo para ti</li>
-                <li><CheckCircle size={18} /> Atención profesional</li>
-                <li><CheckCircle size={18} /> Ofertas exclusivas</li>
-                <li><CheckCircle size={18} /> Cancelación flexible</li>
-              </ul>
-            </div>
-            <div className="pricing-action">
-              <p>TODO LO QUE NECESITAS</p>
-              <div className="price-tag" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: '0.25rem' }}>RD$1,950<span style={{ fontSize: '1rem', color: '#999', fontWeight: 600 }}>/ MES</span></div>
-              <button onClick={() => { setIsLogin(false); setIsAuthModalOpen(true); }} className="landing-btn btn-accent">QUIERO MI PLAN</button>
-              <p className="price-footer"><Lock size={12} /> Pagos seguros y automáticos</p>
-            </div>
-          </div>
-        </div>
-      </section>
+                <div className="hero-offer-pills" aria-label="Resumen de planes SaaS">
+                  <div className="offer-pill">
+                    <Receipt size={18} aria-hidden="true" />
+                    <span><strong>Plan Base $49/mes:</strong> POS, Facturación DGII y Cajas</span>
+                  </div>
+                  <div className="offer-pill">
+                    <Crown size={18} aria-hidden="true" />
+                    <span><strong>Plan Pro $99/mes:</strong> + Clientes y Suscripciones</span>
+                  </div>
+                </div>
 
-      {/* Branches */}
-      <section className="branches-section" id="sucursales">
-        <div className="container branches-flex">
-          <div className="branches-info">
-            <h2 className="section-title">NUESTRAS <span>SUCURSALES</span></h2>
-            <div className="branch-card">
-              <MapPin className="pin-icon" />
-              <div>
-                <h4>ABATTE PELUQUERÍA SAN VICENTE</h4>
-                <p>Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F, Santo Domingo Este</p>
-              </div>
-            </div>
-            <div className="branch-card">
-              <MapPin className="pin-icon" />
-              <div>
-                <h4>ABATTE PELUQUERÍA SIRENA VILLA MELLA</h4>
-                <p>Av. Hermanas Mirabal, Villa Mella, dentro del Multicentro La Sirena, Santo Domingo Norte</p>
-              </div>
-            </div>
-            <div className="branch-card">
-              <Phone className="pin-icon" />
-              <div>
-                <h4>CONTACTO GENERAL</h4>
-                <p>(809) 561-5000</p>
-              </div>
-            </div>
-          </div>
-          <div className="branches-image">
-            <img src="/landing_assets/salon2.png" alt="Salón Abatte" />
-          </div>
-        </div>
-      </section>
+                <div className="hero-cta-group">
+                  <button
+                    type="button"
+                    onClick={(e) => openAuthModal(false, e.currentTarget, 'pro')}
+                    className="landing-btn btn-accent"
+                  >
+                    Registrar mi salón
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => openAuthModal(true, e.currentTarget)}
+                    className="landing-btn btn-secondary-outline"
+                  >
+                    <User size={18} aria-hidden="true" />
+                    <span>Iniciar sesión</span>
+                  </button>
+                </div>
 
-      {/* Footer */}
-      <footer className="landing-footer">
-        <div className="container footer-grid">
-          <div className="footer-brand">
-            <div className="logo">
-              <Link to="/">PLAN<span>BEAUTY</span>RD</Link>
-            </div>
-            <p>Belleza, confianza y profesionalismo en cada servicio.</p>
-            <div className="social">
-              <Camera /> <Share2 /> <MessageCircle />
-            </div>
-          </div>
-          <div className="footer-links-col">
-            <h4>LEGAL</h4>
-            <ul>
-              <li><Link to="/terminos-y-condiciones">Términos y condiciones</Link></li>
-              <li><Link to="/politica-de-privacidad">Privacidad</Link></li>
-              <li><Link to="/cancelacion-y-reembolsos">Cancelaciones y Reembolsos</Link></li>
-              <li><Link to="/preguntas-frecuentes">Preguntas Frecuentes</Link></li>
-              <li><Link to="/contacto">Contacto</Link></li>
-            </ul>
-          </div>
-          <div className="footer-contact">
-            <h4>CONTACTO</h4>
-            <p><MapPin size={14} /> Santo Domingo Este, RD</p>
-            <p><Phone size={14} /> (809) 561-5000</p>
-          </div>
-        </div>
-        <div className="footer-bottom">
-          <p style={{ margin: 0 }}>&copy; 2026 PlanBeautyRD. Todos los derechos reservados.</p>
-          <p style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: '#94a3b8' }}>
-            Plataforma desarrollada por{' '}
-            <a 
-              href="https://www.instagram.com/_spawx_/" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              style={{ color: '#d4af37', textDecoration: 'none', fontWeight: 700 }}
-            >
-              Anderson Ramirez
-            </a>
-          </p>
-        </div>
-      </footer>
+                <p className="hero-brand-note">
+                  <ShieldCheck size={16} aria-hidden="true" />
+                  <span>Probado y homologado en operación real en salones y peluquerías profesionales.</span>
+                </p>
+              </div>
 
-      {/* Auth Modal Overlay */}
+              <div className="hero-visual">
+                <div className="hero-visual-card">
+                  <div className="hero-photo-frame">
+                    <img
+                      src="/landing_assets/hero_v2_opt.jpg"
+                      alt="Operación diaria en salón de belleza con software POS y membresías"
+                      width="800"
+                      height="1000"
+                      fetchPriority="high"
+                    />
+                  </div>
+
+                  {/* Mockup flotante de POS & Ingresos en Vivo */}
+                  <div className="hero-pos-preview-card" aria-label="Demostración visual de interfaz POS">
+                    <div className="preview-card-header">
+                      <div className="preview-card-status">
+                        <span className="status-dot green" aria-hidden="true" />
+                        <span className="status-text">POS Recepción &bull; Turno en Vivo</span>
+                      </div>
+                      <span className="preview-badge-fiscal">e-CF DGII</span>
+                    </div>
+
+                    <div className="preview-kpi-row">
+                      <div className="preview-kpi-item">
+                        <span className="kpi-label">Ventas del Día</span>
+                        <strong className="kpi-value">RD$ 48,250.00</strong>
+                      </div>
+                      <div className="preview-kpi-item align-right">
+                        <span className="kpi-label">Plan Beauty Activo</span>
+                        <strong className="kpi-value text-accent">34 Socias</strong>
+                      </div>
+                    </div>
+
+                    <div className="preview-ticket-snippet">
+                      <div className="snippet-line">
+                        <span>Ticket #0142 &bull; Pre-cuenta 60mm</span>
+                        <span className="tag-ok">Validado</span>
+                      </div>
+                      <div className="snippet-details">
+                        <span>Lavado y Secado (Plan Beauty)</span>
+                        <strong>RD$ 0.00</strong>
+                      </div>
+                      <div className="snippet-details">
+                        <span>Tratamiento Profundo + Botox</span>
+                        <strong>RD$ 2,400.00</strong>
+                      </div>
+                    </div>
+
+                    <div className="preview-card-footer">
+                      <div className="footer-plan-tag">
+                        <strong>Desde $49 USD/mes</strong>
+                        <span>Por sucursal &bull; Sin permanencia</span>
+                      </div>
+                      <span className="preview-verified-badge">
+                        <ShieldCheck size={14} aria-hidden="true" />
+                        <span>Homologación Verificada</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Indicadores de confianza del software */}
+            <div className="hero-footer-badges">
+              <div className="badges-grid">
+                <div className="badge-item">
+                  <div className="badge-icon" aria-hidden="true"><Receipt size={20} /></div>
+                  <div className="badge-text">
+                    <h2>POS y Facturación Fiscal</h2>
+                    <p>Tickets térmicos 60mm/80mm, secuencias e-CF y reportes 606, 607 e IT-1.</p>
+                  </div>
+                </div>
+                <div className="badge-item">
+                  <div className="badge-icon" aria-hidden="true"><Users size={20} /></div>
+                  <div className="badge-text">
+                    <h2>Comisiones y Nómina</h2>
+                    <p>Cálculo automático por estilista, manicurista, lavapelo y quiosco de asistencia.</p>
+                  </div>
+                </div>
+                <div className="badge-item">
+                  <div className="badge-icon" aria-hidden="true"><Crown size={20} /></div>
+                  <div className="badge-text">
+                    <h2>Motor de Suscripciones</h2>
+                    <p>En Plan Pro: membresías de 4 lavados/30 días, contratos digitales y Gift Cards.</p>
+                  </div>
+                </div>
+                <div className="badge-item">
+                  <div className="badge-icon" aria-hidden="true"><ShieldCheck size={20} /></div>
+                  <div className="badge-text">
+                    <h2>Seguridad con PIN</h2>
+                    <p>Autorización obligatoria de administrador para descuentos o rebajas en caja.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. MÓDULOS Y BENEFICIOS CONCRETOS + ORIGEN ABATTE */}
+        <section className="section-block bg-white" id="modulos">
+          <div className="container">
+            <div className="section-header">
+              <span className="section-tag">Módulos de la Plataforma</span>
+              <h2 className="section-title">
+                Todo lo que tu salón necesita en <span>una sola plataforma</span>
+              </h2>
+              <p className="section-subtitle">
+                Diseñado específicamente para el flujo real de recepción, estilistas, caja y contabilidad de salones de belleza.
+              </p>
+            </div>
+
+            <div className="benefits-grid">
+              <article className="benefit-card">
+                <div className="benefit-icon" aria-hidden="true">
+                  <Receipt size={24} />
+                </div>
+                <h3>POS de Recepción y Cajas</h3>
+                <p>
+                  Facturación ágil de servicios y productos, apertura y cuadre de cajas por turno, impresión automática de pre-cuentas térmicas y control de métodos de pago.
+                </p>
+                <div className="benefit-tags">
+                  <span>80mm / 60mm térmico</span>
+                  <span>Cuadre de caja</span>
+                  <span>PIN de seguridad</span>
+                </div>
+              </article>
+
+              <article className="benefit-card">
+                <div className="benefit-icon" aria-hidden="true">
+                  <Wallet size={24} />
+                </div>
+                <h3>Nómina, Comisiones y Contabilidad</h3>
+                <p>
+                  Liquidación automática de comisiones por servicio realizado, descuentos a empleados, registro de egresos y exportación directa de reportes fiscales 606, 607 e ITBIS (IT-1).
+                </p>
+                <div className="benefit-tags">
+                  <span>Comisiones automáticas</span>
+                  <span>Reportes 606/607</span>
+                  <span>ITBIS IT-1</span>
+                </div>
+              </article>
+
+              <article className="benefit-card">
+                <div className="benefit-icon" aria-hidden="true">
+                  <Crown size={24} />
+                </div>
+                <h3>Membresías y Clientes (Exclusivo Plan Pro)</h3>
+                <p>
+                  Habilita el registro de clientes y crea tu propio programa de suscripción mensual con control de cupos de lavados por ciclo de 30 días, contratos firmados y descuentos de cumpleaños.
+                </p>
+                <div className="benefit-tags">
+                  <span>Ciclos de 30 días</span>
+                  <span>Contratos firmados</span>
+                  <span>4 lavados/mes</span>
+                </div>
+              </article>
+            </div>
+
+            <div className="brand-alliance-banner">
+              <div className="brand-alliance-text">
+                <h3>Arquitectura Multi-Tenant diseñada para la identidad de tu salón</h3>
+                <p>
+                  Cada salón opera con su propia marca, logo, colores, usuarios, comisiones, catálogo POS e inventario totalmente aislado.
+                </p>
+              </div>
+              <a href="#planes" className="landing-btn btn-primary">
+                Comparar Plan Base y Pro
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* 4. CÓMO FUNCIONA LA IMPLEMENTACIÓN SAAS */}
+        <section className="section-block bg-alt" id="como-funciona">
+          <div className="container">
+            <div className="section-header">
+              <span className="section-tag">Puesta en marcha</span>
+              <h2 className="section-title">
+                ¿Cómo funciona <span>para tu salón</span>?
+              </h2>
+              <p className="section-subtitle">
+                Configura tu salón en minutos y elige el nivel de licenciamiento que se ajuste a tu modelo operativo.
+              </p>
+            </div>
+
+            <div className="steps-grid">
+              <div className="step">
+                <span className="step-num">PASO 01</span>
+                <div className="step-icon-bg" aria-hidden="true">
+                  <Building2 size={28} />
+                </div>
+                <h3>Elige tu nivel de operación</h3>
+                <p>
+                  Selecciona el <strong>Plan Base</strong> si buscas facturación POS y control interno, o el <strong>Plan Pro</strong> para incluir registro de clientes y suscripciones mensuales.
+                </p>
+              </div>
+
+              <div className="step">
+                <span className="step-num">PASO 02</span>
+                <div className="step-icon-bg" aria-hidden="true">
+                  <Scissors size={28} />
+                </div>
+                <h3>Configura catálogo y comisiones</h3>
+                <p>
+                  Personaliza el logo de tu salón, registra tus servicios, productos, estilistas, porcentajes de comisión y usuarios de recepción.
+                </p>
+              </div>
+
+              <div className="step">
+                <span className="step-num">PASO 03</span>
+                <div className="step-icon-bg" aria-hidden="true">
+                  <CheckCircle size={28} />
+                </div>
+                <h3>Factura y controla en tiempo real</h3>
+                <p>
+                  Emite tickets térmicos en recepción, audita tus cierres de caja diarios y supervisa la rentabilidad de cada sucursal en tiempo real.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 5 & 6. QUÉ INCLUYE CADA PLAN + PRECIOS Y CONDICIONES (2 PLANES: BASE Y PRO) */}
+        <section className="section-block bg-white" id="planes">
+          <div className="container">
+            <div className="section-header">
+              <span className="section-tag">Licenciamiento Transparente</span>
+              <h2 className="section-title">
+                Dos planes diseñados para <span>cada etapa de tu salón</span>
+              </h2>
+              <p className="section-subtitle">
+                Sin planes confusos: elige operación pura de punto de venta en el <strong>Plan Base</strong> o desbloquea clientes y membresías recurrentes en el <strong>Plan Pro</strong>.
+              </p>
+            </div>
+
+            <div className="saas-plans-grid">
+              {/* PLAN BASE */}
+              <article className="saas-plan-card">
+                <div>
+                  <span className="plan-ribbon base">Operación Esencial POS</span>
+                  <div className="pricing-header-inner" style={{ marginBottom: '0.5rem' }}>
+                    <Building2 size={28} aria-hidden="true" />
+                    <h3>PLAN <span>BASE</span></h3>
+                  </div>
+                  <p style={{ color: 'var(--lp-muted)', fontSize: '0.9rem', margin: '0 0 1.25rem 0' }}>
+                    Ideal para salones que requieren facturación rápida a clientes de paso, control de inventario, cajas y nómina sin club de membresías.
+                  </p>
+
+                  <div className="price-tag" style={{ justifyContent: 'flex-start', margin: '0 0 0.25rem 0' }}>
+                    $49 <span>USD / mes por sucursal</span>
+                  </div>
+                  <p className="price-subcopy" style={{ textAlign: 'left', marginBottom: '1.25rem' }}>
+                    Incluye 3 usuarios por sucursal (+$15 USD/mes por usuario extra).
+                  </p>
+
+                  <ul className="pricing-list">
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Punto de Venta (POS)</strong> y tickets térmicos de 80mm/60mm.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Catálogo completo</strong> de servicios y productos.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Cajas registradoras</strong>, aperturas y cierres de turno.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Creación de usuarios</strong>, roles y PIN de seguridad.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Comisiones, Nómina</strong> y control de asistencia.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Contabilidad DGII:</strong> secuencias e-CF, 606, 607 e IT-1.</span>
+                    </li>
+                    <li className="plan-item-excluded">
+                      <X size={18} aria-hidden="true" className="icon-excluded" />
+                      <span>No incluye registro ni directorio CRM de clientes.</span>
+                    </li>
+                    <li className="plan-item-excluded">
+                      <X size={18} aria-hidden="true" className="icon-excluded" />
+                      <span>No incluye módulo de Suscripciones (Plan Beauty).</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => openAuthModal(false, e.currentTarget, 'base')}
+                  className="landing-btn btn-primary"
+                  style={{ width: '100%' }}
+                >
+                  Comenzar con Plan Base
+                </button>
+              </article>
+
+              {/* PLAN PRO */}
+              <article className="saas-plan-card pro-featured">
+                <div>
+                  <span className="plan-ribbon pro">✦ Más Completo &bull; Clientes + Suscripciones</span>
+                  <div className="pricing-header-inner" style={{ marginBottom: '0.5rem' }}>
+                    <Crown size={28} aria-hidden="true" style={{ color: 'var(--lp-accent)' }} />
+                    <h3>PLAN <span>PRO</span></h3>
+                  </div>
+                  <p style={{ color: 'var(--lp-muted)', fontSize: '0.9rem', margin: '0 0 1.25rem 0' }}>
+                    Para salones que desean fidelizar a su cartera de clientas y generar ingresos recurrentes con membresías mensuales tipo Plan Beauty.
+                  </p>
+
+                  <div className="price-tag" style={{ justifyContent: 'flex-start', margin: '0 0 0.25rem 0' }}>
+                    $99 <span>USD / mes por sucursal</span>
+                  </div>
+                  <p className="price-subcopy" style={{ textAlign: 'left', marginBottom: '1.25rem' }}>
+                    Incluye 3 usuarios por sucursal (+$15 USD/mes por usuario extra).
+                  </p>
+
+                  <ul className="pricing-list">
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Todo lo incluido en el Plan Base</strong> (POS, Cajas, DGII, Nómina).</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Registro y Directorio CRM de Clientes</strong> con historial de visitas.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Módulo completo de Suscripciones (Plan Beauty):</strong> creación de planes y control de ciclos de 30 días.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Validación automática en POS</strong> de lavados disponibles (RD$ 0 cuando tiene cupo activo).</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Contratos digitales</strong> con firma en pantalla y cobros recurrentes.</span>
+                    </li>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Descuento automático de cumpleaños (15%)</strong>, encuestas de satisfacción y Gift Cards.</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => openAuthModal(false, e.currentTarget, 'pro')}
+                  className="landing-btn btn-accent"
+                  style={{ width: '100%' }}
+                >
+                  Comenzar con Plan Pro
+                </button>
+              </article>
+            </div>
+
+            <div className="pricing-conditions-note" style={{ maxWidth: '1080px', margin: '0 auto' }}>
+              <strong>Condiciones de licenciamiento SaaS:</strong> La facturación de la licencia es mensual por cada sucursal activa registrada. En el <strong>Plan Base</strong>, los módulos de registro de clientes y suscripciones permanecen ocultos para mantener una interfaz limpia enfocada en caja rápida. Puedes cambiar entre Plan Base y Plan Pro en cualquier momento desde tu panel administrativo. Consulta nuestros{' '}
+              <Link to="/terminos-y-condiciones" style={{ color: 'var(--lp-accent)', fontWeight: 700 }}>
+                Términos del Servicio
+              </Link>{' '}
+              y{' '}
+              <Link to="/cancelacion-y-reembolsos" style={{ color: 'var(--lp-accent)', fontWeight: 700 }}>
+                Política de Cancelación
+              </Link>.
+            </div>
+          </div>
+        </section>
+
+        {/* 7. RED DE SALONES CONECTADOS EN OPERACIÓN REAL */}
+        <section className="section-block bg-alt" id="sucursales">
+          <div className="container">
+            <div className="branches-flex">
+              <div className="branches-info">
+                <span className="section-tag">Red de Salones Conectados</span>
+                <h2 className="section-title" style={{ textAlign: 'left', marginBottom: '1.25rem' }}>
+                  Impulsando en vivo salones y <span>centros de belleza líderes</span>
+                </h2>
+                <p style={{ color: 'var(--lp-muted)', marginBottom: '1.5rem', fontSize: '0.95rem' }}>
+                  Nuestra plataforma gestiona en tiempo real la facturación POS, las comisiones de estilistas y las membresías mensuales de salones en República Dominicana:
+                </p>
+
+                <article className="branch-card">
+                  <MapPin className="pin-icon" size={22} aria-hidden="true" />
+                  <div>
+                    <h3>Sucursal Zona Oriental (Plan Pro Activo)</h3>
+                    <p>Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F, Santo Domingo Este.</p>
+                    <p className="branch-hours">Operando POS Térmico, Cajas, Comisiones y Membresías Plan Beauty</p>
+                  </div>
+                </article>
+
+                <article className="branch-card">
+                  <MapPin className="pin-icon" size={22} aria-hidden="true" />
+                  <div>
+                    <h3>Sucursal Santo Domingo Norte (Plan Pro Activo)</h3>
+                    <p>Av. Hermanas Mirabal, dentro de Multicentro comercial, Santo Domingo Norte.</p>
+                    <p className="branch-hours">Operando Multi-Sucursal en tiempo real con inventario sincronizado</p>
+                  </div>
+                </article>
+
+                <article className="branch-card">
+                  <Phone className="pin-icon" size={22} aria-hidden="true" />
+                  <div>
+                    <h3>Ventas y Demostraciones SaaS</h3>
+                    <p>Teléfono: (809) 561-5000 &bull; Correo: contacto@salonpro.com</p>
+                  </div>
+                </article>
+              </div>
+
+              <div className="branches-image">
+                <img
+                  src="/landing_assets/salon2_opt.jpg"
+                  alt="Estaciones de trabajo de salón de belleza operando con la plataforma SaaS"
+                  width="800"
+                  height="800"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 8. GARANTÍAS TÉCNICAS Y OPERATIVAS VERIFICABLES */}
+        <section className="section-block bg-white" aria-labelledby="trust-heading">
+          <div className="container">
+            <div className="section-header">
+              <span className="section-tag">Arquitectura Empresarial</span>
+              <h2 id="trust-heading" className="section-title">
+                Seguridad y control empresarial <span>multi-tenant</span>
+              </h2>
+              <p className="section-subtitle">
+                Construido con las reglas operativas reales que protegen la caja y la contabilidad del dueño de salón.
+              </p>
+            </div>
+
+            <div className="trust-grid">
+              <div className="trust-card">
+                <div className="benefit-icon" aria-hidden="true">
+                  <Building2 size={22} />
+                </div>
+                <h3>Aislamiento por Salón (Tenant)</h3>
+                <p>
+                  Cada salón cuenta con sus propias sucursales, personal, cierres de caja, clientes y secuencias fiscales completamente independientes.
+                </p>
+              </div>
+
+              <div className="trust-card">
+                <div className="benefit-icon" aria-hidden="true">
+                  <ShieldCheck size={22} />
+                </div>
+                <h3>Control de Caja con PIN</h3>
+                <p>
+                  Bloqueo automático ante intentos de modificar precios base o aplicar descuentos manuales sin autorización del administrador.
+                </p>
+              </div>
+
+              <div className="trust-card">
+                <div className="benefit-icon" aria-hidden="true">
+                  <Receipt size={22} />
+                </div>
+                <h3>Impresión Térmica Homologada</h3>
+                <p>
+                  Formato de pre-cuenta y factura calibrado a 60mm sobre impresoras de 80mm para evitar recortes en el cabezal térmico, con QR integrado.
+                </p>
+              </div>
+
+              <div className="trust-card">
+                <div className="benefit-icon" aria-hidden="true">
+                  <Phone size={22} />
+                </div>
+                <h3>Soporte Especializado en RD</h3>
+                <p>
+                  Adaptado a las normativas fiscales de la DGII en República Dominicana (606, 607, IT-1 y e-CF) con acompañamiento directo.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 9. PREGUNTAS FRECUENTES DEL SAAS */}
+        <section className="section-block bg-alt" id="faq">
+          <div className="container">
+            <div className="section-header">
+              <span className="section-tag">Resuelve tus dudas</span>
+              <h2 className="section-title">
+                Preguntas <span>frecuentes</span> sobre la plataforma
+              </h2>
+              <p className="section-subtitle">
+                Respuestas claras sobre el licenciamiento de Plan Base, Plan Pro, usuarios y módulos incluidos.
+              </p>
+            </div>
+
+            <div className="faq-list">
+              {SAAS_FAQS.map((item, idx) => {
+                const isOpen = openFaqIndex === idx;
+                const answerId = `landing-faq-answer-${idx}`;
+                return (
+                  <div key={idx} className="faq-item">
+                    <button
+                      type="button"
+                      className="faq-trigger"
+                      aria-expanded={isOpen}
+                      aria-controls={answerId}
+                      onClick={() => setOpenFaqIndex(isOpen ? -1 : idx)}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <HelpCircle size={18} aria-hidden="true" style={{ color: 'var(--lp-accent)', flexShrink: 0 }} />
+                        <span>{item.question}</span>
+                      </span>
+                      {isOpen ? (
+                        <ChevronUp size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
+                      ) : (
+                        <ChevronDown size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
+                      )}
+                    </button>
+                    {isOpen && (
+                      <div id={answerId} className="faq-answer">
+                        {item.answer}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* 10. CTA FINAL */}
+        <section className="final-cta-section">
+          <div className="container">
+            <div className="final-cta-box">
+              <h2>¿Listo para modernizar la gestión de <span>tu salón</span>?</h2>
+              <p>
+                Crea la cuenta de tu salón en minutos eligiendo el Plan Base ($49/mes) o el Plan Pro con Suscripciones y Clientes ($99/mes).
+              </p>
+              <div className="final-cta-buttons">
+                <button
+                  type="button"
+                  onClick={(e) => openAuthModal(false, e.currentTarget, 'pro')}
+                  className="landing-btn btn-accent"
+                >
+                  Registrar mi salón
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => openAuthModal(true, e.currentTarget)}
+                  className="landing-btn btn-secondary-outline"
+                >
+                  Iniciar sesión
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* 11. FOOTER */}
+      <PublicFooter />
+
+      {/* ========================================================================
+          MODAL UNIFICADO ACCESIBLE DE AUTENTICACIÓN (LOGIN & REGISTRO DE SALÓN EN 3 PASOS)
+          No se duplica en el DOM: solo se monta cuando el usuario lo abre.
+          ======================================================================== */}
       {isAuthModalOpen && (
-        <div className="activation-overlay" style={{ zIndex: 2000 }}>
-          <div style={{ position: 'relative', width: '100%', maxWidth: '450px' }}>
-            <button 
-              onClick={() => setIsAuthModalOpen(false)} 
-              style={{ position: 'absolute', top: '1rem', right: '-3rem', background: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10 }}
-            >
-              <X size={24} />
-            </button>
-            <div className="login-card" style={{ margin: 0, width: '100%' }}>
-              <h2>{isLogin ? 'INICIA SESIÓN' : 'REGÍSTRATE'}</h2>
-              {!isLogin && (
-                <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', marginBottom: '1rem' }}>
-                  <div style={{ width: '20px', height: '4px', background: regStep === 1 ? 'var(--lp-accent)' : '#eee', borderRadius: '2px' }}></div>
-                  <div style={{ width: '20px', height: '4px', background: regStep === 2 ? 'var(--lp-accent)' : '#eee', borderRadius: '2px' }}></div>
+        <div
+          className="activation-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeAllModals();
+          }}
+        >
+          <div
+            ref={authModalRef}
+            className="modal-dialog-wrapper"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-modal-title"
+          >
+            <div className="login-card">
+              <div className="modal-header-row">
+                <div>
+                  <h2 id="auth-modal-title">
+                    {regSuccess
+                      ? '¡SALÓN REGISTRADO!'
+                      : isLogin
+                      ? 'INICIA SESIÓN'
+                      : 'REGISTRA TU SALÓN'}
+                  </h2>
+                  <hr className="title-hr" />
+                </div>
+                <button
+                  type="button"
+                  onClick={closeAllModals}
+                  className="modal-close-btn"
+                  aria-label="Cerrar ventana"
+                >
+                  <X size={20} aria-hidden="true" />
+                </button>
+              </div>
+
+              {!isLogin && !regSuccess && (
+                <div className="stepper-header" aria-label={`Progreso de registro: Paso ${regStep} de 3`}>
+                  <div className="stepper-meta">
+                    <span>Paso {regStep} de 3</span>
+                    <span>
+                      {regStep === 1 && 'Datos del propietario'}
+                      {regStep === 2 && 'Salón y Plan SaaS'}
+                      {regStep === 3 && 'Resumen y activación'}
+                    </span>
+                  </div>
+                  <div className="stepper-bars">
+                    <div className={`stepper-bar ${regStep === 1 ? 'active' : 'completed'}`} />
+                    <div className={`stepper-bar ${regStep === 2 ? 'active' : regStep > 2 ? 'completed' : ''}`} />
+                    <div className={`stepper-bar ${regStep === 3 ? 'active' : ''}`} />
+                  </div>
                 </div>
               )}
-              <hr className="title-hr" />
-              {error && <div className="error-msg">{error}</div>}
-              
-              {!regSuccess ? (
-                <form onSubmit={(e) => {
-                  if (isLogin) handleLogin(e);
-                  else {
-                    e.preventDefault();
-                    if (regStep === 1) {
-                      if (!validateName(nombre)) return setError("El nombre no debe contener números");
-                      if (!isValidCedula(cedula)) return setError("La cédula debe tener 11 dígitos");
-                      setRegStep(2);
-                    } else {
-                      handleRegister(e);
-                    }
-                  }
-                }}>
-                  {isLogin ? (
-                    <>
-                      <div className="landing-form-group">
-                        <User className="input-icon" />
-                        <input type="text" placeholder="Cédula o correo electrónico" value={email} onChange={e => setEmail(e.target.value)} required />
-                      </div>
-                      <div className="landing-form-group">
-                        <Lock className="input-icon" />
-                        <input type={showPassword ? "text" : "password"} placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)} required />
-                        <button type="button" className="toggle-pass" onClick={() => setShowPassword(!showPassword)}>
-                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
-                      <button type="submit" className="landing-btn btn-primary" disabled={loading}>
-                        {loading ? 'CARGANDO...' : 'INICIAR SESIÓN'}
-                      </button>
-                      <a href="#" className="forgot-link" style={{ display: 'block', textAlign: 'center', margin: '0.5rem 0', fontSize: '0.8rem' }} onClick={(e) => { 
-                        e.preventDefault(); 
-                        setIsAuthModalOpen(false);
-                        setShowForgotModal(true); 
-                        setForgotStep(1);
-                        setForgotError('');
-                      }}>¿Olvidaste tu contraseña?</a>
-                      <p className="landing-form-footer">¿No tienes cuenta? <span className="toggle-link" onClick={() => setIsLogin(false)}>Crear cuenta</span></p>
-                    </>
-                  ) : (
-                    <>
-                      {regStep === 1 ? (
-                        <>
-                          <div className="landing-form-group"><User className="input-icon" /><input type="text" placeholder="Nombre completo" value={nombre} onChange={e => setNombre(e.target.value)} required /></div>
-                          <div className="landing-form-group"><CreditCard className="input-icon" /><input type="text" placeholder="Cédula" value={cedula} onChange={e => setCedula(formatCedula(e.target.value))} required /></div>
-                          <div className="landing-form-group"><Phone className="input-icon" /><input type="text" placeholder="Teléfono" value={telefono} onChange={e => setTelefono(cleanPhone(e.target.value))} required /></div>
-                          <div className="landing-form-group"><Mail className="input-icon" /><input type="email" placeholder="Correo" value={email} onChange={e => setEmail(e.target.value)} required /></div>
-                          <div className="landing-form-group">
-                            <CalendarDays className="input-icon" />
-                            <label style={{ position: 'absolute', top: '-1.2rem', left: '0.5rem', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--lp-accent)' }}>FECHA DE NACIMIENTO</label>
-                            <input 
-                              type="date" 
-                              placeholder="Fecha de Nacimiento" 
-                              value={fechaNacimiento} 
-                              onChange={e => setFechaNacimiento(e.target.value)} 
-                              required 
-                              style={{ color: fechaNacimiento ? 'var(--text-primary)' : '#999' }}
-                            />
-                          </div>
-                          <div style={{ marginBottom: '1.5rem' }}></div>
-                          <div className="landing-form-group">
-                            <MapPin className="input-icon" />
-                            <select value={salonId} onChange={e => setSalonId(e.target.value)} required style={{ width: '100%', padding: '1rem 3rem', borderRadius: '12px', border: '1.5px solid #eee' }}>
-                              <option value="">Selecciona Sucursal</option>
-                              {salons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                            </select>
-                          </div>
-                          <button type="submit" className="landing-btn btn-primary">SIGUIENTE</button>
-                        </>
-                      ) : (
-                        <>
-                          <div className="landing-form-group"><MapPin className="input-icon" /><input type="text" placeholder="Calle" value={calle} onChange={e => setCalle(e.target.value)} required /></div>
-                          <div className="landing-form-group"><Sparkles className="input-icon" /><input type="text" placeholder="Número" value={numero} onChange={e => setNumero(e.target.value)} /></div>
-                          <div className="landing-form-group"><MapPin className="input-icon" /><input type="text" placeholder="Sector" value={sector} onChange={e => setSector(e.target.value)} required /></div>
-                          <div className="landing-form-group">
-                            <MapPin className="input-icon" />
-                            <select 
-                              value={ciudad} 
-                              onChange={e => setCiudad(e.target.value)} 
-                              required 
-                              style={{ 
-                                width: '100%', 
-                                padding: '1rem 3rem', 
-                                borderRadius: '12px', 
-                                border: '1.5px solid #eee',
-                                appearance: 'auto',
-                                background: 'white',
-                                color: ciudad ? 'var(--text-primary)' : '#999',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              <option value="">Selecciona Ciudad</option>
-                              <option value="Distrito Nacional">Distrito Nacional</option>
-                              <option value="Santo Domingo Este">Santo Domingo Este</option>
-                              <option value="Santo Domingo Norte">Santo Domingo Norte</option>
-                              <option value="Santo Domingo Oeste">Santo Domingo Oeste</option>
-                              <option value="Santiago">Santiago</option>
-                              <option value="Punta Cana">Punta Cana</option>
-                              <option value="La Romana">La Romana</option>
-                              <option value="Puerto Plata">Puerto Plata</option>
-                              <option value="Higüey">Higüey</option>
-                              <option value="San Pedro de Macorís">San Pedro de Macorís</option>
-                              <option value="San Francisco de Macorís">San Francisco de Macorís</option>
-                              <option value="La Vega">La Vega</option>
-                              <option value="San Cristóbal">San Cristóbal</option>
-                              <option value="Baní">Baní</option>
-                              <option value="Bonao">Bonao</option>
-                              <option value="Moca">Moca</option>
-                              <option value="Cotuí">Cotuí</option>
-                              <option value="Samaná">Samaná</option>
-                              <option value="Monte Plata">Monte Plata</option>
-                              <option value="Azua">Azua</option>
-                              <option value="Barahona">Barahona</option>
-                              <option value="San Juan">San Juan</option>
-                              <option value="Mao">Mao</option>
-                              <option value="Nagua">Nagua</option>
-                            </select>
-                          </div>
-                          <div style={{ display: 'flex', gap: '1rem' }}>
-                            <button type="button" onClick={() => setRegStep(1)} className="landing-btn" style={{ background: '#eee', flex: 1 }}>ATRÁS</button>
-                            <button type="submit" className="landing-btn btn-primary" style={{ flex: 2 }} disabled={loading}>{loading ? 'CARGANDO...' : 'CREAR CUENTA'}</button>
-                          </div>
-                        </>
-                      )}
-                      <p className="landing-form-footer">¿Ya tienes cuenta? <span className="toggle-link" onClick={() => setIsLogin(true)}>Inicia sesión</span></p>
-                    </>
-                  )}
-                </form>
-              ) : (
-                <div className="success-overlay" style={{ textAlign: 'center', padding: '1rem' }}>
-                  <div style={{ width: '70px', height: '70px', background: '#f0fdf4', color: '#22c55e', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
-                    <CheckCircle2 size={40} />
+
+              <div aria-live="polite" aria-atomic="true">
+                {error && (
+                  <div className="error-msg" role="alert">
+                    {error}
                   </div>
-                  <h3 style={{ fontSize: '1.5rem', fontWeight: 900, marginBottom: '1rem' }}>¡Registro Exitoso!</h3>
-                  <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: 1.6, marginBottom: '2rem' }}>
-                    Te hemos enviado una <strong>contraseña temporal</strong> a tu correo electrónico. Úsala para iniciar sesión y personalizar tu perfil.
+                )}
+              </div>
+
+              {regSuccess ? (
+                <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+                  <div
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      background: '#f0fdf4',
+                      color: '#166534',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 1rem'
+                    }}
+                    aria-hidden="true"
+                  >
+                    <CheckCircle2 size={36} />
+                  </div>
+                  <p style={{ color: 'var(--lp-muted)', fontSize: '0.92rem', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+                    Tu salón <strong>{businessName}</strong> ha sido creado con el <strong>{selectedPlanCode === 'pro' ? 'Plan Pro ($99/mes)' : 'Plan Base ($49/mes)'}</strong>. Ya puedes ingresar con tu correo <strong>{email}</strong> y tu contraseña.
                   </p>
-                  <button onClick={handleBackToLogin} className="landing-btn btn-primary" style={{ width: '100%' }}>
-                    IR AL INICIO DE SESIÓN
+                  <button
+                    type="button"
+                    onClick={handleBackToLogin}
+                    className="landing-btn btn-primary"
+                    style={{ width: '100%' }}
+                  >
+                    Ir a iniciar sesión
                   </button>
                 </div>
+              ) : isLogin ? (
+                <form onSubmit={handleLogin} noValidate>
+                  <div className="landing-form-group">
+                    <label htmlFor="login-identifier" className="field-label">
+                      Correo electrónico o usuario <span className="req">*</span>
+                    </label>
+                    <div className="input-with-icon">
+                      <User className="input-icon" size={18} aria-hidden="true" />
+                      <input
+                        id="login-identifier"
+                        type="text"
+                        autoComplete="username"
+                        placeholder="admin@tusalon.com o cédula"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="landing-form-group">
+                    <label htmlFor="login-password" className="field-label">
+                      Contraseña <span className="req">*</span>
+                    </label>
+                    <div className="input-with-icon">
+                      <Lock className="input-icon" size={18} aria-hidden="true" />
+                      <input
+                        id="login-password"
+                        className="has-toggle"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="current-password"
+                        placeholder="Ingresa tu contraseña"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="toggle-pass"
+                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="landing-btn btn-primary"
+                    style={{ width: '100%', marginTop: '0.5rem' }}
+                    disabled={loading}
+                  >
+                    {loading ? 'INGRESANDO...' : 'INICIAR SESIÓN'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="forgot-link"
+                    onClick={() => {
+                      setIsAuthModalOpen(false);
+                      setShowForgotModal(true);
+                      setForgotStep(1);
+                      setForgotError('');
+                    }}
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
+
+                  <p className="landing-form-footer">
+                    ¿Aún no has registrado tu salón?{' '}
+                    <button
+                      type="button"
+                      className="toggle-link"
+                      onClick={() => {
+                        setIsLogin(false);
+                        setError('');
+                        setRegStep(1);
+                      }}
+                    >
+                      Registrar mi salón
+                    </button>
+                  </p>
+                </form>
+              ) : (
+                <form onSubmit={handleRegisterStepValidation} noValidate>
+                  {regStep === 1 && (
+                    <>
+                      <div className="landing-form-group">
+                        <label htmlFor="reg-owner-name" className="field-label">
+                          Nombre del propietario o administrador <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <User className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="reg-owner-name"
+                            type="text"
+                            autoComplete="name"
+                            placeholder="Ej. Laura Martínez"
+                            value={ownerName}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setOwnerName(val);
+                              if (val && !validateName(val)) {
+                                setError('El nombre solo debe contener letras y espacios.');
+                              } else {
+                                setError('');
+                              }
+                            }}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="landing-form-group">
+                        <label htmlFor="reg-telefono" className="field-label">
+                          Teléfono móvil / WhatsApp <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <Phone className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="reg-telefono"
+                            type="tel"
+                            inputMode="tel"
+                            autoComplete="tel"
+                            placeholder="8090000000"
+                            value={telefono}
+                            onChange={(e) => setTelefono(cleanPhone(e.target.value))}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="landing-form-group">
+                        <label htmlFor="reg-email" className="field-label">
+                          Correo electrónico del administrador <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <Mail className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="reg-email"
+                            type="email"
+                            autoComplete="email"
+                            placeholder="admin@tusalon.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <button type="submit" className="landing-btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }}>
+                        Continuar al paso 2
+                      </button>
+                    </>
+                  )}
+
+                  {regStep === 2 && (
+                    <>
+                      <div className="landing-form-group">
+                        <label htmlFor="reg-business-name" className="field-label">
+                          Nombre comercial del salón <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <Building2 className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="reg-business-name"
+                            type="text"
+                            autoComplete="organization"
+                            placeholder="Ej. Glamour Beauty Studio"
+                            value={businessName}
+                            onChange={(e) => setBusinessName(e.target.value)}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="field-row-2col">
+                        <div className="landing-form-group">
+                          <label htmlFor="reg-plan" className="field-label">
+                            Plan SaaS <span className="req">*</span>
+                          </label>
+                          <div className="input-with-icon">
+                            <Crown className="input-icon" size={18} aria-hidden="true" />
+                            <select
+                              id="reg-plan"
+                              value={selectedPlanCode}
+                              onChange={(e) => setSelectedPlanCode(e.target.value)}
+                              required
+                            >
+                              <option value="base">Plan Base ($49/sede)</option>
+                              <option value="pro">Plan Pro ($99/sede)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="landing-form-group">
+                          <label htmlFor="reg-branches" className="field-label">
+                            Sucursales <span className="req">*</span>
+                          </label>
+                          <div className="input-with-icon">
+                            <MapPin className="input-icon" size={18} aria-hidden="true" />
+                            <select
+                              id="reg-branches"
+                              value={licensedBranches}
+                              onChange={(e) => setLicensedBranches(Number(e.target.value))}
+                              required
+                            >
+                              {[1, 2, 3, 4, 5].map((n) => (
+                                <option key={n} value={n}>
+                                  {n} {n === 1 ? 'Sucursal' : 'Sucursales'}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="landing-form-group">
+                        <label htmlFor="reg-rnc" className="field-label">
+                          RNC del salón (Opcional)
+                        </label>
+                        <div className="input-with-icon">
+                          <CreditCard className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="reg-rnc"
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="Ej. 131-00000-1"
+                            value={rnc}
+                            onChange={(e) => setRnc(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="landing-form-group">
+                        <label htmlFor="reg-owner-password" className="field-label">
+                          Crea tu contraseña de administrador <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <Lock className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="reg-owner-password"
+                            className="has-toggle"
+                            type={showPassword ? 'text' : 'password'}
+                            autoComplete="new-password"
+                            placeholder="Mínimo 6 caracteres"
+                            value={ownerPassword}
+                            onChange={(e) => setOwnerPassword(e.target.value)}
+                            required
+                          />
+                          <button
+                            type="button"
+                            className="toggle-pass"
+                            aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError('');
+                            setRegStep(1);
+                          }}
+                          className="landing-btn btn-secondary-outline"
+                          style={{ flex: 1 }}
+                        >
+                          Atrás
+                        </button>
+                        <button type="submit" className="landing-btn btn-primary" style={{ flex: 2 }}>
+                          Revisar resumen
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {regStep === 3 && (
+                    <>
+                      <div className="plan-summary-box">
+                        <h3>Resumen de Licencia SaaS para tu Salón</h3>
+                        <ul className="plan-summary-list">
+                          <li><strong>Salón:</strong> {businessName} {rnc ? `(RNC: ${rnc})` : ''}</li>
+                          <li><strong>Administrador:</strong> {ownerName} ({email})</li>
+                          <li>
+                            <strong>Plan seleccionado:</strong>{' '}
+                            {selectedPlanCode === 'pro'
+                              ? 'Plan Pro ($99 USD/mes por sede — Incluye Clientes + Suscripciones)'
+                              : 'Plan Base ($49 USD/mes por sede — POS, Cajas, Usuarios y DGII)'}
+                          </li>
+                          <li>
+                            <strong>Sucursales y Usuarios:</strong> {licensedBranches} {licensedBranches === 1 ? 'sucursal' : 'sucursales'} ({licensedBranches * 3} usuarios incluidos)
+                          </li>
+                          <li><strong>Total mensual estimado:</strong> ${totalEstimatedMonthly}.00 USD / mes</li>
+                        </ul>
+                      </div>
+
+                      <p style={{ fontSize: '0.82rem', color: 'var(--lp-muted)', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
+                        Al confirmar, crearemos el entorno aislado de tu salón y tu usuario propietario sin realizar ningún cobro automático en este paso.
+                      </p>
+
+                      <div className="checkbox-consent-group">
+                        <input
+                          id="reg-accept-terms"
+                          type="checkbox"
+                          checked={acceptTerms}
+                          onChange={(e) => setAcceptTerms(e.target.checked)}
+                          required
+                        />
+                        <label htmlFor="reg-accept-terms">
+                          He leído y acepto los{' '}
+                          <Link to="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer">
+                            Términos y Condiciones
+                          </Link>{' '}
+                          y la{' '}
+                          <Link to="/cancelacion-y-reembolsos" target="_blank" rel="noopener noreferrer">
+                            Política de Cancelación
+                          </Link>.
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError('');
+                            setRegStep(2);
+                          }}
+                          className="landing-btn btn-secondary-outline"
+                          style={{ flex: 1 }}
+                          disabled={loading}
+                        >
+                          Atrás
+                        </button>
+                        <button
+                          type="submit"
+                          className="landing-btn btn-accent"
+                          style={{ flex: 2 }}
+                          disabled={loading}
+                        >
+                          {loading ? 'CREANDO SALÓN...' : 'CREAR MI SALÓN AHORA'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  <p className="landing-form-footer">
+                    ¿Tu salón ya tiene cuenta?{' '}
+                    <button
+                      type="button"
+                      className="toggle-link"
+                      onClick={() => {
+                        setIsLogin(true);
+                        setError('');
+                      }}
+                    >
+                      Inicia sesión
+                    </button>
+                  </p>
+                </form>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Forgot Password Modal */}
+      {/* MODAL ACCESIBLE DE RECUPERACIÓN DE CONTRASEÑA */}
       {showForgotModal && (
-        <div className="activation-overlay" style={{ zIndex: 2100 }}>
-          <div style={{ position: 'relative', width: '100%', maxWidth: '450px' }}>
-            <button 
-              onClick={() => setShowForgotModal(false)} 
-              style={{ position: 'absolute', top: '1rem', right: '-3rem', background: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10 }}
-            >
-              <X size={24} />
-            </button>
-            <div className="login-card" style={{ margin: 0, width: '100%' }}>
-              <h2>{forgotStep === 1 ? 'RECUPERAR CUENTA' : 'NUEVA CONTRASEÑA'}</h2>
-              <hr className="title-hr" />
-              {forgotError && <div className="error-msg">{forgotError}</div>}
-              {forgotSuccess && (
-                <div className="success-msg" style={{ background: '#f0fdf4', color: '#166534', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem', textAlign: 'center', fontWeight: 600 }}>
-                  ¡Contraseña actualizada con éxito! Redirigiendo al login...
+        <div
+          className="activation-overlay"
+          style={{ zIndex: 2100 }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeAllModals();
+          }}
+        >
+          <div
+            ref={forgotModalRef}
+            className="modal-dialog-wrapper"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="forgot-modal-title"
+          >
+            <div className="login-card">
+              <div className="modal-header-row">
+                <div>
+                  <h2 id="forgot-modal-title">
+                    {forgotStep === 1 ? 'RECUPERAR CUENTA' : 'NUEVA CONTRASEÑA'}
+                  </h2>
+                  <hr className="title-hr" />
                 </div>
-              )}
-              
+                <button
+                  type="button"
+                  onClick={closeAllModals}
+                  className="modal-close-btn"
+                  aria-label="Cerrar recuperación de contraseña"
+                >
+                  <X size={20} aria-hidden="true" />
+                </button>
+              </div>
+
+              <div aria-live="polite" aria-atomic="true">
+                {forgotError && (
+                  <div className="error-msg" role="alert">
+                    {forgotError}
+                  </div>
+                )}
+                {forgotSuccess && (
+                  <div className="success-msg" role="status">
+                    ¡Contraseña actualizada con éxito! Redirigiendo al inicio de sesión...
+                  </div>
+                )}
+              </div>
+
               {!forgotSuccess && (
                 <form onSubmit={forgotStep === 1 ? handleForgotPassword : handleResetPassword}>
                   {forgotStep === 1 ? (
                     <>
-                      <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '1.5rem', textAlign: 'center' }}>
-                        Ingresa tu correo o cédula para recibir un código de recuperación.
+                      <p style={{ fontSize: '0.88rem', color: 'var(--lp-muted)', marginBottom: '1.15rem' }}>
+                        Ingresa tu correo electrónico registrado para recibir un código de verificación de 6 dígitos.
                       </p>
                       <div className="landing-form-group">
-                        <Mail className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="Correo o Cédula" 
-                          value={forgotEmail} 
-                          onChange={e => setForgotEmail(e.target.value)} 
-                          required 
-                        />
+                        <label htmlFor="forgot-identifier" className="field-label">
+                          Correo electrónico <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <Mail className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="forgot-identifier"
+                            type="text"
+                            placeholder="admin@tusalon.com"
+                            value={forgotEmail}
+                            onChange={(e) => setForgotEmail(e.target.value)}
+                            required
+                          />
+                        </div>
                       </div>
-                      <button type="submit" className="landing-btn btn-primary" disabled={forgotLoading}>
+                      <button
+                        type="submit"
+                        className="landing-btn btn-primary"
+                        style={{ width: '100%' }}
+                        disabled={forgotLoading}
+                      >
                         {forgotLoading ? 'ENVIANDO...' : 'ENVIAR CÓDIGO'}
                       </button>
                     </>
                   ) : (
                     <>
-                      <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '1.5rem', textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.88rem', color: 'var(--lp-muted)', marginBottom: '1.15rem' }}>
                         Hemos enviado un código a <strong>{forgotEmail}</strong>. Ingrésalo junto a tu nueva contraseña.
                       </p>
                       <div className="landing-form-group">
-                        <ShieldCheck className="input-icon" />
-                        <input 
-                          type="text" 
-                          placeholder="Código de 6 dígitos" 
-                          value={resetCode} 
-                          onChange={e => setResetCode(e.target.value)} 
-                          maxLength="6"
-                          required 
-                        />
+                        <label htmlFor="forgot-code" className="field-label">
+                          Código de 6 dígitos <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <ShieldCheck className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="forgot-code"
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="000000"
+                            value={resetCode}
+                            onChange={(e) => setResetCode(e.target.value)}
+                            maxLength="6"
+                            required
+                          />
+                        </div>
                       </div>
                       <div className="landing-form-group">
-                        <Lock className="input-icon" />
-                        <input 
-                          type={showPassword ? "text" : "password"} 
-                          placeholder="Nueva contraseña" 
-                          value={newPassword} 
-                          onChange={e => setNewPassword(e.target.value)} 
-                          required 
-                        />
-                        <button type="button" className="toggle-pass" onClick={() => setShowPassword(!showPassword)}>
-                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
+                        <label htmlFor="forgot-new-password" className="field-label">
+                          Nueva contraseña <span className="req">*</span>
+                        </label>
+                        <div className="input-with-icon">
+                          <Lock className="input-icon" size={18} aria-hidden="true" />
+                          <input
+                            id="forgot-new-password"
+                            className="has-toggle"
+                            type={showPassword ? 'text' : 'password'}
+                            autoComplete="new-password"
+                            placeholder="Crea tu nueva contraseña"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            required
+                          />
+                          <button
+                            type="button"
+                            className="toggle-pass"
+                            aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+                          </button>
+                        </div>
                       </div>
-                      <button type="submit" className="landing-btn btn-primary" disabled={forgotLoading}>
+                      <button
+                        type="submit"
+                        className="landing-btn btn-primary"
+                        style={{ width: '100%' }}
+                        disabled={forgotLoading}
+                      >
                         {forgotLoading ? 'ACTUALIZANDO...' : 'RESTABLECER CONTRASEÑA'}
                       </button>
-                      <button 
-                        type="button" 
-                        onClick={() => setForgotStep(1)} 
-                        style={{ width: '100%', background: 'none', border: 'none', marginTop: '1rem', color: 'var(--lp-accent)', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+                      <button
+                        type="button"
+                        onClick={() => setForgotStep(1)}
+                        className="forgot-link"
                       >
-                        REINTENTAR CON OTRO CORREO
+                        Reintentar con otro correo
                       </button>
                     </>
                   )}
@@ -883,34 +1692,80 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         </div>
       )}
 
-      {/* Activation Modal Overlay */}
+      {/* MODAL ACCESIBLE DE ACTIVACIÓN DE CUENTA */}
       {showActivation && (
-        <div className="activation-overlay" style={{ zIndex: 2200 }}>
-          <div className="activation-card">
-            <div className="activation-icon-bg">
-              <Lock size={32} />
-            </div>
-            <h2>ACTIVA TU CUENTA</h2>
-            <p style={{ fontSize: '0.875rem', color: '#64748b', margin: '1rem 0' }}>Hemos enviado un código a tu correo. Por favor ingrésalo para continuar.</p>
-            
-            <form onSubmit={handleActivate}>
-              <input 
-                type="text" 
-                maxLength="6"
-                placeholder="000000" 
-                value={activationCode}
-                onChange={(e) => setActivationCode(e.target.value)}
-                className="activation-input"
-                required
-              />
+        <div
+          className="activation-overlay"
+          style={{ zIndex: 2200 }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeAllModals();
+          }}
+        >
+          <div
+            ref={activationModalRef}
+            className="modal-dialog-wrapper"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activation-modal-title"
+          >
+            <div className="activation-card" style={{ textAlign: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={closeAllModals}
+                  className="modal-close-btn"
+                  aria-label="Cerrar ventana de activación"
+                >
+                  <X size={20} aria-hidden="true" />
+                </button>
+              </div>
+              <div className="activation-icon-bg" aria-hidden="true">
+                <Lock size={30} />
+              </div>
+              <h2 id="activation-modal-title" style={{ textAlign: 'center' }}>ACTIVA TU CUENTA</h2>
+              <p style={{ fontSize: '0.9rem', color: 'var(--lp-muted)', margin: '0.75rem 0 1rem' }}>
+                Ingresa el código de 6 dígitos enviado a tu correo electrónico para activar tu perfil.
+              </p>
 
-              <button type="submit" className="landing-btn btn-primary" style={{ width: '100%' }}>VERIFICAR Y ACTIVAR</button>
-              <button type="button" onClick={() => setShowActivation(false)} className="btn-cancel">CANCELAR</button>
-            </form>
+              <div aria-live="polite" aria-atomic="true">
+                {error && (
+                  <div className="error-msg" role="alert">
+                    {error}
+                  </div>
+                )}
+              </div>
+
+              <form onSubmit={handleActivate}>
+                <label htmlFor="activation-code-input" className="field-label" style={{ textAlign: 'center' }}>
+                  Código de activación
+                </label>
+                <input
+                  id="activation-code-input"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength="6"
+                  placeholder="000000"
+                  value={activationCode}
+                  onChange={(e) => setActivationCode(e.target.value)}
+                  className="activation-input"
+                  required
+                />
+
+                <button type="submit" className="landing-btn btn-primary" style={{ width: '100%' }}>
+                  VERIFICAR Y ACTIVAR
+                </button>
+                <button
+                  type="button"
+                  onClick={closeAllModals}
+                  className="forgot-link"
+                >
+                  Cancelar
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}
-
     </div>
   );
 };

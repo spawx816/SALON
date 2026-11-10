@@ -100,7 +100,7 @@ const ServiceAnalytics = () => {
     }
     const cleanPhone = phone.replace(/[^0-9]/g, '');
     const targetPhone = cleanPhone.startsWith('1') ? cleanPhone : (cleanPhone.length === 10 ? `1${cleanPhone}` : `1809${cleanPhone}`);
-    const message = encodeURIComponent(`Hola ${clientName || 'estimada socia'}, le saludamos de Abatte Peluquería & Plan Beauty RD. Notamos que hace unos días no nos visita y queremos saber cómo se encuentra.`);
+    const message = encodeURIComponent(`Hola ${clientName || 'estimada socia'}, le saludamos de Plan Beauty RD / SalonPro. Notamos que hace unos días no nos visita y queremos saber cómo se encuentra.`);
     window.open(`https://wa.me/${targetPhone}?text=${message}`, '_blank');
   };
 

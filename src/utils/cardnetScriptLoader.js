@@ -32,7 +32,7 @@ export const loadCardNetScript = (publicKey, captureUrl) => {
     const oldScript = document.querySelector('script[src*="PWCheckout.js"]');
     if (oldScript) {
       oldScript.remove();
-      try { delete window.PWCheckout; } catch (e) {}
+      try { delete window.PWCheckout; } catch (_e) { /* ignore */ }
     }
 
     const script = document.createElement('script');

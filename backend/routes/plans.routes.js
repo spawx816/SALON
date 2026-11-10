@@ -1,9 +1,7 @@
 const express = require('express');
 
 /**
- * Plans and Memberships Router
- * 
- * @param {import('mysql2/promise').Pool} pool 
+ * Loyalty Plans & Subscriptions Router (Scoped strictly by tenant_id)
  */
 function createPlansRouter(pool) {
   const router = express.Router();
@@ -11,94 +9,89 @@ function createPlansRouter(pool) {
   // GET /api/plans
   router.get('/', async (req, res) => {
     try {
-      const [rows] = await pool.query(`
-        SELECT p.*, 
-          (SELECT COUNT(*) FROM contracts c WHERE c.plan_id = p.id AND c.status IN ('Active', 'Pending_Retry', 'Activo')) as subscribers_count,
-          (SELECT COUNT(*) FROM contracts c WHERE c.plan_id = p.id) as total_contracts_count
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
+      let [rows] = await pool.query(`
+        SELECT p.*, COUNT(c.id) as subscriber_count 
         FROM plans p
-      `);
-      res.json(rows);
+        LEFT JOIN contracts c ON p.id = c.plan_id AND c.tenant_id = p.tenant_id AND c.status = 'Active'
+        WHERE p.tenant_id = ?
+        GROUP BY p.tenant_id, p.id
+        ORDER BY p.price ASC
+      `, [tenantId]);
+
+      // Si el salón es nuevo y aún no tiene planes inicializados, sembrar planes base para este tenant
+      if (!rows || rows.length === 0) {
+        const defaultPlans = [
+          ['silver', 'Plan Silver', 1500, '4 lavados y secados al mes', JSON.stringify(['4 Lavados mensuales', 'Secado incluido'])],
+          ['gold', 'Plan Beauty Pro', 1950, '4 lavados profundos + hidratación', JSON.stringify(['4 Lavados mensuales', '15% desc. en servicios extra'])],
+          ['black', 'Plan VIP Black', 3200, 'Lavados ilimitados + manicure', JSON.stringify(['Lavados ilimitados', '20% desc. en servicios extra'])]
+        ];
+        for (const [id, name, price, desc, features] of defaultPlans) {
+          await pool.query(
+            'INSERT INTO plans (tenant_id, id, name, price, description, features) VALUES (?, ?, ?, ?, ?, ?::jsonb) ON CONFLICT (tenant_id, id) DO NOTHING',
+            [tenantId, id, name, price, desc, features]
+          );
+        }
+        [rows] = await pool.query(`
+          SELECT p.*, COUNT(c.id) as subscriber_count 
+          FROM plans p
+          LEFT JOIN contracts c ON p.id = c.plan_id AND c.tenant_id = p.tenant_id AND c.status = 'Active'
+          WHERE p.tenant_id = ?
+          GROUP BY p.tenant_id, p.id
+          ORDER BY p.price ASC
+        `, [tenantId]);
+      }
+
+      res.json(rows.map(p => ({
+        ...p,
+        subscriber_count: Number(p.subscriber_count || 0),
+        features: typeof p.features === 'string' ? JSON.parse(p.features || '[]') : (p.features || [])
+      })));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // POST /api/plans
+  // POST /api/plans - Reemplaza planes ÚNICAMENTE del tenant autenticado (NUNCA global)
   router.post('/', async (req, res) => {
-    let connection;
+    const plans = req.body;
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+    }
+    if (!Array.isArray(plans)) {
+      return res.status(400).json({ error: 'Se requiere un arreglo de planes válido.' });
+    }
+
+    const connection = await pool.getConnection();
     try {
-      const { plans, applyToExisting } = req.body;
-      connection = await pool.getConnection();
       await connection.beginTransaction();
-
-      // 1. Limpieza total de planes para evitar duplicados e inconsistencias
-      await connection.query('DELETE FROM plans');
-
-      if (Array.isArray(plans)) {
-        for (const plan of plans) {
-          const ensureData = (val) => {
-            if (Array.isArray(val)) return JSON.stringify(val);
-            if (typeof val === 'string') {
-              try {
-                const p = JSON.parse(val);
-                return JSON.stringify(Array.isArray(p) ? p : [p]);
-              } catch {
-                return JSON.stringify(val.split(',').map(s => s.trim()).filter(Boolean));
-              }
-            }
-            return JSON.stringify([]);
-          };
-
-          const servicesStr = ensureData(plan.services);
-          const promoServicesStr = ensureData(plan.promo_services);
-          const usageLimitsStr = JSON.stringify(plan.usage_limits || { visits: '', services: '' });
-
-          await connection.query(
-            'INSERT INTO plans (id, title, price, activation_fee, discount, color, location, services, promo_services, promo_duration_months, usage_limits) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-              plan.id,
-              plan.title,
-              plan.price,
-              plan.activation_fee || 0,
-              plan.discount || 0,
-              plan.color,
-              plan.location,
-              servicesStr,
-              promoServicesStr,
-              plan.promo_duration_months || 0,
-              usageLimitsStr
-            ]
-          );
-
-          // 2. Sincronizar contratos si se solicita
-          if (applyToExisting) {
-            await connection.query(
-              `UPDATE contracts SET 
-                contract_services = ?, 
-                contract_price = ?, 
-                contract_promo_services = ?, 
-                contract_promo_duration = ? 
-               WHERE plan_id = ?`,
-              [
-                servicesStr,
-                plan.price,
-                promoServicesStr,
-                plan.promo_duration_months || 0,
-                plan.id
-              ]
-            );
-          }
-        }
+      await connection.query('DELETE FROM plans WHERE tenant_id = ?', [tenantId]);
+      for (const p of plans) {
+        const planId = String(p.id || p.name || `plan_${Date.now()}`).toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+        const planTitle = p.title || p.name || 'Plan';
+        const planName = p.name || p.title || 'Plan';
+        await connection.query(
+          'INSERT INTO plans (tenant_id, id, name, title, price, description, features) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [tenantId, planId, planName, planTitle, p.price, p.description || '', JSON.stringify(p.features || [])]
+        );
+        // Sincronizar automáticamente los contratos de este salón vinculados a este plan
+        await connection.query(
+          'UPDATE contracts SET plan_name = ?, precio_mensual = ? WHERE plan_id = ? AND tenant_id = ?',
+          [p.name, p.price, planId, tenantId]
+        );
       }
-
       await connection.commit();
-      res.json({ success: true, message: 'Planes sincronizados correctamente.' });
+      res.json({ success: true });
     } catch (err) {
-      if (connection) await connection.rollback();
-      console.error('[DATABASE ERROR]:', err.message);
-      res.status(500).json({ error: 'Fallo al guardar planes: ' + err.message });
+      await connection.rollback();
+      res.status(500).json({ error: err.message });
     } finally {
-      if (connection) connection.release();
+      connection.release();
     }
   });
 

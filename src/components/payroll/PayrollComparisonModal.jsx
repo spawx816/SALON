@@ -195,7 +195,7 @@ export default function PayrollComparisonModal({
     // Desglose por sucursales
     const sucursales = [
       {
-        name: 'Abatte San Vicente',
+        name: 'Sucursal San Vicente',
         empleadosA: 26,
         empleadosB: 26,
         netoA: Math.round(netoA * 0.62),
@@ -204,7 +204,7 @@ export default function PayrollComparisonModal({
         ingresosB: Math.round(ingB * 0.61)
       },
       {
-        name: 'Abatte Villa Mella',
+        name: 'Sucursal Villa Mella',
         empleadosA: 16,
         empleadosB: 16,
         netoA: Math.round(netoA * 0.38),
@@ -294,7 +294,7 @@ export default function PayrollComparisonModal({
       </head>
       <body>
         <div class="header">
-          <h1 class="title">ABATTE PELUQUERIA / PLAN BEAUTY RD</h1>
+          <h1 class="title">REPORTE COMPARATIVO DE NÓMINA</h1>
           <p class="subtitle">REPORTE COMPARATIVO DE PERIODOS DE NOMINA</p>
           <p><strong>Periodo A:</strong> ${periodA?.period_name} | <strong>Periodo B:</strong> ${periodB?.period_name}</p>
         </div>

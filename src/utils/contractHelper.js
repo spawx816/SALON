@@ -10,8 +10,7 @@ export const DEFAULT_CONTRACT_SETTINGS = {
 
 **1.0 - Objeto del Contrato.** Este Contrato contiene los términos y condiciones del Servicio de Belleza, consistente en Lavado y Secado de Pelo que será prestado por LA COMPAÑÍA AL CLIENTE.
 
-**1.1- LA COMPANIA:** {{EMPRESA_NOMBRE}}, la cual forma parte de la cadena: ABATTE PELUQUERIA, proveerá los servicios de lavado y secado de pelo a través de las localidades abiertas al público como son:
-a) Inicialmente en la Sucursal Av. San Vicente de Paul.
+**1.1- LA COMPAÑIA:** {{EMPRESA_NOMBRE}}, proveerá los servicios de lavado y secado de pelo a través de las localidades abiertas al público autorizadas.
 
 **1.2- Requisito para Contratar este Servicio:** Es condición indispensable para poder adquirir y mantener el Servicio de Belleza bajo Suscripción, que EL CLIENTE haya adquirido y suscrito contrato de lavado y secado de pelo, con LA COMPAÑIA.
 

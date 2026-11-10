@@ -621,8 +621,8 @@ const AttendanceKiosk = () => {
       </head>
       <body>
         <div class="header">
-          <h1 class="title">ABATTE PELUQUERÍA / PLAN BEAUTY RD</h1>
-          <p class="subtitle">VOLANTE OFICIAL DE PAGO DE NÓMINA · ${period?.period_name || 'Octubre 2026'}</p>
+          <h1 class="title">VOLANTE OFICIAL DE PAGO DE NÓMINA</h1>
+          <p class="subtitle">COMPROBANTE DE PAGO · ${period?.period_name || 'Octubre 2026'}</p>
           <div class="badge ${employeeSlip.isDraft ? 'badge-draft' : 'badge-approved'}">
             ${employeeSlip.isDraft ? '● EN PREPARACIÓN / BORRADOR' : '✓ NÓMINA APROBADA E INMUTABLE'}
           </div>
@@ -681,7 +681,7 @@ const AttendanceKiosk = () => {
           </div>
           <div>
             <div class="sig-line">Por la Administración</div>
-            <div>ABATTE PELUQUERÍA / RRHH</div>
+            <div>DEPARTAMENTO DE RECURSOS HUMANOS</div>
           </div>
         </div>
 

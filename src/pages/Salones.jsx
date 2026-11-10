@@ -3,6 +3,27 @@ import { Link } from 'react-router-dom';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
 import { MapPin, Phone, Clock, ArrowRight, Search } from 'lucide-react';
 
+const DEFAULT_SALONS = [
+  {
+    id: 1,
+    name: 'Abatte Peluquería San Vicente',
+    slug: 'abatte-san-vicente',
+    address: 'Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F, Santo Domingo Este',
+    phone: '(809) 561-5000',
+    hours: 'Lunes a Viernes: 8:00 AM - 8:00 PM | Sábados: 8:00 AM - 7:00 PM | Domingos y Feriados: 8:00 AM - 5:00 PM',
+    city: 'Santo Domingo Este'
+  },
+  {
+    id: 4,
+    name: 'Abatte Peluquería Sirena Villa Mella',
+    slug: 'abatte-sirena-villa-mella',
+    address: 'Av. Hermanas Mirabal, Villa Mella, dentro del Multicentro La Sirena, Santo Domingo Norte',
+    phone: '809-235-5555',
+    hours: 'Lunes a Viernes: 7:00 AM - 8:00 PM | Sábados: 8:00 AM - 6:00 PM | Domingos y Feriados: 8:00 AM - 5:00 PM',
+    city: 'Santo Domingo Norte'
+  }
+];
+
 const Salones = () => {
   useDocumentMetadata({
     title: 'Salones afiliados a Plan Beauty en República Dominicana',
@@ -14,28 +35,6 @@ const Salones = () => {
   const [salons, setSalons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-
-  // Fallback default list if api fails or is empty
-  const defaultSalons = [
-    {
-      id: 1,
-      name: 'Abatte Peluquería San Vicente',
-      slug: 'abatte-san-vicente',
-      address: 'Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F, Santo Domingo Este',
-      phone: '(809) 561-5000',
-      hours: 'Lunes a Viernes: 8:00 AM - 8:00 PM | Sábados: 8:00 AM - 7:00 PM | Domingos y Feriados: 8:00 AM - 5:00 PM',
-      city: 'Santo Domingo Este'
-    },
-    {
-      id: 4,
-      name: 'Abatte Peluquería Sirena Villa Mella',
-      slug: 'abatte-sirena-villa-mella',
-      address: 'Av. Hermanas Mirabal, Villa Mella, dentro del Multicentro La Sirena, Santo Domingo Norte',
-      phone: '809-235-5555',
-      hours: 'Lunes a Viernes: 7:00 AM - 8:00 PM | Sábados: 8:00 AM - 6:00 PM | Domingos y Feriados: 8:00 AM - 5:00 PM',
-      city: 'Santo Domingo Norte'
-    }
-  ];
 
   useEffect(() => {
     const fetchSalons = async () => {
@@ -61,14 +60,14 @@ const Salones = () => {
             });
             setSalons(formatted);
           } else {
-            setSalons(defaultSalons);
+            setSalons(DEFAULT_SALONS);
           }
         } else {
-          setSalons(defaultSalons);
+          setSalons(DEFAULT_SALONS);
         }
       } catch (err) {
         console.error("Error fetching salons:", err);
-        setSalons(defaultSalons);
+        setSalons(DEFAULT_SALONS);
       } finally {
         setLoading(false);
       }

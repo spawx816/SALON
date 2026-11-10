@@ -46,7 +46,7 @@ const Beneficios = () => {
             </div>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>Salones Certificados</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
-              Trabajamos únicamente con salones reconocidos por su alto estándar de calidad, como Abatte Peluquería, garantizando profesionales de primer nivel.
+              Trabajamos únicamente con salones reconocidos por su alto estándar de calidad en nuestra red de salones afiliados, garantizando profesionales de primer nivel.
             </p>
           </div>
 

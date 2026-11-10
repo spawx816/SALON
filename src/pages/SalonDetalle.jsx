@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
 import { MapPin, Phone, Clock, ShieldCheck, Check, Star, Car, ArrowLeft } from 'lucide-react';
 
 const SalonDetalle = () => {
   const { slug } = useParams();
-  const navigate = useNavigate();
 
   // Find salon details based on slug
   const salonsData = {

@@ -135,6 +135,13 @@ const Legal = ({ page }) => {
 
   const data = getPageData();
 
+  useDocumentMetadata({
+    title: data.title,
+    description: data.description,
+    canonicalUrl: data.canonical,
+    robots: 'index, follow'
+  });
+
   return (
     <div className="landing-page-content" style={{ padding: '6rem 0 4rem' }}>
       <div className="container" style={{ maxWidth: '800px', lineHeight: 1.7, color: '#475569' }}>

@@ -1,324 +1,318 @@
 const express = require('express');
 
 /**
- * Creates and configures the Express Router for Services & Items catalogue management.
- * @param {import('mysql2/promise').Pool} pool - Database connection pool
- * @returns {express.Router}
+ * Catalog and Services Router module for Salon Pro & Plan Beauty RD (Scoped by tenant_id)
  */
 function createServicesRouter(pool) {
   const router = express.Router();
 
-  // 1. Importación masiva de ítems y catálogo
-  router.post('/bulk-import', async (req, res) => {
-    try {
-      const { items } = req.body;
-      if (!Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ error: 'No se recibieron ítems válidos.' });
-      }
-
-      let insertedCount = 0;
-      for (const item of items) {
-        if (!item.nombre && !item.name) continue;
-        const name = (item.nombre || item.name).trim();
-        const desc = item.descripcion || item.description || '';
-        const category = item.categoria || item.category || 'General';
-        const price = parseFloat(item.precio || item.price || 0);
-        const active = item.activo !== undefined ? (item.activo ? 1 : 0) : 1;
-        const generaComision = item.genera_comision !== undefined ? (item.genera_comision ? 1 : 0) : 1;
-        const tipoComision = item.tipo_comision || 'Porcentaje';
-        const comisionValor = parseFloat(item.comision_valor || item.comision || 15);
-        const aplicaItbis = item.aplica_itbis !== undefined ? (item.aplica_itbis ? 1 : 0) : 0;
-        const orden = parseInt(item.orden_visualizacion || 0);
-
-        await pool.query(
-          `INSERT INTO services 
-            (nombre, descripcion, categoria, precio, activo, genera_comision, tipo_comision, comision_valor, aplica_itbis, orden_visualizacion)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE 
-            descripcion = VALUES(descripcion),
-            categoria = VALUES(categoria),
-            precio = VALUES(precio),
-            activo = VALUES(activo),
-            genera_comision = VALUES(genera_comision),
-            tipo_comision = VALUES(tipo_comision),
-            comision_valor = VALUES(comision_valor),
-            aplica_itbis = VALUES(aplica_itbis),
-            orden_visualizacion = VALUES(orden_visualizacion)`,
-          [name, desc, category, price, active, generaComision, tipoComision, comisionValor, aplicaItbis, orden]
-        );
-
-        insertedCount++;
-      }
-
-      res.json({ success: true, count: insertedCount, message: `Se importaron ${insertedCount} ítems/servicios exitosamente.` });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // 2. Obtener lista de servicios
+  // Obtener lista de servicios del tenant autenticado
   router.get('/', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { active_only } = req.query;
-      let query = 'SELECT * FROM services';
-      if (active_only === '1') {
-        query += ' WHERE activo = 1';
+      let query = 'SELECT * FROM services WHERE tenant_id = ?';
+      const params = [tenantId];
+      if (active_only === '1' || active_only === 'true') {
+        query += ' AND COALESCE(activo, 1) = 1';
       }
-      query += ' ORDER BY orden_visualizacion ASC, nombre ASC';
-
-      let [rows] = await pool.query(query);
-
-      // Si la tabla está vacía, inicializar con catálogo base
-      if (rows.length === 0) {
-        const initialServices = [
-          { nombre: 'Lavado y Secado', categoria: 'Peluquería', precio: 500.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 15, orden_visualizacion: 1 },
-          { nombre: 'Corte de Pelo Dama', categoria: 'Peluquería', precio: 800.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 20, orden_visualizacion: 2 },
-          { nombre: 'Tinte Completo', categoria: 'Coloración', precio: 2200.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 20, orden_visualizacion: 3 },
-          { nombre: 'Tratamiento Penetratti', categoria: 'Tratamientos', precio: 1500.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 15, orden_visualizacion: 4 },
-          { nombre: 'Manicura Rusa', categoria: 'Uñas', precio: 650.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 30, orden_visualizacion: 5 },
-          { nombre: 'Pedicura Spa', categoria: 'Uñas', precio: 850.00, genera_comision: 1, tipo_comision: 'Porcentaje', comision_valor: 30, orden_visualizacion: 6 }
-        ];
-
-        for (const s of initialServices) {
-          await pool.query(
-            `INSERT INTO services (nombre, categoria, precio, activo, genera_comision, tipo_comision, comision_valor, orden_visualizacion)
-             VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
-            [s.nombre, s.categoria, s.precio, s.genera_comision, s.tipo_comision, s.comision_valor, s.orden_visualizacion]
-          );
-        }
-        [rows] = await pool.query(query);
-      }
-
-      res.json(rows);
+      query += ' ORDER BY COALESCE(categoria, category, \'General\') ASC, COALESCE(nombre, name, \'\') ASC';
+      const [rows] = await pool.query(query, params);
+      const normalized = rows.map(r => ({
+        ...r,
+        nombre: r.nombre || r.name || 'Servicio',
+        categoria: r.categoria || r.category || 'General',
+        precio: parseFloat(r.precio ?? r.price ?? 0),
+        duracion: parseInt(r.duracion ?? r.duration_minutes ?? 30),
+        activo: r.activo !== undefined && r.activo !== null ? r.activo : (r.is_active ? 1 : 0)
+      }));
+      res.json(normalized);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 3. Top Servicios más facturados / acceso rápido para POS
+  // Obtener servicio por ID dentro del tenant autenticado
+  router.get('/:id', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { id } = req.params;
+      const [rows] = await pool.query('SELECT * FROM services WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
+      }
+      const r = rows[0];
+      res.json({
+        ...r,
+        nombre: r.nombre || r.name || 'Servicio',
+        categoria: r.categoria || r.category || 'General',
+        precio: parseFloat(r.precio ?? r.price ?? 0),
+        duracion: parseInt(r.duracion ?? r.duration_minutes ?? 30),
+        activo: r.activo !== undefined && r.activo !== null ? r.activo : (r.is_active ? 1 : 0)
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Obtener los servicios más utilizados por sucursal dentro del tenant autenticado
   router.get('/top', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { salon_id, limit = 20 } = req.query;
+      const maxResults = parseInt(limit) || 20;
 
-      const [activeServices] = await pool.query('SELECT * FROM services WHERE activo = 1 ORDER BY orden_visualizacion ASC, nombre ASC');
+      let visitQuery = `
+        SELECT servicios, items_detail 
+        FROM visits 
+        WHERE tenant_id = ? AND status = 'Facturado'
+      `;
+      const params = [tenantId];
+
+      if (salon_id && salon_id !== 'all') {
+        visitQuery += ' AND salon_id::text = ?';
+        params.push(String(salon_id));
+      }
+
+      visitQuery += ' ORDER BY visited_at DESC LIMIT 500';
+
+      const [visits] = await pool.query(visitQuery, params);
+      const [activeServices] = await pool.query(
+        'SELECT * FROM services WHERE tenant_id = ? AND COALESCE(activo, 1) = 1',
+        [tenantId]
+      );
 
       if (activeServices.length === 0) {
         return res.json([]);
       }
 
-      let visitsQuery = "SELECT items_detail, servicios FROM visits WHERE (status = 'Facturado' OR status = 'Completado')";
-      const params = [];
-      if (salon_id && salon_id !== 'all') {
-        visitsQuery += " AND (salon_id = ? OR salon_id IS NULL OR salon_id = 0)";
-        params.push(salon_id);
-      }
-      const [visits] = await pool.query(visitsQuery, params);
       const usageCounts = {};
 
-      visits.forEach(v => {
-        let items = [];
-        try { 
-          if (v.items_detail) items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail; 
-        } catch(e){}
-        
-        if (Array.isArray(items) && items.length > 0) {
-          items.forEach(item => {
-            const sName = (item.servicio || item.nombre || item.name || '').trim().toLowerCase();
-            if (sName) {
-              usageCounts[sName] = (usageCounts[sName] || 0) + (parseInt(item.cantidad) || 1);
-            }
-          });
-        } else if (v.servicios) {
+      for (const v of visits) {
+        if (v.items_detail) {
           try {
-            const raw = typeof v.servicios === 'string' ? JSON.parse(v.servicios) : v.servicios;
-            if (Array.isArray(raw)) {
-              raw.forEach(s => {
-                const sName = (typeof s === 'string' ? s : (s.nombre || s.servicio || '')).trim().toLowerCase();
-                if (sName) usageCounts[sName] = (usageCounts[sName] || 0) + 1;
-              });
+            const parsed = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : v.items_detail;
+            if (Array.isArray(parsed)) {
+              for (const it of parsed) {
+                const name = (it.nombre || it.name || '').trim().toLowerCase();
+                const qty = parseInt(it.cantidad) || 1;
+                if (name) {
+                  usageCounts[name] = (usageCounts[name] || 0) + qty;
+                }
+              }
+              continue;
             }
           } catch (e) {}
         }
-      });
 
-      const priorityKeywords = [
-        'lavado y secado', 'lavado', 'secado', 'corte de punta', 'corte', 'tratamiento', 
-        'plancha', 'mascarilla', 'penetraitt', 'botox', 'tinte', 'retoque', 'manicura', 
-        'pedicura', 'uñas', 'maquillaje', 'depilacion', 'alisado'
-      ];
-
-      const getPriorityScore = (name) => {
-        const lower = (name || '').toLowerCase();
-        for (let i = 0; i < priorityKeywords.length; i++) {
-          if (lower.includes(priorityKeywords[i])) {
-            return 1000 - (i * 10);
+        if (v.servicios) {
+          try {
+            const parsed = typeof v.servicios === 'string' ? JSON.parse(v.servicios) : v.servicios;
+            if (Array.isArray(parsed)) {
+              for (const s of parsed) {
+                const name = String(s).trim().toLowerCase();
+                if (name) {
+                  usageCounts[name] = (usageCounts[name] || 0) + 1;
+                }
+              }
+            }
+          } catch (e) {
+            const parts = String(v.servicios).split(',');
+            for (const p of parts) {
+              const name = p.trim().toLowerCase();
+              if (name) {
+                usageCounts[name] = (usageCounts[name] || 0) + 1;
+              }
+            }
           }
         }
-        return 0;
-      };
+      }
 
-      const sortedServices = [...activeServices].sort((a, b) => {
-        const aName = (a.nombre || '').trim().toLowerCase();
-        const bName = (b.nombre || '').trim().toLowerCase();
-        const countA = usageCounts[aName] || 0;
-        const countB = usageCounts[bName] || 0;
-
-        if (countB !== countA) {
-          return countB - countA;
-        }
-        return getPriorityScore(b.nombre) - getPriorityScore(a.nombre);
+      const scoredServices = activeServices.map(srv => {
+        const srvName = srv.nombre || srv.name || 'Servicio';
+        const key = srvName.trim().toLowerCase();
+        return {
+          ...srv,
+          nombre: srvName,
+          categoria: srv.categoria || srv.category || 'General',
+          precio: parseFloat(srv.precio ?? srv.price ?? 0),
+          duracion: parseInt(srv.duracion ?? srv.duration_minutes ?? 30),
+          activo: srv.activo !== undefined && srv.activo !== null ? srv.activo : (srv.is_active ? 1 : 0),
+          usage_count: usageCounts[key] || 0
+        };
       });
 
-      res.json(sortedServices.slice(0, parseInt(limit) || 20));
+      scoredServices.sort((a, b) => {
+        if (b.usage_count !== a.usage_count) {
+          return b.usage_count - a.usage_count;
+        }
+        return (a.nombre || '').localeCompare(b.nombre || '');
+      });
+
+      res.json(scoredServices.slice(0, maxResults));
     } catch (err) {
-      console.error('[TOP SERVICES ERROR]', err.message);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 4. Crear nuevo servicio
+  // Importación masiva de servicios (scoped al tenant autenticado)
+  router.post('/bulk-import', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { items } = req.body;
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: 'No se enviaron servicios válidos para importar.' });
+      }
+
+      let imported = 0;
+      let updated = 0;
+
+      for (const item of items) {
+        const nombre = String(item.nombre || item.name || '').trim();
+        if (!nombre) continue;
+
+        const categoria = String(item.categoria || item.category || 'Peluquería').trim();
+        const subcategoria = String(item.subcategoria || 'General').trim();
+        const precio = parseFloat(item.precio ?? item.price) || 0;
+        const costo = parseFloat(item.costo ?? item.cost) || 0;
+        const duracion = parseInt(item.duracion ?? item.duration) || 30;
+        const activo = item.activo !== undefined ? (item.activo ? 1 : 0) : 1;
+
+        const [existing] = await pool.query(
+          'SELECT id FROM services WHERE LOWER(COALESCE(nombre, name)) = LOWER(?) AND tenant_id = ? LIMIT 1',
+          [nombre, tenantId]
+        );
+        if (existing.length > 0) {
+          await pool.query(
+            'UPDATE services SET name = ?, categoria = ?, subcategoria = ?, precio = ?, price = ?, costo = ?, duracion = ?, duration_minutes = ?, activo = ?, is_active = ? WHERE id = ? AND tenant_id = ?',
+            [nombre, categoria, subcategoria, precio, precio, costo, duracion, duracion, activo, Boolean(activo), existing[0].id, tenantId]
+          );
+          updated++;
+        } else {
+          await pool.query(
+            'INSERT INTO services (tenant_id, name, nombre, categoria, subcategoria, precio, price, costo, duracion, duration_minutes, activo, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [tenantId, nombre, nombre, categoria, subcategoria, precio, precio, costo, duracion, duracion, activo, Boolean(activo)]
+          );
+          imported++;
+        }
+      }
+
+      res.json({
+        success: true,
+        imported,
+        updated,
+        message: `Importación completada: ${imported} nuevos, ${updated} actualizados.`
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Crear nuevo servicio en el tenant autenticado
   router.post('/', async (req, res) => {
     try {
-      const {
-        nombre, descripcion, categoria, precio, activo,
-        genera_comision, tipo_comision, comision_valor,
-        aplica_itbis, orden_visualizacion, imagen_url
-      } = req.body;
-
-      if (!nombre || !nombre.trim()) {
-        return res.status(400).json({ error: 'El nombre del servicio es obligatorio.' });
+      const tenantId = req.tenantId;
+      const { nombre, name, categoria, subcategoria, precio, price, costo, duracion, duration, activo, tipo_comision, comision_valor } = req.body;
+      const finalName = (nombre || name || '').trim();
+      const rawPrice = precio !== undefined ? precio : price;
+      if (!finalName || rawPrice === undefined) {
+        return res.status(400).json({ error: 'Nombre y precio son obligatorios' });
       }
-
-      const trimmedName = nombre.trim();
-      const [existing] = await pool.query('SELECT id, nombre FROM services WHERE LOWER(TRIM(nombre)) = LOWER(?)', [trimmedName]);
-      if (existing.length > 0) {
-        return res.status(400).json({ error: `Ya existe un ítem registrado con el nombre "${existing[0].nombre}". No se permiten duplicados.` });
-      }
+      const parsedPrice = parseFloat(rawPrice) || 0;
+      const parsedDuration = parseInt(duracion !== undefined ? duracion : duration) || 30;
+      const isActive = activo !== undefined ? (activo ? 1 : 0) : 1;
 
       const [result] = await pool.query(
-        `INSERT INTO services 
-          (nombre, descripcion, categoria, precio, activo, genera_comision, tipo_comision, comision_valor, aplica_itbis, orden_visualizacion, imagen_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        'INSERT INTO services (tenant_id, name, nombre, categoria, subcategoria, precio, price, costo, duracion, duration_minutes, activo, is_active, tipo_comision, comision_valor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
         [
-          trimmedName,
-          descripcion || '',
-          categoria || 'General',
-          parseFloat(precio) || 0,
-          activo !== undefined ? (activo ? 1 : 0) : 1,
-          genera_comision !== undefined ? (genera_comision ? 1 : 0) : 1,
+          tenantId,
+          finalName,
+          finalName,
+          categoria || 'Peluquería',
+          subcategoria || 'General',
+          parsedPrice,
+          parsedPrice,
+          parseFloat(costo) || 0,
+          parsedDuration,
+          parsedDuration,
+          isActive,
+          Boolean(isActive),
           tipo_comision || 'Porcentaje',
-          parseFloat(comision_valor) || 0,
-          aplica_itbis !== undefined ? (aplica_itbis ? 1 : 0) : 0,
-          parseInt(orden_visualizacion) || 0,
-          imagen_url || ''
+          parseFloat(comision_valor) || 0
         ]
       );
-
-      res.json({ success: true, serviceId: result.insertId, message: 'Servicio creado exitosamente' });
+      res.json({ id: result.insertId || result[0]?.id, success: true, message: 'Servicio creado exitosamente' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 5. Actualizar servicio existente
+  // Actualizar servicio existente del tenant autenticado
   router.put('/:id', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      const {
-        nombre, descripcion, categoria, precio, activo,
-        genera_comision, tipo_comision, comision_valor,
-        aplica_itbis, orden_visualizacion, imagen_url
-      } = req.body;
+      const { nombre, name, categoria, subcategoria, precio, costo, duracion, activo, tipo_comision, comision_valor } = req.body;
+      const finalName = (nombre || name || '').trim();
+      const parsedPrice = parseFloat(precio) || 0;
+      const parsedDuration = parseInt(duracion) || 30;
+      const isActive = activo ? 1 : 0;
 
-      if (!nombre || !nombre.trim()) {
-        return res.status(400).json({ error: 'El nombre del servicio es obligatorio.' });
-      }
-
-      const trimmedName = nombre.trim();
-      const [existing] = await pool.query('SELECT id, nombre FROM services WHERE LOWER(TRIM(nombre)) = LOWER(?) AND id != ?', [trimmedName, id]);
-      if (existing.length > 0) {
-        return res.status(400).json({ error: `Ya existe otro ítem registrado con el nombre "${existing[0].nombre}". No se permiten duplicados.` });
-      }
-
-      await pool.query(
-        `UPDATE services SET
-          nombre = ?,
-          descripcion = ?,
-          categoria = ?,
-          precio = ?,
-          activo = ?,
-          genera_comision = ?,
-          tipo_comision = ?,
-          comision_valor = ?,
-          aplica_itbis = ?,
-          orden_visualizacion = ?,
-          imagen_url = ?
-         WHERE id = ?`,
+      const [result] = await pool.query(
+        'UPDATE services SET name=?, nombre=?, categoria=?, subcategoria=?, precio=?, price=?, costo=?, duracion=?, duration_minutes=?, activo=?, is_active=?, tipo_comision=?, comision_valor=? WHERE id=? AND tenant_id=?',
         [
-          trimmedName,
-          descripcion || '',
-          categoria || 'General',
-          parseFloat(precio) || 0,
-          activo !== undefined ? (activo ? 1 : 0) : 1,
-          genera_comision !== undefined ? (genera_comision ? 1 : 0) : 1,
+          finalName,
+          finalName,
+          categoria,
+          subcategoria || 'General',
+          parsedPrice,
+          parsedPrice,
+          parseFloat(costo) || 0,
+          parsedDuration,
+          parsedDuration,
+          isActive,
+          Boolean(isActive),
           tipo_comision || 'Porcentaje',
           parseFloat(comision_valor) || 0,
-          aplica_itbis !== undefined ? (aplica_itbis ? 1 : 0) : 0,
-          parseInt(orden_visualizacion) || 0,
-          imagen_url || '',
-          id
+          id,
+          tenantId
         ]
       );
-
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Servicio no encontrado' });
+      }
       res.json({ success: true, message: 'Servicio actualizado exitosamente' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 6. Activar / Desactivar servicio
+  // Alternar estado activo/inactivo del servicio
   router.patch('/:id/toggle-status', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      const [rows] = await pool.query('SELECT activo FROM services WHERE id = ?', [id]);
-      if (rows.length === 0) return res.status(404).json({ error: 'Servicio no encontrado' });
-
-      const newStatus = rows[0].activo === 1 ? 0 : 1;
-      await pool.query('UPDATE services SET activo = ? WHERE id = ?', [newStatus, id]);
-
-      res.json({ success: true, activo: newStatus, message: `Servicio ${newStatus === 1 ? 'activado' : 'desactivado'} exitosamente` });
+      await pool.query(
+        'UPDATE services SET activo = CASE WHEN COALESCE(activo, 1) = 1 THEN 0 ELSE 1 END, is_active = NOT COALESCE(is_active, true) WHERE id = ? AND tenant_id = ?',
+        [id, tenantId]
+      );
+      res.json({ success: true, message: 'Estado del servicio actualizado' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 7. Eliminar servicio (con protección de integridad histórica)
+  // Eliminar servicio del tenant autenticado
   router.delete('/:id', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      const [srvRows] = await pool.query('SELECT * FROM services WHERE id = ?', [id]);
-      if (srvRows.length === 0) return res.status(404).json({ error: 'Servicio no encontrado' });
-
-      const serviceName = srvRows[0].nombre;
-
-      // Verificar si ha sido facturado anteriormente
-      const [usedInVisits] = await pool.query(
-        `SELECT id FROM visits WHERE JSON_SEARCH(items_detail, 'one', ?) IS NOT NULL OR JSON_SEARCH(servicios, 'one', ?) IS NOT NULL LIMIT 1`,
-        [serviceName, serviceName]
-      );
-
-      if (usedInVisits.length > 0) {
-        // Soft delete para proteger facturación
-        await pool.query('UPDATE services SET activo = 0 WHERE id = ?', [id]);
-        return res.json({
-          success: true,
-          protected: true,
-          message: 'El servicio ha sido facturado anteriormente. Para proteger la integridad histórica de las facturas, el ítem ha sido Desactivado en lugar de eliminado.'
-        });
+      const [result] = await pool.query('DELETE FROM services WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      const affected = result?.rowCount ?? result?.affectedRows ?? 0;
+      if (affected === 0) {
+        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
       }
-
-      await pool.query('DELETE FROM services WHERE id = ?', [id]);
-      res.json({ success: true, message: 'Servicio eliminado permanentemente.' });
+      res.json({ success: true, message: 'Servicio eliminado exitosamente' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

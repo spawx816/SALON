@@ -4,1727 +4,1053 @@ const nodemailer = require('nodemailer');
 
 /**
  * Attendance and Facial Recognition Module for Salon Pro & Plan Beauty RD
+ * Scoped strictly by tenant_id (Multi-Tenant Architecture)
  * 
  * @param {import('mysql2/promise').Pool} pool
  */
 function createAttendanceRouter(pool) {
   const router = express.Router();
 
-  function isScheduleComplete(emp) {
-    if (!emp) return false;
-    if (emp.dias_laborables && typeof emp.dias_laborables === 'string' && emp.dias_laborables.trim().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(emp.dias_laborables);
-        const keys = Object.keys(parsed);
-        if (keys.length > 0) {
-          return keys.some(k => parsed[k] && parsed[k].entrada && parsed[k].salida);
-        }
-      } catch (e) {}
-      return false;
+  // Helper middleware to strictly require verified tenant context
+  const requireTenant = (req, res, next) => {
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(401).json({ error: 'Contexto de tenant requerido para operaciones de asistencia.' });
     }
-    const he = String(emp.hora_entrada || '').trim();
-    const hs = String(emp.hora_salida || '').trim();
-    const dl = String(emp.dias_laborables || '').trim();
-    if (!he || he === '00:00:00') return false;
-    if (!hs || hs === '00:00:00') return false;
-    if (!dl || dl === '[]' || dl === '""' || dl === "''") return false;
-    return true;
-  }
+    req.verifiedTenantId = tenantId;
+    next();
+  };
 
-// === ATTENDANCE / PONCHEO ===
+  router.use(requireTenant);
 
-// PUT /api/users/:id/profile-photo - Save profile photo (base64) for facial recognition
-router.put('/users/:id/profile-photo', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { profile_photo } = req.body; // base64 string
-    
-    if (!profile_photo) {
-      return res.status(400).json({ error: 'La foto de perfil es requerida.' });
+  // === ATTENDANCE / PONCHEO ===
+
+  // PUT /api/users/:id/profile-photo - Save profile photo (base64) for facial recognition
+  router.put('/users/:id/profile-photo', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { profile_photo } = req.body;
+      const tenantId = req.verifiedTenantId;
+      
+      if (!profile_photo) {
+        return res.status(400).json({ error: 'La foto de perfil es requerida.' });
+      }
+      
+      const [result] = await pool.query(
+        'UPDATE users SET profile_photo = ? WHERE id::text = ? AND tenant_id = ?',
+        [profile_photo, String(id), tenantId]
+      );
+
+      // Also try staff_records if not in users
+      await pool.query(
+        'UPDATE staff_records SET profile_photo = ? WHERE id::text = ? AND tenant_id = ?',
+        [profile_photo, String(id), tenantId]
+      );
+
+      res.json({ success: true, message: 'Foto de perfil de asistencia actualizada exitosamente.' });
+    } catch (err) {
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
     }
-    
-    await pool.query('UPDATE users SET profile_photo = ? WHERE id = ?', [profile_photo, id]);
-    res.json({ success: true, message: 'Foto de perfil de asistencia actualizada exitosamente.' });
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+  });
 
-// GET /api/users/:id/profile-photo - Retrieve profile photo for an employee
-router.get('/users/:id/profile-photo', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [rows] = await pool.query('SELECT profile_photo FROM users WHERE id = ?', [id]);
-    if (rows.length === 0) {
-      return res.status(404).json({ error: 'Empleado no encontrado.' });
+  // GET /api/users/:id/profile-photo - Retrieve profile photo for an employee
+  router.get('/users/:id/profile-photo', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.verifiedTenantId;
+
+      const [rows] = await pool.query(
+        'SELECT profile_photo FROM users WHERE id::text = ? AND tenant_id = ?',
+        [String(id), tenantId]
+      );
+      if (rows.length > 0 && rows[0].profile_photo) {
+        return res.json({ profile_photo: rows[0].profile_photo });
+      }
+
+      const [staffRows] = await pool.query(
+        'SELECT profile_photo FROM staff_records WHERE id::text = ? AND tenant_id = ?',
+        [String(id), tenantId]
+      );
+      if (staffRows.length === 0 || !staffRows[0].profile_photo) {
+        return res.status(404).json({ error: 'Empleado o foto no encontrada.' });
+      }
+      res.json({ profile_photo: staffRows[0].profile_photo });
+    } catch (err) {
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
     }
-    res.json({ profile_photo: rows[0].profile_photo });
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+  });
 
-// GET /api/attendance/:id/photo - Stream verification photo on-demand with 7-day browser cache
-router.get('/:id/photo', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [rows] = await pool.query('SELECT photo FROM attendance WHERE id = ?', [id]);
-    if (rows.length === 0 || !rows[0].photo) {
-      return res.status(404).send('Photo not found');
+  // GET /api/attendance/today/:employeeId - Get today's attendance logs for an employee (Scoped by tenant_id)
+  router.get('/today/:employeeId', async (req, res) => {
+    try {
+      const { employeeId } = req.params;
+      const tenantId = req.verifiedTenantId;
+      const [rows] = await pool.query(`
+        SELECT id, type, timestamp FROM attendance 
+        WHERE employee_id = ? AND tenant_id = ? AND DATE(timestamp) = DATE(NOW())
+        ORDER BY timestamp DESC
+      `, [String(employeeId), tenantId]);
+      res.json(rows);
+    } catch (err) {
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
     }
-    const photoStr = rows[0].photo;
-    if (photoStr.startsWith('data:image')) {
-      const parts = photoStr.split(',');
-      const mime = parts[0].split(':')[1].split(';')[0];
-      const imgBuffer = Buffer.from(parts[1], 'base64');
-      res.setHeader('Content-Type', mime);
-      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-      return res.send(imgBuffer);
+  });
+
+  // GET /api/attendance/schedule-overrides - Fetch all schedule overrides (audit log)
+  router.get('/schedule-overrides', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { salonId } = req.query;
+      let query = `
+        SELECT o.*, COALESCE(s.nombre, u.nombre) as employeeName, COALESCE(s.salon_id, u.salon_id) as salon_id
+        FROM schedule_overrides o
+        LEFT JOIN staff_records s ON o.employee_id = s.id::text AND s.tenant_id = o.tenant_id
+        LEFT JOIN users u ON o.employee_id = u.id::text AND u.tenant_id = o.tenant_id
+        WHERE o.tenant_id = ?
+      `;
+      const params = [tenantId];
+      if (salonId) {
+        query += ` AND COALESCE(s.salon_id, u.salon_id) = ?`;
+        params.push(String(salonId));
+      }
+      query += ` ORDER BY o.date DESC, o.created_at DESC`;
+      const [rows] = await pool.query(query, params);
+      res.json(rows);
+    } catch (err) {
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
     }
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-    res.send(Buffer.from(photoStr, 'base64'));
-  } catch (err) {
-    console.error('[ATTENDANCE PHOTO STREAM ERROR]:', err.message);
-    res.status(500).send('Error');
-  }
-});
+  });
 
-// GET /api/attendance/today/:employeeId - Get today's attendance logs for an employee
-router.get('/today/:employeeId', async (req, res) => {
-  try {
-    const { employeeId } = req.params;
-    const [rows] = await pool.query(
-      `SELECT id, type, timestamp FROM attendance 
-       WHERE employee_id = ? AND DATE(timestamp) = DATE(NOW())
-       ORDER BY timestamp DESC`,
-      [employeeId]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/attendance/schedule-overrides - Fetch all schedule overrides (audit log)
-router.get('/schedule-overrides', async (req, res) => {
-  try {
-    const { salonId } = req.query;
-    let query = `SELECT o.*, COALESCE(s.nombre, u.nombre) as employeeName, COALESCE(s.salon_id, u.salon_id) as salon_id
-       FROM schedule_overrides o
-       LEFT JOIN staff_records s ON o.employee_id = s.id
-       LEFT JOIN users u ON o.employee_id = u.id`;
-    const params = [];
-    if (salonId) {
-      query += ` WHERE COALESCE(s.salon_id, u.salon_id) = ?`;
-      params.push(salonId);
-    }
-    query += ` ORDER BY o.date DESC, o.created_at DESC`;
-    const [rows] = await pool.query(query, params);
-    res.json(rows);
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/attendance/schedule-swap - Swap shifts/schedules between two employees
-// POST /api/attendance/schedule-swap - Swap shifts between employees OR self-swap dates for same employee (Cambio de Día Libre)
-router.post('/schedule-swap', async (req, res) => {
-  const connection = await pool.getConnection();
-  try {
-    const { 
-      employeeId1, employeeId2, 
-      date, date1, date2, 
-      dateFree, dateWork, 
-      newHoraEntrada, newHoraSalida, 
-      mode, reason, createdBy 
-    } = req.body;
-
-    const isSelfSwap = mode === 'self' || (employeeId1 && employeeId1 === employeeId2) || (dateFree && dateWork) || (date1 && date2 && employeeId1);
-
-    if (isSelfSwap) {
-      const empId = employeeId1 || req.body.employeeId;
-      const dFree = dateFree || date1;
-      const dWork = dateWork || date2;
-
-      if (!empId || !dFree || !dWork || !createdBy) {
-        return res.status(400).json({ error: 'Faltan parámetros obligatorios para el cambio de día libre (empleado, fecha libre y fecha laborable).' });
+  // POST /api/attendance/schedule-swap - Swap shifts/schedules between two employees
+  router.post('/schedule-swap', async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { employeeId1, employeeId2, date, reason, createdBy } = req.body;
+      if (!employeeId1 || !employeeId2 || !date || !createdBy) {
+        return res.status(400).json({ error: 'Faltan parámetros obligatorios para el intercambio.' });
       }
 
       await connection.beginTransaction();
 
-      // 1. Obtener horario y nombre del empleado
-      let [empData] = await connection.query('SELECT nombre, hora_entrada, hora_salida, dias_laborables FROM staff_records WHERE id = ?', [empId]);
-      if (empData.length === 0) {
-        const [usrData] = await connection.query('SELECT nombre, hora_entrada, hora_salida FROM users WHERE id = ?', [empId]);
-        empData = usrData;
-      }
-      const emp = empData[0] || {};
-      const empName = emp.nombre || `Empleado #${empId}`;
+      const getSchedule = async (empId) => {
+        const [over] = await connection.query(
+          "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo' AND tenant_id = ?",
+          [String(empId), date, tenantId]
+        );
+        if (over.length > 0) {
+          return { entrada: over[0].new_hora_entrada, salida: over[0].new_hora_salida };
+        }
 
-      // Determinar horario programado original del día que librará (dFree) para trasladarlo a dWork
-      let resolvedEntrada = newHoraEntrada;
-      let resolvedSalida = newHoraSalida;
+        let [empData] = await connection.query(
+          'SELECT nombre, hora_entrada, hora_salida FROM staff_records WHERE id::text = ? AND tenant_id = ?',
+          [String(empId), tenantId]
+        );
+        if (empData.length === 0) {
+          const [usrData] = await connection.query(
+            'SELECT nombre, hora_entrada, hora_salida FROM users WHERE id::text = ? AND tenant_id = ?',
+            [String(empId), tenantId]
+          );
+          empData = usrData;
+        }
+        return {
+          nombre: empData.length > 0 ? empData[0].nombre : `Empleado #${empId}`,
+          entrada: (empData.length > 0 && empData[0].hora_entrada) ? empData[0].hora_entrada : '09:00:00',
+          salida: (empData.length > 0 && empData[0].hora_salida) ? empData[0].hora_salida : '18:00:00'
+        };
+      };
 
-      if (!resolvedEntrada || !resolvedSalida || (resolvedEntrada === '08:00:00' && resolvedSalida === '17:00:00')) {
-        try {
-          const [fy, fm, fd] = dFree.split('-').map(Number);
-          const fObj = new Date(Date.UTC(fy, fm - 1, fd, 16, 0, 0));
-          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-          const fDayName = dayNames[fObj.getUTCDay()];
+      const sched1 = await getSchedule(employeeId1);
+      const sched2 = await getSchedule(employeeId2);
 
-          if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-            const parsed = JSON.parse(emp.dias_laborables);
-            const matchKey = Object.keys(parsed).find(k => k.toLowerCase().slice(0, 3) === fDayName.toLowerCase().slice(0, 3));
-            if (matchKey && parsed[matchKey] && parsed[matchKey].entrada && parsed[matchKey].salida) {
-              resolvedEntrada = parsed[matchKey].entrada + (parsed[matchKey].entrada.length === 5 ? ':00' : '');
-              resolvedSalida = parsed[matchKey].salida + (parsed[matchKey].salida.length === 5 ? ':00' : '');
-            }
-          }
-        } catch (e) {}
-      }
+      const reason1 = `Intercambio de turno con ${sched2.nombre} - ${reason || 'Permiso especial'}`;
+      const reason2 = `Intercambio de turno con ${sched1.nombre} - ${reason || 'Permiso especial'}`;
 
-      const defaultEntrada = resolvedEntrada || (emp.hora_entrada ? emp.hora_entrada : '08:00:00');
-      const defaultSalida = resolvedSalida || (emp.hora_salida ? emp.hora_salida : '17:00:00');
-
-      // 2. Registrar el día que pasa a ser LIBRE (dFree)
-      const reasonFree = `Día libre intercambiado por laborar el ${dWork} - ${reason || 'Acuerdo de horario'}`;
       await connection.query(
         `INSERT INTO schedule_overrides 
-         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
-         VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 'Activo')
-         ON DUPLICATE KEY UPDATE 
-         new_hora_entrada = NULL,
-         new_hora_salida = NULL,
-         reason = VALUES(reason),
-         created_by = VALUES(created_by),
-         status = 'Activo'`,
-        [empId, dFree, defaultEntrada, defaultSalida, reasonFree, createdBy]
+         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (employee_id, date) DO UPDATE 
+         SET original_hora_entrada = EXCLUDED.original_hora_entrada,
+             original_hora_salida = EXCLUDED.original_hora_salida,
+             new_hora_entrada = EXCLUDED.new_hora_entrada,
+             new_hora_salida = EXCLUDED.new_hora_salida,
+             reason = EXCLUDED.reason,
+             created_by = EXCLUDED.created_by,
+             status = 'Activo',
+             tenant_id = EXCLUDED.tenant_id`,
+        [String(employeeId1), date, sched1.entrada, sched1.salida, sched2.entrada, sched2.salida, reason1, createdBy, tenantId]
       );
 
-      // Purgar inmediatamente cualquier Ausencia autogenerada en esa fecha libre
-      await connection.query(
-        "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
-        [empId, String(empId), dFree, dFree]
-      );
-
-      // 3. Registrar el día que pasa a ser LABORABLE (dWork) con el horario trasladado
-      const reasonWork = `Día laborable trasladado del ${dFree} - ${reason || 'Acuerdo de horario'}`;
       await connection.query(
         `INSERT INTO schedule_overrides 
-         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
-         VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, 'Activo')
-         ON DUPLICATE KEY UPDATE 
-         new_hora_entrada = VALUES(new_hora_entrada),
-         new_hora_salida = VALUES(new_hora_salida),
-         reason = VALUES(reason),
-         created_by = VALUES(created_by),
-         status = 'Activo'`,
-        [empId, dWork, defaultEntrada, defaultSalida, reasonWork, createdBy]
+         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (employee_id, date) DO UPDATE 
+         SET original_hora_entrada = EXCLUDED.original_hora_entrada,
+             original_hora_salida = EXCLUDED.original_hora_salida,
+             new_hora_entrada = EXCLUDED.new_hora_entrada,
+             new_hora_salida = EXCLUDED.new_hora_salida,
+             reason = EXCLUDED.reason,
+             created_by = EXCLUDED.created_by,
+             status = 'Activo',
+             tenant_id = EXCLUDED.tenant_id`,
+        [String(employeeId2), date, sched2.entrada, sched2.salida, sched1.entrada, sched1.salida, reason2, createdBy, tenantId]
       );
 
       await connection.commit();
-      return res.json({ 
-        success: true, 
-        message: `Cambio de día libre registrado para ${empName}: ${dFree} pasa a ser Libre y ${dWork} pasa a ser Laborable (${defaultEntrada.slice(0,5)} - ${defaultSalida.slice(0,5)}).` 
-      });
+      res.json({ success: true, message: 'Intercambio de turnos registrado con éxito.' });
+    } catch (err) {
+      await connection.rollback();
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    } finally {
+      connection.release();
     }
+  });
 
-    if (!employeeId1 || !employeeId2 || !date || !createdBy) {
-      return res.status(400).json({ error: 'Faltan parámetros obligatorios para el intercambio.' });
-    }
-
-    await connection.beginTransaction();
-
-    // Helper function to get effective schedule (looks in overrides first, then standard profiles)
-    const getSchedule = async (empId) => {
-      // Check overrides first
-      const [over] = await connection.query(
-        "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
-        [empId, date]
-      );
-      if (over.length > 0) {
-        return { entrada: over[0].new_hora_entrada, salida: over[0].new_hora_salida };
+  // POST /api/attendance/schedule-override - Create or update a schedule override
+  router.post('/schedule-override', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { employeeId, date, newHoraEntrada, newHoraSalida, reason, createdBy } = req.body;
+      
+      if (!employeeId || !date || !newHoraEntrada || !newHoraSalida || !reason || !createdBy) {
+        return res.status(400).json({ error: 'Faltan parámetros obligatorios.' });
       }
 
-      // Check standard profile
-      let [empData] = await connection.query(
-        'SELECT nombre, hora_entrada, hora_salida FROM staff_records WHERE id = ?',
-        [empId]
+      let [employees] = await pool.query(
+        'SELECT hora_entrada, hora_salida FROM staff_records WHERE id::text = ? AND tenant_id = ?', 
+        [String(employeeId), tenantId]
       );
-      if (empData.length === 0) {
-        const [usrData] = await connection.query(
-          'SELECT nombre, hora_entrada, hora_salida FROM users WHERE id = ?',
-          [empId]
+      if (employees.length === 0) {
+        const [systemUsers] = await pool.query(
+          'SELECT hora_entrada, hora_salida FROM users WHERE id::text = ? AND tenant_id = ?',
+          [String(employeeId), tenantId]
         );
-        empData = usrData;
+        if (systemUsers.length > 0) {
+          employees = systemUsers;
+        }
       }
-      return {
-        nombre: empData.length > 0 ? empData[0].nombre : `Empleado #${empId}`,
-        entrada: (empData.length > 0 && empData[0].hora_entrada) ? empData[0].hora_entrada : '09:00:00',
-        salida: (empData.length > 0 && empData[0].hora_salida) ? empData[0].hora_salida : '18:00:00'
-      };
-    };
+      
+      const origEntrada = employees.length > 0 ? employees[0].hora_entrada : null;
+      const origSalida = employees.length > 0 ? employees[0].hora_salida : null;
 
-    const sched1 = await getSchedule(employeeId1);
-    const sched2 = await getSchedule(employeeId2);
+      await pool.query(
+        `INSERT INTO schedule_overrides 
+         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (employee_id, date) DO UPDATE 
+         SET original_hora_entrada = EXCLUDED.original_hora_entrada,
+             original_hora_salida = EXCLUDED.original_hora_salida,
+             new_hora_entrada = EXCLUDED.new_hora_entrada,
+             new_hora_salida = EXCLUDED.new_hora_salida,
+             reason = EXCLUDED.reason,
+             created_by = EXCLUDED.created_by,
+             status = 'Activo',
+             tenant_id = EXCLUDED.tenant_id`,
+        [String(employeeId), date, origEntrada, origSalida, newHoraEntrada, newHoraSalida, reason, createdBy, tenantId]
+      );
 
-    const reason1 = `Intercambio de turno con ${sched2.nombre} - ${reason || 'Permiso especial'}`;
-    const reason2 = `Intercambio de turno con ${sched1.nombre} - ${reason || 'Permiso especial'}`;
+      res.json({ success: true, message: 'Cambio de horario temporal registrado con éxito.' });
+    } catch (err) {
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-    // Apply cross-overrides
-    // Employee 1 gets Employee 2's schedule
-    await connection.query(
-      `INSERT INTO schedule_overrides 
-       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE 
-       original_hora_entrada = VALUES(original_hora_entrada),
-       original_hora_salida = VALUES(original_hora_salida),
-       new_hora_entrada = VALUES(new_hora_entrada),
-       new_hora_salida = VALUES(new_hora_salida),
-       reason = VALUES(reason),
-       created_by = VALUES(created_by),
-       status = 'Activo'`,
-      [employeeId1, date, sched1.entrada, sched1.salida, sched2.entrada, sched2.salida, reason1, createdBy]
-    );
+  // DELETE /api/attendance/schedule-override/:id - Delete (annul) a schedule override
+  router.delete('/schedule-override/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const tenantId = req.verifiedTenantId;
+      const [result] = await pool.query(
+        "UPDATE schedule_overrides SET status = 'Anulado' WHERE id::text = ? AND tenant_id = ?",
+        [String(id), tenantId]
+      );
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Cambio de horario no encontrado.' });
+      }
+      res.json({ success: true, message: 'Cambio de horario anulado con éxito.' });
+    } catch (err) {
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-    // Employee 2 gets Employee 1's schedule
-    await connection.query(
-      `INSERT INTO schedule_overrides 
-       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE 
-       original_hora_entrada = VALUES(original_hora_entrada),
-       original_hora_salida = VALUES(original_hora_salida),
-       new_hora_entrada = VALUES(new_hora_entrada),
-       new_hora_salida = VALUES(new_hora_salida),
-       reason = VALUES(reason),
-       created_by = VALUES(created_by),
-       status = 'Activo'`,
-      [employeeId2, date, sched2.entrada, sched2.salida, sched1.entrada, sched1.salida, reason2, createdBy]
-    );
-
-    await connection.commit();
-    res.json({ success: true, message: 'Intercambio de turnos registrado con éxito.' });
-  } catch (err) {
-    await connection.rollback();
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  } finally {
-    connection.release();
+  // Helper functions for Dominican Republic Timezone (America/Santo_Domingo, UTC-4)
+  function getDRDateString(date = new Date()) {
+    const options = { timeZone: 'America/Santo_Domingo', year: 'numeric', month: '2-digit', day: '2-digit' };
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    const parts = formatter.formatToParts(date);
+    const year = parts.find(p => p.type === 'year').value;
+    const month = parts.find(p => p.type === 'month').value;
+    const day = parts.find(p => p.type === 'day').value;
+    return `${year}-${month}-${day}`;
   }
-});
 
-// POST /api/attendance/schedule-override - Create or update a schedule override
-router.post('/schedule-override', async (req, res) => {
-  try {
-    const { employeeId, date, newHoraEntrada, newHoraSalida, isDescanso, reason, createdBy } = req.body;
-    
-    if (!employeeId || !date || (!isDescanso && (!newHoraEntrada || !newHoraSalida)) || !reason || !createdBy) {
-      return res.status(400).json({ error: 'Faltan parámetros obligatorios.' });
+  function getDRTimestampString(date = new Date()) {
+    const dateStr = getDRDateString(date);
+    const timeOptions = { timeZone: 'America/Santo_Domingo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+    const timeFormatter = new Intl.DateTimeFormat('en-US', timeOptions);
+    const timeParts = timeFormatter.formatToParts(date);
+    const hour = timeParts.find(p => p.type === 'hour').value;
+    const minute = timeParts.find(p => p.type === 'minute').value;
+    const second = timeParts.find(p => p.type === 'second').value;
+    return `${dateStr} ${hour}:${minute}:${second}`;
+  }
+
+  function normalizeDayName(name) {
+    if (!name) return '';
+    return name.trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  async function verifyFacesWithCompreFace(webCamBuffer, refPhotoBuffer) {
+    const compreFaceUrl = process.env.COMPREFACE_URL || 'http://localhost:8000';
+    const apiKey = process.env.COMPREFACE_API_KEY || '';
+
+    if (!apiKey) {
+      return { isIdentical: true, confidence: 1.0, mocked: true };
     }
 
-    // 1. Fetch current employee scheduling as default template
-    let [employees] = await pool.query(
-      'SELECT hora_entrada, hora_salida FROM staff_records WHERE id = ?', 
-      [employeeId]
-    );
-    if (employees.length === 0) {
-      const [systemUsers] = await pool.query(
-        'SELECT hora_entrada, hora_salida FROM users WHERE id = ?',
-        [employeeId]
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('source_image', refPhotoBuffer, { filename: 'ref.jpg', contentType: 'image/jpeg' });
+      form.append('target_image', webCamBuffer, { filename: 'webcam.jpg', contentType: 'image/jpeg' });
+
+      const response = await axios.post(`${compreFaceUrl}/api/v1/verification/verify`, form, {
+        headers: {
+          ...form.getHeaders(),
+          'x-api-key': apiKey
+        },
+        timeout: 8000
+      });
+
+      const data = response.data;
+      if (data && data.result && data.result.length > 0) {
+        const similarity = data.result[0].similarity || 0;
+        const threshold = 0.75;
+        return {
+          isIdentical: similarity >= threshold,
+          confidence: similarity
+        };
+      }
+      return { isIdentical: false, confidence: 0 };
+    } catch (e) {
+      console.error('[COMPREFACE API ERROR]:', e.response?.data || e.message);
+      throw new Error('Servicio de reconocimiento facial no disponible o error al procesar imágenes.');
+    }
+  }
+
+  function base64ToBuffer(base64Str) {
+    if (!base64Str) return null;
+    const parts = base64Str.split(',');
+    const rawBase64 = parts.length > 1 ? parts[1] : parts[0];
+    return Buffer.from(rawBase64, 'base64');
+  }
+
+  // POST /api/attendance/punch - Record employee check-in or check-out
+  router.post('/punch', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { employeeId, type, photo, geolocation, deviceInfo } = req.body;
+      
+      if (!employeeId || !type || !photo) {
+        return res.status(400).json({ error: 'Faltan datos obligatorios (empleado, tipo o foto).' });
+      }
+      
+      let [employees] = await pool.query(
+        'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo FROM staff_records WHERE id::text = ? AND tenant_id = ?', 
+        [String(employeeId), tenantId]
       );
-      if (systemUsers.length > 0) {
+      if (employees.length === 0) {
+        const [systemUsers] = await pool.query(
+          'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo FROM users WHERE id::text = ? AND tenant_id = ?',
+          [String(employeeId), tenantId]
+        );
+        if (systemUsers.length === 0) {
+          return res.status(404).json({ error: 'Empleado no encontrado en este salón.' });
+        }
         employees = systemUsers;
       }
-    }
-    
-    const origEntrada = employees.length > 0 ? employees[0].hora_entrada : null;
-    const origSalida = employees.length > 0 ? employees[0].hora_salida : null;
-    const entradaVal = isDescanso ? null : newHoraEntrada;
-    const salidaVal = isDescanso ? null : newHoraSalida;
-
-    // 2. Insert or replace schedule override
-    await pool.query(
-      `INSERT INTO schedule_overrides 
-       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Activo')
-       ON DUPLICATE KEY UPDATE 
-       original_hora_entrada = VALUES(original_hora_entrada),
-       original_hora_salida = VALUES(original_hora_salida),
-       new_hora_entrada = VALUES(new_hora_entrada),
-       new_hora_salida = VALUES(new_hora_salida),
-       reason = VALUES(reason),
-       created_by = VALUES(created_by),
-       status = 'Activo'`,
-      [employeeId, date, origEntrada, origSalida, entradaVal, salidaVal, reason, createdBy]
-    );
-
-    if (isDescanso) {
-      await pool.query(
-        "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
-        [employeeId, String(employeeId), date, date]
-      );
-    }
-
-    res.json({ success: true, message: isDescanso ? 'Día marcado como descanso/libre autorizado exitosamente.' : 'Cambio de horario temporal registrado con éxito.' });
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/attendance/schedule-override/:id - Delete (annul) a schedule override
-router.delete('/schedule-override/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.query("UPDATE schedule_overrides SET status = 'Anulado' WHERE id = ?", [id]);
-    res.json({ success: true, message: 'Cambio de horario anulado con éxito.' });
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// Helper functions for Dominican Republic Timezone (America/Santo_Domingo, UTC-4)
-function getDRDateString(date = new Date()) {
-  const options = { timeZone: 'America/Santo_Domingo', year: 'numeric', month: '2-digit', day: '2-digit' };
-  const formatter = new Intl.DateTimeFormat('en-US', options);
-  const parts = formatter.formatToParts(date);
-  const year = parts.find(p => p.type === 'year').value;
-  const month = parts.find(p => p.type === 'month').value;
-  const day = parts.find(p => p.type === 'day').value;
-  return `${year}-${month}-${day}`;
-}
-
-function getDRTimestampString() {
-  const d = new Date();
-  const options = {
-    timeZone: 'America/Santo_Domingo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  };
-  const formatter = new Intl.DateTimeFormat('en-US', options);
-  const parts = formatter.formatToParts(d);
-  const year = parts.find(p => p.type === 'year').value;
-  const month = parts.find(p => p.type === 'month').value;
-  const day = parts.find(p => p.type === 'day').value;
-  const hour = parts.find(p => p.type === 'hour').value;
-  const minute = parts.find(p => p.type === 'minute').value;
-  const second = parts.find(p => p.type === 'second').value;
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
-}
-
-function isDRTimePastLimit(hourString, graceMinutes = 15) {
-  if (!hourString) return false;
-  const [h, m, s] = hourString.split(':').map(Number);
-  
-  // Obtener la hora actual en República Dominicana
-  const nowDRString = new Date().toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' });
-  const nowDR = new Date(nowDRString);
-  
-  // Construir el límite del turno en República Dominicana
-  const limitDR = new Date(nowDRString);
-  limitDR.setHours(h, m, s || 0, 0);
-  
-  const limitTime = limitDR.getTime() + (graceMinutes * 60 * 1000);
-  return nowDR.getTime() > limitTime;
-}
-
-function normalizeDayName(str) {
-  if (!str) return '';
-  return str.toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
-
-const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-
-
-// Helper function for CompreFace face verification
-async function verifyFacesWithCompreFace(webcamBuffer, referenceBuffer) {
-  const endpoint = (process.env.COMPREFACE_ENDPOINT || 'http://localhost:8000').replace(/\/$/, '');
-  const apiKey = process.env.COMPREFACE_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_COMPREFACE_API_KEY') {
-    throw new Error('La API Key de CompreFace no está configurada o es inválida.');
-  }
-
-  const url = `${endpoint}/api/v1/verification/verify`;
-
-  // Utilizar native FormData y Blob de Node.js v20 (no requiere dependencias externas)
-  const formData = new FormData();
-  formData.append('source_image', new Blob([webcamBuffer], { type: 'image/jpeg' }), 'webcam.jpg');
-  formData.append('target_image', new Blob([referenceBuffer], { type: 'image/jpeg' }), 'reference.jpg');
-
-  try {
-    const res = await axios.post(url, formData, {
-      headers: {
-        'x-api-key': apiKey
-      }
-    });
-
-    // CompreFace devuelve un arreglo de resultados con la similitud
-    const match = res.data.result?.[0]?.face_matches?.[0];
-    const similarity = match ? match.similarity : 0;
-
-    return {
-      isIdentical: similarity >= 0.90, // Umbral estricto para evitar falsos positivos
-      confidence: similarity
-    };
-  } catch (err) {
-    console.error('[COMPREFACE ERROR]:', err.response ? err.response.data : err.message);
-    if (err.response && err.response.data && err.response.data.message) {
-      const msg = err.response.data.message;
-      if (msg.includes('No face found') || msg.includes('no face')) {
-        throw new Error('No se detectó un rostro claro en la captura de la cámara o en la foto de perfil. Asegúrese de estar bajo buena luz.');
-      }
-      throw new Error(err.response.data.message);
-    }
-    throw new Error('Error al conectar con el servidor de biometría CompreFace.');
-  }
-}
-
-function base64ToBuffer(base64Str) {
-  if (!base64Str) return null;
-  const parts = base64Str.split(',');
-  const rawBase64 = parts.length > 1 ? parts[1] : parts[0];
-  return Buffer.from(rawBase64, 'base64');
-}
-
-// POST /api/attendance/punch - Record employee check-in or check-out
-router.post('/punch', async (req, res) => {
-  try {
-    const { employeeId, type, photo, geolocation, deviceInfo } = req.body;
-    
-    if (!employeeId || !type || !photo) {
-      return res.status(400).json({ error: 'Faltan datos obligatorios (empleado, tipo o foto).' });
-    }
-    
-    // Validate employee exists and load schedule configurations from staff_records or users
-    let [employees] = await pool.query(
-      'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo FROM staff_records WHERE id = ?', 
-      [employeeId]
-    );
-    if (employees.length === 0) {
-      // Look in users table instead
-      const [systemUsers] = await pool.query(
-        'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo FROM users WHERE id = ?',
-        [employeeId]
-      );
-      if (systemUsers.length === 0) {
-        return res.status(404).json({ error: 'Empleado no encontrado.' });
-      }
-      employees = systemUsers;
-    }
-    
-    const emp = employees[0];
-
-    // --- BIOMETRICS VERIFICATION (COMPREFACE) ---
-    if (emp.profile_photo) {
-      try {
-        const webCamBuffer = base64ToBuffer(photo);
-        const refPhotoBuffer = base64ToBuffer(emp.profile_photo);
-
-        if (!webCamBuffer) {
-          return res.status(400).json({ error: 'La captura de cámara enviada no es válida.' });
-        }
-        if (!refPhotoBuffer) {
-          return res.status(400).json({ error: 'La foto de perfil del empleado no contiene datos de imagen válidos.' });
-        }
-
-        console.log(`[COMPREFACE] Iniciando validación facial para ${emp.nombre}...`);
-        const verifyResult = await verifyFacesWithCompreFace(webCamBuffer, refPhotoBuffer);
-        console.log(`[COMPREFACE] Similitud: ${verifyResult.confidence}, Coincide: ${verifyResult.isIdentical}`);
-
-        if (!verifyResult.isIdentical) {
-          return res.status(400).json({ error: 'Verificación biométrica fallida. Su rostro no coincide con el empleado seleccionado.' });
-        }
-      } catch (faceErr) {
-        console.error('[COMPREFACE EXCEPTION]:', faceErr.message);
-        return res.status(400).json({ error: faceErr.message || 'Error al validar la biometría.' });
-      }
-    }
-    let status = 'Normal';
-    let latenessMinutes = 0;
-    let extraMinutes = 0;
-
-    // Check if there is a temporary schedule override for this employee today
-    const todayDateStr = getDRDateString();
-    const [overrides] = await pool.query(
-      "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
-      [employeeId, todayDateStr]
-    );
-
-    // Resolve base schedule for today (Tuesday, Lunes, etc.) using America/Santo_Domingo timezone
-    const nowDRString = new Date().toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' });
-    const nowDRDate = new Date(nowDRString);
-    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    const todayName = dayNames[nowDRDate.getDay()];
-
-    let baseHoraEntrada = emp.hora_entrada;
-    let baseHoraSalida = emp.hora_salida;
-
-    if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-      try {
-        const parsedSchedule = JSON.parse(emp.dias_laborables);
-        const normalizedToday = normalizeDayName(todayName);
-        const matchingKey = Object.keys(parsedSchedule).find(k => normalizeDayName(k) === normalizedToday);
-        const daySched = matchingKey ? parsedSchedule[matchingKey] : null;
-        if (daySched) {
-          baseHoraEntrada = daySched.entrada || null;
-          baseHoraSalida = daySched.salida || null;
-        } else {
-          baseHoraEntrada = null;
-          baseHoraSalida = null;
-        }
-      } catch (e) {
-        console.error("Error parsing employee daily schedule JSON in punch API:", e.message);
-      }
-    } else if (emp.dias_laborables) {
-      const workingDays = emp.dias_laborables.split(',');
-      const normalizedToday = normalizeDayName(todayName);
-      const isWorkingDay = workingDays.some(d => normalizeDayName(d) === normalizedToday);
-      if (!isWorkingDay) {
-        baseHoraEntrada = null;
-        baseHoraSalida = null;
-      }
-    }
-
-    // Si falta cualquier componente obligatorio del horario, no generar tardanzas automáticas
-    if (!isScheduleComplete(emp) && overrides.length === 0) {
-      baseHoraEntrada = null;
-      baseHoraSalida = null;
-    }
-
-    const effectiveHoraEntrada = overrides.length > 0 ? overrides[0].new_hora_entrada : baseHoraEntrada;
-    const effectiveHoraSalida = overrides.length > 0 ? overrides[0].new_hora_salida : baseHoraSalida;
-    
-    if (type === 'Check-In' && effectiveHoraEntrada) {
-      const now = new Date(nowDRString);
-      const [expH, expM, expS] = effectiveHoraEntrada.split(':').map(Number);
-      const expDate = new Date(nowDRString);
-      expDate.setHours(expH, expM, expS || 0, 0);
       
-      const graceMinutes = emp.tolerancia_minutos !== null ? emp.tolerancia_minutos : 15;
-      const limitDate = new Date(expDate.getTime() + graceMinutes * 60 * 1000);
-      
-      if (now > limitDate) {
-        status = 'Tardanza';
-        const diffMs = now - expDate;
-        latenessMinutes = Math.max(0, Math.floor(diffMs / (1000 * 60)));
-      }
-    } else if (type === 'Check-Out' && effectiveHoraSalida) {
-      const now = new Date(nowDRString);
-      const [expH, expM, expS] = effectiveHoraSalida.split(':').map(Number);
-      const expDate = new Date(nowDRString);
-      expDate.setHours(expH, expM, expS || 0, 0);
+      const emp = employees[0];
 
-      const isScheduledUntil9PM = (expH === 21 && expM === 0);
+      if (emp.profile_photo) {
+        try {
+          const webCamBuffer = base64ToBuffer(photo);
+          const refPhotoBuffer = base64ToBuffer(emp.profile_photo);
 
-      // Fetch today's check-in punch for this employee to check for tardiness/delays
-      const [checkins] = await pool.query(
-        `SELECT timestamp, lateness_minutes 
-         FROM attendance 
-         WHERE employee_id = ? 
-           AND type = 'Check-In' 
-           AND DATE(timestamp) = ? 
-         ORDER BY timestamp DESC 
-         LIMIT 1`,
-        [employeeId, todayDateStr]
-      );
-
-      let actualCheckinDate = null;
-      if (checkins.length > 0) {
-        const checkinDRString = new Date(checkins[0].timestamp).toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' });
-        actualCheckinDate = new Date(checkinDRString);
-      } else {
-        // Ponche de salida sin entrada registrada hoy
-        status = 'Salida Sin Entrada';
-        console.warn(`⚠️ [ASISTENCIA]: Empleado ${employeeId} registró Salida sin ponche de Entrada previo hoy.`);
-      }
-
-      // Punto 2: Nueva regla de entradas anticipadas:
-      // Si llega > 15 min antes, se reconocen los minutos anticipados. Si llega <= 15 min antes, no se reconoce para pago.
-      let earlyExtraMinutes = 0;
-      if (effectiveHoraEntrada && actualCheckinDate) {
-        const [entH, entM, entS] = effectiveHoraEntrada.split(':').map(Number);
-        const scheduledEntryDate = new Date(nowDRString);
-        scheduledEntryDate.setHours(entH, entM, entS || 0, 0);
-        
-        const rawEarlyMs = scheduledEntryDate - actualCheckinDate;
-        const rawEarlyMins = Math.floor(rawEarlyMs / (1000 * 60));
-
-        if (rawEarlyMins > 15) {
-          earlyExtraMinutes = rawEarlyMins;
-        }
-      }
-
-      // salon closing cutoff (hora República Dominicana):
-      const dayOfWeek = now.getDay(); // 0: Sunday, 6: Saturday
-      const closingDate = new Date(nowDRString);
-      let hasClosingCutoff = false;
-
-      if (dayOfWeek === 6) { // Sábado
-        closingDate.setHours(18, 0, 0, 0); // 6:00 PM
-        hasClosingCutoff = true;
-      } else if (dayOfWeek === 0) { // Domingo
-        closingDate.setHours(17, 0, 0, 0); // 5:00 PM
-        hasClosingCutoff = true;
-      } else if (isScheduledUntil9PM || expH >= 20) { // Lunes a Viernes
-        closingDate.setHours(20, 0, 0, 0); // 8:00 PM
-        hasClosingCutoff = true;
-      }
-
-      const diffMs = now - expDate;
-      const extraFromSchedExit = Math.max(0, Math.floor(diffMs / (1000 * 60)));
-
-      // Retraso de llegada frente a la entrada asignada
-      let rawDelayMins = 0;
-      if (effectiveHoraEntrada && actualCheckinDate) {
-        const [entH, entM, entS] = effectiveHoraEntrada.split(':').map(Number);
-        const scheduledEntryDate = new Date(nowDRString);
-        scheduledEntryDate.setHours(entH, entM, entS || 0, 0);
-        rawDelayMins = Math.max(0, Math.floor((actualCheckinDate - scheduledEntryDate) / (1000 * 60)));
-      }
-
-      if (hasClosingCutoff && now >= closingDate) {
-        // Ponchó a la hora de cierre del salón o después (ej. sábado >= 6pm, domingo >= 5pm, semana >= 8pm)
-        status = 'Normal';
-        const extraAfterComp = Math.max(0, extraFromSchedExit - rawDelayMins);
-        extraMinutes = earlyExtraMinutes + extraAfterComp;
-      } else if (now >= expDate) {
-        // Hora de salida programada alcanzada o superada
-        status = 'Normal';
-        // Punto 1: Completar la jornada antes de generar extras a la salida
-        const extraAfterComp = Math.max(0, extraFromSchedExit - rawDelayMins);
-        extraMinutes = earlyExtraMinutes + extraAfterComp;
-      } else {
-        // Salió antes de la hora programada y antes del cierre oficial del salón (llegar temprano NO autoriza salida temprana)
-        status = 'Salida Temprana';
-        extraMinutes = earlyExtraMinutes;
-      }
-    }
-    
-    const punchId = `PUNCH-${Date.now()}-${employeeId}`;
-    
-    // Si se registra cualquier ponche (Entrada o Salida), purgar cualquier registro previo de 'Ausencia' autogenerado hoy
-    await pool.query(
-      "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
-      [employeeId, String(employeeId), todayDateStr, todayDateStr]
-    );
-
-    await pool.query(
-      `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [punchId, employeeId, type, photo || null, geolocation || null, deviceInfo || null, getDRTimestampString(), status, latenessMinutes, extraMinutes]
-    );
-    
-    console.log(`[ATTENDANCE] Ponche registrado: ${type} (${status}) para ${emp.nombre} (${employeeId})`);
-    res.json({ success: true, message: `Ponche de ${type === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status} correctamente.`, name: emp.nombre });
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/attendance/today - Lightweight: only real punches for today (no absent generation)
-// Used by the kiosk to auto-detect whether to show Check-In or Check-Out
-router.get('/today', async (req, res) => {
-  try {
-    const { salonId } = req.query;
-    const todayStr = getDRDateString();
-    let query = `SELECT a.id, a.employee_id, a.type, a.status, a.timestamp, a.lateness_minutes, a.extra_minutes
-       FROM attendance a
-       LEFT JOIN staff_records s ON a.employee_id = s.id
-       LEFT JOIN users u ON a.employee_id = u.id
-       WHERE DATE(a.timestamp) = ? AND a.type IN ('Check-In', 'Check-Out')`;
-    const params = [todayStr];
-    if (salonId) {
-      query += ` AND COALESCE(s.salon_id, u.salon_id) = ?`;
-      params.push(salonId);
-    }
-    query += ` ORDER BY a.timestamp ASC`;
-    const [rows] = await pool.query(query, params);
-    res.json(rows);
-  } catch (err) {
-    console.error('[ATTENDANCE TODAY ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/attendance/history - Fetch historical attendance logs for admin panel
-router.get('/history', async (req, res) => {
-  try {
-    const { startDate, endDate, employeeId, status, type, salonId } = req.query;
-    
-    const start = startDate || getDRDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-    const end = endDate || getDRDateString();
-
-    // 1. Fetch active staff and system users (excluding admins/clients) to know who should work
-    const [staff] = await pool.query(
-      "SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, fecha_entrada FROM staff_records WHERE status = 'Activo' OR status = 'Active'"
-    );
-    const [users] = await pool.query(
-      "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name, u.created_at as fecha_entrada FROM users u LEFT JOIN roles r ON u.role_id = r.id"
-    );
-    const systemStaff = users.filter(u => {
-      const role = (u.role_name || '').toLowerCase();
-      return !role.includes('admin') && !role.includes('client');
-    });
-
-    let allEmployees = [...staff];
-    systemStaff.forEach(sysUser => {
-      if (!allEmployees.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
-        allEmployees.push(sysUser);
-      }
-    });
-
-    if (salonId) {
-      allEmployees = allEmployees.filter(emp => String(emp.salon_id) === String(salonId));
-    }
-
-    // 2. Fetch all schedule overrides within this date range
-    const [rangeOverrides] = await pool.query(
-      "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida, reason FROM schedule_overrides WHERE date >= ? AND date <= ? AND status = 'Activo'",
-      [start, end]
-    );
-    const overrideMap = new Map();
-    rangeOverrides.forEach(o => {
-      overrideMap.set(`${o.employee_id}:${o.dateStr}`, o);
-    });
-
-    // 3. Purge any orphan/phantom absences and repair historical false early exits
-    try {
-      // Purgar ausencias en días con ponches reales
-      await pool.query(`
-        DELETE a1 FROM attendance a1
-        JOIN attendance a2 ON a1.employee_id = a2.employee_id 
-          AND (
-            DATE(a1.timestamp) = DATE(a2.timestamp)
-            OR DATE(CONVERT_TZ(a1.timestamp, '+00:00', '-04:00')) = DATE(CONVERT_TZ(a2.timestamp, '+00:00', '-04:00'))
-          )
-          AND a1.type = 'Ausencia'
-          AND a2.type IN ('Check-In', 'Check-Out')
-      `);
-
-      // Purgar ausencias en días donde existe un override activo de día libre/descanso
-      await pool.query(`
-        DELETE a FROM attendance a
-        JOIN schedule_overrides o ON a.employee_id = o.employee_id 
-          AND (DATE(a.timestamp) = o.date OR DATE(CONVERT_TZ(a.timestamp, '+00:00', '-04:00')) = o.date)
-        WHERE a.type = 'Ausencia' 
-          AND o.status = 'Activo'
-          AND (o.new_hora_entrada IS NULL OR o.new_hora_entrada = '00:00:00' OR o.reason LIKE '%libre%' OR o.reason LIKE '%descanso%')
-      `);
-
-      await pool.query(`
-        UPDATE attendance a_out
-        JOIN attendance a_in ON a_out.employee_id = a_in.employee_id 
-          AND (
-            DATE(a_out.timestamp) = DATE(a_in.timestamp)
-            OR DATE(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) = DATE(CONVERT_TZ(a_in.timestamp, '+00:00', '-04:00'))
-          )
-          AND a_in.type = 'Check-In'
-        SET a_out.status = 'Normal',
-            a_out.extra_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, a_in.timestamp, a_out.timestamp) - 540)
-        WHERE a_out.type = 'Check-Out' 
-          AND a_out.status = 'Salida Temprana'
-          AND (
-            TIMESTAMPDIFF(MINUTE, a_in.timestamp, a_out.timestamp) >= 540
-            OR (DAYOFWEEK(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) = 7 AND TIME(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) >= '18:00:00')
-            OR (DAYOFWEEK(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) = 1 AND TIME(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) >= '17:00:00')
-            OR (DAYOFWEEK(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) NOT IN (1, 7) AND TIME(CONVERT_TZ(a_out.timestamp, '+00:00', '-04:00')) >= '20:00:00')
-          )
-      `);
-    } catch (e) {
-      console.warn('[ATTENDANCE AUTO-FIX WARN]:', e.message);
-    }
-
-    // 4. Fetch all existing attendance records in this range
-    const [existingPunches] = await pool.query(
-      `SELECT employee_id, 
-              DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, 
-              DATE_FORMAT(CONVERT_TZ(timestamp, '+00:00', '-04:00'), '%Y-%m-%d') as drDateStr,
-              type 
-       FROM attendance 
-       WHERE (timestamp >= ? AND timestamp <= ?)
-          OR (CONVERT_TZ(timestamp, '+00:00', '-04:00') >= ? AND CONVERT_TZ(timestamp, '+00:00', '-04:00') <= ?)`,
-      [`${start} 00:00:00`, `${end} 23:59:59`, `${start} 00:00:00`, `${end} 23:59:59`]
-    );
-
-    const punchSet = new Set();
-    const absentSet = new Set();
-    const realPunchSet = new Set();
-    const checkinSet = new Set();
-
-    existingPunches.forEach(p => {
-      const keys = [
-        `${p.employee_id}:${p.dateStr}`,
-        p.drDateStr ? `${p.employee_id}:${p.drDateStr}` : null
-      ].filter(Boolean);
-
-      keys.forEach(k => {
-        punchSet.add(k);
-        if (p.type === 'Ausencia') absentSet.add(k);
-        if (p.type === 'Check-In' || p.type === 'Check-Out') realPunchSet.add(k);
-        if (p.type === 'Check-In') checkinSet.add(k);
-      });
-    });
-
-    // 4. Generate missing Ausente records for scheduled work days in range (excluding future days)
-    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    const curDate = new Date(start + 'T12:00:00');
-    const endDateObj = new Date(end + 'T12:00:00');
-    const todayStr = getDRDateString();
-
-    while (curDate <= endDateObj) {
-      const dateStr = getDRDateString(curDate);
-      const dayName = dayNames[curDate.getDay()];
-
-      for (const emp of allEmployees) {
-        let isWorkingDay = false;
-        let empDailyHoraEntrada = emp.hora_entrada;
-        let empDailyHoraSalida = emp.hora_salida;
-
-        if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-          try {
-            const parsedSchedule = JSON.parse(emp.dias_laborables);
-            const normalizedDay = normalizeDayName(dayName);
-            const matchingKey = Object.keys(parsedSchedule).find(k => normalizeDayName(k) === normalizedDay);
-            const daySched = matchingKey ? parsedSchedule[matchingKey] : null;
-            if (daySched && daySched.entrada && daySched.salida) {
-              isWorkingDay = true;
-              empDailyHoraEntrada = daySched.entrada;
-              empDailyHoraSalida = daySched.salida;
-            }
-          } catch (e) {
-            console.error("Error parsing daily schedule JSON for employee", emp.id, e.message);
+          if (!webCamBuffer) {
+            return res.status(400).json({ error: 'La captura de cámara enviada no es válida.' });
           }
-        } else {
-          // Si el empleado no tiene horario completo (falta hora_entrada, hora_salida o dias_laborables), NUNCA marcar como día laboral
-          if (!isScheduleComplete(emp)) {
-            isWorkingDay = false;
+          if (!refPhotoBuffer) {
+            return res.status(400).json({ error: 'La foto de perfil del empleado no contiene datos de imagen válidos.' });
+          }
+
+          const verifyResult = await verifyFacesWithCompreFace(webCamBuffer, refPhotoBuffer);
+          if (!verifyResult.isIdentical) {
+            return res.status(400).json({ error: 'Verificación biométrica fallida. Su rostro no coincide con el empleado seleccionado.' });
+          }
+        } catch (faceErr) {
+          console.error('[COMPREFACE EXCEPTION]:', faceErr.message);
+          return res.status(400).json({ error: faceErr.message || 'Error al validar la biometría.' });
+        }
+      }
+
+      let status = 'Normal';
+      let latenessMinutes = 0;
+      let extraMinutes = 0;
+
+      const todayDateStr = getDRDateString();
+      const [overrides] = await pool.query(
+        "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo' AND tenant_id = ?",
+        [String(employeeId), todayDateStr, tenantId]
+      );
+
+      const nowDRString = new Date().toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' });
+      const nowDRDate = new Date(nowDRString);
+      const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      const todayName = dayNames[nowDRDate.getDay()];
+
+      let baseHoraEntrada = emp.hora_entrada;
+      let baseHoraSalida = emp.hora_salida;
+
+      if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
+        try {
+          const parsedSchedule = JSON.parse(emp.dias_laborables);
+          const normalizedToday = normalizeDayName(todayName);
+          const matchingKey = Object.keys(parsedSchedule).find(k => normalizeDayName(k) === normalizedToday);
+          const daySched = matchingKey ? parsedSchedule[matchingKey] : null;
+          if (daySched) {
+            baseHoraEntrada = daySched.entrada || null;
+            baseHoraSalida = daySched.salida || null;
           } else {
-            const workingDays = (emp.dias_laborables || '').split(',');
+            baseHoraEntrada = null;
+            baseHoraSalida = null;
+          }
+        } catch (e) {
+          console.error("Error parsing employee daily schedule JSON:", e.message);
+        }
+      }
+
+      let targetEntrada = overrides.length > 0 ? overrides[0].new_hora_entrada : baseHoraEntrada;
+      let targetSalida = overrides.length > 0 ? overrides[0].new_hora_salida : baseHoraSalida;
+
+      const punchHours = nowDRDate.getHours();
+      const punchMinutes = nowDRDate.getMinutes();
+      const currentMinutesFromMidnight = punchHours * 60 + punchMinutes;
+
+      if (type === 'Check-In' && targetEntrada) {
+        const [schedH, schedM] = targetEntrada.split(':').map(Number);
+        const schedMinutesFromMidnight = schedH * 60 + schedM;
+        const diff = currentMinutesFromMidnight - schedMinutesFromMidnight;
+        const tolerance = emp.tolerancia_minutos !== null && emp.tolerancia_minutos !== undefined ? emp.tolerancia_minutos : 15;
+
+        if (diff > tolerance) {
+          status = 'Tardanza';
+          latenessMinutes = diff;
+        }
+      } else if (type === 'Check-Out' && targetSalida) {
+        const [schedH, schedM] = targetSalida.split(':').map(Number);
+        const schedMinutesFromMidnight = schedH * 60 + schedM;
+        const diff = currentMinutesFromMidnight - schedMinutesFromMidnight;
+
+        if (diff > 0) {
+          extraMinutes = diff;
+        } else if (diff < 0) {
+          status = 'Salida Temprana';
+        }
+      }
+
+      const punchId = `ATT-${Date.now()}-${String(employeeId)}-${type.toUpperCase()}`;
+      
+      if (type === 'Check-In') {
+        await pool.query(
+          "DELETE FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Ausencia' AND tenant_id = ?",
+          [String(employeeId), todayDateStr, tenantId]
+        );
+      }
+
+      await pool.query(
+        `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes, tenant_id) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [punchId, String(employeeId), type, photo || null, geolocation || null, deviceInfo || null, getDRTimestampString(), status, latenessMinutes, extraMinutes, tenantId]
+      );
+      
+      res.json({ success: true, message: `Ponche de ${type === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status} correctamente.`, name: emp.nombre });
+    } catch (err) {
+      console.error('[ATTENDANCE ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/attendance/today - Lightweight: only real punches for today (Scoped by tenant_id)
+  router.get('/today', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { salonId } = req.query;
+      const todayStr = getDRDateString();
+      let query = `
+        SELECT a.id, a.employee_id, a.type, a.status, a.timestamp, a.lateness_minutes, a.extra_minutes
+        FROM attendance a
+        LEFT JOIN staff_records s ON a.employee_id = s.id::text AND s.tenant_id = a.tenant_id
+        LEFT JOIN users u ON a.employee_id = u.id::text AND u.tenant_id = a.tenant_id
+        WHERE a.tenant_id = ? AND DATE(a.timestamp) = ? AND a.type IN ('Check-In', 'Check-Out')
+      `;
+      const params = [tenantId, todayStr];
+      if (salonId) {
+        query += ` AND COALESCE(s.salon_id, u.salon_id) = ?`;
+        params.push(String(salonId));
+      }
+      query += ` ORDER BY a.timestamp ASC`;
+      const [rows] = await pool.query(query, params);
+      res.json(rows);
+    } catch (err) {
+      console.error('[ATTENDANCE TODAY ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/attendance/history - Fetch historical attendance logs for admin panel (Scoped by tenant_id)
+  router.get('/history', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { startDate, endDate, employeeId, salonId } = req.query;
+      
+      const start = startDate || getDRDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+      const end = endDate || getDRDateString();
+
+      const [staff] = await pool.query(
+        "SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, fecha_entrada FROM staff_records WHERE tenant_id = ? AND (status = 'Activo' OR status = 'Active')",
+        [tenantId]
+      );
+      const [users] = await pool.query(
+        "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name, u.created_at as fecha_entrada FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.tenant_id = ?",
+        [tenantId]
+      );
+      const systemStaff = users.filter(u => {
+        const role = (u.role_name || '').toLowerCase();
+        return !role.includes('admin') && !role.includes('client');
+      });
+
+      let allEmployees = [...staff];
+      systemStaff.forEach(sysUser => {
+        if (!allEmployees.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
+          allEmployees.push(sysUser);
+        }
+      });
+
+      if (salonId) {
+        allEmployees = allEmployees.filter(emp => String(emp.salon_id) === String(salonId));
+      }
+
+      const [rangeOverrides] = await pool.query(
+        "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'",
+        [tenantId, start, end]
+      );
+      const overrideMap = new Map();
+      rangeOverrides.forEach(o => {
+        overrideMap.set(`${o.employee_id}:${o.dateStr}`, o);
+      });
+
+      const [existingPunches] = await pool.query(
+        "SELECT employee_id, DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, type FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?",
+        [tenantId, `${start} 00:00:00`, `${end} 23:59:59`]
+      );
+
+      const absentSet = new Set(existingPunches.filter(p => p.type === 'Ausencia').map(p => `${p.employee_id}:${p.dateStr}`));
+      const checkinSet = new Set(existingPunches.filter(p => p.type === 'Check-In').map(p => `${p.employee_id}:${p.dateStr}`));
+
+      const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      const curDate = new Date(start + 'T12:00:00');
+      const endDateObj = new Date(end + 'T12:00:00');
+      const todayStr = getDRDateString();
+
+      while (curDate <= endDateObj) {
+        const dateStr = getDRDateString(curDate);
+        const dayName = dayNames[curDate.getDay()];
+
+        for (const emp of allEmployees) {
+          const empHireDateStr = emp.fecha_entrada ? getDRDateString(new Date(emp.fecha_entrada)) : null;
+          if (empHireDateStr && dateStr < empHireDateStr) continue;
+
+          let isWorkingDay = false;
+          if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(emp.dias_laborables);
+              const normalizedDay = normalizeDayName(dayName);
+              const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedDay);
+              const daySched = matchingKey ? parsed[matchingKey] : null;
+              if (daySched && daySched.entrada && daySched.salida) isWorkingDay = true;
+            } catch(e) {}
+          } else if (emp.dias_laborables) {
+            const workingDays = emp.dias_laborables.split(',');
             const normalizedDay = normalizeDayName(dayName);
             isWorkingDay = workingDays.some(d => normalizeDayName(d) === normalizedDay);
           }
-        }
 
-        const lookupKey = `${emp.id}:${dateStr}`;
-        const override = overrideMap.get(lookupKey);
+          const hasOverride = overrideMap.has(`${emp.id}:${dateStr}`);
+          const shouldWork = isWorkingDay || hasOverride;
 
-        if (override) {
-          if (!override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')))) {
-            isWorkingDay = false; // Marcado explícitamente como día libre / descanso autorizado
-          } else {
-            isWorkingDay = true; // Turno activo programado por override
-            empDailyHoraEntrada = override.new_hora_entrada;
-            empDailyHoraSalida = override.new_hora_salida;
+          if (shouldWork && dateStr < todayStr) {
+            const key = `${emp.id}:${dateStr}`;
+            if (!checkinSet.has(key) && !absentSet.has(key)) {
+              const absentId = `ABSENT-${dateStr}-${emp.id}`;
+              try {
+                await pool.query(
+                  `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes, tenant_id)
+                   VALUES (?, ?, 'Ausencia', NULL, NULL, 'Generado automáticamente por sistema', ?, 'Ausencia', 0, 0, ?)
+                   ON CONFLICT (id) DO NOTHING`,
+                  [absentId, String(emp.id), `${dateStr} 23:59:59`, tenantId]
+                );
+                absentSet.add(key);
+              } catch(e) {}
+            }
           }
         }
+        curDate.setDate(curDate.getDate() + 1);
+      }
 
-        if (isWorkingDay) {
-          // No generar ausencias para fechas anteriores a la contratación del empleado
-          if (emp.fecha_entrada) {
+      let query = `
+        SELECT 
+          a.id, a.employee_id, 
+          COALESCE(s.nombre, u.nombre) as employeeName,
+          COALESCE(s.salon_id, u.salon_id) as salon_id,
+          a.type, a.status, a.timestamp,
+          a.lateness_minutes, a.extra_minutes,
+          a.photo, a.geolocation, a.device_info,
+          a.is_manual, a.modified_by, a.modified_at, a.modification_reason
+        FROM attendance a
+        LEFT JOIN staff_records s ON a.employee_id = s.id::text AND s.tenant_id = a.tenant_id
+        LEFT JOIN users u ON a.employee_id = u.id::text AND u.tenant_id = a.tenant_id
+        WHERE a.tenant_id = ? AND a.timestamp >= ? AND a.timestamp <= ?
+      `;
+      const queryParams = [tenantId, `${start} 00:00:00`, `${end} 23:59:59`];
+
+      if (employeeId) {
+        query += ` AND a.employee_id = ?`;
+        queryParams.push(String(employeeId));
+      }
+      if (salonId) {
+        query += ` AND COALESCE(s.salon_id, u.salon_id) = ?`;
+        queryParams.push(String(salonId));
+      }
+
+      query += ` ORDER BY a.timestamp DESC`;
+      const [rows] = await pool.query(query, queryParams);
+      res.json(rows);
+    } catch (err) {
+      console.error('[ATTENDANCE HISTORY ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/attendance/pending - Fetch all pending attendance records (missing check-in/out)
+  router.get('/pending', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { startDate, endDate, employeeId, salonId } = req.query;
+      
+      const start = startDate || getDRDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+      const end = endDate || getDRDateString();
+
+      const [staff] = await pool.query(
+        "SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id FROM staff_records WHERE tenant_id = ? AND (status = 'Activo' OR status = 'Active')",
+        [tenantId]
+      );
+      const [users] = await pool.query(
+        "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.tenant_id = ?",
+        [tenantId]
+      );
+      const systemStaff = users.filter(u => {
+        const role = (u.role_name || '').toLowerCase();
+        return !role.includes('admin') && !role.includes('client');
+      });
+
+      const allEmployees = [...staff];
+      systemStaff.forEach(sysUser => {
+        if (!allEmployees.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
+          allEmployees.push(sysUser);
+        }
+      });
+
+      let filteredEmployees = allEmployees;
+      if (employeeId) {
+        filteredEmployees = filteredEmployees.filter(e => String(e.id) === String(employeeId));
+      }
+      if (salonId) {
+        filteredEmployees = filteredEmployees.filter(e => String(e.salon_id) === String(salonId));
+      }
+
+      const [rangeOverrides] = await pool.query(
+        "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'",
+        [tenantId, start, end]
+      );
+      const overrideMap = new Map();
+      rangeOverrides.forEach(o => {
+        overrideMap.set(`${o.employee_id}:${o.dateStr}`, o);
+      });
+
+      const [punches] = await pool.query(
+        "SELECT id, employee_id, type, DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, DATE_FORMAT(timestamp, '%H:%i:%s') as timeStr, timestamp, status, is_manual, modified_by, modified_at, modification_reason FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?",
+        [tenantId, `${start} 00:00:00`, `${end} 23:59:59`]
+      );
+
+      const punchMap = new Map();
+      punches.forEach(p => {
+        const key = `${p.employee_id}:${p.dateStr}`;
+        if (!punchMap.has(key)) {
+          punchMap.set(key, []);
+        }
+        punchMap.get(key).push(p);
+      });
+
+      const pendingIncidents = [];
+      const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      
+      const curDate = new Date(start + 'T12:00:00');
+      const endDateObj = new Date(end + 'T12:00:00');
+      const todayStr = getDRDateString();
+
+      while (curDate <= endDateObj) {
+        const dateStr = getDRDateString(curDate);
+        const dayName = dayNames[curDate.getDay()];
+
+        for (const emp of filteredEmployees) {
+          let isWorkingDay = false;
+          let empDailyHoraEntrada = emp.hora_entrada;
+          let empDailyHoraSalida = emp.hora_salida;
+
+          if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
             try {
-              const d = new Date(emp.fecha_entrada);
-              if (!isNaN(d.getTime())) {
-                const empHireDateStr = getDRDateString(d);
-                if (dateStr < empHireDateStr) {
-                  continue;
-                }
+              const parsed = JSON.parse(emp.dias_laborables);
+              const normalizedDay = normalizeDayName(dayName);
+              const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedDay);
+              const daySched = matchingKey ? parsed[matchingKey] : null;
+              if (daySched && daySched.entrada && daySched.salida) {
+                isWorkingDay = true;
+                empDailyHoraEntrada = daySched.entrada;
+                empDailyHoraSalida = daySched.salida;
               }
             } catch (e) {}
-          }
-          
-          if (!punchSet.has(lookupKey) && !realPunchSet.has(lookupKey) && !checkinSet.has(lookupKey)) {
-            let shouldMarkAbsent = true;
-            const effectiveHoraEntrada = override ? override.new_hora_entrada : empDailyHoraEntrada;
-            const effectiveHoraSalida = override ? override.new_hora_salida : empDailyHoraSalida;
-
-            if (dateStr > todayStr) {
-              shouldMarkAbsent = false;
-            } else if (dateStr <= '2026-07-12') {
-              shouldMarkAbsent = false;
-            } else if (dateStr === todayStr) {
-              // Punto 4: Confirmar ausencias durante un turno abierto
-              // Mientras la jornada esté abierta (hora actual < hora de salida del turno), la ausencia es provisional
-              // y NO debe consolidarse ni insertarse en base de datos como registro definitivo de ausencia.
-              if (effectiveHoraSalida) {
-                const isShiftOver = isDRTimePastLimit(effectiveHoraSalida, 0);
-                if (!isShiftOver) {
-                  shouldMarkAbsent = false;
-                }
-              } else if (effectiveHoraEntrada) {
-                const isPastGrace = isDRTimePastLimit(effectiveHoraEntrada, 120); // Al menos 2h si no hay hora de salida
-                if (!isPastGrace) {
-                  shouldMarkAbsent = false;
-                }
-              } else {
-                shouldMarkAbsent = false;
-              }
-            }
-
-            if (shouldMarkAbsent && !absentSet.has(lookupKey) && !checkinSet.has(lookupKey) && !realPunchSet.has(lookupKey)) {
-              const punchId = `ABSENT-${Date.now()}-${emp.id}-${dateStr}`;
-              const entryTime = effectiveHoraEntrada || '09:00:00';
-              await pool.query(
-                `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes) 
-                 VALUES (?, ?, 'Ausencia', NULL, NULL, 'Autogenerado por Sistema', ?, 'Ausente', 0, 0)`,
-                [punchId, emp.id, `${dateStr} ${entryTime}`]
-              );
-              punchSet.add(lookupKey);
-              absentSet.add(lookupKey);
-            }
-          }
-        }
-      }
-      curDate.setDate(curDate.getDate() + 1);
-    }
-
-    // 4. Query combined history
-    let sql = `
-      SELECT a.id, a.employee_id, a.timestamp, a.type, 
-             (CASE WHEN a.photo IS NOT NULL AND a.photo != '' THEN CONCAT('/api/attendance/', a.id, '/photo') ELSE NULL END) as photo,
-             a.geolocation, a.device_info, a.status, a.lateness_minutes, a.extra_minutes,
-             COALESCE(s.nombre, u.nombre) as employeeName,
-             sal.name as salonName,
-             COALESCE(s.dias_laborables, u.dias_laborables) as dias_laborables,
-             o.new_hora_entrada as override_hora_entrada,
-             o.new_hora_salida as override_hora_salida,
-             COALESCE(s.hora_entrada, u.hora_entrada) as base_hora_entrada,
-             COALESCE(s.hora_salida, u.hora_salida) as base_hora_salida,
-             COALESCE(s.tolerancia_minutos, u.tolerancia_minutos) as tolerancia_minutos
-      FROM attendance a
-      LEFT JOIN staff_records s ON a.employee_id = s.id
-      LEFT JOIN users u ON a.employee_id = u.id
-      LEFT JOIN salons sal ON COALESCE(s.salon_id, u.salon_id) = sal.id
-      LEFT JOIN schedule_overrides o ON a.employee_id = o.employee_id AND DATE(a.timestamp) = o.date AND o.status = 'Activo'
-    `;
-    const params = [];
-    const conditions = [];
-    
-    if (startDate) {
-      conditions.push(`a.timestamp >= ?`);
-      params.push(`${startDate} 00:00:00`);
-    }
-    if (endDate) {
-      conditions.push(`a.timestamp <= ?`);
-      params.push(`${endDate} 23:59:59`);
-    }
-    if (employeeId) {
-      conditions.push(`a.employee_id = ?`);
-      params.push(employeeId);
-    }
-    if (salonId) {
-      conditions.push(`COALESCE(s.salon_id, u.salon_id) = ?`);
-      params.push(salonId);
-    }
-    if (status) {
-      conditions.push(`a.status = ?`);
-      params.push(status);
-    }
-    if (type) {
-      conditions.push(`a.type = ?`);
-      params.push(type);
-    }
-    
-    if (conditions.length > 0) {
-      sql += ` WHERE ` + conditions.join(' AND ');
-    }
-    
-    sql += ` ORDER BY a.timestamp DESC`;
-    
-    const [rows] = await pool.query(sql, params);
-    const formattedRows = rows.map(row => {
-      let finalEntrada = row.base_hora_entrada;
-      let finalSalida = row.base_hora_salida;
-
-      if (row.dias_laborables && row.dias_laborables.trim().startsWith('{')) {
-        try {
-          const parsed = JSON.parse(row.dias_laborables);
-          const dateObj = new Date(row.timestamp);
-          const dayName = dayNames[dateObj.getDay()];
-          const normalizedTarget = normalizeDayName(dayName);
-          const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedTarget);
-          const daySched = matchingKey ? parsed[matchingKey] : null;
-          if (daySched && daySched.entrada && daySched.salida) {
-            finalEntrada = daySched.entrada;
-            finalSalida = daySched.salida;
-          }
-        } catch (e) {}
-      }
-
-      if (row.override_hora_entrada) {
-        finalEntrada = row.override_hora_entrada;
-      }
-      if (row.override_hora_salida) {
-        finalSalida = row.override_hora_salida;
-      }
-
-      return {
-        id: row.id,
-        employee_id: row.employee_id,
-        timestamp: row.timestamp,
-        type: row.type,
-        photo: row.photo,
-        geolocation: row.geolocation,
-        device_info: row.device_info,
-        status: row.status,
-        lateness_minutes: row.lateness_minutes,
-        extra_minutes: row.extra_minutes,
-        employeeName: row.employeeName,
-        salonName: row.salonName,
-        hora_entrada: finalEntrada,
-        hora_salida: finalSalida,
-        tolerancia_minutos: row.tolerancia_minutos
-      };
-    });
-
-    res.json(formattedRows);
-  } catch (err) {
-    console.error('[ATTENDANCE ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/attendance/pending - Fetch all pending attendance records (missing check-in/out)
-router.get('/pending', async (req, res) => {
-  try {
-    const { startDate, endDate, employeeId, salonId } = req.query;
-    
-    // Default to last 7 days (excluding future days)
-    const start = startDate || getDRDateString(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-    const end = endDate || getDRDateString();
-
-    // 1. Fetch active staff and system users
-    const [staff] = await pool.query(
-      "SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id FROM staff_records WHERE status = 'Activo' OR status = 'Active'"
-    );
-    const [users] = await pool.query(
-      "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name FROM users u LEFT JOIN roles r ON u.role_id = r.id"
-    );
-    const systemStaff = users.filter(u => {
-      const role = (u.role_name || '').toLowerCase();
-      return !role.includes('admin') && !role.includes('client');
-    });
-
-    const allEmployees = [...staff];
-    systemStaff.forEach(sysUser => {
-      if (!allEmployees.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
-        allEmployees.push(sysUser);
-      }
-    });
-
-    // Apply employeeId and salonId filters
-    let filteredEmployees = allEmployees;
-    if (employeeId) {
-      filteredEmployees = filteredEmployees.filter(e => String(e.id) === String(employeeId));
-    }
-    if (salonId) {
-      filteredEmployees = filteredEmployees.filter(e => String(e.salon_id) === String(salonId));
-    }
-
-    // 2. Fetch all schedule overrides in the range
-    const [rangeOverrides] = await pool.query(
-      "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida, reason FROM schedule_overrides WHERE date >= ? AND date <= ? AND status = 'Activo'",
-      [start, end]
-    );
-    const overrideMap = new Map();
-    rangeOverrides.forEach(o => {
-      overrideMap.set(`${o.employee_id}:${o.dateStr}`, o);
-    });
-
-    // 3. Fetch all attendance logs in the range
-    const [punches] = await pool.query(
-      "SELECT id, employee_id, type, DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, DATE_FORMAT(timestamp, '%H:%i:%s') as timeStr, timestamp, status, is_manual, modified_by, modified_at, modification_reason FROM attendance WHERE timestamp >= ? AND timestamp <= ?",
-      [`${start} 00:00:00`, `${end} 23:59:59`]
-    );
-
-    // Group punches by employeeId and dateStr
-    const punchMap = new Map();
-    punches.forEach(p => {
-      const key = `${p.employee_id}:${p.dateStr}`;
-      if (!punchMap.has(key)) {
-        punchMap.set(key, []);
-      }
-      punchMap.get(key).push(p);
-    });
-
-    const pendingIncidents = [];
-    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-    
-    // Generate dates range
-    const curDate = new Date(start + 'T12:00:00');
-    const endDateObj = new Date(end + 'T12:00:00');
-    const todayStr = getDRDateString();
-
-    while (curDate <= endDateObj) {
-      const dateStr = getDRDateString(curDate);
-      const dayName = dayNames[curDate.getDay()];
-
-      for (const emp of filteredEmployees) {
-        let isWorkingDay = false;
-        let empDailyHoraEntrada = emp.hora_entrada;
-        let empDailyHoraSalida = emp.hora_salida;
-
-        // Determine if it was scheduled to be a working day
-        if (emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-          try {
-            const parsedSchedule = JSON.parse(emp.dias_laborables);
-            const normalizedDay = normalizeDayName(dayName);
-            const matchingKey = Object.keys(parsedSchedule).find(k => normalizeDayName(k) === normalizedDay);
-            const daySched = matchingKey ? parsedSchedule[matchingKey] : null;
-            if (daySched && daySched.entrada && daySched.salida) {
-              isWorkingDay = true;
-              empDailyHoraEntrada = daySched.entrada;
-              empDailyHoraSalida = daySched.salida;
-            }
-          } catch (e) {}
-        } else {
-          if (!isScheduleComplete(emp)) {
-            isWorkingDay = false;
-          } else {
-            const workingDays = (emp.dias_laborables || '').split(',');
+          } else if (emp.dias_laborables) {
+            const workingDays = emp.dias_laborables.split(',');
             const normalizedDay = normalizeDayName(dayName);
             isWorkingDay = workingDays.some(d => normalizeDayName(d) === normalizedDay);
           }
-        }
 
-        // Apply override if active
-        const lookupKey = `${emp.id}:${dateStr}`;
-        const override = overrideMap.get(lookupKey);
-        if (override) {
-          if (!override.new_hora_entrada || override.new_hora_entrada === '00:00:00' || (override.reason && (override.reason.toLowerCase().includes('libre') || override.reason.toLowerCase().includes('descanso')))) {
-            isWorkingDay = false; // Descanso / día libre autorizado
-          } else {
-            isWorkingDay = true;
-            empDailyHoraEntrada = override.new_hora_entrada;
-            empDailyHoraSalida = override.new_hora_salida;
-          }
-        }
+          const hasOverride = overrideMap.has(`${emp.id}:${dateStr}`);
+          const effectiveOverride = hasOverride ? overrideMap.get(`${emp.id}:${dateStr}`) : null;
+          const shouldWork = isWorkingDay || hasOverride;
 
-        if (isWorkingDay) {
-          const dayPunches = punchMap.get(lookupKey) || [];
-          const dayCheckIns = dayPunches.filter(p => p.type === 'Check-In').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-          const dayCheckOuts = dayPunches.filter(p => p.type === 'Check-Out').sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-          const checkIn = dayCheckIns[0] || null;
-          const checkOut = dayCheckOuts[0] || null;
-          const absence = dayPunches.find(p => p.type === 'Ausencia');
+          if (shouldWork) {
+            const key = `${emp.id}:${dateStr}`;
+            const dayPunches = punchMap.get(key) || [];
+            
+            const checkIn = dayPunches.find(p => p.type === 'Check-In');
+            const checkOut = dayPunches.find(p => p.type === 'Check-Out');
+            const isAbsent = dayPunches.some(p => p.type === 'Ausencia');
 
-          let hasIncident = false;
-          let incidentType = '';
+            if (isAbsent && !checkIn && !checkOut) continue;
 
-          // Priority: Real Check-In always overrides Ausencia records (Ausencia can be stale/auto-generated)
-          // 1. Has both Check-In and Check-Out → complete, no incident
-          // 2. Has Check-In but no Check-Out → missing_checkout (regardless of Ausencia)
-          // 3. Has Check-Out but no Check-In → missing_checkin
-          // 4. No real punches at all:
-          //    - If Ausencia record exists → legitimately absent (skip, not a pending issue)
-          //    - If no records at all → missing_all (only for past days)
+            const isPastDay = dateStr < todayStr;
+            const isToday = dateStr === todayStr;
 
-          if (checkIn && checkOut) {
-            // Complete - no incident
-          } else if (checkIn && !checkOut) {
-            // Employee showed up but never checked out
-            if (dateStr < todayStr) {
-              hasIncident = true;
-              incidentType = 'missing_checkout';
-            } else if (dateStr === todayStr) {
-              if (empDailyHoraSalida && isDRTimePastLimit(empDailyHoraSalida, 60)) {
-                hasIncident = true;
-                incidentType = 'missing_checkout';
-              }
-            }
-          } else if (!checkIn && checkOut) {
-            // Has checkout but no check-in (unusual scenario)
-            hasIncident = true;
-            incidentType = 'missing_checkin';
-          } else if (!checkIn && !checkOut) {
-            // No real punches - only flag if not legitimately absent
-            if (!absence) {
-              // No records at all - missing attendance
-              if (dateStr < todayStr) {
-                hasIncident = true;
-                incidentType = 'missing_all';
-              } else if (dateStr === todayStr) {
-                if (empDailyHoraEntrada) {
-                  const grace = emp.tolerancia_minutos !== null && emp.tolerancia_minutos !== undefined ? emp.tolerancia_minutos : 15;
-                  if (isDRTimePastLimit(empDailyHoraEntrada, grace)) {
-                    hasIncident = true;
-                    incidentType = 'missing_all';
+            let missingType = null;
+            if (isPastDay) {
+              if (!checkIn && checkOut) missingType = 'missing_checkin';
+              else if (checkIn && !checkOut) missingType = 'missing_checkout';
+              else if (!checkIn && !checkOut) missingType = 'missing_both';
+            } else if (isToday) {
+              if (checkIn && !checkOut) {
+                const targetOut = effectiveOverride ? effectiveOverride.new_hora_salida : empDailyHoraSalida;
+                if (targetOut) {
+                  const nowDR = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santo_Domingo' }));
+                  const [outH, outM] = targetOut.split(':').map(Number);
+                  const scheduledOutMins = outH * 60 + outM;
+                  const currentMins = nowDR.getHours() * 60 + nowDR.getMinutes();
+                  if (currentMins > scheduledOutMins + 60) {
+                    missingType = 'missing_checkout';
                   }
                 }
               }
             }
-            // If absence exists and no real Check-In → legitimately marked absent, skip
-          }
 
-          if (hasIncident && incidentType !== 'missing_all') {
-            pendingIncidents.push({
-              employeeId: emp.id,
-              employeeName: emp.nombre,
-              date: dateStr,
-              scheduledIn: empDailyHoraEntrada,
-              scheduledOut: empDailyHoraSalida,
-              checkIn: checkIn ? { id: checkIn.id, time: checkIn.timeStr, timestamp: checkIn.timestamp, isManual: checkIn.is_manual, modifiedBy: checkIn.modified_by, modifiedAt: checkIn.modified_at, reason: checkIn.modification_reason } : null,
-              checkOut: checkOut ? { id: checkOut.id, time: checkOut.timeStr, timestamp: checkOut.timestamp, isManual: checkOut.is_manual, modifiedBy: checkOut.modified_by, modifiedAt: checkOut.modified_at, reason: checkOut.modification_reason } : null,
-              absence: absence ? { id: absence.id, timestamp: absence.timestamp } : null,
-              incidentType
-            });
+            if (missingType) {
+              pendingIncidents.push({
+                employeeId: emp.id,
+                employeeName: emp.nombre,
+                salonId: emp.salon_id,
+                date: dateStr,
+                incidentType: missingType,
+                expectedEntrada: effectiveOverride ? effectiveOverride.new_hora_entrada : empDailyHoraEntrada,
+                expectedSalida: effectiveOverride ? effectiveOverride.new_hora_salida : empDailyHoraSalida,
+                actualCheckIn: checkIn ? checkIn.timeStr : null,
+                actualCheckOut: checkOut ? checkOut.timeStr : null,
+                punches: dayPunches
+              });
+            }
           }
         }
+        curDate.setDate(curDate.getDate() + 1);
       }
-      curDate.setDate(curDate.getDate() + 1);
+
+      res.json(pendingIncidents);
+    } catch (err) {
+      console.error('[ATTENDANCE PENDING ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
     }
+  });
 
-    pendingIncidents.sort((a, b) => b.date.localeCompare(a.date));
-    res.json(pendingIncidents);
-  } catch (err) {
-    console.error('[ATTENDANCE PENDING ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+  // POST /api/attendance/adjust - Manually adjust missing check-in/out with audit log (Scoped by tenant_id)
+  router.post('/adjust', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { employeeId, date, checkInTime, checkOutTime, reason, modifiedBy } = req.body;
 
-// POST /api/attendance/adjust - Manually adjust missing check-in/out with audit log
-router.post('/adjust', async (req, res) => {
-  try {
-    const { employeeId, date, checkInTime, checkOutTime, reason, modifiedBy } = req.body;
-
-    if (!employeeId || !date || !reason || !modifiedBy) {
-      return res.status(400).json({ error: 'Faltan datos obligatorios (empleado, fecha, motivo o administrador).' });
-    }
-
-    // 1. Delete any existing 'Ausencia' records for this employee on this date
-    await pool.query(
-      "DELETE FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Ausencia'",
-      [employeeId, date]
-    );
-
-    // 2. Adjust Check-In
-    if (checkInTime) {
-      const [existingIn] = await pool.query(
-        "SELECT id FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Check-In'",
-        [employeeId, date]
-      );
-
-      const timestampStr = `${date} ${checkInTime}:00`;
-      
-      let [employees] = await pool.query(
-        'SELECT id, nombre, hora_entrada, dias_laborables, tolerancia_minutos FROM staff_records WHERE id = ?', 
-        [employeeId]
-      );
-      if (employees.length === 0) {
-        const [users] = await pool.query(
-          'SELECT id, nombre, hora_entrada, dias_laborables, tolerancia_minutos FROM users WHERE id = ?',
-          [employeeId]
-        );
-        employees = users;
+      if (!employeeId || !date || !reason || !modifiedBy) {
+        return res.status(400).json({ error: 'Faltan datos obligatorios (empleado, fecha, motivo o administrador).' });
       }
-      const emp = employees[0];
-      
-      const [overrides] = await pool.query(
-        "SELECT new_hora_entrada FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
-        [employeeId, date]
-      );
-      
-      let expectedEntrada = emp ? emp.hora_entrada : '09:00:00';
-      if (overrides.length > 0) {
-        expectedEntrada = overrides[0].new_hora_entrada;
-      } else if (emp && emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-        try {
-          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-          const dateObj = new Date(`${date}T12:00:00`);
-          const dayName = dayNames[dateObj.getDay()];
-          const parsed = JSON.parse(emp.dias_laborables);
-          const normalizedTarget = normalizeDayName(dayName);
-          const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedTarget);
-          const daySched = matchingKey ? parsed[matchingKey] : null;
-          if (daySched && daySched.entrada) {
-            expectedEntrada = daySched.entrada;
-          }
-        } catch(e) {}
-      }
-      
-      let status = 'Normal';
-      let latenessMinutes = 0;
-      if (expectedEntrada) {
-        try {
-          const [expH, expM] = expectedEntrada.split(':').map(Number);
-          const [actH, actM] = checkInTime.split(':').map(Number);
-          
-          const scheduledMinutes = expH * 60 + expM;
-          const actualMinutes = actH * 60 + actM;
-          const diff = actualMinutes - scheduledMinutes;
-          const grace = emp && emp.tolerancia_minutos !== null && emp.tolerancia_minutos !== undefined ? emp.tolerancia_minutos : 15;
-          
-          if (diff > grace) {
-            status = 'Tardanza';
-            latenessMinutes = diff;
-          }
-        } catch(e) {}
-      }
-
-      if (existingIn.length > 0) {
-        await pool.query(
-          `UPDATE attendance 
-           SET timestamp = ?, status = ?, lateness_minutes = ?, is_manual = 1, modified_by = ?, modified_at = NOW(), modification_reason = ? 
-           WHERE id = ?`,
-          [timestampStr, status, latenessMinutes, modifiedBy, reason, existingIn[0].id]
-        );
-      } else {
-        const punchId = `MANUAL-IN-${Date.now()}-${employeeId}-${date}`;
-        await pool.query(
-          `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, is_manual, modified_by, modified_at, modification_reason) 
-           VALUES (?, ?, 'Check-In', NULL, NULL, 'Ajuste Manual por Administrador', ?, ?, ?, 1, ?, NOW(), ?)`,
-          [punchId, employeeId, timestampStr, status, latenessMinutes, modifiedBy, reason]
-        );
-      }
-    }
-
-    // 3. Adjust Check-Out
-    if (checkOutTime) {
-      const [existingOut] = await pool.query(
-        "SELECT id FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Check-Out'",
-        [employeeId, date]
-      );
-
-      const timestampStr = `${date} ${checkOutTime}:00`;
-      
-      let [employees] = await pool.query(
-        'SELECT id, nombre, hora_salida, dias_laborables FROM staff_records WHERE id = ?', 
-        [employeeId]
-      );
-      if (employees.length === 0) {
-        const [users] = await pool.query(
-          'SELECT id, nombre, hora_salida, dias_laborables FROM users WHERE id = ?',
-          [employeeId]
-        );
-        employees = users;
-      }
-      const emp = employees[0];
-      
-      const [overrides] = await pool.query(
-        "SELECT new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
-        [employeeId, date]
-      );
-      
-      let expectedSalida = emp ? emp.hora_salida : '18:00:00';
-      if (overrides.length > 0) {
-        expectedSalida = overrides[0].new_hora_salida;
-      } else if (emp && emp.dias_laborables && emp.dias_laborables.trim().startsWith('{')) {
-        try {
-          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-          const dateObj = new Date(`${date}T12:00:00`);
-          const dayName = dayNames[dateObj.getDay()];
-          const parsed = JSON.parse(emp.dias_laborables);
-          const normalizedTarget = normalizeDayName(dayName);
-          const matchingKey = Object.keys(parsed).find(k => normalizeDayName(k) === normalizedTarget);
-          const daySched = matchingKey ? parsed[matchingKey] : null;
-          if (daySched && daySched.salida) {
-            expectedSalida = daySched.salida;
-          }
-        } catch(e) {}
-      }
-      
-      let extraMinutes = 0;
-      let outStatus = 'Normal';
-      if (expectedSalida) {
-        try {
-          const [expH, expM] = expectedSalida.split(':').map(Number);
-          const [actH, actM] = checkOutTime.split(':').map(Number);
-          
-          const scheduledMinutes = expH * 60 + expM;
-          const actualMinutes = actH * 60 + actM;
-          const diff = actualMinutes - scheduledMinutes;
-          
-          if (diff > 0) {
-            extraMinutes = diff;
-          } else if (diff < 0) {
-            outStatus = 'Salida Temprana';
-          }
-        } catch(e) {}
-      }
-
-      if (existingOut.length > 0) {
-        await pool.query(
-          `UPDATE attendance 
-           SET timestamp = ?, status = ?, extra_minutes = ?, is_manual = 1, modified_by = ?, modified_at = NOW(), modification_reason = ? 
-           WHERE id = ?`,
-          [timestampStr, outStatus, extraMinutes, modifiedBy, reason, existingOut[0].id]
-        );
-      } else {
-        const punchId = `MANUAL-OUT-${Date.now()}-${employeeId}-${date}`;
-        await pool.query(
-          `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, extra_minutes, is_manual, modified_by, modified_at, modification_reason) 
-           VALUES (?, ?, 'Check-Out', NULL, NULL, 'Ajuste Manual por Administrador', ?, ?, ?, 1, ?, NOW(), ?)`,
-          [punchId, employeeId, timestampStr, outStatus, extraMinutes, modifiedBy, reason]
-        );
-      }
-    }
-
-    // 4. Recálculo automático integral del día (Horas trabajadas, descansos, tardanzas, extras)
-    const [finalPunches] = await pool.query(
-      "SELECT id, type, timestamp, status, lateness_minutes, extra_minutes FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? ORDER BY timestamp ASC",
-      [employeeId, date]
-    );
-
-    const checkInPunch = finalPunches.find(p => p.type === 'Check-In');
-    const checkOutPunch = [...finalPunches].reverse().find(p => p.type === 'Check-Out');
-
-    let recalculatedSummary = {
-      employeeId,
-      date,
-      hasCheckIn: Boolean(checkInPunch),
-      hasCheckOut: Boolean(checkOutPunch),
-      workedMinutes: 0,
-      workedHours: 0,
-      breakMinutes: 0,
-      latenessMinutes: checkInPunch ? Number(checkInPunch.lateness_minutes || 0) : 0,
-      extraMinutes: checkOutPunch ? Number(checkOutPunch.extra_minutes || 0) : 0,
-      status: 'Incompleto'
-    };
-
-    if (checkInPunch && checkOutPunch) {
-      const inTime = new Date(checkInPunch.timestamp).getTime();
-      let outTime = new Date(checkOutPunch.timestamp).getTime();
-      
-      // Contemplar turnos nocturnos y jornadas que cruzan la medianoche
-      if (outTime < inTime) {
-        outTime += 24 * 60 * 60 * 1000;
-      }
-
-      const grossMinutes = Math.max(0, Math.floor((outTime - inTime) / (1000 * 60)));
-      
-      // 1. Verificar si existen ponches intermedios de descanso o múltiples turnos en el día
-      let punchedBreakMins = 0;
-      const allIns = finalPunches.filter(p => p.type === 'Check-In').sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
-      const allOuts = finalPunches.filter(p => p.type === 'Check-Out').sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
-      
-      if (allIns.length > 1 && allOuts.length > 1) {
-        for (let i = 0; i < allOuts.length - 1; i++) {
-          const outT = new Date(allOuts[i].timestamp).getTime();
-          const nextInT = new Date(allIns[i + 1].timestamp).getTime();
-          if (nextInT > outT) {
-            punchedBreakMins += Math.round((nextInT - outT) / 60000);
-          }
-        }
-      }
-      
-      const breakPunches = finalPunches.filter(p => 
-        p.type && (p.type.toLowerCase().includes('descanso') || p.type.toLowerCase().includes('break') || p.type.toLowerCase().includes('almuerzo'))
-      );
-      if (breakPunches.length > 0) {
-        punchedBreakMins += breakPunches.reduce((acc, p) => acc + (Number(p.extra_minutes || p.lateness_minutes || 60)), 0);
-      }
-
-      let breakMins = 0;
-      if (punchedBreakMins > 0) {
-        // Si existen ponches de descanso, se utiliza el descanso ponchado para evitar descontarlo dos veces
-        breakMins = punchedBreakMins;
-      } else if (req.body.breakMinutes !== undefined || req.body.break_minutes !== undefined) {
-        breakMins = Math.max(0, Number(req.body.breakMinutes ?? req.body.break_minutes ?? 0));
-      } else {
-        // Descanso configurado para la jornada o empleado
-        let configuredBreak = 0;
-        let [empRow] = await pool.query('SELECT hora_entrada, hora_salida, dias_laborables FROM staff_records WHERE id = ?', [employeeId]);
-        if (empRow.length === 0) {
-          [empRow] = await pool.query('SELECT hora_entrada, hora_salida, dias_laborables FROM users WHERE id = ?', [employeeId]);
-        }
-        const empData = empRow[0] || {};
-        if (empData.hora_entrada && empData.hora_salida) {
-          const [h1, m1] = empData.hora_entrada.split(':').map(Number);
-          const [h2, m2] = empData.hora_salida.split(':').map(Number);
-          let schedMins = (h2 * 60 + m2) - (h1 * 60 + m1);
-          if (schedMins < 0) schedMins += 1440;
-          if (schedMins > 480) {
-            configuredBreak = schedMins - 480; // Diferencia respecto a jornada estándar de 8h (ej. 540-480 = 60 min)
-          }
-        }
-        if (configuredBreak > 0) {
-          breakMins = grossMinutes > 300 ? configuredBreak : 0;
-        } else {
-          breakMins = grossMinutes > 300 ? 60 : 0;
-        }
-      }
-
-      const netMinutes = Math.max(0, grossMinutes - breakMins);
-      const netHours = parseFloat((netMinutes / 60).toFixed(2));
-
-      let overallStatus = 'Normal';
-      if (checkInPunch.status === 'Tardanza') {
-        overallStatus = 'Tardanza';
-      } else if (checkOutPunch.status === 'Salida Temprana') {
-        overallStatus = 'Salida Temprana';
-      } else {
-        overallStatus = 'Completado';
-      }
-
-      recalculatedSummary = {
-        employeeId,
-        date,
-        hasCheckIn: true,
-        hasCheckOut: true,
-        grossMinutes,
-        workedMinutes: netMinutes,
-        workedHours: netHours,
-        breakMinutes: breakMins,
-        latenessMinutes: checkInPunch.lateness_minutes || 0,
-        extraMinutes: checkOutPunch.extra_minutes || 0,
-        status: overallStatus
-      };
 
       await pool.query(
-        "UPDATE attendance SET status = ?, modification_reason = CONCAT(COALESCE(modification_reason, ''), ' [Recalculado: ', ?, ' hrs netas, descanso: ', ?, ' min]') WHERE id IN (?, ?)",
-        [overallStatus, netHours, breakMins, checkInPunch.id, checkOutPunch.id]
+        "DELETE FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Ausencia' AND tenant_id = ?",
+        [String(employeeId), date, tenantId]
       );
-    }
 
-    res.json({ 
-      success: true, 
-      message: 'Registro de asistencia regularizado y recalculado con éxito.',
-      summary: recalculatedSummary
-    });
-  } catch (err) {
-    console.error('[ATTENDANCE ADJUST ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/attendance/notify-pending - Send feedback email to employee regarding missing punch
-router.post('/notify-pending', async (req, res) => {
-  try {
-    const { employeeId, date, incidentType } = req.body;
-
-    if (!employeeId || !date || !incidentType) {
-      return res.status(400).json({ error: 'Faltan datos obligatorios (empleado, fecha o tipo de incidencia).' });
-    }
-
-    // 1. Find employee name and email
-    let [employees] = await pool.query(
-      'SELECT id, nombre, email FROM staff_records WHERE id = ?', 
-      [employeeId]
-    );
-    
-    let empName = '';
-    let empEmail = '';
-    let empId = employeeId;
-    
-    if (employees.length > 0) {
-      empName = employees[0].nombre;
-      empEmail = employees[0].email;
-      
-      // If staff record has no email, check users table by name
-      if (!empEmail) {
-        const [userEmailRows] = await pool.query(
-          'SELECT email FROM users WHERE nombre = ? AND email IS NOT NULL AND email != ""',
-          [empName]
+      if (checkInTime) {
+        const [existingIn] = await pool.query(
+          "SELECT id FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Check-In' AND tenant_id = ?",
+          [String(employeeId), date, tenantId]
         );
-        if (userEmailRows.length > 0) {
-          empEmail = userEmailRows[0].email;
+
+        const timestampStr = `${date} ${checkInTime}:00`;
+        
+        let [employees] = await pool.query(
+          'SELECT id, nombre, hora_entrada, dias_laborables, tolerancia_minutos FROM staff_records WHERE id::text = ? AND tenant_id = ?', 
+          [String(employeeId), tenantId]
+        );
+        if (employees.length === 0) {
+          const [users] = await pool.query(
+            'SELECT id, nombre, hora_entrada, dias_laborables, tolerancia_minutos FROM users WHERE id::text = ? AND tenant_id = ?',
+            [String(employeeId), tenantId]
+          );
+          employees = users;
+        }
+        if (employees.length === 0) {
+          return res.status(404).json({ error: 'Colaborador no encontrado para este salón.' });
+        }
+        const emp = employees[0];
+        
+        const [overrides] = await pool.query(
+          "SELECT new_hora_entrada FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo' AND tenant_id = ?",
+          [String(employeeId), date, tenantId]
+        );
+        
+        let expectedEntrada = emp ? emp.hora_entrada : '09:00:00';
+        if (overrides.length > 0) {
+          expectedEntrada = overrides[0].new_hora_entrada;
+        }
+        
+        let status = 'Normal';
+        let latenessMinutes = 0;
+        if (expectedEntrada) {
+          try {
+            const [expH, expM] = expectedEntrada.split(':').map(Number);
+            const [actH, actM] = checkInTime.split(':').map(Number);
+            const diff = (actH * 60 + actM) - (expH * 60 + expM);
+            const grace = emp && emp.tolerancia_minutos !== null && emp.tolerancia_minutos !== undefined ? emp.tolerancia_minutos : 15;
+            if (diff > grace) {
+              status = 'Tardanza';
+              latenessMinutes = diff;
+            }
+          } catch(e) {}
+        }
+
+        if (existingIn.length > 0) {
+          await pool.query(
+            `UPDATE attendance 
+             SET timestamp = ?, status = ?, lateness_minutes = ?, is_manual = 1, modified_by = ?, modified_at = NOW(), modification_reason = ? 
+             WHERE id = ? AND tenant_id = ?`,
+            [timestampStr, status, latenessMinutes, modifiedBy, reason, existingIn[0].id, tenantId]
+          );
+        } else {
+          const punchId = `MANUAL-IN-${Date.now()}-${String(employeeId)}-${date}`;
+          await pool.query(
+            `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, is_manual, modified_by, modified_at, modification_reason, tenant_id) 
+             VALUES (?, ?, 'Check-In', NULL, NULL, 'Ajuste Manual por Administrador', ?, ?, ?, 1, ?, NOW(), ?, ?)`,
+            [punchId, String(employeeId), timestampStr, status, latenessMinutes, modifiedBy, reason, tenantId]
+          );
         }
       }
-    } else {
-      // If not in staff_records, check users table directly by ID
-      const [users] = await pool.query(
-        'SELECT id, nombre, email FROM users WHERE id = ?',
-        [employeeId]
+
+      if (checkOutTime) {
+        const [existingOut] = await pool.query(
+          "SELECT id FROM attendance WHERE employee_id = ? AND DATE(timestamp) = ? AND type = 'Check-Out' AND tenant_id = ?",
+          [String(employeeId), date, tenantId]
+        );
+
+        const timestampStr = `${date} ${checkOutTime}:00`;
+        
+        let [employees] = await pool.query(
+          'SELECT id, nombre, hora_salida, dias_laborables FROM staff_records WHERE id::text = ? AND tenant_id = ?', 
+          [String(employeeId), tenantId]
+        );
+        if (employees.length === 0) {
+          const [users] = await pool.query(
+            'SELECT id, nombre, hora_salida, dias_laborables FROM users WHERE id::text = ? AND tenant_id = ?',
+            [String(employeeId), tenantId]
+          );
+          employees = users;
+        }
+        const emp = employees[0];
+        
+        const [overrides] = await pool.query(
+          "SELECT new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo' AND tenant_id = ?",
+          [String(employeeId), date, tenantId]
+        );
+        
+        let expectedSalida = emp ? emp.hora_salida : '18:00:00';
+        if (overrides.length > 0) {
+          expectedSalida = overrides[0].new_hora_salida;
+        }
+        
+        let extraMinutes = 0;
+        let outStatus = 'Normal';
+        if (expectedSalida) {
+          try {
+            const [expH, expM] = expectedSalida.split(':').map(Number);
+            const [actH, actM] = checkOutTime.split(':').map(Number);
+            const diff = (actH * 60 + actM) - (expH * 60 + expM);
+            if (diff > 0) extraMinutes = diff;
+            else if (diff < 0) outStatus = 'Salida Temprana';
+          } catch(e) {}
+        }
+
+        if (existingOut.length > 0) {
+          await pool.query(
+            `UPDATE attendance 
+             SET timestamp = ?, status = ?, extra_minutes = ?, is_manual = 1, modified_by = ?, modified_at = NOW(), modification_reason = ? 
+             WHERE id = ? AND tenant_id = ?`,
+            [timestampStr, outStatus, extraMinutes, modifiedBy, reason, existingOut[0].id, tenantId]
+          );
+        } else {
+          const punchId = `MANUAL-OUT-${Date.now()}-${String(employeeId)}-${date}`;
+          await pool.query(
+            `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, extra_minutes, is_manual, modified_by, modified_at, modification_reason, tenant_id) 
+             VALUES (?, ?, 'Check-Out', NULL, NULL, 'Ajuste Manual por Administrador', ?, ?, ?, 1, ?, NOW(), ?, ?)`,
+            [punchId, String(employeeId), timestampStr, outStatus, extraMinutes, modifiedBy, reason, tenantId]
+          );
+        }
+      }
+
+      res.json({ success: true, message: 'Registro de asistencia regularizado con éxito.' });
+    } catch (err) {
+      console.error('[ATTENDANCE ADJUST ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/attendance/notify-pending - Send feedback email to employee regarding missing punch (Scoped by tenant_id)
+  router.post('/notify-pending', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const { employeeId, date, incidentType } = req.body;
+
+      if (!employeeId || !date || !incidentType) {
+        return res.status(400).json({ error: 'Faltan datos obligatorios (empleado, fecha o tipo de incidencia).' });
+      }
+
+      let [employees] = await pool.query(
+        'SELECT id, nombre, email FROM staff_records WHERE id::text = ? AND tenant_id = ?', 
+        [String(employeeId), tenantId]
       );
-      if (users.length > 0) {
-        empName = users[0].nombre;
-        empEmail = users[0].email;
-        empId = users[0].id;
+      
+      let empName = '';
+      let empEmail = '';
+      let empId = employeeId;
+      
+      if (employees.length > 0) {
+        empName = employees[0].nombre;
+        empEmail = employees[0].email;
+        
+        if (!empEmail) {
+          const [userEmailRows] = await pool.query(
+            'SELECT email FROM users WHERE nombre = ? AND tenant_id = ? AND email IS NOT NULL AND email != ""',
+            [empName, tenantId]
+          );
+          if (userEmailRows.length > 0) {
+            empEmail = userEmailRows[0].email;
+          }
+        }
+      } else {
+        const [users] = await pool.query(
+          'SELECT id, nombre, email FROM users WHERE id::text = ? AND tenant_id = ?',
+          [String(employeeId), tenantId]
+        );
+        if (users.length > 0) {
+          empName = users[0].nombre;
+          empEmail = users[0].email;
+          empId = users[0].id;
+        }
       }
-    }
 
-    if (!empName) {
-      return res.status(404).json({ error: 'Empleado no encontrado.' });
-    }
-
-    // Fallback email if still no email configured
-    if (!empEmail) {
-      const firstName = empName.trim().split(/\s+/)[0].toLowerCase();
-      empEmail = `${firstName}@abatte.com`;
-    }
-
-    const emp = { id: empId, nombre: empName, email: empEmail };
-    const incidentLabel = incidentType === 'missing_checkin' 
-      ? 'Falta registro de Entrada (Check-In)' 
-      : incidentType === 'missing_checkout' 
-      ? 'Falta registro de Salida (Check-Out)' 
-      : 'Falta registro completo (Entrada y Salida)';
-
-    // 2. Load SMTP config
-    const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
-    const smtp = smtpRows[0] || {};
-    const transporter = nodemailer.createTransport({
-      host: smtp.smtp_host || process.env.SMTP_HOST,
-      port: parseInt(smtp.smtp_port || process.env.SMTP_PORT || '587'),
-      secure: smtp.smtp_secure === 1,
-      auth: {
-        user: smtp.smtp_user || process.env.SMTP_USER,
-        pass: smtp.smtp_pass || process.env.SMTP_PASS
+      if (!empName) {
+        return res.status(404).json({ error: 'Empleado no encontrado en este salón.' });
       }
-    });
 
-    const smtpFrom = smtp.smtp_from || process.env.SMTP_FROM || 'hola@planbeautyrd.com';
-    const smtpUser = smtp.smtp_user || process.env.SMTP_USER;
+      if (!empEmail) {
+        return res.status(400).json({ error: 'El empleado no tiene un correo electrónico configurado.' });
+      }
 
-    // 3. Send email
-    await transporter.sendMail({
-      from: `"${smtpFrom}" <${smtpUser}>`,
-      to: emp.email,
-      subject: `⚠️ Aviso de Registro de Asistencia Omitido - ${date}`,
-      text: `Hola ${emp.nombre},\n\nSe ha detectado una omisión en tu registro de asistencia para el día ${date}.\nIncidencia detectada: ${incidentLabel}.\n\nPor favor, recuerda registrar tus ponches correctamente. Las regularizaciones manuales generan una carga administrativa adicional e innecesaria para el equipo de supervisión.\n\nAgradecemos tu colaboración para mantener un registro puntual.\n\nAtentamente,\nGestión de Asistencia - Etereas SRL`,
-      html: `
-        <div style="font-family: 'Plus Jakarta Sans', sans-serif; color: #0f172a; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-          <h2 style="color: #dc2626; margin-top: 0;">⚠️ Registro de Asistencia Omitido</h2>
-          <p>Hola <strong>${emp.nombre}</strong>,</p>
-          <p>Se ha detectado que omitiste registrar tu ponche de asistencia del día <strong>${date}</strong>.</p>
-          
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0; font-size: 0.9rem;"><strong>Incidencia:</strong> ${incidentLabel}</p>
-          </div>
+      const emp = { id: empId, nombre: empName, email: empEmail };
+      const incidentLabel = incidentType === 'missing_checkin' 
+        ? 'Falta registro de Entrada (Check-In)' 
+        : incidentType === 'missing_checkout' 
+        ? 'Falta registro de Salida (Check-Out)' 
+        : 'Falta registro completo (Entrada y Salida)';
 
-          <p style="color: #475569; line-height: 1.5;">
-            Por favor, recuerda registrar tus marcas de entrada y salida a tiempo. Las regularizaciones manuales posteriores requieren la intervención de las encargadas y generan una carga administrativa adicional en el sistema.
-          </p>
+      const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+      const smtp = smtpRows[0] || {};
+      const transporter = nodemailer.createTransport({
+        host: smtp.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(smtp.smtp_port || process.env.SMTP_PORT || '587'),
+        secure: smtp.smtp_secure === 1,
+        auth: {
+          user: smtp.smtp_user || process.env.SMTP_USER,
+          pass: smtp.smtp_pass || process.env.SMTP_PASS
+        }
+      });
 
-          <p style="font-weight: bold; color: #0f172a;">Agradecemos tu disciplina y colaboración para evitar futuras omisiones.</p>
-          
-          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-          <p style="font-size: 0.8rem; color: #94a3b8; margin: 0;">Este es un mensaje automático de control interno de Etereas SRL.</p>
-        </div>
-      `
-    });
+      const smtpFrom = smtp.smtp_from || process.env.SMTP_FROM || 'notificaciones@salonpro.io';
+      const smtpUser = smtp.smtp_user || process.env.SMTP_USER;
 
-    // Log the email event
-    await pool.query(
-      `INSERT INTO email_logs (client_id, email_type, recipient_email, subject, sent_at) 
-       VALUES (?, 'attendance_warning', ?, ?, NOW())`,
-      [emp.id, emp.email, `Aviso de Registro de Asistencia Omitido - ${date}`]
-    );
+      await transporter.sendMail({
+        from: `"${smtpFrom}" <${smtpUser}>`,
+        to: emp.email,
+        subject: `⚠️ Aviso de Registro de Asistencia Omitido - ${date}`,
+        text: `Hola ${emp.nombre},\n\nSe ha detectado una omisión en tu registro de asistencia para el día ${date}.\nIncidencia: ${incidentLabel}.\n\nPor favor regulariza tu marca con administración.`,
+        html: `<p>Hola <strong>${emp.nombre}</strong>,</p><p>Se ha detectado una omisión en tu asistencia del día <strong>${date}</strong>: <em>${incidentLabel}</em>.</p>`
+      });
 
-    res.json({ success: true, message: `Correo de advertencia enviado a ${emp.email}.` });
-  } catch (err) {
-    console.error('[ATTENDANCE NOTIFY ERROR]:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+      await pool.query(
+        `INSERT INTO email_logs (client_id, email_type, recipient_email, subject, sent_at, tenant_id) 
+         VALUES (?, 'attendance_warning', ?, ?, NOW(), ?)`,
+        [String(emp.id), emp.email, `Aviso de Registro de Asistencia Omitido - ${date}`, tenantId]
+      );
 
+      res.json({ success: true, message: `Correo de advertencia enviado a ${emp.email}.` });
+    } catch (err) {
+      console.error('[ATTENDANCE NOTIFY ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   return router;
 }

@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
 import { Printer, X } from 'lucide-react';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
+import { useTenantBranding } from '../../context/TenantBrandingContext';
 
 /**
  * Modal de Impresión de Ticket Térmico Homologado POS (80mm / 60mm de cabezal)
- * Sigue estrictamente la regla #2 de GEMINI.md
+ * Soporta branding multi-tenant dinámico con fallback neutral a SalonPro.
  */
 export const ThermalTicketModal = ({
   isOpen,
@@ -12,6 +13,13 @@ export const ThermalTicketModal = ({
   printableTicketData = {},
   currentUser = null
 }) => {
+  const { branding } = useTenantBranding();
+
+  const businessName = printableTicketData.business_name || printableTicketData.salon_name || branding?.business_name || 'SalonPro';
+  const logoUrl = printableTicketData.logo_url || branding?.logo_url;
+  const receiptHeader = printableTicketData.receipt_header || branding?.receipt_header || '';
+  const receiptFooter = printableTicketData.receipt_footer || branding?.receipt_footer || '¡Gracias por preferirnos! ♡';
+
   useEffect(() => {
     if (isOpen) {
       const timer = setTimeout(() => {
@@ -120,45 +128,39 @@ export const ThermalTicketModal = ({
               boxSizing: 'border-box'
             }}
           >
-            {/* 1. CABECERA PRINCIPAL (MARCA ABATTE PELUQUERIA + PLAN BEAUTY) */}
+            {/* 1. CABECERA PRINCIPAL (MARCA DEL SALÓN / TENANT DINÁMICO) */}
             <div style={{ textAlign: 'center', marginBottom: '6px' }}>
-              <div style={{
-                display: 'inline-block',
-                borderRight: '2px solid #000000',
-                padding: '0 6px 0 2px',
-                textAlign: 'center'
-              }}>
-                <div style={{
-                  fontSize: '22px',
-                  fontWeight: 900,
-                  letterSpacing: '2.5px',
-                  lineHeight: '1',
-                  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                }}>
-                  ABATTE
+              {logoUrl ? (
+                <div style={{ marginBottom: '4px' }}>
+                  <img
+                    src={logoUrl}
+                    alt={businessName}
+                    style={{ maxWidth: '140px', maxHeight: '42px', objectFit: 'contain', filter: 'grayscale(100%) contrast(200%)' }}
+                  />
                 </div>
-                <div style={{
-                  borderTop: '2px solid #000000',
-                  borderBottom: '2px solid #000000',
-                  padding: '2px 0',
-                  marginTop: '3px',
-                  fontSize: '9.5px',
-                  fontWeight: 900,
-                  letterSpacing: '3px',
-                  lineHeight: '1.1'
-                }}>
-                  PELUQUERIA
-                </div>
-              </div>
+              ) : null}
               <div style={{
-                fontSize: '13px',
+                fontSize: '16px',
                 fontWeight: 900,
-                letterSpacing: '3px',
-                marginTop: '4px',
-                color: '#000000'
+                letterSpacing: '1.5px',
+                lineHeight: '1.1',
+                textTransform: 'uppercase',
+                fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
               }}>
-                PLAN BEAUTY
+                {businessName}
               </div>
+              {receiptHeader ? (
+                <div style={{
+                  fontSize: '9px',
+                  fontWeight: 700,
+                  letterSpacing: '1px',
+                  marginTop: '2px',
+                  color: '#000000',
+                  textTransform: 'uppercase'
+                }}>
+                  {receiptHeader}
+                </div>
+              ) : null}
             </div>
 
             {/* LÍNEA SEPARADORA PUNTEADA */}
@@ -368,19 +370,17 @@ export const ThermalTicketModal = ({
               </div>
             </div>
 
-            {/* Cursiva Gracias por preferirnos */}
+            {/* Pie de agradecimiento del salón */}
             <div style={{
               textAlign: 'center',
               marginTop: '4px',
               fontFamily: '"Dancing Script", "Brush Script MT", "Caveat", cursive',
-              fontSize: '18px',
+              fontSize: '16px',
               fontWeight: 700,
-              color: '#000000'
+              color: '#000000',
+              lineHeight: '1.2'
             }}>
-              Gracias por preferirnos !
-            </div>
-            <div style={{ textAlign: 'center', fontSize: '15px', lineHeight: '1', marginTop: '1px' }}>
-              ♡
+              {receiptFooter}
             </div>
           </div>
         </div>

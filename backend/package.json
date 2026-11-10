@@ -4,26 +4,41 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "migrate": "node migrations/migrate_all.cjs",
+    "test": "node test_phase1_multitenant_security.cjs",
+    "test:infrastructure-preflight": "node scripts/infrastructure_preflight.cjs",
+    "test:runner-guards": "node scripts/test_runner_negative_checks.cjs",
+    "test:quarantine:synthetic": "node scripts/test_synthetic_quarantine_all7.cjs",
+    "test:phase1": "node test_phase1_multitenant_security.cjs",
+    "test:restore": "node scripts/test_backup_restoration.cjs",
+    "test:parity": "node scripts/test_canonical_server_parity.cjs",
+    "test:matrix": "node scripts/verify_strict_matrix.cjs",
+    "test:pii": "node scripts/test_no_pii_in_fixtures.cjs",
+    "test:rotation": "node scripts/test_historical_rotation.cjs",
+    "test:recovery": "node tests/test_account_recovery_security.cjs",
+    "test:phase1:all": "node scripts/run_all_phase1_tests.cjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.15.0",
+    "bcryptjs": "^3.0.3",
     "btoa": "^1.2.1",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dgii-ecf": "^1.8.5",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.3",
+    "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.20.0",
-    "nodemailer": "^8.0.7",
     "node-forge": "^1.3.1",
+    "nodemailer": "^8.0.7",
     "pdfkit": "^0.20.2",
+    "pg": "^8.23.1",
     "puppeteer": "^24.43.0",
     "qrcode": "^1.5.4"
   },
-  "devDependencies": {
-    "bcryptjs": "^3.0.3"
-  }
+  "devDependencies": {}
 }

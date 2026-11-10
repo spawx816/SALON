@@ -241,7 +241,7 @@ export default function Reporte607Module() {
       // HOJA 2: REPORTE DETALLADO (Formato Visual con Membrete Corporativo y Clientes)
       // =========================================================================
       const detailedRows = [
-        ['ABATTE PELUQUERIA / PLAN BEAUTY - ETEREAS SRL'],
+        [`${reportData?.header?.razon_social || reportData?.header?.nombre_comercial || 'SALONPRO'} - REPORTE DE VENTAS`],
         ['AVENIDA LOS PALMEROS 96, PISO 1, LOCAL 3, EDIFICIO SUPERMERCADO BRAVO, LOS FRAILES, NUEVO, SANTO DOMINGO ESTE'],
         ['REPORTE 607 - DECLARACIÓN JURADA DE VENTAS DE BIENES Y SERVICIOS (DGII)'],
         [
@@ -642,8 +642,8 @@ export default function Reporte607Module() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ background: '#09090b', color: '#ffffff', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: 900, fontSize: '0.85rem', letterSpacing: '1px' }}>ABATTE</span>
-                <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#09090b' }}>ETEREAS SRL</h2>
+                <span style={{ background: '#09090b', color: '#ffffff', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: 900, fontSize: '0.85rem', letterSpacing: '1px' }}>{reportData?.header?.nombre_comercial || 'SALONPRO'}</span>
+                {reportData?.header?.razon_social && <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#09090b' }}>{reportData.header.razon_social}</h2>}
               </div>
               <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.75rem', color: '#64748b', maxWidth: '600px' }}>
                 AVENIDA LOS PALMEROS 96, PISO 1, LOCAL 3, EDIFICIO SUPERMERCADO BRAVO, LOS FRAILES, NUEVO, SANTO DOMINGO ESTE, SANTO DOMINGO

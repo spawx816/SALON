@@ -368,7 +368,7 @@ const SalonsModule = () => {
                   <input 
                     type="text" 
                     className="input-field" 
-                    placeholder="Ej: ABATTE Peluquería San Vicente"
+                    placeholder="Ej: Salón Bella Vista Norte"
                     value={formData.name}
                     onChange={e => setFormData({ ...formData, name: e.target.value })}
                     required

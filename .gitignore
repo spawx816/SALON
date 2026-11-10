@@ -32,7 +32,13 @@ backend/.env
 
 # Certificates & Test artefacts
 *.p12
+*.key
+id_*
+secrets/
 *.xlsx
+.superadmin_credential.json
+backend/.superadmin_credential.json
+backend/backups/
 backend/certs/*.p12
 backend/dgii_reception_output/
 backend/dgii_test_output/

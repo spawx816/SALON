@@ -1,0 +1,382 @@
+/**
+ * Repositorio de Inventario y Catálogo de Productos (Base y Pro)
+ * Toda consulta tenant-owned incluye obligatoriamente tenant_id.
+ */
+
+class InventoryRepository {
+  constructor(pool = null) {
+    this.pool = pool;
+  }
+
+  async createProduct(tenantId, productData) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    const {
+      sku, barcode, name, description, category, unit_of_measure,
+      sale_price, cost, tax_rate, min_stock, track_stock, is_active
+    } = productData;
+
+    if (!sku || !name) throw new Error('sku y name son obligatorios');
+
+    if (this.pool) {
+      const [result] = await this.pool.query(`
+        INSERT INTO inventory_products (
+          tenant_id, sku, barcode, name, description, category, unit_of_measure,
+          sale_price, cost, tax_rate, min_stock, track_stock, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        RETURNING *
+      `, [
+        tenantId, sku.trim(), barcode ? barcode.trim() : null, name.trim(),
+        description || null, category || 'General', unit_of_measure || 'unit',
+        Number(sale_price) || 0, Number(cost) || 0, Number(tax_rate ?? 0.18),
+        Number(min_stock) || 0, track_stock !== false, is_active !== false
+      ]);
+      return result[0];
+    }
+    return null;
+  }
+
+  async updateProduct(tenantId, productId, updateData) {
+    if (!tenantId || !productId) throw new Error('tenant_id y productId son requeridos');
+
+    if (this.pool) {
+      const fields = [];
+      const values = [];
+
+      const allowedFields = [
+        'name', 'description', 'category', 'unit_of_measure',
+        'sale_price', 'cost', 'tax_rate', 'min_stock', 'track_stock', 'is_active', 'barcode'
+      ];
+
+      for (const key of allowedFields) {
+        if (updateData[key] !== undefined) {
+          fields.push(`${key} = ?`);
+          values.push(updateData[key]);
+        }
+      }
+
+      if (fields.length === 0) return this.getProductById(tenantId, productId);
+
+      fields.push('updated_at = NOW()');
+      values.push(productId, tenantId);
+
+      const [result] = await this.pool.query(`
+        UPDATE inventory_products
+        SET ${fields.join(', ')}
+        WHERE id = ? AND tenant_id = ?
+        RETURNING *
+      `, values);
+
+      return result[0] || null;
+    }
+    return null;
+  }
+
+  async getProductById(tenantId, productId) {
+    if (!tenantId || !productId) throw new Error('tenant_id y productId son requeridos');
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_products WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [productId, tenantId]
+      );
+      return rows[0] || null;
+    }
+    return null;
+  }
+
+  async getProductBySku(tenantId, sku) {
+    if (!tenantId || !sku) throw new Error('tenant_id y sku son requeridos');
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_products WHERE sku = ? AND tenant_id = ? LIMIT 1',
+        [sku.trim(), tenantId]
+      );
+      return rows[0] || null;
+    }
+    return null;
+  }
+
+  async getProductByBarcode(tenantId, barcode) {
+    if (!tenantId || !barcode) throw new Error('tenant_id y barcode son requeridos');
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_products WHERE barcode = ? AND tenant_id = ? LIMIT 1',
+        [barcode.trim(), tenantId]
+      );
+      return rows[0] || null;
+    }
+    return null;
+  }
+
+  async listProducts(tenantId, { search, category, activeOnly, limit = 50, offset = 0 } = {}) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (this.pool) {
+      let sql = 'SELECT * FROM inventory_products WHERE tenant_id = ?';
+      const params = [tenantId];
+
+      if (activeOnly) {
+        sql += ' AND is_active = TRUE';
+      }
+      if (category && category !== 'Todas') {
+        sql += ' AND category = ?';
+        params.push(category);
+      }
+      if (search) {
+        sql += ' AND (name ILIKE ? OR sku ILIKE ? OR barcode ILIKE ?)';
+        const term = `%${search}%`;
+        params.push(term, term, term);
+      }
+
+      sql += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+      params.push(Number(limit), Number(offset));
+
+      const [rows] = await this.pool.query(sql, params);
+      return rows || [];
+    }
+    return [];
+  }
+
+  async getOrCreateDefaultLocation(tenantId, salonId = null) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_locations WHERE tenant_id = ? AND is_default = TRUE LIMIT 1',
+        [tenantId]
+      );
+      if (rows && rows.length > 0) return rows[0];
+
+      // Crear ubicación principal por defecto
+      const [created] = await this.pool.query(`
+        INSERT INTO inventory_locations (tenant_id, salon_id, name, code, type, is_default, is_active, created_at, updated_at)
+        VALUES (?, ?, 'Almacén Principal', 'LOC-MAIN', 'STORE', TRUE, TRUE, NOW(), NOW())
+        RETURNING *
+      `, [tenantId, salonId]);
+      return created[0];
+    }
+    return null;
+  }
+
+  async getLocationById(tenantId, locationId) {
+    if (!tenantId || !locationId) throw new Error('tenant_id y locationId son requeridos');
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_locations WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [locationId, tenantId]
+      );
+      return rows[0] || null;
+    }
+    return null;
+  }
+
+  async listLocations(tenantId) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_locations WHERE tenant_id = ? AND is_active = TRUE ORDER BY is_default DESC, name ASC',
+        [tenantId]
+      );
+      return rows || [];
+    }
+    return [];
+  }
+
+  async createLocation(tenantId, locationData) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    const { name, code, type, salon_id, is_default } = locationData;
+    if (!name) throw new Error('name es requerido');
+
+    if (this.pool) {
+      const [created] = await this.pool.query(`
+        INSERT INTO inventory_locations (tenant_id, salon_id, name, code, type, is_default, is_active, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, TRUE, NOW(), NOW())
+        RETURNING *
+      `, [tenantId, salon_id || null, name.trim(), code ? code.trim() : null, type || 'STORE', Boolean(is_default)]);
+      return created[0];
+    }
+    return null;
+  }
+
+  async getStock(tenantId, productId, locationId) {
+    if (!tenantId || !productId || !locationId) throw new Error('tenant_id, productId y locationId son requeridos');
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ? LIMIT 1',
+        [tenantId, productId, locationId]
+      );
+      return rows[0] || { tenant_id: tenantId, product_id: productId, location_id: locationId, quantity: 0, average_cost: 0 };
+    }
+    return { tenant_id: tenantId, product_id: productId, location_id: locationId, quantity: 0, average_cost: 0 };
+  }
+
+  async listStock(tenantId, { locationId, lowStockOnly = false, limit = 100, offset = 0 } = {}) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (this.pool) {
+      let sql = `
+        SELECT s.*, p.sku, p.name as product_name, p.category, p.unit_of_measure, p.min_stock, p.sale_price, l.name as location_name
+        FROM inventory_stock s
+        INNER JOIN inventory_products p ON s.product_id = p.id AND s.tenant_id = p.tenant_id
+        INNER JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
+        WHERE s.tenant_id = ?
+      `;
+      const params = [tenantId];
+      if (locationId) {
+        sql += ' AND s.location_id = ?';
+        params.push(locationId);
+      }
+      if (lowStockOnly) {
+        sql += ' AND s.quantity <= p.min_stock';
+      }
+      sql += ' ORDER BY p.name ASC LIMIT ? OFFSET ?';
+      params.push(Number(limit), Number(offset));
+
+      const [rows] = await this.pool.query(sql, params);
+      return rows || [];
+    }
+    return [];
+  }
+
+  async getMovementByIdempotencyKey(tenantId, idempotencyKey) {
+    if (!tenantId || !idempotencyKey) return null;
+    if (this.pool) {
+      const [rows] = await this.pool.query(
+        'SELECT * FROM inventory_movements WHERE tenant_id = ? AND idempotency_key = ? LIMIT 1',
+        [tenantId, idempotencyKey]
+      );
+      return rows[0] || null;
+    }
+    return null;
+  }
+
+  async recordMovement(tenantId, movementData) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    const {
+      product_id, location_id, movement_type, quantity, unit_cost, total_cost,
+      balance_after, reference_type, reference_id, idempotency_key, reason, user_id, user_name
+    } = movementData;
+
+    if (!product_id || !location_id || !movement_type || quantity === 0) {
+      throw new Error('Parámetros de movimiento incompletos o cantidad cero');
+    }
+
+    if (this.pool) {
+      const [created] = await this.pool.query(`
+        INSERT INTO inventory_movements (
+          tenant_id, product_id, location_id, movement_type, quantity, unit_cost, total_cost,
+          balance_after, reference_type, reference_id, idempotency_key, reason, user_id, user_name, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        RETURNING *
+      `, [
+        tenantId, product_id, location_id, movement_type, Number(quantity),
+        Number(unit_cost) || 0, Number(total_cost) || 0, Number(balance_after) || 0,
+        reference_type || null, reference_id || null, idempotency_key || null,
+        reason || null, user_id || null, user_name || null
+      ]);
+      return created[0];
+    }
+    return null;
+  }
+
+  async updateStockBalance(tenantId, productId, locationId, newQuantity, newAvgCost) {
+    if (!tenantId || !productId || !locationId) throw new Error('tenant_id, productId y locationId son requeridos');
+    if (newQuantity < 0) throw new Error('El stock no puede ser negativo');
+
+    if (this.pool) {
+      const [result] = await this.pool.query(`
+        INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity, average_cost, last_movement_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+        ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET
+          quantity = EXCLUDED.quantity,
+          average_cost = EXCLUDED.average_cost,
+          last_movement_at = NOW(),
+          updated_at = NOW()
+        RETURNING *
+      `, [tenantId, productId, locationId, Number(newQuantity), Number(newAvgCost) || 0]);
+      return result[0];
+    }
+    return null;
+  }
+
+  async listMovements(tenantId, { productId, locationId, movementType, limit = 50, offset = 0 } = {}) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (this.pool) {
+      let sql = `
+        SELECT m.*, p.name as product_name, p.sku, l.name as location_name
+        FROM inventory_movements m
+        INNER JOIN inventory_products p ON m.product_id = p.id AND m.tenant_id = p.tenant_id
+        INNER JOIN inventory_locations l ON m.location_id = l.id AND m.tenant_id = l.tenant_id
+        WHERE m.tenant_id = ?
+      `;
+      const params = [tenantId];
+      if (productId) {
+        sql += ' AND m.product_id = ?';
+        params.push(productId);
+      }
+      if (locationId) {
+        sql += ' AND m.location_id = ?';
+        params.push(locationId);
+      }
+      if (movementType) {
+        sql += ' AND m.movement_type = ?';
+        params.push(movementType);
+      }
+      sql += ' ORDER BY m.created_at DESC LIMIT ? OFFSET ?';
+      params.push(Number(limit), Number(offset));
+
+      const [rows] = await this.pool.query(sql, params);
+      return rows || [];
+    }
+    return [];
+  }
+
+  async getLowStockAlerts(tenantId, locationId = null) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (this.pool) {
+      let sql = `
+        SELECT p.id as product_id, p.sku, p.name as product_name, p.category, p.min_stock,
+               COALESCE(SUM(s.quantity), 0) as current_stock,
+               l.name as location_name, l.id as location_id
+        FROM inventory_products p
+        LEFT JOIN inventory_stock s ON p.id = s.product_id AND p.tenant_id = s.tenant_id
+        LEFT JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
+        WHERE p.tenant_id = ? AND p.track_stock = TRUE AND p.is_active = TRUE
+      `;
+      const params = [tenantId];
+      if (locationId) {
+        sql += ' AND s.location_id = ?';
+        params.push(locationId);
+      }
+      sql += `
+        GROUP BY p.id, p.sku, p.name, p.category, p.min_stock, l.name, l.id
+        HAVING COALESCE(SUM(s.quantity), 0) <= p.min_stock
+        ORDER BY (COALESCE(SUM(s.quantity), 0) - p.min_stock) ASC
+      `;
+      const [rows] = await this.pool.query(sql, params);
+      return rows || [];
+    }
+    return [];
+  }
+
+  async getValuationReport(tenantId) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (this.pool) {
+      const [rows] = await this.pool.query(`
+        SELECT 
+          p.id as product_id, p.sku, p.name as product_name, p.category,
+          s.location_id, l.name as location_name,
+          s.quantity, s.average_cost,
+          (s.quantity * s.average_cost) as total_valuation,
+          p.sale_price,
+          (s.quantity * p.sale_price) as total_potential_revenue
+        FROM inventory_stock s
+        INNER JOIN inventory_products p ON s.product_id = p.id AND s.tenant_id = p.tenant_id
+        INNER JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
+        WHERE s.tenant_id = ? AND s.quantity > 0
+        ORDER BY total_valuation DESC
+      `, [tenantId]);
+      return rows || [];
+    }
+    return [];
+  }
+}
+
+module.exports = { InventoryRepository };
+

@@ -5,12 +5,14 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // Directory to save received e-CFs and Acuses for audit
-const receptionDir = path.resolve(__dirname, 'dgii_reception_output');
-try {
-  if (!fs.existsSync(receptionDir)) {
-    fs.mkdirSync(receptionDir, { recursive: true });
+const receptionDir = process.env.DGII_RECEPTION_DIR || path.resolve(__dirname, 'dgii_reception_output');
+function ensureReceptionDir() {
+  if (process.env.NODE_ENV !== 'test' && !fs.existsSync(receptionDir)) {
+    try {
+      fs.mkdirSync(receptionDir, { recursive: true });
+    } catch (_) {}
   }
-} catch (e) {}
+}
 
 // Pure Node.js zero-dependency JWT generator
 function generateToken(payload, secretOrKey, isRsa = false) {

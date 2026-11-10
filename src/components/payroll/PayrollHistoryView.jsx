@@ -515,8 +515,8 @@ export default function PayrollHistoryView({
             className="ph-select"
           >
             <option value="Todas">Todas las sucursales</option>
-            <option value="San Vicente">Abatte San Vicente</option>
-            <option value="Villa Mella">Abatte Villa Mella</option>
+            <option value="San Vicente">Sucursal San Vicente</option>
+            <option value="Villa Mella">Sucursal Villa Mella</option>
             <option value="Disponibles (*)">Disponibles (*)</option>
           </select>
 

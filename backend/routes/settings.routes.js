@@ -2,9 +2,7 @@ const express = require('express');
 const nodemailer = require('nodemailer');
 
 /**
- * System Settings Router
- * 
- * @param {import('mysql2/promise').Pool} pool 
+ * System Settings Router (Scoped strictly by tenant_id)
  */
 function createSettingsRouter(pool) {
   const router = express.Router();
@@ -12,51 +10,72 @@ function createSettingsRouter(pool) {
   // GET /api/settings/email
   router.get('/email', async (req, res) => {
     try {
-      const [rows] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
-      const settings = rows[0] || {};
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+      const settings = (rows && rows[0]) ? rows[0] : {
+        smtp_host: '',
+        smtp_port: 587,
+        smtp_user: '',
+        smtp_pass: '',
+        smtp_from: 'SALON PRO',
+        smtp_secure: 1
+      };
       if (settings.smtp_pass) {
         settings.smtp_pass = '********';
       }
       res.json(settings);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.json({
+        smtp_host: '',
+        smtp_port: 587,
+        smtp_user: '',
+        smtp_pass: '',
+        smtp_from: 'SALON PRO',
+        smtp_secure: 1
+      });
     }
   });
 
   // POST /api/settings/email
   router.post('/email', async (req, res) => {
+    const tenantId = req.tenantId;
     let { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure } = req.body;
     try {
       if (smtp_pass === '********' || !smtp_pass) {
-        const [existing] = await pool.query('SELECT smtp_pass FROM email_settings WHERE id = 1');
-        if (existing[0]?.smtp_pass) {
-          smtp_pass = existing[0].smtp_pass;
-        }
+        try {
+          const [existing] = await pool.query('SELECT smtp_pass FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+          if (existing[0]?.smtp_pass) {
+            smtp_pass = existing[0].smtp_pass;
+          }
+        } catch {}
       }
 
       await pool.query(`
-        INSERT INTO email_settings (id, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure)
-        VALUES (1, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE 
-          smtp_host = VALUES(smtp_host),
-          smtp_port = VALUES(smtp_port),
-          smtp_user = VALUES(smtp_user),
-          smtp_pass = VALUES(smtp_pass),
-          smtp_from = VALUES(smtp_from),
-          smtp_secure = VALUES(smtp_secure)
-      `, [smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure ? 1 : 0]);
-      res.json({ success: true });
+        INSERT INTO email_settings (tenant_id, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          smtp_host = EXCLUDED.smtp_host,
+          smtp_port = EXCLUDED.smtp_port,
+          smtp_user = EXCLUDED.smtp_user,
+          smtp_pass = EXCLUDED.smtp_pass,
+          smtp_from = EXCLUDED.smtp_from,
+          smtp_secure = EXCLUDED.smtp_secure,
+          updated_at = CURRENT_TIMESTAMP
+      `, [tenantId, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure ? 1 : 0]);
+
+      res.json({ success: true, message: 'Configuración SMTP guardada con éxito.' });
     } catch (err) {
+      console.error('[EMAIL SETTINGS SAVE ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
   // POST /api/settings/email/test
   router.post('/email/test', async (req, res) => {
-    const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure, test_email } = req.body;
+    const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, test_email } = req.body;
     try {
       const isPort465 = parseInt(smtp_port) === 465;
-      
+
       const transporter = nodemailer.createTransport({
         host: smtp_host,
         port: parseInt(smtp_port),

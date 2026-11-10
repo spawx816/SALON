@@ -484,7 +484,7 @@ const ContractSettingsModule = () => {
                     {settings.title || 'CONTRATO DE SUSCRIPCIÓN DE SERVICIOS DE BELLEZA'}
                   </h1>
                   <p style={{ margin: 0, fontSize: '0.9rem', color: '#64748b', fontWeight: 700 }}>
-                    ABATTE PELUQUERÍA - {settings.company_name}
+                    {settings.company_name || 'SalonPro'}
                   </p>
                 </div>
 

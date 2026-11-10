@@ -732,7 +732,7 @@ const RoleManagement = () => {
                     <label>Email de Notificaciones</label>
                     <input 
                       type="email" className="input-field"
-                      placeholder="ejemplo@abatte.com"
+                      placeholder="ejemplo@salon.com"
                       value={newStaff.email || ''} onChange={e => setNewStaff({...newStaff, email: e.target.value})}
                     />
                   </div>
@@ -774,8 +774,8 @@ const RoleManagement = () => {
                     >
                       <option value="">Selecciona una localidad...</option>
                       {(salons && salons.length > 0 ? salons : [
-                        { id: 1, name: 'Abatte Peluquería San Vicente' },
-                        { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' },
+                        { id: 1, name: 'Sucursal Central' },
+                        { id: 4, name: 'Sucursal Norte' },
                         { id: 6, name: 'Disponibles (*)' }
                       ])
                       .filter(s => s && s.name && String(s.name).trim() !== '')
@@ -963,8 +963,8 @@ const RoleManagement = () => {
                 <select className="input-field" style={{ paddingLeft: '2.5rem', background: 'white', borderRadius: '8px' }} value={filterLocation} onChange={e => setFilterLocation(e.target.value)}>
                   <option value="">Todas las localidades</option>
                   {(salons && salons.length > 0 ? salons : [
-                    { id: 1, name: 'Abatte Peluquería San Vicente' },
-                    { id: 4, name: 'Abatte Peluquería Sirena Villa Mella' },
+                    { id: 1, name: 'Sucursal Central' },
+                    { id: 4, name: 'Sucursal Norte' },
                     { id: 6, name: 'Disponibles (*)' }
                   ])
                   .filter(s => s && s.name && String(s.name).trim() !== '')
@@ -1155,7 +1155,7 @@ const RoleManagement = () => {
                        <Phone size={14} /> {member.contacto || 'N/A'}
                     </p>
                     <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                       <Mail size={14} /> {member.email || `${member.nombre.split(' ')[0].toLowerCase()}@abatte.com`}
+                       <Mail size={14} /> {member.email || `${member.nombre.split(' ')[0].toLowerCase()}@salon.com`}
                     </p>
                   </div>
 
@@ -1468,7 +1468,7 @@ const RoleManagement = () => {
                       <span style={{ background: 'white', padding: '0.4rem', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex' }}><Mail size={14} color="#64748b" /></span>
                       <div>
                         <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>CORREO ELECTRÓNICO</span>
-                        <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>{selectedStaffDetail.email || `${selectedStaffDetail.nombre.split(' ')[0].toLowerCase()}@abatte.com`}</strong>
+                        <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>{selectedStaffDetail.email || `${selectedStaffDetail.nombre.split(' ')[0].toLowerCase()}@salon.com`}</strong>
                       </div>
                     </div>
                   </div>

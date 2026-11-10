@@ -134,6 +134,19 @@ const VisitRecorder = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
+
+  // Determinación de Plan SaaS: Plan Base (solo facturación directa y empleados) vs Plan Pro (clientes y membresías Plan Beauty)
+  const isSuperAdmin = currentUser?.role?.toLowerCase() === 'superadmin';
+  const hasProPlan = Boolean(
+    isSuperAdmin ||
+    (!currentUser?.tenant && !currentUser?.tenant_id) ||
+    currentUser?.tenant?.plan_code === 'pro' ||
+    currentUser?.tenant?.has_memberships === true ||
+    currentUser?.tenant?.has_clients === true ||
+    currentUser?.tenant?.included_features?.memberships === true ||
+    currentUser?.tenant?.included_features?.clients === true
+  ) && currentUser?.tenant?.plan_code !== 'base';
+
   const [salonId, setSalonId] = useState(currentUser?.salon_id || 1);
   const [salonsList, setSalonsList] = useState([]);
 
@@ -820,6 +833,11 @@ const VisitRecorder = () => {
   const [isEditingGeneralName, setIsEditingGeneralName] = useState(false);
   const [tempGeneralName, setTempGeneralName] = useState('');
 
+  const handleSaveGeneralName = () => {
+    setQuickGeneralName(tempGeneralName.trim());
+    setIsEditingGeneralName(false);
+  };
+
   const getLastVisitText = () => {
     if (clientVisitsHistory && clientVisitsHistory.length > 0) {
       const last = clientVisitsHistory[0];
@@ -1182,6 +1200,10 @@ const VisitRecorder = () => {
   };
 
   const fetchClients = async () => {
+    if (!hasProPlan) {
+      setAllClients([]);
+      return;
+    }
     try {
       const data = await dataService.getClients();
       if (Array.isArray(data) && data.length > 0) {
@@ -1408,7 +1430,7 @@ const VisitRecorder = () => {
     if (!window.confirm('⚠️ ¿Seguro que deseas eliminar TODOS los tickets pendientes de atención? Esta acción vaciará la lista por completo.')) return;
     setLoading(true);
     try {
-      await dataService.clearAllPendingTickets(selectedSalonId || 'all');
+      await dataService.clearAllPendingTickets(salonId || 'all');
       setSelectedTicket(null);
       setLineItems([]);
       setClientFound(null);
@@ -2358,7 +2380,7 @@ const VisitRecorder = () => {
     // Regla Plan Beauty: Incluye 1 solo lavado por facturación. Si se eleva a 2, el segundo se cobra a precio regular estándar (RD$ 600).
     if (item.isPlanWash && delta > 0) {
       const cleanName = item.nombre.replace(' (Plan Beauty)', '').trim();
-      const matchedSrv = availableServices.find(s => isLavadoSencillo(s.nombre)) || servicesList.find(s => isLavadoSencillo(s.nombre));
+      const matchedSrv = availableServices.find(s => isLavadoSencillo(s.nombre));
       const regularPrice = matchedSrv ? (parseFloat(matchedSrv.precio) || 600) : 600;
       const secondWash = {
         id: Date.now() + Math.random(),
@@ -3813,193 +3835,211 @@ const VisitRecorder = () => {
                     </div>
                   </div>
 
-                  {/* MIDDLE CARD: BENEFICIOS DISPONIBLES & VER DETALLES */}
-                  <div style={{
-                    background: isGuestClient ? '#f8fafc' : (isPendingPayment ? '#fffbeb' : (isContractCancelled ? '#fff5f5' : '#fbf8fe')),
-                    border: isGuestClient ? '1px solid #e2e8f0' : (isPendingPayment ? '1.5px solid #fde68a' : (isContractCancelled ? '1.5px solid #fecaca' : '1px solid #f3e8ff')),
-                    borderRadius: '20px',
-                    padding: '1.25rem 1rem',
-                    margin: '1.1rem 0 0.85rem 0',
-                    textAlign: 'center',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '0.3rem'
-                  }}>
-                    <span style={{
-                      fontSize: '2.85rem',
-                      fontWeight: 900,
-                      color: isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#9333ea')),
-                      lineHeight: 1
-                    }}>
-                      {isGuestClient ? 0 : benefitsCount}
-                    </span>
-
-                    <span style={{
-                      fontSize: '0.725rem',
-                      fontWeight: 800,
-                      color: isGuestClient ? '#64748b' : (isPendingPayment ? '#b45309' : (isContractCancelled ? '#b91c1c' : '#6b7280')),
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase'
-                    }}>
-                      {isGuestClient ? 'SIN PLAN BEAUTY ACTIVO' : (isPendingPayment ? 'BENEFICIOS DISPONIBLES (SUSPENDIDO)' : (isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : (benefitsCount === 1 ? 'BENEFICIO DISPONIBLE' : 'BENEFICIOS DISPONIBLES')))}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowPlanDetailsModal(true)}
-                      style={{
-                        marginTop: '0.55rem',
-                        background: '#ffffff',
-                        border: isGuestClient ? '1.5px solid #cbd5e1' : (isPendingPayment ? '1.5px solid #f59e0b' : (isContractCancelled ? '1.5px solid #f87171' : '1.5px solid #a855f7')),
-                        color: isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed')),
-                        padding: '0.45rem 1.35rem',
-                        borderRadius: '9999px',
-                        fontSize: '0.825rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'inline-flex',
+                  {hasProPlan ? (
+                    <>
+                      {/* MIDDLE CARD: BENEFICIOS DISPONIBLES & VER DETALLES */}
+                      <div style={{
+                        background: isGuestClient ? '#f8fafc' : (isPendingPayment ? '#fffbeb' : (isContractCancelled ? '#fff5f5' : '#fbf8fe')),
+                        border: isGuestClient ? '1px solid #e2e8f0' : (isPendingPayment ? '1.5px solid #fde68a' : (isContractCancelled ? '1.5px solid #fecaca' : '1px solid #f3e8ff')),
+                        borderRadius: '20px',
+                        padding: '1.25rem 1rem',
+                        margin: '1.1rem 0 0.85rem 0',
+                        textAlign: 'center',
+                        display: 'flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
-                        gap: '0.45rem',
-                        boxShadow: isGuestClient ? '0 2px 6px rgba(0, 0, 0, 0.05)' : (isPendingPayment ? '0 2px 6px rgba(245, 158, 11, 0.12)' : (isContractCancelled ? '0 2px 6px rgba(239, 68, 68, 0.12)' : '0 2px 6px rgba(168, 85, 247, 0.12)')),
-                        transition: 'all 0.15s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed'));
-                        e.currentTarget.style.color = '#ffffff';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#ffffff';
-                        e.currentTarget.style.color = isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed'));
-                      }}
-                    >
-                      <Eye size={16} />
-                      <span>{isGuestClient ? 'Ver detalles' : (isPendingPayment ? 'Ver detalle de suspensión' : (isContractCancelled ? 'Ver detalle de cancelación' : 'Ver detalles'))}</span>
-                    </button>
-                  </div>
+                        gap: '0.3rem'
+                      }}>
+                        <span style={{
+                          fontSize: '2.85rem',
+                          fontWeight: 900,
+                          color: isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#9333ea')),
+                          lineHeight: 1
+                        }}>
+                          {isGuestClient ? 0 : benefitsCount}
+                        </span>
 
-                  {/* DETAIL LIST ROW 1: ESTADO DEL PLAN */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.85rem',
-                    padding: '0.85rem 0.25rem',
-                    borderTop: '1px solid #f3f4f6'
-                  }}>
-                    <div style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      background: isGuestClient ? '#f1f5f9' : (hasActivePlan ? '#dcfce7' : (isPendingPayment ? '#fef3c7' : (isContractCancelled ? '#fee2e2' : '#f1f5f9'))),
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      {isGuestClient ? (
-                        <AlertCircle size={22} color="#64748b" />
-                      ) : hasActivePlan ? (
-                        <CheckCircle2 size={22} color="#16a34a" />
-                      ) : isPendingPayment ? (
-                        <AlertTriangle size={22} color="#d97706" />
-                      ) : isContractCancelled ? (
-                        <XCircle size={22} color="#dc2626" />
-                      ) : (
-                        <AlertCircle size={22} color="#64748b" />
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
-                        {isGuestClient ? 'Sin suscripción activa' : (hasActivePlan ? 'Beneficios renovados' : (isPendingPayment ? 'Suspendido falta de pago' : (isContractCancelled ? 'Suscripción Cancelada' : 'Sin suscripción activa')))}
-                      </span>
-                      <span style={{ fontSize: '0.8rem', color: isGuestClient ? '#64748b' : (isPendingPayment ? '#b45309' : (isContractCancelled ? '#dc2626' : '#64748b')), fontWeight: (!isGuestClient && (isPendingPayment || isContractCancelled)) ? 700 : 500, marginTop: '2px' }}>
-                        {isGuestClient ? 'Cliente General / No registrado' : ((isPendingPayment || isContractCancelled || hasActivePlan) ? renewalDate : 'Sin membresía activa')}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* DETAIL LIST ROW 2: CUMPLEAÑOS */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.85rem',
-                    padding: '0.85rem 0.25rem',
-                    borderTop: '1px solid #f3f4f6'
-                  }}>
-                    <div style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      background: '#ffe4e6',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      <Cake size={20} color="#e11d48" />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
-                        {birthdayInfo.text || 'Cumpleaños en 14 días'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* DETAIL LIST ROW 3: ÚLTIMA VISITA */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.85rem',
-                    padding: '0.85rem 0.25rem',
-                    borderTop: '1px solid #f3f4f6'
-                  }}>
-                    <div style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '50%',
-                      background: '#e0f2fe',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      <ClockIcon size={20} color="#0284c7" />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
-                        {lastVisitText}
-                      </span>
-                    </div>
-                  </div>
-
-
-
-                  {/* FOOTER ACTION: REGISTER GENERAL CLIENT FORMALLY */}
-                  {isGuestClient && (
-                    <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #f3f4f6' }}>
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/registro-cliente?name=${encodeURIComponent(currentClientName || '')}`)}
-                        style={{
-                          width: '100%',
-                          background: '#be185d',
-                          border: 'none',
-                          color: '#ffffff',
-                          borderRadius: '12px',
-                          padding: '0.65rem 0.85rem',
+                        <span style={{
+                          fontSize: '0.725rem',
                           fontWeight: 800,
-                          fontSize: '0.825rem',
-                          cursor: 'pointer',
+                          color: isGuestClient ? '#64748b' : (isPendingPayment ? '#b45309' : (isContractCancelled ? '#b91c1c' : '#6b7280')),
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase'
+                        }}>
+                          {isGuestClient ? 'SIN PLAN BEAUTY ACTIVO' : (isPendingPayment ? 'BENEFICIOS DISPONIBLES (SUSPENDIDO)' : (isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : (benefitsCount === 1 ? 'BENEFICIO DISPONIBLE' : 'BENEFICIOS DISPONIBLES')))}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowPlanDetailsModal(true)}
+                          style={{
+                            marginTop: '0.55rem',
+                            background: '#ffffff',
+                            border: isGuestClient ? '1.5px solid #cbd5e1' : (isPendingPayment ? '1.5px solid #f59e0b' : (isContractCancelled ? '1.5px solid #f87171' : '1.5px solid #a855f7')),
+                            color: isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed')),
+                            padding: '0.45rem 1.35rem',
+                            borderRadius: '9999px',
+                            fontSize: '0.825rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.45rem',
+                            boxShadow: isGuestClient ? '0 2px 6px rgba(0, 0, 0, 0.05)' : (isPendingPayment ? '0 2px 6px rgba(245, 158, 11, 0.12)' : (isContractCancelled ? '0 2px 6px rgba(239, 68, 68, 0.12)' : '0 2px 6px rgba(168, 85, 247, 0.12)')),
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed'));
+                            e.currentTarget.style.color = '#ffffff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#ffffff';
+                            e.currentTarget.style.color = isGuestClient ? '#64748b' : (isPendingPayment ? '#d97706' : (isContractCancelled ? '#dc2626' : '#7c3aed'));
+                          }}
+                        >
+                          <Eye size={16} />
+                          <span>{isGuestClient ? 'Ver detalles' : (isPendingPayment ? 'Ver detalle de suspensión' : (isContractCancelled ? 'Ver detalle de cancelación' : 'Ver detalles'))}</span>
+                        </button>
+                      </div>
+
+                      {/* DETAIL LIST ROW 1: ESTADO DEL PLAN */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.85rem',
+                        padding: '0.85rem 0.25rem',
+                        borderTop: '1px solid #f3f4f6'
+                      }}>
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '50%',
+                          background: isGuestClient ? '#f1f5f9' : (hasActivePlan ? '#dcfce7' : (isPendingPayment ? '#fef3c7' : (isContractCancelled ? '#fee2e2' : '#f1f5f9'))),
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '0.4rem',
-                          boxShadow: '0 4px 12px rgba(190, 24, 93, 0.25)'
-                        }}
-                      >
-                        <UserPlus size={16} />
-                        <span>+ Registrar Nuevo Cliente</span>
-                      </button>
+                          flexShrink: 0
+                        }}>
+                          {isGuestClient ? (
+                            <AlertCircle size={22} color="#64748b" />
+                          ) : hasActivePlan ? (
+                            <CheckCircle2 size={22} color="#16a34a" />
+                          ) : isPendingPayment ? (
+                            <AlertTriangle size={22} color="#d97706" />
+                          ) : isContractCancelled ? (
+                            <XCircle size={22} color="#dc2626" />
+                          ) : (
+                            <AlertCircle size={22} color="#64748b" />
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
+                            {isGuestClient ? 'Sin suscripción activa' : (hasActivePlan ? 'Beneficios renovados' : (isPendingPayment ? 'Suspendido falta de pago' : (isContractCancelled ? 'Suscripción Cancelada' : 'Sin suscripción activa')))}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', color: isGuestClient ? '#64748b' : (isPendingPayment ? '#b45309' : (isContractCancelled ? '#dc2626' : '#64748b')), fontWeight: (!isGuestClient && (isPendingPayment || isContractCancelled)) ? 700 : 500, marginTop: '2px' }}>
+                            {isGuestClient ? 'Cliente General / No registrado' : ((isPendingPayment || isContractCancelled || hasActivePlan) ? renewalDate : 'Sin membresía activa')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* DETAIL LIST ROW 2: CUMPLEAÑOS */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.85rem',
+                        padding: '0.85rem 0.25rem',
+                        borderTop: '1px solid #f3f4f6'
+                      }}>
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '50%',
+                          background: '#ffe4e6',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}>
+                          <Cake size={20} color="#e11d48" />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
+                            {birthdayInfo.text || 'Cumpleaños en 14 días'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* DETAIL LIST ROW 3: ÚLTIMA VISITA */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.85rem',
+                        padding: '0.85rem 0.25rem',
+                        borderTop: '1px solid #f3f4f6'
+                      }}>
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '50%',
+                          background: '#e0f2fe',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}>
+                          <ClockIcon size={20} color="#0284c7" />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.925rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.25 }}>
+                            {lastVisitText}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* FOOTER ACTION: REGISTER GENERAL CLIENT FORMALLY */}
+                      {isGuestClient && (
+                        <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #f3f4f6' }}>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/registro-cliente?name=${encodeURIComponent(currentClientName || '')}`)}
+                            style={{
+                              width: '100%',
+                              background: '#be185d',
+                              border: 'none',
+                              color: '#ffffff',
+                              borderRadius: '12px',
+                              padding: '0.65rem 0.85rem',
+                              fontWeight: 800,
+                              fontSize: '0.825rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '0.4rem',
+                              boxShadow: '0 4px 12px rgba(190, 24, 93, 0.25)'
+                            }}
+                          >
+                            <UserPlus size={16} />
+                            <span>+ Registrar Nuevo Cliente</span>
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '16px',
+                      padding: '1rem',
+                      marginTop: '1rem',
+                      textAlign: 'center'
+                    }}>
+                      <span style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#334155', marginBottom: '0.25rem' }}>
+                        {isEmployeeClient ? 'Facturación a Colaborador' : 'Facturación Directa POS'}
+                      </span>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                        {isEmployeeClient ? 'Descuento de empleado habilitado' : 'Consumidor Final / Atención Rápida'}
+                      </span>
                     </div>
                   )}
 
@@ -5030,12 +5070,12 @@ const VisitRecorder = () => {
             </div>
 
             <form onSubmit={handleCreateNewTicket}>
-              {/* TIPO DE TICKET SELECTOR (3 TABS) */}
+              {/* TIPO DE TICKET SELECTOR (2 O 3 TABS SEGÚN PLAN SAAS) */}
               <div style={{ marginBottom: '1.25rem' }}>
                 <label style={{ display: 'block', fontSize: '0.725rem', fontWeight: 800, color: '#64748b', marginBottom: '0.5rem', letterSpacing: '0.5px' }}>
                   TIPO DE TICKET
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.65rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: hasProPlan ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)', gap: '0.65rem' }}>
 
                   {/* TAB 1: CLIENTE GENERAL */}
                   <div
@@ -5066,32 +5106,34 @@ const VisitRecorder = () => {
                     </div>
                   </div>
 
-                  {/* TAB 2: PLAN BEAUTY */}
-                  <div
-                    onClick={() => {
-                      setTicketType('plan_beauty');
-                      setSelectedEmployeeForTicket(null);
-                    }}
-                    style={{
-                      padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
-                      border: ticketType === 'plan_beauty' ? '2px solid #ec4899' : '1.5px solid #e2e8f0',
-                      background: ticketType === 'plan_beauty' ? '#fff5f8' : '#ffffff',
-                      boxShadow: ticketType === 'plan_beauty' ? '0 4px 12px rgba(236,72,153,0.12)' : 'none',
-                      transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem'
-                    }}
-                  >
-                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: ticketType === 'plan_beauty' ? '#fbcfe8' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
-                      💎
+                  {/* TAB 2: PLAN BEAUTY (SOLO EN PLAN PRO) */}
+                  {hasProPlan && (
+                    <div
+                      onClick={() => {
+                        setTicketType('plan_beauty');
+                        setSelectedEmployeeForTicket(null);
+                      }}
+                      style={{
+                        padding: '0.85rem 0.6rem', borderRadius: '14px', cursor: 'pointer',
+                        border: ticketType === 'plan_beauty' ? '2px solid #ec4899' : '1.5px solid #e2e8f0',
+                        background: ticketType === 'plan_beauty' ? '#fff5f8' : '#ffffff',
+                        boxShadow: ticketType === 'plan_beauty' ? '0 4px 12px rgba(236,72,153,0.12)' : 'none',
+                        transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                      }}
+                    >
+                      <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: ticketType === 'plan_beauty' ? '#fbcfe8' : '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+                        💎
+                      </div>
+                      <div style={{ overflow: 'hidden' }}>
+                        <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'plan_beauty' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                          Plan Beauty
+                        </strong>
+                        <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
+                          Cliente registrado
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ overflow: 'hidden' }}>
-                      <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'plan_beauty' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                        Plan Beauty
-                      </strong>
-                      <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                        Cliente registrado
-                      </span>
-                    </div>
-                  </div>
+                  )}
 
                   {/* TAB 3: EMPLEADO */}
                   <div
@@ -6051,7 +6093,7 @@ const VisitRecorder = () => {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.2rem' }}>
                     <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-                      {activeRegister.salon_name || 'Abatte Peluquería San Vicente'} • Apertura: {new Date(activeRegister.opened_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {activeRegister.salon_name || 'Salón Principal'} • Apertura: {new Date(activeRegister.opened_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     <span style={{ background: '#dcfce7', color: '#15803d', fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '99px', textTransform: 'uppercase' }}>
                       ABIERTA

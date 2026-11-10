@@ -1,13 +1,20 @@
 import React, { useEffect } from 'react';
 import { Printer, X, ShieldCheck } from 'lucide-react';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
+import { useTenantBranding } from '../../context/TenantBrandingContext';
 
 /**
  * Modal de Representación Impresa Oficial de Factura Electrónica (e-CF DGII)
  * Formato térmico homologado 80mm / 60mm según especificaciones oficiales de la DGII.
  */
 export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }) {
+  const { branding } = useTenantBranding();
   if (!isOpen || !invoice) return null;
+
+  const issuerLegalName = invoice.emisor_razon_social || invoice.company_name || invoice.business_name || branding?.business_name || 'SalonPro';
+  const issuerBranch = invoice.branch_name || invoice.sucursal || 'Sucursal Principal';
+  const issuerAddress = invoice.emisor_direccion || invoice.address || 'República Dominicana';
+  const issuerRnc = invoice.emisor_rnc || invoice.rnc || '131917038';
 
   // Items parsing
   let items = [];
@@ -142,11 +149,11 @@ export default function ElectronicInvoicePrintModal({ invoice, isOpen, onClose }
           >
             {/* 1. ENCABEZADO EMISOR */}
             <div style={{ textAlign: 'left', marginBottom: '8px' }}>
-              <div style={{ fontWeight: 900, fontSize: '11px', textTransform: 'uppercase' }}>PLAN BEAUTY RD</div>
-              <div style={{ fontWeight: 800 }}>ABATTE PELUQUERIA, SRL</div>
-              <div>Sucursal San Vicente de Paúl</div>
-              <div>Dirección: Av. San Vicente de Paúl #48, SDE</div>
-              <div>RNC: 131917038</div>
+              <div style={{ fontWeight: 900, fontSize: '11px', textTransform: 'uppercase' }}>{branding?.business_name || 'SalonPro'}</div>
+              <div style={{ fontWeight: 800 }}>{issuerLegalName}</div>
+              <div>{issuerBranch}</div>
+              <div>Dirección: {issuerAddress}</div>
+              <div>RNC: {issuerRnc}</div>
             </div>
 
             {/* SEPARADOR ASTERISCOS */}

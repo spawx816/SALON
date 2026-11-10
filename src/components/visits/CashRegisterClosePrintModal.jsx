@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Printer, X, CheckCircle, AlertTriangle, ArrowDownRight, DollarSign } from 'lucide-react';
+import { useTenantBranding } from '../../context/TenantBrandingContext';
 
 /**
  * Modal de Impresión de Cierre y Arqueo de Caja
@@ -42,10 +43,12 @@ export const CashRegisterClosePrintModal = ({
     }
   };
 
+  const { branding } = useTenantBranding();
+
   const {
     registerNumber = 'CAJA-001',
     employeeName = 'Recepción',
-    salonName = 'Abatte Peluquería',
+    salonName = branding?.business_name || 'SalonPro',
     openedAt,
     closedAt,
     initialAmt = 0,
@@ -200,7 +203,7 @@ export const CashRegisterClosePrintModal = ({
             {/* CABECERA OFICIAL EN NEGRO */}
             <div style={{ textAlign: 'center', borderBottom: '2px solid #000000', paddingBottom: '12px', marginBottom: '14px' }}>
               <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 900, letterSpacing: '1px', color: '#000000', textTransform: 'uppercase' }}>
-                ABATTE PELUQUERÍA
+                {salonName}
               </h1>
               <h2 style={{ margin: '4px 0 0 0', fontSize: '12px', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Reporte Oficial de Cierre y Arqueo de Caja

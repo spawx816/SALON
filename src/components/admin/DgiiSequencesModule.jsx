@@ -279,7 +279,7 @@ export default function DgiiSequencesModule() {
           </div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#059669', marginTop: '0.25rem' }}>PRODUCCIÓN</div>
           <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginTop: '0.25rem' }}>
-            Plan Beauty RD / Abatte Peluquería
+            Emisor Fiscal Autorizado
           </div>
         </div>
       </div>

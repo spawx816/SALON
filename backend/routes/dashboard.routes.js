@@ -1,543 +1,197 @@
 const express = require('express');
 
 /**
- * Dashboard & Analytics Router
- * @param {import('mysql2/promise').Pool} pool
+ * Dashboard KPIs, Charts & Real-time Analytics Router (Scoped strictly by tenant_id)
  */
 function createDashboardRouter(pool) {
   const router = express.Router();
 
-  // === DASHBOARD SUMMARY ===
+  // 1. GET /api/dashboard/summary - Consolidated summary for main dashboard
   router.get('/summary', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
       const [
-        [todayVisits],
-        [activeClients],
-        [monthlyRevenue],
-        [dailySalesPayments],
-        [dailySalesVisits],
-        [weeklyTraffic],
+        [clientsCount],
+        [activeContracts],
+        [cancelledContracts],
+        [visitsToday],
+        [visitsMonth],
+        [revenueMonth],
+        [posSalesMonth],
         [recentVisits],
-        [salonsList],
-        [todayVisitsRows],
-        [activeMembersRows],
-        [todayPaymentsRows],
-        [todayVisitsSalesRows]
+        [recentPayments],
+        [salons],
+        [plans],
+        [staffCount]
       ] = await Promise.all([
-        // 1. Visitas de hoy
-        pool.query('SELECT COUNT(*) as count FROM visits WHERE DATE(visited_at) = CURRENT_DATE()'),
-        // 2. Clientes con contrato activo
-        pool.query('SELECT COUNT(DISTINCT client_id) as count FROM contracts WHERE status IN ("Active", "Activo")'),
-        // 3. Ingresos Mensuales Estimados (Suma de planes activos deduplicados por cliente)
+        pool.query('SELECT COUNT(*) as total FROM clients WHERE tenant_id = ?', [tenantId]),
+        pool.query("SELECT COUNT(*) as total FROM contracts WHERE tenant_id = ? AND status IN ('Active', 'Activo')", [tenantId]),
+        pool.query("SELECT COUNT(*) as total FROM contracts WHERE tenant_id = ? AND status IN ('Cancelled', 'Cancelado')", [tenantId]),
+        pool.query("SELECT COUNT(*) as total, COALESCE(SUM(total), 0) as revenue FROM visits WHERE tenant_id = ? AND DATE(visited_at) = CURRENT_DATE AND status = 'Facturado'", [tenantId]),
+        pool.query("SELECT COUNT(*) as total FROM visits WHERE tenant_id = ? AND MONTH(visited_at) = MONTH(NOW()) AND YEAR(visited_at) = YEAR(NOW()) AND status = 'Facturado'", [tenantId]),
+        pool.query("SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE tenant_id = ? AND MONTH(created_at) = MONTH(NOW()) AND YEAR(created_at) = YEAR(NOW()) AND status = 'Aprobado'", [tenantId]),
+        pool.query("SELECT COALESCE(SUM(total), 0) as total FROM visits WHERE tenant_id = ? AND MONTH(visited_at) = MONTH(NOW()) AND YEAR(visited_at) = YEAR(NOW()) AND status = 'Facturado'", [tenantId]),
         pool.query(`
-          SELECT COALESCE(SUM(c.effective_price), 0) as total 
-          FROM (
-            SELECT c.client_id, MAX(COALESCE(c.contract_price, p.price)) as effective_price
-            FROM contracts c 
-            JOIN plans p ON c.plan_id = p.id 
-            WHERE c.status IN ('Active', 'Activo')
-            GROUP BY c.client_id
-          ) c
-        `),
-        // 4. Ventas Diarias (Pagos de planes de hoy)
-        pool.query(`
-          SELECT SUM(amount) as total
-          FROM payments
-          WHERE DATE(created_at) = CURRENT_DATE() AND status = 'Aprobado'
-        `),
-        // 5. Ventas Diarias (Ventas POS facturadas hoy)
-        pool.query(`
-          SELECT SUM(total) as total
-          FROM visits
-          WHERE DATE(visited_at) = CURRENT_DATE() AND status = 'Facturado' AND total > 0
-        `),
-        // 6. Tráfico semanal (Últimos 7 días)
-        pool.query(`
-          SELECT DATE(visited_at) as date, COUNT(*) as count 
-          FROM visits 
-          WHERE visited_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
-          GROUP BY DATE(visited_at)
-          ORDER BY DATE(visited_at) ASC
-        `),
-        // 7. Últimas visitas exclusivas de Plan Beauty (excluyendo genéricas)
-        pool.query(`
-          SELECT v.*, s.name as salon_name 
-          FROM visits v 
-          LEFT JOIN salons s ON v.salon_id = s.id 
-          LEFT JOIN contracts c ON (v.client_id = c.client_id AND c.status IN ('Active', 'Activo'))
-          WHERE (
-            (v.client_id IS NOT NULL AND v.client_id != '' AND v.client_id != 'INVITADO' AND v.client_id != 'generico')
-            AND (
-              LOWER(COALESCE(v.metodo_pago, '')) LIKE '%plan%' 
-              OR LOWER(COALESCE(v.servicios, '')) LIKE '%plan%' 
-              OR (c.id IS NOT NULL AND (v.total = 0 OR LOWER(COALESCE(v.metodo_pago, '')) LIKE '%plan%'))
-            )
-          )
-          ORDER BY v.visited_at DESC 
-          LIMIT 10
-        `),
-        // 8. Salons list
-        pool.query('SELECT id, name FROM salons ORDER BY id ASC'),
-        // 9. Breakdown: Visitas de Hoy
-        pool.query(`
-          SELECT 
-            v.id, 
-            COALESCE(v.salon_id, cl.salon_id, 1) as salon_id, 
-            v.total, 
-            v.metodo_pago, 
-            v.servicios,
-            v.client_id,
-            c.id as contract_id,
-            c.status as contract_status,
-            c.plan_id as contract_plan_id
+          SELECT v.*, COALESCE(v.client_name, c.nombre, 'Cliente General') as client_name, COALESCE(b.name, s.name, 'Principal') as salon_name
           FROM visits v
-          LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
-          LEFT JOIN contracts c ON (v.client_id = c.client_id AND c.status IN ('Active', 'Activo'))
-          WHERE (
-            DATE(v.visited_at) = CURRENT_DATE() 
-            OR DATE(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '-04:00'))
-          )
-        `),
-        // 10. Breakdown: Membresías Activas
+          LEFT JOIN clients c ON v.client_id = c.id AND c.tenant_id = v.tenant_id
+          LEFT JOIN branches b ON v.salon_id::text = b.id::text AND b.tenant_id = v.tenant_id
+          LEFT JOIN salons s ON v.salon_id::text = s.id::text AND s.tenant_id = v.tenant_id
+          WHERE v.tenant_id = ?
+          ORDER BY v.visited_at DESC LIMIT 15
+        `, [tenantId]),
         pool.query(`
-          SELECT COALESCE(c.salon_id, cl.salon_id, 1) as salon_id, COUNT(DISTINCT c.client_id) as count
-          FROM contracts c
-          LEFT JOIN clients cl ON c.client_id = cl.id
-          WHERE c.status IN ('Active', 'Activo')
-          GROUP BY COALESCE(c.salon_id, cl.salon_id, 1)
-        `),
-        // 11. Breakdown: Pagos de Hoy
-        pool.query(`
-          SELECT p.id, 
-                 COALESCE(p.salon_id, cl.salon_id, 1) as salon_id, 
-                 p.amount, p.plan_id, p.method
+          SELECT p.*, COALESCE(c.nombre, p.client_id, 'Cliente General') as client_name
           FROM payments p
-          LEFT JOIN clients cl ON p.client_id = cl.id
-          WHERE (
-            DATE(p.created_at) = CURRENT_DATE()
-            OR DATE(CONVERT_TZ(p.created_at, '+00:00', '-04:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '-04:00'))
-          ) AND p.status = 'Aprobado'
-        `),
-        // 12. Breakdown: Ventas POS de Hoy
-        pool.query(`
-          SELECT v.id, 
-                 COALESCE(v.salon_id, cl.salon_id, 1) as salon_id, 
-                 v.total as amount, 
-                 v.metodo_pago as method
-          FROM visits v
-          LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
-          WHERE (
-            DATE(v.visited_at) = CURRENT_DATE()
-            OR DATE(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = DATE(CONVERT_TZ(NOW(), '+00:00', '-04:00'))
-          ) AND v.status = 'Facturado' AND v.total > 0
-        `)
+          LEFT JOIN clients c ON p.client_id = c.id AND c.tenant_id = p.tenant_id
+          WHERE p.tenant_id = ?
+          ORDER BY p.created_at DESC LIMIT 15
+        `, [tenantId]),
+        pool.query('SELECT * FROM salons WHERE tenant_id = ?', [tenantId]),
+        pool.query('SELECT * FROM plans WHERE tenant_id = ?', [tenantId]),
+        pool.query("SELECT COUNT(*) as total FROM staff_records WHERE tenant_id = ? AND status IN ('Activo', 'Active')", [tenantId])
       ]);
 
-      const totalDailySales = (Number(dailySalesPayments[0]?.total) || 0) + (Number(dailySalesVisits[0]?.total) || 0);
-      const salonsData = salonsList.length > 0 ? salonsList : [{ id: 1, name: 'Abatte San Vicente' }];
-
-      const visitsBreakdownBySalon = {};
-      salonsData.forEach(s => {
-        visitsBreakdownBySalon[s.id] = { salon_id: s.id, salon_name: s.name, plan_beauty: 0, generica: 0, total: 0 };
-      });
-      todayVisitsRows.forEach(v => {
-        const sId = visitsBreakdownBySalon[v.salon_id] ? v.salon_id : salonsData[0].id;
-        const metodo = String(v.metodo_pago || '').toLowerCase();
-        const serviciosStr = typeof v.servicios === 'string' ? v.servicios.toLowerCase() : JSON.stringify(v.servicios || '').toLowerCase();
-        const isNamedClient = v.client_id && v.client_id !== 'INVITADO' && v.client_id !== 'generico' && v.client_id !== '0' && !String(v.client_id).startsWith('gen_');
-
-        const isPlan = 
-          metodo.includes('plan') || 
-          metodo.includes('membres') || 
-          metodo.includes('suscrip') ||
-          metodo.includes('gratis') ||
-          serviciosStr.includes('plan beauty') || 
-          serviciosStr.includes('membres') ||
-          serviciosStr.includes('lavado plan') ||
-          v.contract_id !== null ||
-          (isNamedClient && (Number(v.total) === 0 || metodo.includes('plan')));
-
-        if (isPlan) {
-          visitsBreakdownBySalon[sId].plan_beauty++;
-        } else {
-          visitsBreakdownBySalon[sId].generica++;
-        }
-        visitsBreakdownBySalon[sId].total++;
-      });
-
-      const membersBreakdownBySalon = {};
-      salonsData.forEach(s => {
-        membersBreakdownBySalon[s.id] = { salon_id: s.id, salon_name: s.name, count: 0 };
-      });
-      activeMembersRows.forEach(r => {
-        const sId = membersBreakdownBySalon[r.salon_id] ? r.salon_id : salonsData[0].id;
-        membersBreakdownBySalon[sId].count = Number(r.count) || 0;
-      });
-
-      const salesBreakdownBySalon = {};
-      salonsData.forEach(s => {
-        salesBreakdownBySalon[s.id] = { salon_id: s.id, salon_name: s.name, plan_beauty: 0, generica: 0, total: 0 };
-      });
-
-      todayPaymentsRows.forEach(p => {
-        const sId = salesBreakdownBySalon[p.salon_id] ? p.salon_id : salonsData[0].id;
-        const amt = Number(p.amount) || 0;
-        salesBreakdownBySalon[sId].plan_beauty += amt;
-        salesBreakdownBySalon[sId].total += amt;
-      });
-
-      todayVisitsSalesRows.forEach(v => {
-        const sId = salesBreakdownBySalon[v.salon_id] ? v.salon_id : salonsData[0].id;
-        const amt = Number(v.amount) || 0;
-        salesBreakdownBySalon[sId].generica += amt;
-        salesBreakdownBySalon[sId].total += amt;
-      });
+      const mrr = Number(revenueMonth[0]?.total || 0);
+      const posRevenue = Number(posSalesMonth[0]?.total || 0);
 
       res.json({
-        metrics: {
-          todayVisits: todayVisits[0]?.count || 0,
-          activeClients: activeClients[0]?.count || 0,
-          monthlyRevenue: monthlyRevenue[0]?.total || 0,
-          dailySales: totalDailySales
-        },
-        breakdowns: {
-          salons: salonsData,
-          visits: Object.values(visitsBreakdownBySalon),
-          memberships: Object.values(membersBreakdownBySalon),
-          dailySales: Object.values(salesBreakdownBySalon)
-        },
-        weeklyTraffic,
-        recentVisits: recentVisits.map(v => ({
-          ...v,
-          servicios: typeof v.servicios === 'string' ? (v.servicios.startsWith('[') ? JSON.parse(v.servicios) : [v.servicios]) : (v.servicios || [])
-        }))
+        totalClients: Number(clientsCount[0]?.total || 0),
+        activeSubscriptions: Number(activeContracts[0]?.total || 0),
+        cancelledSubscriptions: Number(cancelledContracts[0]?.total || 0),
+        visitsToday: Number(visitsToday[0]?.total || 0),
+        revenueToday: Number(visitsToday[0]?.revenue || 0),
+        visitsMonth: Number(visitsMonth[0]?.total || 0),
+        subscriptionRevenueMonth: mrr,
+        posRevenueMonth: posRevenue,
+        totalRevenueMonth: mrr + posRevenue,
+        activeStaff: Number(staffCount[0]?.total || 0),
+        recentVisits,
+        recentPayments,
+        salons,
+        plans
       });
     } catch (err) {
-      console.error('Error in /api/dashboard/summary:', err);
+      console.error('[DASHBOARD SUMMARY ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // === 8-BAR WEEKLY & MONTHLY COMPARISON ===
+  // 2. GET /api/dashboard/weekly-billing-comparison
   router.get('/weekly-billing-comparison', async (req, res) => {
     try {
-      const now = new Date();
-      // Monday of current week
-      const currentDay = now.getDay(); // 0 is Sun, 1 is Mon...
-      const diffToMonday = (currentDay === 0 ? -6 : 1) - currentDay;
-      const mondayCurrent = new Date(now);
-      mondayCurrent.setDate(now.getDate() + diffToMonday);
-      mondayCurrent.setHours(0, 0, 0, 0);
+      const tenantId = req.tenantId;
+      const [currentWeek] = await pool.query(`
+        SELECT DATE(visited_at) as date, COALESCE(SUM(total), 0) as total, COUNT(*) as count
+        FROM visits
+        WHERE tenant_id = ?
+          AND visited_at >= DATE_SUB(CURRENT_DATE, INTERVAL 7 DAY)
+          AND status = 'Facturado'
+        GROUP BY DATE(visited_at)
+        ORDER BY date ASC
+      `, [tenantId]);
 
-      // Monday of previous week
-      const mondayPrevious = new Date(mondayCurrent);
-      mondayPrevious.setDate(mondayCurrent.getDate() - 7);
+      const [previousWeek] = await pool.query(`
+        SELECT DATE(visited_at) as date, COALESCE(SUM(total), 0) as total, COUNT(*) as count
+        FROM visits
+        WHERE tenant_id = ?
+          AND visited_at >= DATE_SUB(CURRENT_DATE, INTERVAL 14 DAY)
+          AND visited_at < DATE_SUB(CURRENT_DATE, INTERVAL 7 DAY)
+          AND status = 'Facturado'
+        GROUP BY DATE(visited_at)
+        ORDER BY date ASC
+      `, [tenantId]);
 
-      // Sunday of current week
-      const sundayCurrent = new Date(mondayCurrent);
-      sundayCurrent.setDate(mondayCurrent.getDate() + 6);
-      sundayCurrent.setHours(23, 59, 59, 999);
-
-      // Month dates
-      const year = now.getFullYear();
-      const month = now.getMonth();
-      const currentDayNum = now.getDate();
-
-      const startCurrentMonth = new Date(year, month, 1, 0, 0, 0);
-      const endCurrentMonth = new Date(year, month + 1, 0, 23, 59, 59);
-
-      // Previous month (same day comparison: 1 to currentDayNum)
-      const prevMonthDate = new Date(year, month - 1, 1);
-      const prevYear = prevMonthDate.getFullYear();
-      const prevMonth = prevMonthDate.getMonth();
-      const startPrevMonth = new Date(prevYear, prevMonth, 1, 0, 0, 0);
-      const endPrevMonthToDate = new Date(prevYear, prevMonth, Math.min(currentDayNum, new Date(prevYear, prevMonth + 1, 0).getDate()), 23, 59, 59);
-
-      const earliestDate = startPrevMonth.toISOString().slice(0, 10);
-      const latestDate = sundayCurrent.toISOString().slice(0, 10);
-
-      // Query sales grouped by day
-      const [salesRows] = await pool.query(`
-        SELECT date, SUM(total) as total FROM (
-          SELECT DATE(p.created_at) as date, SUM(p.amount) as total
-          FROM payments p
-          WHERE p.created_at >= ? AND p.created_at <= ? AND p.status = 'Aprobado'
-          GROUP BY DATE(p.created_at)
-
-          UNION ALL
-
-          SELECT DATE(v.visited_at) as date, SUM(v.total) as total
-          FROM visits v
-          WHERE v.visited_at >= ? AND v.visited_at <= ? AND v.status = 'Facturado' AND v.total > 0
-          GROUP BY DATE(v.visited_at)
-        ) combined
-        GROUP BY date
-      `, [
-        earliestDate + ' 00:00:00',
-        latestDate + ' 23:59:59',
-        earliestDate + ' 00:00:00',
-        latestDate + ' 23:59:59'
-      ]);
-
-      const salesMap = {};
-      salesRows.forEach(r => {
-        const dStr = typeof r.date === 'string' ? r.date.split('T')[0] : new Date(r.date).toISOString().split('T')[0];
-        salesMap[dStr] = (salesMap[dStr] || 0) + Number(r.total || 0);
-      });
-
-      const dayNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-      const monthNamesShort = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-      const monthNamesLong = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-      const days = [];
-      for (let i = 0; i < 7; i++) {
-        const curDate = new Date(mondayCurrent);
-        curDate.setDate(mondayCurrent.getDate() + i);
-        const curKey = curDate.toISOString().split('T')[0];
-
-        const prevDate = new Date(mondayPrevious);
-        prevDate.setDate(mondayPrevious.getDate() + i);
-        const prevKey = prevDate.toISOString().split('T')[0];
-
-        const currentAmount = salesMap[curKey] || 0;
-        const previousAmount = salesMap[prevKey] || 0;
-
-        let variation = 0;
-        if (previousAmount > 0) {
-          variation = ((currentAmount - previousAmount) / previousAmount) * 100;
-        } else if (currentAmount > 0) {
-          variation = 100;
-        }
-
-        const dayLabel = `${curDate.getDate()} ${monthNamesShort[curDate.getMonth()]}`;
-
-        days.push({
-          dayName: dayNames[i],
-          dayLabel: dayLabel,
-          date: curKey,
-          currentAmount: currentAmount,
-          previousAmount: previousAmount,
-          variationPercent: Number(variation.toFixed(1)),
-          isFuture: curDate > now
-        });
-      }
-
-      // Month Calculations
-      let currentMonthTotal = 0;
-      let currentMonthToDateTotal = 0;
-      let previousMonthToDateTotal = 0;
-
-      Object.keys(salesMap).forEach(k => {
-        const parts = k.split('-');
-        if (parts.length === 3) {
-          const y = Number(parts[0]);
-          const m = Number(parts[1]) - 1;
-          const d = Number(parts[2]);
-          if (y === year && m === month) {
-            currentMonthTotal += salesMap[k];
-            if (d <= currentDayNum) {
-              currentMonthToDateTotal += salesMap[k];
-            }
-          }
-          if (y === prevYear && m === prevMonth && d <= currentDayNum) {
-            previousMonthToDateTotal += salesMap[k];
-          }
-        }
-      });
-
-      let monthVariation = 0;
-      if (previousMonthToDateTotal > 0) {
-        monthVariation = ((currentMonthToDateTotal - previousMonthToDateTotal) / previousMonthToDateTotal) * 100;
-      } else if (currentMonthToDateTotal > 0) {
-        monthVariation = 100;
-      }
-
-      const monthBar = {
-        title: 'Mes',
-        subtitle: `${monthNamesLong[month]} ${year}`,
-        total: currentMonthTotal,
-        to_date_total: currentMonthToDateTotal,
-        prev_to_date_total: previousMonthToDateTotal,
-        variationPercent: Number(monthVariation.toFixed(1))
-      };
+      const curTotal = currentWeek.reduce((acc, r) => acc + Number(r.total || 0), 0);
+      const prevTotal = previousWeek.reduce((acc, r) => acc + Number(r.total || 0), 0);
+      const growthPercent = prevTotal > 0 ? Number((((curTotal - prevTotal) / prevTotal) * 100).toFixed(1)) : 0;
 
       res.json({
-        days,
-        month: monthBar
+        currentWeek,
+        previousWeek,
+        currentTotal: curTotal,
+        previousTotal: prevTotal,
+        growthPercent
       });
     } catch (err) {
-      console.error('Error in weekly-billing-comparison:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // === VISITAS POR LOCALIDAD (Acumulado del mes en curso) ===
+  // 3. GET /api/dashboard/visits-by-location
   router.get('/visits-by-location', async (req, res) => {
     try {
-      const now = new Date();
-      const year = req.query.year ? parseInt(req.query.year) : now.getFullYear();
-      const month = req.query.month ? parseInt(req.query.month) : (now.getMonth() + 1);
-
-      // Salons
-      const [salons] = await pool.query('SELECT id, name FROM salons ORDER BY id ASC');
-      
-      // Query visits for the month grouped by salon_id
-      const [visitRows] = await pool.query(`
-        SELECT 
-          COALESCE(v.salon_id, cl.salon_id, 1) as salon_id,
-          COUNT(v.id) as visit_count
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query(`
+        SELECT COALESCE(b.name, s.name, 'Sucursal Principal') as location_name,
+               v.salon_id,
+               COUNT(v.id) as visits_count,
+               COALESCE(SUM(v.total), 0) as total_revenue
         FROM visits v
-        LEFT JOIN clients cl ON (v.client_id = cl.id OR v.client_name = cl.nombre)
-        WHERE (MONTH(v.visited_at) = ? AND YEAR(v.visited_at) = ?)
-           OR (MONTH(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = ? AND YEAR(CONVERT_TZ(v.visited_at, '+00:00', '-04:00')) = ?)
-        GROUP BY COALESCE(v.salon_id, cl.salon_id, 1)
-      `, [month, year, month, year]);
-
-      const visitMap = {};
-      let totalVisits = 0;
-      visitRows.forEach(r => {
-        const count = Number(r.visit_count) || 0;
-        visitMap[r.salon_id] = (visitMap[r.salon_id] || 0) + count;
-        totalVisits += count;
-      });
-
-      const monthNamesLong = [
-        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-      ];
-      const monthLabel = `${monthNamesLong[month - 1]} ${year}`;
-
-      const salonsData = salons.length > 0 ? salons : [{ id: 1, name: 'Sede Principal' }];
-      let results = salonsData.map(s => {
-        const count = visitMap[s.id] || 0;
-        return {
-          salon_id: s.id,
-          salon_name: s.name,
-          visits: count
-        };
-      });
-
-      // Sort descending (De mayor a menor)
-      results.sort((a, b) => b.visits - a.visits);
-
-      // Calculate percentages
-      const colors = ['#0066ff', '#3b82f6', '#93c5fd', '#60a5fa', '#38bdf8', '#0284c7'];
-      let remainingPct = 100;
-
-      results = results.map((item, idx) => {
-        const pct = totalVisits > 0 ? Math.round((item.visits / totalVisits) * 100) : 0;
-        return {
-          ...item,
-          rank: String(idx + 1).padStart(2, '0'),
-          percentage: pct,
-          color: colors[idx % colors.length]
-        };
-      });
-
-      res.json({
-        monthLabel,
-        totalVisits,
-        locations: results
-      });
+        LEFT JOIN branches b ON v.salon_id::text = b.id::text AND b.tenant_id = v.tenant_id
+        LEFT JOIN salons s ON v.salon_id::text = s.id::text AND s.tenant_id = v.tenant_id
+        WHERE v.tenant_id = ? AND v.status = 'Facturado'
+        GROUP BY v.salon_id, b.name, s.name
+        ORDER BY visits_count DESC
+      `, [tenantId]);
+      res.json(rows);
     } catch (err) {
-      console.error('Error in /api/dashboard/visits-by-location:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // === PLAN USAGES ===
+  // 4. GET /api/dashboard/plan-usage
   router.get('/plan-usage', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const [rows] = await pool.query(`
-        SELECT 
-            p.id AS plan_id,
-            p.title AS plan_name,
-            p.services AS plan_services,
-            COUNT(DISTINCT v.client_id) AS unique_clients_used,
-            COUNT(v.id) AS total_visits
-        FROM visits v
-        JOIN contracts c ON v.client_id = c.client_id
-        JOIN plans p ON c.plan_id = p.id
-        WHERE MONTH(v.visited_at) = MONTH(CURRENT_DATE())
-          AND YEAR(v.visited_at) = YEAR(CURRENT_DATE())
-        GROUP BY p.id, p.title, p.services
-      `);
-
-      const parsedRows = rows.map(r => ({
-        ...r,
-        plan_services: typeof r.plan_services === 'string' ? JSON.parse(r.plan_services) : r.plan_services
-      }));
-
-      res.json(parsedRows);
+        SELECT p.id, p.name, p.price,
+               COUNT(c.id) as active_subscribers,
+               COALESCE(SUM(c.washes_used), 0) as total_washes_used,
+               COALESCE(SUM(c.wash_Quota), 0) as total_washes_quota
+        FROM plans p
+        LEFT JOIN contracts c ON p.id = c.plan_id AND c.tenant_id = p.tenant_id AND c.status IN ('Active', 'Activo')
+        WHERE p.tenant_id = ?
+        GROUP BY p.tenant_id, p.id, p.name, p.price
+        ORDER BY p.price ASC
+      `, [tenantId]);
+      res.json(rows);
     } catch (err) {
-      console.error('Error in /api/dashboard/plan-usage:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // === BILLING STATS ===
+  // 5. GET /api/dashboard/billing-stats
   router.get('/billing-stats', async (req, res) => {
     try {
-      const [incomeRow] = await pool.query(`
-        SELECT SUM(p.price) as total_estimated
+      const tenantId = req.tenantId;
+      const [paymentStats] = await pool.query(`
+        SELECT status, COUNT(*) as count, COALESCE(SUM(amount), 0) as total
+        FROM payments
+        WHERE tenant_id = ? AND MONTH(created_at) = MONTH(NOW()) AND YEAR(created_at) = YEAR(NOW())
+        GROUP BY status
+      `, [tenantId]);
+
+      const [upcomingRenewals] = await pool.query(`
+        SELECT c.id, c.client_id, cl.nombre as client_name, cl.telefono, c.plan_name, c.precio_mensual, c.next_billing_date
         FROM contracts c
-        JOIN plans p ON c.plan_id = p.id
-        WHERE c.auto_billing_enabled = 1
-      `);
-
-      const [subRow] = await pool.query("SELECT COUNT(*) as active_count FROM contracts WHERE auto_billing_enabled = 1 AND status = 'Active'");
-      
-      const [pendingRetryRow] = await pool.query(`
-        SELECT COUNT(*) as count, COALESCE(SUM(p.price), 0) as amount 
-        FROM contracts c 
-        JOIN plans p ON c.plan_id = p.id 
-        WHERE c.status = 'Pending_Retry'
-      `);
-
-      const [lastAutoRow] = await pool.query(`
-        SELECT created_at 
-        FROM payments 
-        WHERE method = 'CardNet_Auto' 
-        ORDER BY created_at DESC 
-        LIMIT 1
-      `);
-
-      const [recentPayments] = await pool.query(`
-        SELECT 
-          p.*, 
-          c.nombre as client_name,
-          c.telefono as client_phone,
-          c.email as client_email,
-          c.cedula as client_cedula,
-          c.cardnet_customer_id
-        FROM payments p
-        LEFT JOIN clients c ON (p.client_id = c.id OR p.client_id = c.cedula)
-        ORDER BY p.created_at DESC
-      `);
-
-      const [approvedRow] = await pool.query("SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count FROM payments WHERE status = 'Aprobado'");
-      const [failedRow] = await pool.query("SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE status LIKE 'Fallido%' OR status = 'Rechazado'");
-
-      const totalApprovedCount = approvedRow[0].count || 0;
-      const totalFailedCount = failedRow[0].count || 0;
-      const totalAttempts = totalApprovedCount + totalFailedCount;
-      const successRate = totalAttempts > 0 ? ((totalApprovedCount / totalAttempts) * 100).toFixed(1) : '100.0';
+        LEFT JOIN clients cl ON c.client_id = cl.id AND cl.tenant_id = c.tenant_id
+        WHERE c.tenant_id = ?
+          AND c.status IN ('Active', 'Activo')
+          AND c.next_billing_date BETWEEN CURRENT_DATE AND DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY)
+        ORDER BY c.next_billing_date ASC
+        LIMIT 25
+      `, [tenantId]);
 
       res.json({
-        totalEstimated: incomeRow[0].total_estimated || 0,
-        totalApproved: approvedRow[0].total || 0,
-        totalApprovedCount,
-        totalFailedCount,
-        totalFailedAmount: failedRow[0].total || 0,
-        totalPendingRetryCount: pendingRetryRow[0].count || 0,
-        totalPendingRetryAmount: pendingRetryRow[0].amount || 0,
-        successRate,
-        activeSubscriptions: subRow[0].active_count || 0,
-        lastAutoBilling: lastAutoRow[0]?.created_at || null,
-        recentPayments
+        paymentStats,
+        upcomingRenewals
       });
     } catch (err) {
-      console.error('Billing stats error:', err);
       res.status(500).json({ error: err.message });
     }
   });

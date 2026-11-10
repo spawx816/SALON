@@ -663,7 +663,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
         <body>
           <div class="header">
             <h1>${contractSettings.title || 'CONTRATO DIGITAL DE MEMBRESÍA'}</h1>
-            <p>ABATTE PELUQUERÍA - ${contractSettings.company_name || 'ETEREAS S.R.L.'}</p>
+            <p>${contractSettings.company_name || 'SalonPro'}</p>
           </div>
           
           <div class="meta-grid">

@@ -310,7 +310,9 @@ const getStoredState = () => {
 const saveState = (state) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {}
+  } catch (_e) {
+    // Ignore storage quota or disabled errors
+  }
 };
 
 /**

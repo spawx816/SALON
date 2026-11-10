@@ -22,6 +22,21 @@
   --radius-md: 16px;
   --radius-sm: 12px;
   --radius-xs: 8px;
+
+  /* Tenant Dynamic Branding Design Tokens */
+  --tenant-primary: #0f172a;
+  --tenant-secondary: #d4af37;
+  --tenant-accent: #3b82f6;
+  --tenant-background: #ffffff;
+  --tenant-surface: #ffffff;
+  --tenant-text: #0f172a;
+
+  /* Immutable Semantic Status Colors (Out of tenant control for safety & accessibility) */
+  --status-error: #ef4444;
+  --status-warning: #f59e0b;
+  --status-success: #10b981;
+  --status-info: #3b82f6;
+  --status-disabled: #94a3b8;
 }
 
 /* Ensure CardNet SDK Iframe & Overlay are ALWAYS on top of all modals */

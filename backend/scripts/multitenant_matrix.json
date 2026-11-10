@@ -1,0 +1,632 @@
+[
+  {
+    "table": "account_lockouts",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "appointments",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_appointments_tenant_id",
+    "fk": "fk_appointments_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "attendance",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_attendance_tenant_id",
+    "fk": "fk_attendance_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "attendance_logs",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_attendance_tenant",
+    "fk": "attendance_logs_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "audit_logs",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_audit_logs_tenant_id",
+    "fk": "fk_audit_logs_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "billing_codes",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "blocked_ips",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "branches",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_branches_tenant_id",
+    "fk": "fk_branches_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "cash_register_movements",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_cash_register_movements_tenant_id",
+    "fk": "fk_cash_register_movements_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "cash_registers",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_cash_registers_tenant_id",
+    "fk": "fk_cash_registers_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "cash_shifts",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_cash_shifts_tenant",
+    "fk": "cash_shifts_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "clients",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_clients_tenant_id",
+    "fk": "fk_clients_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "commission_categories",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_commission_categories_tenant_id",
+    "fk": "fk_commission_categories_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "commission_payouts",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_commission_payouts_tenant_id",
+    "fk": "fk_commission_payouts_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "commission_scheme_rules",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_commission_scheme_rules_tenant_id",
+    "fk": "fk_commission_scheme_rules_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "commission_schemes",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_commission_schemes_tenant_id",
+    "fk": "fk_commission_schemes_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "company_ncf_counters",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_company_ncf_counters_tenant_unique",
+    "fk": "fk_company_ncf_counters_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "contact_messages",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "contract_settings",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_contract_settings_tenant_unique",
+    "fk": "fk_contract_settings_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "contracts",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_contracts_tenant_id",
+    "fk": "fk_contracts_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "dgii_606_purchases",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_dgii_606_purchases_tenant_id",
+    "fk": "fk_dgii_606_purchases_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "dgii_ncf_sequences",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_dgii_ncf_sequences_tenant_id",
+    "fk": "fk_dgii_ncf_sequences_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "email_logs",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_email_logs_tenant_id",
+    "fk": "fk_email_logs_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "email_settings",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_email_settings_tenant_unique",
+    "fk": "fk_email_settings_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "employee_commission_rules",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_employee_commission_rules_tenant_id",
+    "fk": "fk_employee_commission_rules_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "employee_commissions_log",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_employee_commissions_log_tenant_id",
+    "fk": "fk_employee_commissions_log_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "employee_consumptions",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_employee_consumptions_tenant_id",
+    "fk": "fk_employee_consumptions_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "employee_discounts",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_employee_discounts_tenant_id",
+    "fk": "fk_employee_discounts_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "employees",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_employees_tenant_id",
+    "fk": "employees_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "expenses",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_expenses_tenant_id",
+    "fk": "fk_expenses_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "gift_card_logs",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_gift_card_logs_tenant_id",
+    "fk": "fk_gift_card_logs_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "gift_cards",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_gift_cards_tenant_id",
+    "fk": "fk_gift_cards_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "holidays",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_holidays_tenant_id",
+    "fk": "fk_holidays_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "invoice_items",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_invoice_items_tenant",
+    "fk": "invoice_items_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "invoices",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_invoices_tenant_created",
+    "fk": "invoices_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "login_attempts",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "marketing_settings",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_marketing_settings_tenant_unique",
+    "fk": "fk_marketing_settings_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "membership_contracts",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_membership_contracts_tenant",
+    "fk": "membership_contracts_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "membership_plans",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_membership_plans_tenant",
+    "fk": "membership_plans_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "payments",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_payments_tenant_id",
+    "fk": "fk_payments_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "payroll_audit_logs",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_payroll_audit_logs_tenant_id",
+    "fk": "fk_payroll_audit_logs_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "payroll_calculation_settings",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_payroll_calculation_settings_tenant_unique",
+    "fk": "fk_payroll_calculation_settings_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "payroll_concepts",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_payroll_concepts_tenant_id",
+    "fk": "fk_payroll_concepts_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "payroll_items",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_payroll_items_tenant_id",
+    "fk": "fk_payroll_items_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "payroll_periods",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_payroll_periods_tenant_id",
+    "fk": "fk_payroll_periods_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "payroll_records",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_payroll_records_tenant_id",
+    "fk": "fk_payroll_records_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "pending_surveys",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_pending_surveys_tenant_id",
+    "fk": "fk_pending_surveys_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "pending_tenant_reconciliations",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "plans",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "plans_pkey",
+    "fk": "fk_plans_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "roles",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_roles_tenant_id",
+    "fk": "fk_roles_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "saas_plans",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "salons",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_salons_tenant_id",
+    "fk": "fk_salons_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "schedule_overrides",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_schedule_overrides_tenant_id",
+    "fk": "fk_schedule_overrides_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "schema_migrations",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "security_audit_logs",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_security_audit_logs_tenant_id",
+    "fk": "fk_security_audit_logs_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "security_requests",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_security_requests_tenant_id",
+    "fk": "fk_security_requests_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "security_settings",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_security_settings_tenant_unique",
+    "fk": "fk_security_settings_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "service_categories",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_service_categories_tenant_id",
+    "fk": "fk_service_categories_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "services",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_services_tenant_id",
+    "fk": "fk_services_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "staff_positions",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_staff_positions_tenant_name",
+    "fk": "fk_staff_positions_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "staff_records",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_staff_records_tenant_id",
+    "fk": "fk_staff_records_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "surveys",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_surveys_tenant_id",
+    "fk": "fk_surveys_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "tenant_settings",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_tenant_settings_tenant_id",
+    "fk": "tenant_settings_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "tenant_subscriptions",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "NO",
+    "index": "idx_tenant_subscriptions_tenant_id",
+    "fk": "tenant_subscriptions_tenant_id_fkey",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "tenants",
+    "tenant_id": "N/A",
+    "type": "N/A",
+    "nullable": "N/A",
+    "index": "N/A",
+    "fk": "N/A",
+    "note": "Tabla Global / Plataforma (Exenta de tenant_id)"
+  },
+  {
+    "table": "ticket_sequences",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_ticket_sequences_tenant_salon",
+    "fk": "fk_ticket_sequences_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "user_sessions",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_user_sessions_tenant_id",
+    "fk": "fk_user_sessions_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "users",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_users_tenant_id",
+    "fk": "fk_users_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "verification_codes",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_verification_codes_tenant_id",
+    "fk": "fk_verification_codes_tenant_id",
+    "note": "✅ 100% Blindado"
+  },
+  {
+    "table": "visits",
+    "tenant_id": "SÍ",
+    "type": "uuid",
+    "nullable": "YES",
+    "index": "idx_visits_tenant_id",
+    "fk": "fk_visits_tenant_id",
+    "note": "✅ 100% Blindado"
+  }
+]

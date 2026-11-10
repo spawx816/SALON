@@ -329,7 +329,7 @@ export default function PayrollModule({ initialTab }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    const cleanPeriod = (currentPeriod?.period_name || 'Nomina').replace(/[\s\/\\]+/g, '_');
+    const cleanPeriod = (currentPeriod?.period_name || 'Nomina').replace(/[\s/\\]+/g, '_');
     link.setAttribute('download', `Planilla_${cleanPeriod}.csv`);
     document.body.appendChild(link);
     link.click();
@@ -1317,8 +1317,8 @@ export default function PayrollModule({ initialTab }) {
       </head>
       <body>
         <div class="header">
-          <h1 class="title">ABATTE PELUQUERÍA / PLAN BEAUTY RD</h1>
-          <p class="subtitle">VOLANTE OFICIAL DE PAGO DE NÓMINA · ${currentPeriod?.period_name || 'Octubre 2026'}</p>
+          <h1 class="title">VOLANTE OFICIAL DE PAGO DE NÓMINA</h1>
+          <p class="subtitle">COMPROBANTE DE PAGO · ${currentPeriod?.period_name || 'Octubre 2026'}</p>
           ${currentPeriod?.status === 'Aprobada' ? '<div class="stamp-approved">✓ NÓMINA APROBADA E INMUTABLE</div>' : '<div style="color:#d97706; font-size:11px; font-weight:bold;">● DOCUMENTO EN BORRADOR</div>'}
         </div>
 
@@ -1375,7 +1375,7 @@ export default function PayrollModule({ initialTab }) {
           </div>
           <div>
             <div class="sig-line">Por la Administración</div>
-            <div>ABATTE PELUQUERÍA / RRHH</div>
+            <div>DEPARTAMENTO DE RECURSOS HUMANOS</div>
           </div>
         </div>
 
@@ -1422,8 +1422,8 @@ export default function PayrollModule({ initialTab }) {
         </style>
       </head>
       <body>
-        <h2>ABATTE PELUQUERÍA / PLAN BEAUTY RD</h2>
-        <h3>PLANILLA GENERAL DE NÓMINA · ${currentPeriod?.period_name}</h3>
+        <h2>PLANILLA GENERAL DE NÓMINA</h2>
+        <h3>${currentPeriod?.period_name || ''}</h3>
         <p>Período: ${formatDateDisplay(currentPeriod?.start_date)} al ${formatDateDisplay(currentPeriod?.end_date)} | Estado: ${currentPeriod?.status}</p>
 
         <div class="summary-kpi">
@@ -2761,7 +2761,7 @@ export default function PayrollModule({ initialTab }) {
                       </span>
                     </div>
                     <p style={{ margin: '0.2rem 0 0 0', color: '#64748b', fontSize: '0.875rem' }}>
-                      {editingItem.posicion} · Abatte {editingItem.sucursal} · ID: {editingItem.employee_id}
+                      {editingItem.posicion} · Sucursal {editingItem.sucursal} · ID: {editingItem.employee_id}
                     </p>
                   </div>
                 </div>
@@ -4584,7 +4584,7 @@ export default function PayrollModule({ initialTab }) {
                     Desglose de Regalía · {selectedRegaliaEmployee.employee_name}
                   </h2>
                   <p style={{ color: '#64748b', fontSize: '0.85rem', margin: '0.2rem 0 0 0' }}>
-                    {selectedRegaliaEmployee.posicion} · Abatte {selectedRegaliaEmployee.sucursal} · Año Fiscal {regaliasYear}
+                    {selectedRegaliaEmployee.posicion} · Sucursal {selectedRegaliaEmployee.sucursal} · Año Fiscal {regaliasYear}
                   </p>
                 </div>
                 <button 

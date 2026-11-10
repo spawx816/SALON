@@ -3,6 +3,26 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
+// Global Fetch Interceptor: ensure credentials: 'include' for HttpOnly secure cookie transport
+if (typeof window !== 'undefined' && window.fetch) {
+  const originalFetch = window.fetch;
+  window.fetch = async (resource, config = {}) => {
+    let url = '';
+    if (typeof resource === 'string') {
+      url = resource;
+    } else if (resource && resource.url) {
+      url = resource.url;
+    }
+
+    if (url.includes('/api/')) {
+      // HttpOnly cookie transport - always include credentials
+      config.credentials = config.credentials || 'include';
+    }
+
+    return originalFetch(resource, config);
+  };
+}
+
 // Safeguard against IDE custom webview event loop freezing on alert()
 if (typeof window !== 'undefined') {
   window.alert = (message) => {

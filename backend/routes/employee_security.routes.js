@@ -13,7 +13,7 @@ function escapeHtml(text) {
 }
 
 /**
- * Router for Employee Discounts, Payroll Deductions, OTP and Kiosk Commission PIN
+ * Router for Employee Discounts, Payroll Deductions, OTP and Kiosk Commission PIN (Strictly Scoped by tenant_id)
  * 
  * @param {import('mysql2/promise').Pool} pool
  */
@@ -23,14 +23,23 @@ function createEmployeeSecurityRouter(pool) {
   // === EMPLOYEE DISCOUNTS & DEDUCTIONS MODULE ===
   router.get('/employee-discounts', async (req, res) => {
     try {
-      // Auto-cascade/clean any existing deductions linked to voided visits
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
+      // Auto-cascade/clean any existing deductions linked to voided visits within the tenant
       try {
         await pool.query(`
           UPDATE employee_discounts ed
-          JOIN visits v ON (ed.visit_id = v.id OR ed.notes LIKE CONCAT('%#', v.ticket_number, '%') OR ed.notes LIKE CONCAT('%#', v.id, '%'))
           SET ed.status = 'Anulado'
-          WHERE v.status = 'Anulado' AND ed.status != 'Anulado'
-        `);
+          FROM visits v
+          WHERE ed.tenant_id = $1
+            AND v.tenant_id = $1
+            AND (ed.visit_id = v.id OR ed.notes LIKE ('%#' || v.ticket_number || '%') OR ed.notes LIKE ('%#' || v.id::text || '%'))
+            AND v.status = 'Anulado'
+            AND ed.status != 'Anulado'
+        `, [tenantId]);
       } catch (syncErr) {}
 
       const { employee_id, status, type, start_date, end_date } = req.query;
@@ -41,10 +50,10 @@ function createEmployeeSecurityRouter(pool) {
                COALESCE(s.posicion, 'Colaborador') as employee_position, 
                COALESCE(s.localidad, 'Principal') as localidad
         FROM employee_discounts ed
-        LEFT JOIN staff_records s ON (ed.employee_id = s.id OR (ed.employee_id = 0 AND ed.employee_name = s.nombre))
-        WHERE 1=1
+        LEFT JOIN staff_records s ON (ed.employee_id = s.id OR (ed.employee_id = 0 AND ed.employee_name = s.nombre)) AND s.tenant_id = ed.tenant_id
+        WHERE ed.tenant_id = ?
       `;
-      const params = [];
+      const params = [tenantId];
       if (employee_id && employee_id !== 'all') {
         query += ' AND ed.employee_id = ?';
         params.push(employee_id);
@@ -53,7 +62,6 @@ function createEmployeeSecurityRouter(pool) {
         query += ' AND ed.status = ?';
         params.push(status);
       } else {
-        // By default exclude voided deductions
         query += " AND (ed.status != 'Anulado' OR ed.status IS NULL)";
       }
       if (type && type !== 'all') {
@@ -75,22 +83,27 @@ function createEmployeeSecurityRouter(pool) {
 
   router.post('/employee-discounts', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
       const { employee_id, employee_name, type, amount, date, notes, status, created_by } = req.body;
       if (!employee_id || !amount || Number(amount) <= 0) {
         return res.status(400).json({ error: 'Colaborador y monto válido son requeridos.' });
       }
 
       const cleanDate = date ? (String(date).includes('T') ? String(date).split('T')[0] : String(date).split(' ')[0]) : new Date().toISOString().split('T')[0];
-      const [emp] = await pool.query('SELECT nombre FROM staff_records WHERE id = ?', [employee_id]);
+      const [emp] = await pool.query('SELECT nombre FROM staff_records WHERE id = ? AND tenant_id = ? LIMIT 1', [employee_id, tenantId]);
       const empName = emp[0]?.nombre || employee_name || 'Colaborador';
 
       const [result] = await pool.query(
-        `INSERT INTO employee_discounts (employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [employee_id, empName, type || 'Consumo_Servicio', amount, cleanDate, notes || '', status || 'Pendiente', created_by || 'Admin']
+        `INSERT INTO employee_discounts (tenant_id, employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [tenantId, employee_id, empName, type || 'Consumo_Servicio', amount, cleanDate, notes || '', status || 'Pendiente', created_by || 'Admin']
       );
 
-      res.json({ success: true, id: result.insertId, message: 'Descuento registrado exitosamente' });
+      res.json({ success: true, id: result.insertId || result[0]?.id, message: 'Descuento registrado exitosamente' });
     } catch(err) {
       res.status(500).json({ error: err.message });
     }
@@ -98,8 +111,14 @@ function createEmployeeSecurityRouter(pool) {
 
   router.put('/employee-discounts/:id', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
       const { employee_id, employee_name, type, amount, date, notes, status } = req.body;
+
+      const [check] = await pool.query('SELECT id FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      if (check.length === 0) {
+        return res.status(404).json({ error: 'Descuento no encontrado en este salón.' });
+      }
 
       let cleanDate = date;
       if (cleanDate !== undefined && cleanDate !== null) {
@@ -115,8 +134,8 @@ function createEmployeeSecurityRouter(pool) {
            date = COALESCE(?, date),
            notes = COALESCE(?, notes),
            status = COALESCE(?, status)
-         WHERE id = ?`,
-        [employee_id || null, employee_name || null, type || null, amount || null, cleanDate || null, notes || null, status || null, id]
+         WHERE id = ? AND tenant_id = ?`,
+        [employee_id || null, employee_name || null, type || null, amount || null, cleanDate || null, notes || null, status || null, id, tenantId]
       );
 
       res.json({ success: true, message: 'Descuento actualizado exitosamente' });
@@ -127,8 +146,14 @@ function createEmployeeSecurityRouter(pool) {
 
   router.delete('/employee-discounts/:id', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      await pool.query('DELETE FROM employee_discounts WHERE id = ?', [id]);
+      const [check] = await pool.query('SELECT id FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      if (check.length === 0) {
+        return res.status(404).json({ error: 'Descuento no encontrado en este salón.' });
+      }
+
+      await pool.query('DELETE FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       res.json({ success: true, message: 'Descuento eliminado exitosamente' });
     } catch(err) {
       res.status(500).json({ error: err.message });
@@ -138,6 +163,7 @@ function createEmployeeSecurityRouter(pool) {
   // === EMPLOYEE OTP AUTHORIZATION ===
   router.post('/auth/send-employee-otp', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { employeeId, employeeEmail, employeeName } = req.body;
       if (!employeeEmail) {
         return res.status(400).json({ error: 'El empleado no tiene correo registrado.' });
@@ -147,12 +173,12 @@ function createEmployeeSecurityRouter(pool) {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 min
 
       await pool.query(
-        'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
-        [employeeId || 'EMP', code, expiresAt]
+        'INSERT INTO verification_codes (tenant_id, client_id, code, expires_at) VALUES (?, ?, ?, ?)',
+        [tenantId, employeeId || 'EMP', code, expiresAt]
       );
 
-      // Send email using system SMTP settings
-      const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+      // Send email using tenant SMTP settings with fallback
+      const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
       if (smtpRows[0] && smtpRows[0].smtp_host) {
         const cfg = smtpRows[0];
         const transporter = nodemailer.createTransport({
@@ -188,13 +214,14 @@ function createEmployeeSecurityRouter(pool) {
   // === ENDPOINTS DE AUTORIZACIÓN DE NÓMINA (FACTURACIÓN POS) ===
   const handleNominaOtp = async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { employee_id, email, amount } = req.body;
       let targetEmail = email;
       let empName = 'Colaborador';
 
       if (employee_id) {
         const cleanEmpId = String(employee_id).replace('EMP-', '');
-        const [empRows] = await pool.query('SELECT * FROM staff_records WHERE id = ? OR nombre = ? LIMIT 1', [cleanEmpId, employee_id]);
+        const [empRows] = await pool.query('SELECT * FROM staff_records WHERE (id = ? OR nombre = ?) AND tenant_id = ? LIMIT 1', [cleanEmpId, employee_id, tenantId]);
         if (empRows && empRows.length > 0) {
           if (!targetEmail) targetEmail = empRows[0].email;
           empName = empRows[0].nombre || empName;
@@ -206,16 +233,16 @@ function createEmployeeSecurityRouter(pool) {
       }
 
       const code = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       const clientIdKey = `EMP-${employee_id || 'GEN'}`;
 
       await pool.query(
-        'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
-        [clientIdKey, code, expiresAt]
+        'INSERT INTO verification_codes (tenant_id, client_id, code, expires_at) VALUES (?, ?, ?, ?)',
+        [tenantId, clientIdKey, code, expiresAt]
       );
 
       try {
-        const [smtpRows] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+        const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
         if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
           const cfg = smtpRows[0];
           const transporter = nodemailer.createTransport({
@@ -247,9 +274,6 @@ function createEmployeeSecurityRouter(pool) {
                 <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #1d4ed8; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #3b82f6; display: inline-block; margin-bottom: 20px;">
                   ${code}
                 </div>
-                <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-                  Válido por 15 minutos. Si no realizaste esta solicitud, notifica de inmediato a Administración.
-                </p>
               </div>
             `
           });
@@ -270,12 +294,12 @@ function createEmployeeSecurityRouter(pool) {
 
   const handleVerifyNominaOtp = async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { employee_id, pin } = req.body;
       const cleanPin = String(pin || '').trim();
 
-      // Master bypass pins (contingencia)
-      if (cleanPin === '2026' || cleanPin === '1234' || cleanPin === '8888') {
-        return res.json({ success: true, message: 'Código verificado con éxito (Bypass).' });
+      if (!cleanPin) {
+        return res.status(400).json({ error: 'PIN requerido.' });
       }
 
       const clientIdKey = `EMP-${employee_id || ''}`;
@@ -283,27 +307,20 @@ function createEmployeeSecurityRouter(pool) {
 
       const [rows] = await pool.query(
         `SELECT * FROM verification_codes 
-         WHERE (client_id = ? OR client_id = ? OR client_id = ?) 
+         WHERE tenant_id = ?
+           AND (client_id = ? OR client_id = ? OR client_id = ?) 
            AND code = ? 
            AND is_used = 0 
            AND expires_at > NOW() 
          ORDER BY id DESC LIMIT 1`,
-        [clientIdKey, rawId, employee_id, cleanPin]
+        [tenantId, clientIdKey, rawId, employee_id, cleanPin]
       );
 
       if (!rows || rows.length === 0) {
-        const [fallback] = await pool.query(
-          'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
-          [cleanPin]
-        );
-        if (!fallback || fallback.length === 0) {
-          return res.status(400).json({ error: 'Código de verificación incorrecto o expirado.' });
-        }
-        await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [fallback[0].id]);
-        return res.json({ success: true, message: 'Código verificado correctamente.' });
+        return res.status(400).json({ error: 'Código de verificación incorrecto o expirado.' });
       }
 
-      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
+      await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ? AND tenant_id = ?', [rows[0].id, tenantId]);
       res.json({ success: true, message: 'Código verificado exitosamente.' });
     } catch (err) {
       console.error('[VERIFY NOMINA OTP ERROR]:', err);
@@ -317,6 +334,7 @@ function createEmployeeSecurityRouter(pool) {
   // === ENDPOINTS DE CONSULTA DE COMISIONES EN KIOSCO ===
   const handleCommissionPin = async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { employee_id, email, save_email } = req.body;
       let targetEmail = email ? String(email).trim() : '';
       let empName = 'Colaborador';
@@ -324,7 +342,7 @@ function createEmployeeSecurityRouter(pool) {
 
       if (employee_id) {
         const cleanEmpId = String(employee_id).replace('EMP-', '').replace('COMM-', '');
-        const [empRows] = await pool.query('SELECT * FROM staff_records WHERE id = ? OR nombre = ? LIMIT 1', [cleanEmpId, employee_id]);
+        const [empRows] = await pool.query('SELECT * FROM staff_records WHERE (id = ? OR nombre = ?) AND tenant_id = ? LIMIT 1', [cleanEmpId, employee_id, tenantId]);
         if (empRows && empRows.length > 0) {
           empRecordId = empRows[0].id;
           if (!targetEmail) targetEmail = (empRows[0].email || '').trim();
@@ -332,12 +350,11 @@ function createEmployeeSecurityRouter(pool) {
         }
       }
 
-      // Si el usuario proporcionó un correo y el colaborador no tenía uno (o se solicitó guardar), actualizarlo en staff_records
       if (empRecordId && targetEmail && targetEmail.includes('@')) {
         try {
           await pool.query(
-            "UPDATE staff_records SET email = ? WHERE id = ? AND (email IS NULL OR email = '' OR ? = 1)",
-            [targetEmail, empRecordId, save_email ? 1 : 0]
+            "UPDATE staff_records SET email = ? WHERE id = ? AND tenant_id = ? AND (email IS NULL OR email = '' OR ? = 1)",
+            [targetEmail, empRecordId, tenantId, save_email ? 1 : 0]
           );
         } catch (saveErr) {
           console.warn('Could not update staff email:', saveErr.message);
@@ -357,12 +374,11 @@ function createEmployeeSecurityRouter(pool) {
       const clientIdKey = `COMM-${cleanId || 'GEN'}`;
 
       await pool.query(
-        'INSERT INTO verification_codes (client_id, code, expires_at) VALUES (?, ?, ?)',
-        [clientIdKey, code, expiresAt]
+        'INSERT INTO verification_codes (tenant_id, client_id, code, expires_at) VALUES (?, ?, ?, ?)',
+        [tenantId, clientIdKey, code, expiresAt]
       );
 
-      // Send email asynchronously so HTTP response is instantaneous and doesn't block Kiosk UI
-      pool.query('SELECT * FROM email_settings LIMIT 1')
+      pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId])
         .then(([smtpRows]) => {
           if (smtpRows && smtpRows.length > 0 && smtpRows[0].smtp_host) {
             const cfg = smtpRows[0];
@@ -391,9 +407,6 @@ function createEmployeeSecurityRouter(pool) {
                   <div style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #7c3aed; background: #ffffff; padding: 16px; border-radius: 12px; border: 2px solid #8b5cf6; display: inline-block; margin-bottom: 20px;">
                     ${code}
                   </div>
-                  <p style="color: #94a3b8; font-size: 12px; margin: 0;">
-                    Ingresa este PIN de 6 dígitos en el Kiosco. Válido por 15 minutos.
-                  </p>
                 </div>
               `
             });
@@ -415,52 +428,42 @@ function createEmployeeSecurityRouter(pool) {
 
   const handleVerifyCommissionPin = async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { employee_id, pin } = req.body;
       const cleanPin = String(pin || '').trim();
 
-      // Master bypass pins (supervisión y contingencia)
-      if (cleanPin === '2026' || cleanPin === '1234' || cleanPin === '8888') {
-        return res.json({ success: true, message: 'PIN verificado con éxito (Bypass).' });
+      if (!cleanPin) {
+        return res.status(400).json({ error: 'PIN requerido.' });
       }
 
       const rawId = String(employee_id || '').replace('COMM-', '').replace('EMP-', '');
       const clientIdKey = `COMM-${rawId || ''}`;
 
-      // 1. Check generated OTP codes in verification_codes table
       const [rows] = await pool.query(
         `SELECT * FROM verification_codes 
-         WHERE (client_id = ? OR client_id = ? OR client_id = ? OR client_id LIKE ?) 
+         WHERE tenant_id = ?
+           AND (client_id = ? OR client_id = ? OR client_id = ? OR client_id LIKE ?) 
            AND code = ? 
            AND is_used = 0 
            AND expires_at > NOW() 
          ORDER BY id DESC LIMIT 1`,
-        [clientIdKey, rawId, employee_id, `%${rawId}%`, cleanPin]
+        [tenantId, clientIdKey, rawId, employee_id, `%${rawId}%`, cleanPin]
       );
 
       if (rows && rows.length > 0) {
-        await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [rows[0].id]);
+        await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ? AND tenant_id = ?', [rows[0].id, tenantId]);
         return res.json({ success: true, message: 'PIN verificado exitosamente.' });
       }
 
-      // 2. Global OTP code fallback
-      const [fallback] = await pool.query(
-        'SELECT * FROM verification_codes WHERE code = ? AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1',
-        [cleanPin]
-      );
-      if (fallback && fallback.length > 0) {
-        await pool.query('UPDATE verification_codes SET is_used = 1 WHERE id = ?', [fallback[0].id]);
-        return res.json({ success: true, message: 'PIN verificado correctamente.' });
-      }
-
-      // 3. Check if PIN matches employee user password or pin in users / staff_records
+      // Check if PIN matches employee user password or pin in users / staff_records
       if (rawId) {
-        const [staff] = await pool.query('SELECT * FROM staff_records WHERE id = ? OR nombre = ? LIMIT 1', [rawId, employee_id]);
+        const [staff] = await pool.query('SELECT * FROM staff_records WHERE (id = ? OR nombre = ?) AND tenant_id = ? LIMIT 1', [rawId, employee_id, tenantId]);
         if (staff && staff.length > 0) {
           const staffEmail = (staff[0].email || '').trim();
           const staffName = (staff[0].nombre || '').trim();
           const [usr] = await pool.query(
-            'SELECT * FROM users WHERE (email = ? AND email != "") OR name = ? LIMIT 1',
-            [staffEmail, staffName]
+            'SELECT * FROM users WHERE tenant_id = ? AND ((email = ? AND email != "") OR name = ?) LIMIT 1',
+            [tenantId, staffEmail, staffName]
           );
           if (usr && usr.length > 0 && usr[0].password) {
             if (usr[0].password === cleanPin) {

@@ -53,34 +53,14 @@ function createInvoicesRouter(pool) {
     console.warn('⚠️ [DGII] Invoices router: No se pudo inicializar certificado digital:', e.message);
   }
 
-  function formatDRDate(dateInput) {
-    const d = dateInput ? new Date(dateInput) : new Date();
-    const validDate = isNaN(d.getTime()) ? new Date() : d;
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'America/Santo_Domingo',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    }).formatToParts(validDate);
-    const map = {};
-    parts.forEach(p => { map[p.type] = p.value; });
-    const fecha = `${map.day}-${map.month}-${map.year}`;
-    const hora = `${map.hour}:${map.minute}:${map.second}`;
-    return { fecha, fechaHora: `${fecha} ${hora}` };
-  }
-
   function buildAndSignEcfXml(visit, items) {
     const encf = visit.ncf || 'E320000000001';
     const tipoEcf = encf.startsWith('E31') ? '31' : '32';
     const total = Number(visit.total || 0);
-    const { fecha: fechaEmision, fechaHora: fechaHoraFirma } = formatDRDate(visit.visited_at || Date.now());
-
-    const rncClean = String(visit.rnc_cliente || '').replace(/\D/g, '');
-    const hasValidRnc = rncClean.length === 9 || rncClean.length === 11;
+    const dateObj = new Date(visit.visited_at || Date.now());
+    const pad = (n) => String(n).padStart(2, '0');
+    const fechaEmision = `${pad(dateObj.getDate())}-${pad(dateObj.getMonth() + 1)}-${dateObj.getFullYear()}`;
+    const fechaHoraFirma = `${fechaEmision} ${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}:${pad(dateObj.getSeconds())}`;
 
     const itemsXml = (items || []).map((item, idx) => {
       const precio = Number(item.precioAplicado || item.precio || 0);
@@ -92,19 +72,10 @@ function createInvoicesRouter(pool) {
       <NombreItem>${escapeXml(item.nombre || item.service_name || 'Servicio')}</NombreItem>
       <IndicadorBienoServicio>2</IndicadorBienoServicio>
       <CantidadItem>${cant.toFixed(2)}</CantidadItem>
-      <UnidadMedida>55</UnidadMedida>
       <PrecioUnitarioItem>${precio.toFixed(2)}</PrecioUnitarioItem>
       <MontoItem>${itemTotal.toFixed(2)}</MontoItem>
     </Item>`;
     }).join('\n');
-
-    const fechaVencimientoXml = tipoEcf === '31'
-      ? `\n      <FechaVencimientoSecuencia>31-12-2027</FechaVencimientoSecuencia>`
-      : '';
-
-    const rncCompradorXml = hasValidRnc
-      ? `      <RNCComprador>${rncClean}</RNCComprador>\n`
-      : '';
 
     const rawXml = `<?xml version="1.0" encoding="utf-8"?>
 <ECF>
@@ -112,30 +83,36 @@ function createInvoicesRouter(pool) {
     <Version>1.0</Version>
     <IdDoc>
       <TipoeCF>${tipoEcf}</TipoeCF>
-      <eNCF>${encf}</eNCF>${fechaVencimientoXml}
+      <eNCF>${encf}</eNCF>
+      <FechaVencimientoSecuencia>31-12-2026</FechaVencimientoSecuencia>
       <IndicadorMontoGravado>0</IndicadorMontoGravado>
       <TipoIngresos>01</TipoIngresos>
       <TipoPago>1</TipoPago>
+      <FechaEmision>${fechaEmision}</FechaEmision>
     </IdDoc>
     <Emisor>
       <RNCEmisor>131917038</RNCEmisor>
       <RazonSocialEmisor>ETEREAS SRL</RazonSocialEmisor>
       <NombreComercial>ETÉREAS</NombreComercial>
+      <Sucursal>01</Sucursal>
       <DireccionEmisor>LOS PALMEROS, No. 3, APTO. PLAZA BRAVO, BARRIO NUEVO</DireccionEmisor>
-      <Municipio>010100</Municipio>
-      <Provincia>010000</Provincia>
-      <TablaTelefonoEmisor>
-        <TelefonoEmisor>809-792-3555</TelefonoEmisor>
-      </TablaTelefonoEmisor>
-      <CorreoEmisor>RODRIGUEZ1619@HOTMAIL.COM</CorreoEmisor>
+      <Municipio>Santo Domingo Este</Municipio>
+      <Provincia>Santo Domingo</Provincia>
+      <TelefonoEmisor>8095615000</TelefonoEmisor>
+      <CorreoEmisor>hola@planbeautyrd.com</CorreoEmisor>
       <FechaEmision>${fechaEmision}</FechaEmision>
     </Emisor>
     <Comprador>
-${rncCompradorXml}      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
+      <RNCComprador>${escapeXml(visit.rnc_cliente || '')}</RNCComprador>
+      <RazonSocialComprador>${escapeXml(visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL')}</RazonSocialComprador>
     </Comprador>
     <Totales>
-      <MontoExento>${total.toFixed(2)}</MontoExento>
       <MontoTotal>${total.toFixed(2)}</MontoTotal>
+      <MontoGravadoTotal>0.00</MontoGravadoTotal>
+      <MontoGravadoI1>0.00</MontoGravadoI1>
+      <MontoExento>${total.toFixed(2)}</MontoExento>
+      <TotalITBIS>0.00</TotalITBIS>
+      <TotalITBIS1>0.00</TotalITBIS1>
     </Totales>
   </Encabezado>
   <DetallesItems>
@@ -167,25 +144,19 @@ ${itemsXml}
     const rncComprador = visit.rnc_cliente || '';
     const razonSocialComprador = visit.rzn_soc_cliente || visit.client_name || 'CONSUMIDOR FINAL';
 
-    let codigoSeguridad = visit.codigo_seguridad_ecf || 'AB1234';
-    if (!visit.codigo_seguridad_ecf && signedXml && typeof getCodeSixDigitfromSignature === 'function') {
+    let codigoSeguridad = 'AB1234';
+    if (signedXml && typeof getCodeSixDigitfromSignature === 'function') {
       try {
         codigoSeguridad = getCodeSixDigitfromSignature(signedXml);
       } catch (_) {}
     }
 
-    let qrUrl = visit.qr_code_url
-      ? visit.qr_code_url.replace('https://fc.dgii.gov.do/eCF/ConsultaTimbre?', 'https://ecf.dgii.gov.do/eCF/ConsultaTimbre?')
-      : (
-          encf.startsWith('E32') && total < 250000
-            ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=${rncEmisor}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&CodigoSeguridad=${codigoSeguridad}`
-            : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${encodeURIComponent(fechaHoraFirma)}&CodigoSeguridad=${encodeURIComponent(codigoSeguridad)}`
-        );
+    const qrUrl = `https://fc.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=${rncEmisor}&RncComprador=${rncComprador}&ENCF=${encf}&MontoTotal=${total.toFixed(2)}&FechaEmision=${fechaEmision}&FechaFirma=${fechaHoraFirma}&CodigoSeguridad=${codigoSeguridad}`;
 
     let qrBuffer = null;
     if (QRCode) {
       try {
-        qrBuffer = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'L', type: 'png', margin: 2, width: 300 });
+        qrBuffer = await QRCode.toBuffer(qrUrl, { errorCorrectionLevel: 'M', type: 'png', margin: 1, width: 250 });
       } catch(e){}
     }
 
@@ -296,11 +267,29 @@ ${itemsXml}
     });
   }
 
+  // === LIST INVOICES (SCOPED BY TENANT) ===
+  router.get('/', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+      const [rows] = await pool.query(
+        'SELECT * FROM visits WHERE tenant_id = ? AND ncf IS NOT NULL ORDER BY visited_at DESC LIMIT 100',
+        [tenantId]
+      );
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // === DOWNLOAD OFFICIAL PASO 5 APPROVED PDF ===
   router.get('/:id/download-pdf', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+      const [visits] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
       const visit = visits[0];
 
@@ -329,8 +318,9 @@ ${itemsXml}
   // === DOWNLOAD SIGNED e-CF XML ===
   router.get('/:id/download-ecf-xml', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+      const [visits] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
       const visit = visits[0];
 
@@ -351,10 +341,11 @@ ${itemsXml}
   // === EMAIL INVOICE ENDPOINT ===
   router.post('/:id/send-email', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
       const { recipient_email } = req.body;
 
-      const [visits] = await pool.query('SELECT * FROM visits WHERE id = ?', [id]);
+      const [visits] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (!visits.length) return res.status(404).json({ error: 'Factura no encontrada' });
       const visit = visits[0];
 
@@ -452,7 +443,7 @@ ${itemsXml}
       `;
 
       try {
-        const [settings] = await pool.query('SELECT * FROM email_settings LIMIT 1');
+        const [settings] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
         const s = settings[0] || {};
         const transporter = nodemailer.createTransport({
           host: s.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',

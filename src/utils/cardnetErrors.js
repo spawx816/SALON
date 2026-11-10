@@ -126,7 +126,9 @@ export const getCardNetDiagnostic = (p) => {
   if (p.cardnet_raw_response) {
     try {
       raw = typeof p.cardnet_raw_response === 'string' ? JSON.parse(p.cardnet_raw_response) : p.cardnet_raw_response;
-    } catch (_) {}
+    } catch (_) {
+      // Ignore parse failure
+    }
   }
 
   let code = null;

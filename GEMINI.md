@@ -7,7 +7,7 @@
 ---
 
 ## 2. Impresión de Tickets Térmicos (POS 80mm)
-- **Formato Homologado**: Cabecera *ABATTE PELUQUERIA / PLAN BEAUTY*, metadatos (*TICKET No., FECHA, HORA, CLIENTE, RECEPCIONISTA*), caja de beneficios (*Plan Beauty Activo* / *Semana Cumpleaños*), tabla de 14 servicios pre-impresos con líneas de precios `RD$ ______`, caja delimitada `TOTAL RD$`, código QR a menú de servicios y pie de agradecimiento en cursiva (*"Gracias por preferirnos ! ♡"*).
+- **Formato Homologado**: Cabecera con Nombre y Logo del Salón (Branding Dinámico Multi-Tenant con fallback neutral a *SalonPro*), metadatos (*TICKET No., FECHA, HORA, CLIENTE, RECEPCIONISTA*), caja de beneficios (*Plan Beauty Activo* / *Semana Cumpleaños*), tabla de 14 servicios pre-impresos con líneas de precios `RD$ ______`, caja delimitada `TOTAL RD$`, código QR a menú de servicios y pie de agradecimiento configurable (*"Gracias por preferirnos ! ♡"*).
 - **Dimensiones de Impresión**: El ancho del ticket en `@media print` debe ser **`60mm`** alineado a la izquierda (`left: 0; padding: 1mm 1mm 6mm 0.5mm;`) para garantizar un margen de seguridad amplio que prevenga recortes en el borde derecho del cabezal térmico.
 - **Disparo de Impresión**: Disparo automático (`window.print()`) tras 250ms de abrir el modal del ticket térmico.
 

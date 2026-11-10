@@ -1,478 +1,237 @@
 const express = require('express');
 
 /**
- * Employees and RRHH Staff Router
- * 
- * @param {import('mysql2/promise').Pool} pool 
+ * Employees, Staff Records and Positions Router (Scoped strictly by tenant_id)
  */
 function createEmployeesRouter(pool) {
   const router = express.Router();
 
-  // GET employees
-  const handleGetEmployees = async (req, res) => {
+  // GET /api/employees
+  router.get('/', async (req, res) => {
     try {
-      const { light } = req.query;
-      if (light === 'true') {
-        const [rows] = await pool.query(`
-          SELECT id, nombre, posicion as rol, status, salon_id, email
-          FROM staff_records 
-          WHERE status = 'Activo' OR status = 'Active'
-          ORDER BY nombre ASC
-        `);
-        return res.json(rows);
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
       }
+
+      if (pool.isPostgres) {
+        try {
+          const [pgRows] = await pool.query(`
+            SELECT id, tenant_id, branch_id, name as nombre, role as posicion, phone as telefono, email,
+                   commission_rate, base_salary as salario_base, is_active, created_at,
+                   CASE WHEN is_active THEN 'Activo' ELSE 'Inactivo' END as status
+            FROM employees
+            WHERE tenant_id = ?
+            ORDER BY name ASC
+          `, [tenantId]);
+          if (pgRows && pgRows.length > 0) {
+            return res.json(pgRows);
+          }
+        } catch (pgErr) {}
+      }
+
       const [rows] = await pool.query(`
-        SELECT 
-          id, 
-          nombre, 
-          posicion as rol, 
-          status,
-          profile_photo,
-          hora_entrada,
-          hora_salida,
-          dias_laborables,
-          tolerancia_minutos,
-          salon_id,
-          email
-        FROM staff_records 
-        WHERE status = 'Activo' OR status = 'Active'
-        ORDER BY nombre ASC
-      `);
-      res.json(rows);
-    } catch (err) {
-      console.error('[EMPLOYEES FETCH ERROR]', err.message);
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  const handlePostEmployees = async (req, res) => {
-    try {
-      const id = Date.now().toString();
-      const { nombre, rol } = req.body;
-      await pool.query(
-        'INSERT INTO employees (id, nombre, rol) VALUES (?, ?, ?)',
-        [id, nombre, rol]
-      );
-      res.json({ id, nombre, rol });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  const handleDeleteEmployees = async (req, res) => {
-    try {
-      await pool.query('DELETE FROM employees WHERE id = ?', [req.params.id]);
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  // Staff Records (RRHH)
-  const handleGetStaff = async (req, res) => {
-    try {
-      const { light } = req.query;
-      if (light === 'true') {
-        const [rows] = await pool.query('SELECT id, nombre, cedula, contacto, posicion, email, localidad, salon_id, status FROM staff_records ORDER BY nombre ASC');
-        return res.json(rows);
-      }
-      const [rows] = await pool.query('SELECT * FROM staff_records ORDER BY nombre ASC');
+        SELECT s.*, COALESCE(b.name, sal.name, s.localidad, 'Principal') as salon_name 
+        FROM staff_records s
+        LEFT JOIN branches b ON s.salon_id::text = b.id::text AND b.tenant_id = s.tenant_id
+        LEFT JOIN salons sal ON s.salon_id::text = sal.id::text AND sal.tenant_id = s.tenant_id
+        WHERE s.tenant_id = ?
+        ORDER BY s.nombre ASC
+      `, [tenantId]);
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
-  };
+  });
 
-  // Desacoplado al 100%: Los empleados y los usuarios son independientes.
-  // Solo si un usuario está vinculado explícitamente mediante staff_id y el empleado es desvinculado, se revocan sus sesiones.
-  async function syncStaffToUser(staffData, oldStaffRecord = null) {
+  // --- Gestión de Posiciones de Personal (staff_positions) ---
+  router.get('/positions', async (req, res) => {
     try {
-      const staffId = staffData.id || oldStaffRecord?.id;
-      if (!staffId) return;
-
-      const { status } = staffData;
-
-      // Buscar usuario ÚNICAMENTE por enlace de clave foránea staff_id (NUNCA por nombre ni por correo)
-      const [linkedUsers] = await pool.query('SELECT id FROM users WHERE staff_id = ?', [staffId]);
-      if (linkedUsers.length === 0) return;
-
-      // Si el estado del personal pasa a Inactivo / Cancelado / Desvinculado, revocar sesiones activas por seguridad
-      if (status && (status.toLowerCase().includes('inactiv') || status.toLowerCase().includes('cancel') || status.toLowerCase().includes('desvincul'))) {
-        for (const u of linkedUsers) {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ?', [u.id]);
-          console.log(`[RRHH -> USERS SYNC] Sesiones cerradas de forma forzosa para usuario ID: ${u.id} vinculado al empleado ID: ${staffId}`);
-        }
-      }
-    } catch (syncErr) {
-      console.warn('[RRHH -> USERS SYNC WARN]:', syncErr.message);
-    }
-  }
-
-  const handlePostStaff = async (req, res) => {
-    try {
-      const { 
-        nombre, cedula, contacto, posicion, email, direccion, localidad, 
-        fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, 
-        tolerancia_minutos, salon_id, commission_scheme_id, tipo_salario, salario_base 
-      } = req.body;
-      const schemeIdVal = commission_scheme_id ? parseInt(commission_scheme_id, 10) : null;
-      const cleanTipoSalario = tipo_salario || 'fijo_mas_comision';
-      const cleanSalarioBase = !isNaN(parseFloat(salario_base)) ? parseFloat(salario_base) : 0.00;
-
-      const [result] = await pool.query(
-        'INSERT INTO staff_records (nombre, cedula, contacto, posicion, email, direccion, localidad, fecha_entrada, profile_photo, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salon_id, commission_scheme_id, scheme_effective_date, tipo_salario, salario_base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?)',
-        [
-          nombre, 
-          cedula, 
-          contacto, 
-          posicion, 
-          email || null,
-          direccion, 
-          localidad, 
-          fecha_entrada,
-          profile_photo || null,
-          hora_entrada || null,
-          hora_salida || null,
-          dias_laborables || null,
-          tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
-          salon_id || null,
-          schemeIdVal,
-          cleanTipoSalario,
-          cleanSalarioBase
-        ]
+      const tenantId = req.tenantId;
+      let [rows] = await pool.query(
+        'SELECT * FROM staff_positions WHERE tenant_id = ? ORDER BY name ASC',
+        [tenantId]
       );
-
-      await syncStaffToUser(req.body);
-      res.json({ id: result.insertId, success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  const handlePutStaff = async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { 
-        nombre, cedula, contacto, posicion, email, direccion, localidad, 
-        fecha_entrada, fecha_salida, status, profile_photo, hora_entrada, 
-        hora_salida, dias_laborables, tolerancia_minutos, salon_id, commission_scheme_id,
-        tipo_salario, salario_base
-      } = req.body;
-
-      const cleanNombre = (nombre || '').trim();
-      const cleanCedula = (cedula || '').trim();
-      const cleanContacto = (contacto || '').trim();
-      const cleanPosicion = (posicion || '').trim();
-      const cleanEmail = (email && String(email).trim()) ? String(email).trim() : null;
-      const cleanDireccion = (direccion && String(direccion).trim()) ? String(direccion).trim() : null;
-      const cleanLocalidad = (localidad && String(localidad).trim()) ? String(localidad).trim() : null;
-      const cleanStatus = status || 'Activo';
-      const cleanTipoSalario = tipo_salario || 'fijo_mas_comision';
-      const cleanSalarioBase = !isNaN(parseFloat(salario_base)) ? parseFloat(salario_base) : 0.00;
-
-      let cleanFechaEntrada = null;
-      if (fecha_entrada && String(fecha_entrada).trim()) {
-        cleanFechaEntrada = String(fecha_entrada).split('T')[0];
-      } else {
-        cleanFechaEntrada = new Date().toISOString().split('T')[0];
-      }
-
-      let cleanFechaSalida = null;
-      if (fecha_salida && String(fecha_salida).trim()) {
-        cleanFechaSalida = String(fecha_salida).split('T')[0];
-      }
-
-      const cleanTolerancia = !isNaN(parseInt(tolerancia_minutos, 10)) ? parseInt(tolerancia_minutos, 10) : 15;
-      const cleanSalonId = (salon_id && !isNaN(parseInt(salon_id, 10))) ? parseInt(salon_id, 10) : null;
-      const schemeIdVal = (commission_scheme_id && !isNaN(parseInt(commission_scheme_id, 10))) ? parseInt(commission_scheme_id, 10) : null;
-
-      const [current] = await pool.query('SELECT * FROM staff_records WHERE id = ?', [id]);
-      const oldRecord = current && current[0] ? current[0] : null;
-      const schemeChanged = oldRecord && oldRecord.commission_scheme_id !== schemeIdVal;
-
-      if (schemeChanged) {
-        await pool.query(
-          'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, email=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=?, profile_photo=?, hora_entrada=?, hora_salida=?, dias_laborables=?, tolerancia_minutos=?, salon_id=?, commission_scheme_id=?, scheme_effective_date=NOW(), tipo_salario=?, salario_base=? WHERE id=?',
-          [
-            cleanNombre, cleanCedula, cleanContacto, cleanPosicion, cleanEmail, cleanDireccion, cleanLocalidad, 
-            cleanFechaEntrada, cleanFechaSalida, cleanStatus, profile_photo || null, hora_entrada || null, 
-            hora_salida || null, dias_laborables || null, cleanTolerancia, cleanSalonId, schemeIdVal, cleanTipoSalario, cleanSalarioBase, id
-          ]
-        );
-      } else {
-        await pool.query(
-          'UPDATE staff_records SET nombre=?, cedula=?, contacto=?, posicion=?, email=?, direccion=?, localidad=?, fecha_entrada=?, fecha_salida=?, status=?, profile_photo=?, hora_entrada=?, hora_salida=?, dias_laborables=?, tolerancia_minutos=?, salon_id=?, commission_scheme_id=?, tipo_salario=?, salario_base=? WHERE id=?',
-          [
-            cleanNombre, cleanCedula, cleanContacto, cleanPosicion, cleanEmail, cleanDireccion, cleanLocalidad, 
-            cleanFechaEntrada, cleanFechaSalida, cleanStatus, profile_photo || null, hora_entrada || null, 
-            hora_salida || null, dias_laborables || null, cleanTolerancia, cleanSalonId, schemeIdVal, cleanTipoSalario, cleanSalarioBase, id
-          ]
-        );
-      }
-
-      // Sincronizar automáticamente hacia el registro de usuario en users y user_sessions
-      await syncStaffToUser(req.body, oldRecord);
-
-      res.json({ success: true, message: 'Ficha actualizada y sincronizada correctamente con usuarios' });
-    } catch (err) {
-      console.error('Error updating staff record:', err);
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  const handleDeleteStaff = async (req, res) => {
-    try {
-      const { id } = req.params;
-      const [staffRows] = await pool.query('SELECT nombre, email FROM staff_records WHERE id = ?', [id]);
-      const staff = staffRows[0];
-
-      if (staff) {
-        // Cerrar forzosamente cualquier sesión activa del usuario eliminado
-        if (staff.email) {
-          await pool.query('UPDATE user_sessions s JOIN users u ON s.user_id = u.id SET s.is_active = 0 WHERE u.email = ?', [staff.email]);
-        }
-        if (staff.nombre) {
-          await pool.query('UPDATE user_sessions s JOIN users u ON s.user_id = u.id SET s.is_active = 0 WHERE LOWER(TRIM(u.nombre)) = LOWER(TRIM(?))', [staff.nombre]);
-        }
-      }
-
-      await pool.query('DELETE FROM staff_records WHERE id = ?', [id]);
-      res.json({ success: true, message: 'Colaborador eliminado y sesiones revocadas' });
-    } catch (err) {
-      console.error('Error deleting staff record:', err);
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  // Staff Positions (Cargos & Funciones)
-  let isPositionsInitialized = false;
-  const ensurePositionsTable = async () => {
-    if (isPositionsInitialized) return;
-    try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS staff_positions (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          name VARCHAR(100) NOT NULL UNIQUE,
-          description VARCHAR(255) NULL,
-          base_salary DECIMAL(10,2) DEFAULT 0.00,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Seed standard positions ONLY if the table is completely empty (first time run)
-      const [existing] = await pool.query('SELECT COUNT(*) as count FROM staff_positions');
-      if (existing && existing[0] && existing[0].count === 0) {
-        const standardPositions = [
-          ['Peluquera', 'Estilista / Especialista en cabello y secado', 18000.00],
-          ['Lava pelo', 'Lavado, tratamientos capilares y asistencia', 18421.00],
-          ['Manicurista', 'Cuidado y diseño de uñas', 15351.00],
-          ['Encargada', 'Supervisión de operaciones y caja', 20000.00],
-          ['Recepcionista', 'Atención al cliente, cobro y agendamiento', 18000.00],
-          ['Cajera', 'Facturación y arqueo de caja', 18000.00]
-        ];
-        for (const [name, desc, sal] of standardPositions) {
+      if (rows.length === 0) {
+        const defaultPositions = ['Estilista', 'Manicurista', 'Lava Pelo', 'Recepcionista', 'Maquillista', 'Encargada'];
+        for (const pos of defaultPositions) {
           await pool.query(
-            `INSERT IGNORE INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)`,
-            [name, desc, sal]
+            'INSERT INTO staff_positions (tenant_id, name) VALUES (?, ?) ON CONFLICT (tenant_id, name) DO NOTHING',
+            [tenantId, pos]
           );
         }
+        [rows] = await pool.query('SELECT * FROM staff_positions WHERE tenant_id = ? ORDER BY name ASC', [tenantId]);
       }
-
-      isPositionsInitialized = true;
-    } catch (err) {
-      console.warn('[RRHH POSITIONS INIT]', err.message);
-    }
-  };
-
-  const handleGetPositions = async (req, res) => {
-    try {
-      await ensurePositionsTable();
-      const [rows] = await pool.query(`
-        SELECT 
-          sp.id,
-          sp.name,
-          sp.description,
-          sp.base_salary,
-          sp.created_at,
-          COALESCE(st.staff_count, 0) as staff_count
-        FROM staff_positions sp
-        LEFT JOIN (
-          SELECT TRIM(LOWER(posicion)) as pos_clean, COUNT(*) as staff_count
-          FROM staff_records
-          WHERE status IS NULL OR status = '' OR status = 'Activo' OR status = 'Active' OR status = 'En Licencia'
-          GROUP BY TRIM(LOWER(posicion))
-        ) st ON TRIM(LOWER(sp.name)) = st.pos_clean
-        ORDER BY 
-          CASE 
-            WHEN sp.name LIKE '%Peluquer%' THEN 1
-            WHEN sp.name LIKE '%Lava%' THEN 2
-            WHEN sp.name LIKE '%Manicur%' THEN 3
-            WHEN sp.name LIKE '%Encargad%' THEN 4
-            WHEN sp.name LIKE '%Recep%' THEN 5
-            WHEN sp.name LIKE '%Cajer%' THEN 6
-            ELSE 7
-          END,
-          sp.name ASC
-      `);
       res.json(rows);
     } catch (err) {
-      console.error('[GET POSITIONS ERROR]', err);
       res.status(500).json({ error: err.message });
     }
-  };
+  });
 
-  const handlePostPosition = async (req, res) => {
+  router.post('/positions', async (req, res) => {
     try {
-      await ensurePositionsTable();
-      const { name, description, base_salary } = req.body;
-      if (!name || !name.trim()) {
-        return res.status(400).json({ error: 'El nombre del cargo o posición es requerido' });
-      }
+      const tenantId = req.tenantId;
+      const { name } = req.body;
+      if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre de la posición es requerido' });
       const cleanName = name.trim();
-      const cleanDesc = (description || '').trim();
-      const cleanSalary = !isNaN(parseFloat(base_salary)) ? parseFloat(base_salary) : 0.00;
-
-      const [result] = await pool.query(
-        'INSERT INTO staff_positions (name, description, base_salary) VALUES (?, ?, ?)',
-        [cleanName, cleanDesc, cleanSalary]
-      );
-      res.json({ id: result.insertId, name: cleanName, description: cleanDesc, base_salary: cleanSalary, success: true });
-    } catch (err) {
-      if (err.code === 'ER_DUP_ENTRY') {
-        return res.status(400).json({ error: 'Ya existe un cargo o posición con ese nombre' });
-      }
-      console.error('[POST POSITION ERROR]', err);
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  const handlePutPosition = async (req, res) => {
-    try {
-      await ensurePositionsTable();
-      const { id } = req.params;
-      const { name, description, base_salary, old_name, sync_salaries } = req.body;
-      if (!name || !name.trim()) {
-        return res.status(400).json({ error: 'El nombre del cargo es requerido' });
-      }
-      const cleanName = name.trim();
-      const cleanDesc = (description || '').trim();
-      const cleanSalary = !isNaN(parseFloat(base_salary)) ? parseFloat(base_salary) : 0.00;
-
-      let previousName = old_name;
-      if (!previousName) {
-        const [curr] = await pool.query('SELECT name FROM staff_positions WHERE id = ?', [id]);
-        if (curr.length > 0) previousName = curr[0].name;
-      }
-
       await pool.query(
-        'UPDATE staff_positions SET name = ?, description = ?, base_salary = ? WHERE id = ?',
-        [cleanName, cleanDesc, cleanSalary, id]
+        'INSERT INTO staff_positions (tenant_id, name) VALUES (?, ?) ON CONFLICT (tenant_id, name) DO NOTHING',
+        [tenantId, cleanName]
       );
-
-      // If name changed, propagate to staff_records
-      if (previousName && previousName !== cleanName) {
-        await pool.query(
-          'UPDATE staff_records SET posicion = ? WHERE posicion = ?',
-          [cleanName, previousName]
-        );
-      }
-
-      // If sync_salaries is true (or undefined), update staff_records with the new base salary
-      if (sync_salaries === true || sync_salaries === 'true' || sync_salaries === undefined) {
-        await pool.query(
-          'UPDATE staff_records SET salario_base = ? WHERE posicion = ? OR posicion = ?',
-          [cleanSalary, cleanName, previousName]
-        );
-      }
-
-      res.json({ success: true, message: 'Cargo y fichas de colaboradores actualizados correctamente' });
+      const [rows] = await pool.query('SELECT * FROM staff_positions WHERE tenant_id = ? ORDER BY name ASC', [tenantId]);
+      res.json({ success: true, positions: rows });
     } catch (err) {
-      console.error('[PUT POSITION ERROR]', err);
       res.status(500).json({ error: err.message });
     }
-  };
+  });
 
-  const handleDeletePosition = async (req, res) => {
+  router.put('/positions/:id', async (req, res) => {
     try {
+      const tenantId = req.tenantId;
       const { id } = req.params;
-      const nameQuery = req.query.name ? String(req.query.name).trim() : null;
-      const isNumeric = !isNaN(parseInt(id, 10)) && /^\d+$/.test(String(id).trim());
-      
-      let posName = nameQuery || null;
-      let posId = null;
+      const { name } = req.body;
+      if (!name || !name.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+      const cleanName = name.trim();
 
-      if (isNumeric) {
-        posId = parseInt(id, 10);
-        const [rows] = await pool.query('SELECT id, name FROM staff_positions WHERE id = ?', [posId]);
-        if (rows.length > 0) {
-          posName = rows[0].name;
-        }
-      } else {
-        const decoded = decodeURIComponent(id).trim();
-        if (!posName) posName = decoded;
-        const [rows] = await pool.query('SELECT id, name FROM staff_positions WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))', [posName]);
-        if (rows.length > 0) {
-          posId = rows[0].id;
-        }
+      const [oldPos] = await pool.query('SELECT name FROM staff_positions WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      if (oldPos.length === 0) {
+        return res.status(404).json({ error: 'Posición no encontrada en este salón' });
+      }
+      await pool.query('UPDATE staff_positions SET name = ? WHERE id = ? AND tenant_id = ?', [cleanName, id, tenantId]);
+
+      if (oldPos[0].name !== cleanName) {
+        await pool.query('UPDATE staff_records SET posicion = ? WHERE posicion = ? AND tenant_id = ?', [cleanName, oldPos[0].name, tenantId]);
       }
 
-      if (!posName && nameQuery) {
-        posName = nameQuery;
-      }
-
-      if (posName && req.query.force !== 'true') {
-        const [staffCount] = await pool.query('SELECT COUNT(*) as cnt FROM staff_records WHERE LOWER(TRIM(posicion)) = LOWER(TRIM(?))', [posName]);
-        if (staffCount[0] && staffCount[0].cnt > 0) {
-          return res.status(400).json({ 
-            error: `No se puede eliminar porque hay ${staffCount[0].cnt} colaborador(es) asignados a este cargo.`,
-            staff_count: staffCount[0].cnt
-          });
-        }
-      }
-
-      if (posId) {
-        await pool.query('DELETE FROM staff_positions WHERE id = ?', [posId]);
-      }
-      if (posName) {
-        await pool.query('DELETE FROM staff_positions WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))', [posName]);
-      }
-
-      // If force delete, clear position in staff_records so no orphan positions or reactivation loops exist
-      if (posName && req.query.force === 'true') {
-        await pool.query('UPDATE staff_records SET posicion = "" WHERE LOWER(TRIM(posicion)) = LOWER(TRIM(?))', [posName]);
-      }
-
-      res.json({ success: true, message: 'Cargo eliminado correctamente' });
+      const [rows] = await pool.query('SELECT * FROM staff_positions WHERE tenant_id = ? ORDER BY name ASC', [tenantId]);
+      res.json({ success: true, positions: rows });
     } catch (err) {
-      console.error('[DELETE POSITION ERROR]', err);
       res.status(500).json({ error: err.message });
     }
-  };
+  });
 
-  // Route handlers for direct /api mounting
-  router.get('/employees', handleGetEmployees);
-  router.post('/employees', handlePostEmployees);
-  router.delete('/employees/:id', handleDeleteEmployees);
+  router.delete('/positions/:id', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { id } = req.params;
+      await pool.query('DELETE FROM staff_positions WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      const [rows] = await pool.query('SELECT * FROM staff_positions WHERE tenant_id = ? ORDER BY name ASC', [tenantId]);
+      res.json({ success: true, positions: rows });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-  router.get('/rrhh/staff', handleGetStaff);
-  router.post('/rrhh/staff', handlePostStaff);
-  router.put('/rrhh/staff/:id', handlePutStaff);
-  router.delete('/rrhh/staff/:id', handleDeleteStaff);
+  // POST /api/employees
+  router.post('/', async (req, res) => {
+    const { nombre, posicion, localidad, salon_id, status, cedula, telefono, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date } = req.body;
+    try {
+      const tenantId = req.tenantId;
+      const cleanDate = fecha_entrada && fecha_entrada.trim() !== '' ? fecha_entrada : null;
+      const cleanSchemeDate = scheme_effective_date && scheme_effective_date.trim() !== '' ? scheme_effective_date : null;
+      const [result] = await pool.query(
+        'INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salon_id, status, cedula, telefono, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        [
+          tenantId,
+          nombre,
+          posicion || 'Estilista',
+          localidad || 'Principal',
+          salon_id || 1,
+          status || 'Activo',
+          cedula || null,
+          telefono || null,
+          email || null,
+          cleanDate,
+          hora_entrada || '09:00:00',
+          hora_salida || '18:00:00',
+          typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables || null),
+          tolerancia_minutos !== undefined ? tolerancia_minutos : 15,
+          parseFloat(salario_base) || 0,
+          tipo_salario || 'fijo_mas_comision',
+          commission_scheme_id || null,
+          cleanSchemeDate
+        ]
+      );
+      res.json({ id: result.insertId || result[0]?.id, success: true });
+    } catch (err) {
+      console.error('Error creating employee:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-  // Staff Positions endpoints
-  router.get('/staff-positions', handleGetPositions);
-  router.post('/staff-positions', handlePostPosition);
-  router.put('/staff-positions/:id', handlePutPosition);
-  router.delete('/staff-positions/:id', handleDeletePosition);
+  // PUT /api/employees/:id
+  router.put('/:id', async (req, res) => {
+    const { id } = req.params;
+    const { nombre, posicion, localidad, salon_id, status, cedula, telefono, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date } = req.body;
+    try {
+      const tenantId = req.tenantId;
+      const cleanDate = fecha_entrada !== undefined ? (fecha_entrada && String(fecha_entrada).trim() !== '' ? (String(fecha_entrada).includes('T') ? String(fecha_entrada).split('T')[0] : fecha_entrada) : null) : undefined;
+      const cleanSchemeDate = scheme_effective_date !== undefined ? (scheme_effective_date && String(scheme_effective_date).trim() !== '' ? (String(scheme_effective_date).includes('T') ? String(scheme_effective_date).split('T')[0] : scheme_effective_date) : null) : undefined;
+      await pool.query(
+        `UPDATE staff_records SET 
+          nombre = COALESCE(?, nombre), 
+          posicion = COALESCE(?, posicion), 
+          localidad = COALESCE(?, localidad), 
+          salon_id = COALESCE(?, salon_id), 
+          status = COALESCE(?, status), 
+          cedula = COALESCE(?, cedula), 
+          telefono = COALESCE(?, telefono), 
+          email = COALESCE(?, email), 
+          fecha_entrada = COALESCE(?, fecha_entrada),
+          hora_entrada = COALESCE(?, hora_entrada),
+          hora_salida = COALESCE(?, hora_salida),
+          dias_laborables = COALESCE(?, dias_laborables),
+          tolerancia_minutos = COALESCE(?, tolerancia_minutos),
+          salario_base = COALESCE(?, salario_base),
+          tipo_salario = COALESCE(?, tipo_salario),
+          commission_scheme_id = ?,
+          scheme_effective_date = ?
+        WHERE id = ? AND tenant_id = ?`,
+        [
+          nombre,
+          posicion,
+          localidad,
+          salon_id,
+          status,
+          cedula,
+          telefono,
+          email !== undefined ? email : null,
+          cleanDate !== undefined ? cleanDate : null,
+          hora_entrada,
+          hora_salida,
+          typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : dias_laborables,
+          tolerancia_minutos,
+          salario_base !== undefined ? parseFloat(salario_base) : null,
+          tipo_salario || null,
+          commission_scheme_id !== undefined ? (commission_scheme_id || null) : null,
+          cleanSchemeDate !== undefined ? cleanSchemeDate : null,
+          id,
+          tenantId
+        ]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error updating employee:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-  // Aliases for /rrhh/positions
-  router.get('/rrhh/positions', handleGetPositions);
-  router.post('/rrhh/positions', handlePostPosition);
-  router.put('/rrhh/positions/:id', handlePutPosition);
-  router.delete('/rrhh/positions/:id', handleDeletePosition);
+  // DELETE /api/employees/:id
+  router.delete('/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+      const tenantId = req.tenantId;
+      await pool.query('DELETE FROM staff_records WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      res.json({ success: true });
+    } catch (err) {
+      console.error('Error deleting employee:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   return router;
 }
 
-module.exports = { createEmployeesRouter };
-
+module.exports = {
+  createEmployeesRouter
+};

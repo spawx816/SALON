@@ -36,7 +36,14 @@ export const dataService = {
   // Clients
   getClients: async () => {
     try {
-      const res = await fetch(`${API_URL}/clients`);
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
+      const res = await fetch(`${API_URL}/clients`, {
+        headers: {
+          'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+          'x-user-role': user?.role || ''
+        }
+      });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || `Error del servidor (${res.status})`);
@@ -104,9 +111,15 @@ export const dataService = {
 
   saveClient: async (client) => {
     try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+      const user = userStr ? JSON.parse(userStr) : null;
       const res = await fetch(`${API_URL}/clients`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+          'x-user-role': user?.role || ''
+        },
         body: JSON.stringify(client)
       });
       const data = await res.json();
@@ -1005,35 +1018,7 @@ export const dataService = {
     }
   },
 
-  // Marketing Settings & Actions
-  getMarketingSettings: () => {
-    const data = localStorage.getItem('salon_pro_marketing');
-    return data ? JSON.parse(data) : { birthdayDiscount: 15, birthdayFlyerUrl: '', massEmailTemplate: '¡Hola {{nombre}}! Tenemos una oferta para ti.' };
-  },
-
-  saveMarketingSettings: (settings) => {
-    localStorage.setItem('salon_pro_marketing', JSON.stringify(settings));
-  },
-
-  uploadMarketingFlyer: async (base64Data, fileName) => {
-    const res = await fetch(`${API_URL}/marketing/upload-flyer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base64Data, fileName })
-    });
-    return await res.json();
-  },
-
-
-
-  sendBirthdayEmails: async (discountPercent, flyerUrl) => {
-    const res = await fetch(`${API_URL}/marketing/send-birthdays`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ discountPercent, flyerUrl })
-    });
-    return await res.json();
-  },
+  // === EMPLOYEES & ATTENDANCE ===
 
   // Plans (CL-12: Single canonical definition with in-memory caching and TTL)
   getPlans: async (forceRefresh = false) => {
@@ -1642,13 +1627,6 @@ export const dataService = {
       const res = await fetch(`${API_URL}/salons/${id}`, { method: 'DELETE' });
       return await res.json();
     } catch (e) { console.error(e); }
-  },
-
-  getBillingStats: async () => {
-    try {
-      const res = await fetch(`${API_URL}/dashboard/billing-stats`);
-      return res.ok ? await res.json() : null;
-    } catch { return null; }
   },
 
   logCodeRequest: async (clientId, serviceName, staffName) => {
@@ -2829,103 +2807,6 @@ export const dataService = {
     }
   },
 
-  // DGII 606 Compras y Gastos
-  getReporte606: async (periodo, params = {}) => {
-    try {
-      const query = new URLSearchParams({
-        periodo: periodo || '',
-        search: params.search || ''
-      }).toString();
-      const res = await fetch(`${API_URL}/dgii/report-606?${query}`);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Error ${res.status}`);
-      }
-      return await res.json();
-    } catch (e) {
-      console.error('Error in getReporte606:', e);
-      throw e;
-    }
-  },
-
-  searchReporte606Supplier: async (rnc) => {
-    try {
-      const clean = encodeURIComponent(String(rnc).trim());
-      const res = await fetch(`${API_URL}/dgii/report-606/search-supplier/${clean}`);
-      if (!res.ok) return { found: false };
-      return await res.json();
-    } catch (e) {
-      console.error('Error searching 606 supplier:', e);
-      return { found: false };
-    }
-  },
-
-  createReporte606Record: async (payload) => {
-    try {
-      const res = await fetch(`${API_URL}/dgii/report-606`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error registrando factura en 606');
-      return data;
-    } catch (e) {
-      console.error('Error in createReporte606Record:', e);
-      throw e;
-    }
-  },
-
-  updateReporte606Record: async (id, payload) => {
-    try {
-      const res = await fetch(`${API_URL}/dgii/report-606/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error actualizando factura en 606');
-      return data;
-    } catch (e) {
-      console.error('Error in updateReporte606Record:', e);
-      throw e;
-    }
-  },
-
-  deleteReporte606Record: async (id) => {
-    try {
-      const res = await fetch(`${API_URL}/dgii/report-606/${id}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error eliminando factura de 606');
-      return data;
-    } catch (e) {
-      console.error('Error in deleteReporte606Record:', e);
-      throw e;
-    }
-  },
-
-  validateReporte606Period: async (periodo) => {
-    try {
-      const res = await fetch(`${API_URL}/dgii/report-606/validate-period`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ periodo })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error validando período 606');
-      return data;
-    } catch (e) {
-      console.error('Error in validateReporte606Period:', e);
-      throw e;
-    }
-  },
-
-  getReporte606TxtUrl: (periodo) => {
-    return `${API_URL}/dgii/report-606/export-txt?periodo=${encodeURIComponent(periodo || '')}`;
-  },
-
   // === MÓDULO DE EGRESOS CONTABLES ===
   getExpensesStatus: async () => {
     try {
@@ -3297,6 +3178,592 @@ export const dataService = {
       console.error('Error in createExpenseAccount:', e);
       throw e;
     }
+  },
+
+  // === MÓDULO SAAS MULTI-TENANT & PERSONALIZACIÓN DE SALÓN ===
+  getSaasMetrics: async () => {
+    const res = await fetch(`${API_URL}/saas/metrics`);
+    if (!res.ok) throw new Error('Error al cargar métricas SaaS');
+    return await res.json();
+  },
+
+  getSaasTenants: async () => {
+    const res = await fetch(`${API_URL}/saas/tenants`);
+    if (!res.ok) throw new Error('Error al cargar salones inquilinos');
+    return await res.json();
+  },
+
+  getSaasPlans: async (publicOnly = false) => {
+    const query = publicOnly ? '?public_only=true' : '';
+    const res = await fetch(`${API_URL}/saas/plans${query}`);
+    if (!res.ok) throw new Error('Error al cargar planes SaaS');
+    return await res.json();
+  },
+
+  createSaasPlan: async (planData) => {
+    const res = await fetch(`${API_URL}/saas/plans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(planData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al crear plan SaaS');
+    return data;
+  },
+
+  updateSaasPlan: async (planId, planData) => {
+    const res = await fetch(`${API_URL}/saas/plans/${planId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(planData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar plan SaaS');
+    return data;
+  },
+
+  updateTenantModules: async (tenantId, modulesData) => {
+    const res = await fetch(`${API_URL}/saas/tenants/${tenantId}/modules`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(modulesData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar módulos del salón');
+    return data;
+  },
+
+  updateTenantLicensing: async (tenantId, licensingData) => {
+    const res = await fetch(`${API_URL}/saas/tenants/${tenantId}/licensing`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(licensingData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar licencias del salón');
+    return data;
+  },
+
+  updateTenantStatus: async (tenantId, status) => {
+    const res = await fetch(`${API_URL}/saas/tenants/${tenantId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar estado del salón');
+    return data;
+  },
+
+  getTenantProfile: async (targetTenantId = null) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const tenantId = targetTenantId || user?.tenant_id || user?.tenant?.id || '';
+    const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : '';
+    const res = await fetch(`${API_URL}/tenant/profile${query}`, {
+      headers: {
+        'x-tenant-id': tenantId
+      }
+    });
+    if (!res.ok) throw new Error('Error al obtener perfil del salón');
+    return await res.json();
+  },
+
+  updateTenantProfile: async (profileData, targetTenantId = null) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const tenantId = targetTenantId || user?.tenant_id || user?.tenant?.id || '';
+    const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : '';
+    const res = await fetch(`${API_URL}/tenant/profile${query}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': tenantId
+      },
+      body: JSON.stringify(profileData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al guardar perfil del salón');
+    return data;
+  },
+
+  uploadTenantLogo: async (base64Image, targetTenantId = null) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const tenantId = targetTenantId || user?.tenant_id || user?.tenant?.id || '';
+    const res = await fetch(`${API_URL}/tenant/upload-logo`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': tenantId
+      },
+      body: JSON.stringify({ image: base64Image, tenant_id: tenantId })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al subir logotipo');
+    return data;
+  },
+
+  // ==========================================
+  // INVENTARIO MULTI-TENANT (FASE 2B)
+  // ==========================================
+  getInventoryProducts: async (params = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_URL}/inventory/products${query ? `?${query}` : ''}`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  createInventoryProduct: async (productData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/products`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(productData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al crear producto');
+    return data;
+  },
+
+  updateInventoryProduct: async (productId, updateData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/products/${productId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(updateData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar producto');
+    return data;
+  },
+
+  getInventoryStock: async (params = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_URL}/inventory/stock${query ? `?${query}` : ''}`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  getInventoryMovements: async (params = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_URL}/inventory/movements${query ? `?${query}` : ''}`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  makeInventoryAdjustment: async (adjustmentData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/adjustments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(adjustmentData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al procesar ajuste de inventario');
+    return data;
+  },
+
+  getInventoryAlerts: async (locationId = null) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const query = locationId ? `?locationId=${locationId}` : '';
+    const res = await fetch(`${API_URL}/inventory/alerts/low-stock${query}`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  // Pro: Ubicaciones, Proveedores, Compras, Transferencias, Valorización
+  getInventoryLocations: async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/locations`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  createInventoryLocation: async (locData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/locations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(locData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al crear ubicación');
+    return data;
+  },
+
+  getInventorySuppliers: async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/suppliers`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  createInventorySupplier: async (supData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/suppliers`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(supData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al crear proveedor');
+    return data;
+  },
+
+  getInventoryPurchaseOrders: async (params = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_URL}/inventory/purchase-orders${query ? `?${query}` : ''}`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  createInventoryPurchaseOrder: async (orderData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/purchase-orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(orderData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al crear orden de compra');
+    return data;
+  },
+
+  receiveInventoryPurchaseOrder: async (orderId, receiveData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/purchase-orders/${orderId}/receive`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(receiveData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al recibir orden de compra');
+    return data;
+  },
+
+  getInventoryTransfers: async (params = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_URL}/inventory/transfers${query ? `?${query}` : ''}`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  createInventoryTransfer: async (transferData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/transfers`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(transferData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al solicitar transferencia');
+    return data;
+  },
+
+  dispatchInventoryTransfer: async (transferId, data = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/transfers/${transferId}/dispatch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(data)
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al despachar transferencia');
+    return resData;
+  },
+
+  receiveInventoryTransfer: async (transferId, data = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/transfers/${transferId}/receive`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(data)
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al recibir transferencia');
+    return resData;
+  },
+
+  getInventoryValuation: async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/reports/valuation`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  // === SAAS BILLING API (FASE 2D) ===
+  getSaasSubscription: async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/subscription`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  upgradeSaasSubscription: async (data = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/subscription/upgrade`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(data)
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al procesar upgrade a Plan PRO');
+    return resData;
+  },
+
+  downgradeSaasSubscription: async (data = {}) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/subscription/downgrade`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(data)
+    });
+    const resData = await res.json();
+    if (!res.ok) {
+      const err = new Error(resData.error || 'Error al solicitar downgrade a Plan BASE');
+      err.code = resData.code;
+      err.details = resData.details;
+      throw err;
+    }
+    return resData;
+  },
+
+  cancelSaasSubscription: async (reason) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/subscription/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify({ reason })
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al cancelar suscripción');
+    return resData;
+  },
+
+  getSaasInvoices: async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/invoices`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  paySaasInvoice: async (invoiceId) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/invoices/${invoiceId}/pay`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al procesar pago de factura');
+    return resData;
+  },
+
+  getSaasPaymentMethods: async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/payment-methods`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  saveSaasPaymentMethod: async (paymentMethodData) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/payment-methods`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(paymentMethodData)
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al guardar método de pago');
+    return resData;
   }
 };
 

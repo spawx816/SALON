@@ -99,7 +99,7 @@ const Login = () => {
         <div style={{ textAlign: 'center' }}>
           <img 
             src="/logo-black.png" 
-            alt="Abatte Peluqueria" 
+            alt="SalonPro" 
             style={{ 
               width: '100%', 
               maxWidth: '300px', 

@@ -353,7 +353,7 @@ const ClientDashboard = () => {
         }
 
         window.PWCheckout.SetProperties({
-          "name": "Abatte Peluquería",
+          "name": user?.salon_name || user?.tenant?.business_name || "Plan Beauty RD",
           "email": user.email || "correo@default.com",
           "button_label": `Suscribir RD$ ${currentPlan?.price || '0'}`,
           "description": `Suscripción a ${currentPlan?.title || 'Plan'}`,
@@ -421,9 +421,9 @@ const ClientDashboard = () => {
 
              const res = await fetch('/api/contracts', {
                method: 'POST',
+               credentials: 'include',
                headers: { 
-                 'Content-Type': 'application/json',
-                 'Authorization': `Bearer ${localStorage.getItem('token')}` // Seguridad crítica
+                 'Content-Type': 'application/json'
                },
                body: JSON.stringify(payload)
              });
@@ -522,7 +522,7 @@ const ClientDashboard = () => {
     <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
       <div style={{ textAlign: 'center' }}>
         <Sparkles className="animate-spin" size={48} color="#09090b" style={{ margin: '0 auto 1.5rem' }} />
-        <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#64748b' }}>Sincronizando con Abatte Peluquería...</p>
+        <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#64748b' }}>Sincronizando información de tu membresía...</p>
       </div>
     </div>
   );
@@ -844,7 +844,7 @@ const ClientDashboard = () => {
                       <CreditCard size={40} />
                     </div>
                     <h4 style={{ margin: 0, fontWeight: 900, fontSize: '1.25rem' }}>Membresía por Activar</h4>
-                    <p style={{ color: '#64748b', fontSize: '0.9rem', maxWidth: '350px', margin: '1rem auto 2rem', lineHeight: 1.6 }}>Realiza tu pago inicial para desbloquear todos tus beneficios exclusivos en Abatte.</p>
+                    <p style={{ color: '#64748b', fontSize: '0.9rem', maxWidth: '350px', margin: '1rem auto 2rem', lineHeight: 1.6 }}>Realiza tu pago inicial para desbloquear todos tus beneficios exclusivos.</p>
                     <button 
                       onClick={() => {
                         const plan = availablePlans.find(p => parseFloat(p.price) === 1950) || availablePlans[0] || { id: 'plan_monthly_1', name: 'PLAN BEAUTY', price: 1950 };
@@ -869,7 +869,7 @@ const ClientDashboard = () => {
                   San Vicente
                 </div>
               </div>
-              <h4 style={{ fontSize: '1.25rem', fontWeight: 900, margin: '0 0 0.75rem' }}>Abatte Peluquería</h4>
+              <h4 style={{ fontSize: '1.25rem', fontWeight: 900, margin: '0 0 0.75rem' }}>{user?.salon_name || 'Salón Afiliado'}</h4>
               <a 
                 href="https://www.google.com/maps/search/?api=1&query=Abatte+Peluqueria+Av.+San+Vicente+de+Paul+Plaza+El+Poder" 
                 target="_blank" 
@@ -909,7 +909,7 @@ const ClientDashboard = () => {
               boxShadow: '0 15px 30px rgba(212,175,55,0.2)'
             }}>
               <div style={{ flex: 1 }}>
-                <h4 style={{ margin: 0, fontWeight: 900, fontSize: '1.25rem', letterSpacing: '-0.02em' }}>Recomienda Abatte</h4>
+                <h4 style={{ margin: 0, fontWeight: 900, fontSize: '1.25rem', letterSpacing: '-0.02em' }}>Recomienda el Programa</h4>
                 <p style={{ margin: '0.6rem 0 0', fontSize: '0.85rem', opacity: 0.9, lineHeight: 1.4, fontWeight: 500 }}>Gana un servicio gratis invitando a tus amigos.</p>
               </div>
               <button style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(255,255,255,0.25)', border: 'none', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
@@ -1412,7 +1412,7 @@ const ClientDashboard = () => {
                             __html: markdownToHtml(
                               interpolateContract(
                                 contractSettings?.content || '', 
-                                fullClient || client || {}, 
+                                fullClient || user || {}, 
                                 selectedPlan || contract || {}, 
                                 contractSettings
                               )
@@ -1430,9 +1430,9 @@ const ClientDashboard = () => {
                           </div>
                           <div>
                             <p><strong>Por EL CLIENTE</strong></p>
-                            <p>Nombre: {fullClient?.nombre || client?.nombre || '________________'}</p>
+                            <p>Nombre: {fullClient?.nombre || user?.nombre || '________________'}</p>
                             <p>Posición: Cliente Suscrito</p>
-                            <p>Cédula: {fullClient?.cedula || client?.cedula || '_______________'}</p>
+                            <p>Cédula: {fullClient?.cedula || user?.cedula || '_______________'}</p>
                             <p style={{ marginTop: '2rem', borderTop: '1px solid #000', paddingTop: '0.5rem' }}>Firma Digital (Aceptación Electrónica)</p>
                           </div>
                         </div>

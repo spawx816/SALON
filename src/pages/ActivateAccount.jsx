@@ -71,7 +71,7 @@ const ActivateAccount = () => {
               <ShieldCheck size={32} />
             </div>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 900, marginBottom: '0.5rem' }}>Activa tu cuenta</h1>
-            <p style={{ color: '#64748b', fontSize: '0.9rem' }}>Define una contraseña segura para proteger tu perfil en Abatte.</p>
+            <p style={{ color: '#64748b', fontSize: '0.9rem' }}>Define una contraseña segura para proteger tu perfil en SalonPro / Plan Beauty.</p>
           </div>
 
           <form onSubmit={handleActivate}>
