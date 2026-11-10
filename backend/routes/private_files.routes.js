@@ -83,3 +83,4 @@ function createPrivateFilesRoutes({ pool, authMiddleware }) {
 module.exports = {
   createPrivateFilesRoutes
 };
+

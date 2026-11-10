@@ -95,3 +95,4 @@ assert(totalAssetsKb <= TOTAL_ASSETS_BUDGET_KB, `❌ [FAIL]: Total assets size $
 console.log('  ✅ [PASS]: All chunks and total bundle size are strictly within performance budgets.');
 console.log('\n=== TEST RESULT: BUNDLE BUDGET GATE PASSED (PASS) ===\n');
 process.exit(0);
+

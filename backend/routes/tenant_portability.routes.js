@@ -100,3 +100,4 @@ function createTenantPortabilityRoutes({ pool, authMiddleware }) {
 module.exports = {
   createTenantPortabilityRoutes
 };
+

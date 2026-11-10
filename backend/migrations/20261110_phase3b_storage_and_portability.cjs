@@ -110,3 +110,4 @@ async function up(pool, targetSchema = 'public') {
 }
 
 module.exports = { up };
+

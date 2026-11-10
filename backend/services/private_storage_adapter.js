@@ -339,3 +339,4 @@ module.exports = {
   PrivateStorageAdapter,
   getPrivateStorageAdapter
 };
+

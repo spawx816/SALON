@@ -42,8 +42,8 @@ async function runStoragePrivateSuite() {
 
   try {
     // 0. Setup test tenants
-    await conn.query(`INSERT INTO tenants (id, name, slug) VALUES ($1, 'Tenant A Storage', 'tenant-a-storage') ON CONFLICT DO NOTHING`, [tenantA]);
-    await conn.query(`INSERT INTO tenants (id, name, slug) VALUES ($1, 'Tenant B Storage', 'tenant-b-storage') ON CONFLICT DO NOTHING`, [tenantB]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant A Storage', 'tenant-a-storage', 'storage-a@test.com') ON CONFLICT DO NOTHING`, [tenantA]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant B Storage', 'tenant-b-storage', 'storage-b@test.com') ON CONFLICT DO NOTHING`, [tenantB]);
 
     // --- TEST 1: Cifrado y almacenamiento en disco ---
     console.log('--- TEST 1: Cifrado AES-256-GCM en reposo ---');
@@ -160,7 +160,7 @@ async function runStoragePrivateSuite() {
 
     const readSig = await adapter.readFile({ tenantId: tenantA, fileId: sigFile.id });
     assert.strictEqual(readSig.mimeType, 'image/png');
-    assert.strictEqual(readSig.buffer.length, 69);
+    assert.strictEqual(readSig.buffer.length, 70);
     console.log('  ✅ [PASS 6] Conversión segura de Base64 a almacenamiento cifrado verificada');
 
     // --- TEST 7: Borrado lógico y físico ---

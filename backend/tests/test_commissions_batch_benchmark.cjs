@@ -38,17 +38,17 @@ async function runCommissionsBatchBenchmark() {
 
   try {
     // 0. Setup tenant
-    await conn.query(`INSERT INTO tenants (id, name, slug) VALUES ($1, 'Tenant Benchmark', 'tenant-benchmark') ON CONFLICT DO NOTHING`, [tenantId]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant Benchmark', 'tenant-benchmark', 'bench@test.com') ON CONFLICT DO NOTHING`, [tenantId]);
 
     // 1. Setup 10 employees
     console.log('--- FASE 1: Inicializando catálogo de 10 colaboradores y 15 servicios ---');
     const employeeIds = [];
     for (let i = 1; i <= 10; i++) {
       const [empRes] = await conn.query(`
-        INSERT INTO staff_records (nombre, posicion, tenant_id, status)
-        VALUES ($1, 'Estilista', $2, 'Activo')
+        INSERT INTO staff_records (nombre, cedula, posicion, tenant_id, status)
+        VALUES ($1, $2, 'Estilista', $3, 'Activo')
         RETURNING id
-      `, [`Estilista ${i}`, tenantId]);
+      `, [`Estilista ${i}`, `402000000${String(i).padStart(2, '0')}`, tenantId]);
       employeeIds.push(empRes[0].id);
     }
 
@@ -63,8 +63,8 @@ async function runCommissionsBatchBenchmark() {
 
     for (const s of services) {
       await conn.query(`
-        INSERT INTO services (name, comision_valor, tipo_comision, tenant_id)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO services (name, price, comision_valor, tipo_comision, tenant_id)
+        VALUES ($1, 500.00, $2, $3, $4)
       `, [s.name, s.valor, s.tipo, tenantId]);
     }
     console.log(`  ✅ 10 empleados y 5 servicios registrados para tenant ${tenantId}`);

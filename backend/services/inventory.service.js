@@ -4,10 +4,16 @@
  */
 
 class InventoryService {
-  constructor({ inventoryRepo, purchaseRepo = null, transferRepo = null }) {
-    this.repo = inventoryRepo;
-    this.purchaseRepo = purchaseRepo;
-    this.transferRepo = transferRepo;
+  constructor(optionsOrRepo, purchaseRepo = null, transferRepo = null) {
+    if (optionsOrRepo && typeof optionsOrRepo === 'object' && optionsOrRepo.inventoryRepo) {
+      this.repo = optionsOrRepo.inventoryRepo;
+      this.purchaseRepo = optionsOrRepo.purchaseRepo || null;
+      this.transferRepo = optionsOrRepo.transferRepo || null;
+    } else {
+      this.repo = optionsOrRepo;
+      this.purchaseRepo = purchaseRepo;
+      this.transferRepo = transferRepo;
+    }
   }
 
   // === CÁLCULO DE COSTO PROMEDIO PONDERADO ===

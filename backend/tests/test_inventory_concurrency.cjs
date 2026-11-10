@@ -41,8 +41,8 @@ async function runInventoryConcurrencySuite() {
 
   try {
     // 0. Setup tenants, locations and products
-    await conn.query(`INSERT INTO tenants (id, name, slug) VALUES ($1, 'Tenant A Inv', 'tenant-a-inv') ON CONFLICT DO NOTHING`, [tenantA]);
-    await conn.query(`INSERT INTO tenants (id, name, slug) VALUES ($1, 'Tenant B Inv', 'tenant-b-inv') ON CONFLICT DO NOTHING`, [tenantB]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant A Inv', 'tenant-a-inv', 'inv-a@test.com') ON CONFLICT DO NOTHING`, [tenantA]);
+    await conn.query(`INSERT INTO tenants (id, business_name, slug, email) VALUES ($1, 'Tenant B Inv', 'tenant-b-inv', 'inv-b@test.com') ON CONFLICT DO NOTHING`, [tenantB]);
 
     await conn.query(`
       INSERT INTO inventory_locations (id, tenant_id, name, is_default)
