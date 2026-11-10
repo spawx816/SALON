@@ -34,6 +34,9 @@ async function runPhysicalInventoryTests() {
       ON CONFLICT (id) DO NOTHING;
     `, [tenantA, tenantB]);
 
+    // Clean previous test runs for idempotency
+    await conn.query('DELETE FROM inventory_physical_sessions WHERE tenant_id IN ($1, $2)', [tenantA, tenantB]);
+
     await conn.query(`
       INSERT INTO inventory_locations (id, tenant_id, name, code, type, is_default, is_active)
       VALUES ($1, $2, 'Almacén Principal', 'ALM-01', 'STORE', true, true)
