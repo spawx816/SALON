@@ -151,10 +151,10 @@ function createCashRegistersRouter(pool) {
       const numericSalonId = (salon_id && !isNaN(Number(salon_id))) ? Number(salon_id) : 1;
 
       const [result] = await pool.query(
-        `INSERT INTO cash_registers (tenant_id, branch_id, salon_id, opening_amount, opening_balance, opened_by_name, notes, status, opened_at)
+        `INSERT INTO cash_registers (tenant_id, branch_id, salon_id, monto_inicial, opening_balance_cents, opened_by_name, observaciones, status, opened_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierta', NOW())
          RETURNING id`,
-        [tenantId, branchId, numericSalonId, Number(opening_balance) || 0, Number(opening_balance) || 0, effectiveOpenedBy, notes]
+        [tenantId, branchId, numericSalonId, Number(opening_balance) || 0, Math.round((Number(opening_balance) || 0) * 100), effectiveOpenedBy, notes]
       );
 
       const newId = result.insertId || result[0]?.id;
@@ -189,7 +189,7 @@ function createCashRegistersRouter(pool) {
       }
 
       const register = rows[0];
-      const openingBalance = Number(register.opening_amount ?? register.opening_balance ?? 0);
+      const openingBalance = Number(register.monto_inicial ?? register.opening_balance ?? register.opening_amount ?? 0);
 
       const [movs] = await pool.query(
         'SELECT type, COALESCE(SUM(amount), 0) as total FROM cash_register_movements WHERE cash_register_id = ? AND tenant_id = ? GROUP BY type',
@@ -296,35 +296,35 @@ function createCashRegistersRouter(pool) {
 
       await pool.query(
         `UPDATE cash_registers SET
-           closing_balance = ?,
-           closing_amount = ?,
-           expected_balance = ?,
-           expected_amount = ?,
-           difference = ?,
-           difference_amount_cents = ?,
+           monto_final = ?,
+           diferencia = ?,
+           difference_cents = ?,
+           closing_balance_cents = ?,
+           expected_balance_cents = ?,
            discrepancy_reason = ?,
            supervisor_user_id = ?,
            supervisor_authorized_at = ?,
-           authorization_event_type = ?,
+           double_confirmed = ?,
            correlation_id = ?,
-           closed_by = ?,
-           notes = COALESCE(?, notes),
+           closed_by_name = ?,
+           closed_by_user_id = ?,
+           observaciones = COALESCE(?, observaciones),
            status = 'Cerrada',
            closed_at = NOW()
          WHERE id = ? AND tenant_id = ?`,
         [
           actualClosing,
-          actualClosing,
-          expectedBalance,
-          expectedBalance,
           difference,
           differenceCents,
+          actualClosingCents,
+          expectedBalanceCents,
           discrepancy_reason ? String(discrepancy_reason).trim() : null,
           supervisorUserId,
           supervisorAuthorizedAt,
-          authorizationEventType,
+          double_confirmed === true || double_confirmed === 'true',
           correlationId,
           effectiveClosedBy,
+          closedByUserId,
           notes || null,
           id,
           tenantId

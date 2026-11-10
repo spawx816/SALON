@@ -73,8 +73,8 @@ async function runCashReconciliationTests() {
     // Helper: create open cash register with expected balance = RD$ 1,000.00 (100,000 cents)
     const createRegister = async () => {
       const [res] = await conn.query(`
-        INSERT INTO cash_registers (tenant_id, name, opening_amount, status, opened_at, created_at)
-        VALUES ($1, 'Caja Arqueo', 1000.00, 'Abierta', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO cash_registers (tenant_id, name, monto_inicial, opening_balance_cents, status, opened_at, created_at)
+        VALUES ($1, 'Caja Arqueo', 1000.00, 100000, 'Abierta', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         RETURNING id;
       `, [tenantId]);
       return res[0].id;
