@@ -32,17 +32,17 @@ function createClientsRouter(pool) {
       let cursorClause = '';
 
       if (cursorData) {
-        cursorClause = ' AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?))';
+        cursorClause = ' AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?::uuid))';
         params.push(cursorData.last_created_at, cursorData.last_created_at, cursorData.last_id);
       }
 
       params.push(limit + 1);
 
       const [rows] = await pool.query(`
-        SELECT c.id, c.tenant_id, c.nombre, c.apellido, c.telefono, c.cedula, c.email, c.created_at
+        SELECT c.id, c.tenant_id, c.nombre, c.name, c.telefono, c.phone, c.cedula, c.email, c.created_at
         FROM clients c
         WHERE c.tenant_id = ?
-          AND (c.nombre ILIKE ? OR c.apellido ILIKE ? OR c.telefono ILIKE ? OR c.cedula ILIKE ?)
+          AND (c.nombre ILIKE ? OR c.name ILIKE ? OR c.telefono ILIKE ? OR c.cedula ILIKE ?)
           ${cursorClause}
         ORDER BY c.created_at DESC, c.id DESC
         LIMIT ?
@@ -84,7 +84,7 @@ function createClientsRouter(pool) {
       const params = [tenantId, tenantId, tenantId];
       let cursorClause = '';
       if (cursorData) {
-        cursorClause = ' AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?))';
+        cursorClause = ' AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?::uuid))';
         params.push(cursorData.last_created_at, cursorData.last_created_at, cursorData.last_id);
       }
       params.push(limit + 1);
@@ -115,7 +115,7 @@ function createClientsRouter(pool) {
             GROUP BY client_id
           ) c2 ON c1.client_id = c2.client_id AND c1.signed_at = c2.max_signed
           WHERE c1.tenant_id = ?
-        ) cn ON c.id = cn.client_id
+        ) cn ON c.id::text = cn.client_id::text
         LEFT JOIN branches b ON c.salon_id::text = b.id::text AND b.tenant_id = c.tenant_id
         LEFT JOIN salons s ON c.salon_id::text = s.id::text AND s.tenant_id = c.tenant_id
         WHERE c.tenant_id = ?
@@ -170,7 +170,7 @@ function createClientsRouter(pool) {
                cn.current_period_end,
                cn.next_billing_date
         FROM clients c
-        LEFT JOIN contracts cn ON c.id = cn.client_id AND cn.tenant_id = c.tenant_id AND cn.status IN ('Active', 'Activo')
+        LEFT JOIN contracts cn ON c.id::text = cn.client_id::text AND cn.tenant_id = c.tenant_id AND cn.status IN ('Active', 'Activo')
         WHERE c.tenant_id = ?
           AND (c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?)
         LIMIT 1
@@ -208,11 +208,11 @@ function createClientsRouter(pool) {
                cn.precio_mensual,
                COALESCE(b.name, s.name, 'Sucursal Principal') as salon_name
         FROM clients c
-        LEFT JOIN contracts cn ON c.id = cn.client_id AND cn.tenant_id = c.tenant_id
+        LEFT JOIN contracts cn ON c.id::text = cn.client_id::text AND cn.tenant_id = c.tenant_id
         LEFT JOIN branches b ON c.salon_id::text = b.id::text AND b.tenant_id = c.tenant_id
         LEFT JOIN salons s ON c.salon_id::text = s.id::text AND s.tenant_id = c.tenant_id
         WHERE c.tenant_id = ?
-          AND (c.id = ? OR c.cedula = ? OR (LENGTH(?) >= 8 AND REPLACE(c.cedula, '-', '') = ?))
+          AND (c.id::text = ? OR c.cedula = ? OR (LENGTH(?) >= 8 AND REPLACE(c.cedula, '-', '') = ?))
         ORDER BY cn.signed_at DESC
         LIMIT 1
       `, [tenantId, id, id, cleanCedula, cleanCedula]);
