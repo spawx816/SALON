@@ -202,7 +202,14 @@ class InventoryRepository {
         'SELECT * FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ? LIMIT 1',
         [tenantId, productId, locationId]
       );
-      return rows[0] || { tenant_id: tenantId, product_id: productId, location_id: locationId, quantity: 0, average_cost: 0 };
+      if (rows && rows[0]) {
+        return {
+          ...rows[0],
+          quantity: Number(rows[0].quantity) || 0,
+          average_cost: Number(rows[0].average_cost) || 0
+        };
+      }
+      return { tenant_id: tenantId, product_id: productId, location_id: locationId, quantity: 0, average_cost: 0 };
     }
     return { tenant_id: tenantId, product_id: productId, location_id: locationId, quantity: 0, average_cost: 0 };
   }

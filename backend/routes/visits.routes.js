@@ -196,7 +196,7 @@ function createVisitsRouter(pool, helpers = {}) {
           resolvedTenantId,
           item.visitId,
           item.ticketNumber,
-          String(emp.id),
+          Number(emp.id) || null,
           emp.nombre,
           item.serviceName,
           item.precioBase,
@@ -218,7 +218,7 @@ function createVisitsRouter(pool, helpers = {}) {
         await pool.query(
           `INSERT INTO employee_commissions_log (
              tenant_id, visit_id, ticket_number, employee_id, employee_name, service_name,
-             precio_servicio, porcentaje_aplicado, monto_comision, status, localidad, created_at
+             precio_servicio, commission_rate, monto_comision, status, localidad, created_at
            ) VALUES ${rowPlaceholders}`,
           flatParams
         );

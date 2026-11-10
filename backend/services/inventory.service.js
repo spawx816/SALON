@@ -122,8 +122,10 @@ class InventoryService {
     }
 
     const currentStock = await this.repo.getStock(tenantId, productId, locId);
-    const newQty = currentStock.quantity + qty;
-    const newAvgCost = this.calculateWeightedAverageCost(currentStock.quantity, currentStock.average_cost, qty, unitCost);
+    const curQty = Number(currentStock.quantity) || 0;
+    const curAvgCost = Number(currentStock.average_cost) || 0;
+    const newQty = curQty + qty;
+    const newAvgCost = this.calculateWeightedAverageCost(curQty, curAvgCost, qty, unitCost);
 
     const movement = await this.repo.recordMovement(tenantId, {
       product_id: productId,
@@ -247,20 +249,21 @@ class InventoryService {
     }
 
     const currentStock = await this.repo.getStock(tenantId, productId, locId);
+    const curQty = Number(currentStock.quantity) || 0;
     let signedQty = 0;
     let newQty = 0;
 
     if (adjustmentType === 'ADJUSTMENT_IN') {
       signedQty = qty;
-      newQty = currentStock.quantity + qty;
+      newQty = curQty + qty;
     } else if (adjustmentType === 'ADJUSTMENT_OUT') {
-      if (currentStock.quantity < qty) {
-        const err = new Error(`Stock insuficiente para ajuste de salida. Actual: ${currentStock.quantity}, Solicitado: ${qty}`);
+      if (curQty < qty) {
+        const err = new Error(`Stock insuficiente para ajuste de salida. Actual: ${curQty}, Solicitado: ${qty}`);
         err.code = 'INSUFFICIENT_STOCK';
         throw err;
       }
       signedQty = -qty;
-      newQty = currentStock.quantity - qty;
+      newQty = curQty - qty;
     } else {
       throw new Error(`Tipo de ajuste inválido: ${adjustmentType}. Use ADJUSTMENT_IN o ADJUSTMENT_OUT.`);
     }
