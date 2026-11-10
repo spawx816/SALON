@@ -114,6 +114,10 @@ const isMainOrLauncher = require.main === module ||
   (require.main && (
     require.main.filename === path.resolve(__dirname, 'server.js') ||
     require.main.filename === path.resolve(__dirname, '..', 'server.js')
+  )) ||
+  (process.argv[1] && (
+    process.argv[1].endsWith('server.js') ||
+    process.argv[1].endsWith('server.cjs')
   ));
 
 if (isMainOrLauncher) {
