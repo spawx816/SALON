@@ -41,7 +41,7 @@ async function runCashReconciliationTests() {
     `, [tenantId, pinHash]);
 
     await conn.query(`
-      INSERT INTO users (id, tenant_id, name, email, password, role)
+      INSERT INTO users (id, tenant_id, name, email, password_hash, role)
       VALUES ($1, $2, 'Supervisor Marta', 'marta@example.com', 'dummy_hash', 'admin')
       ON CONFLICT (id) DO NOTHING;
     `, [adminUserId, tenantId]);
