@@ -888,7 +888,7 @@ function createAuthRouter(pool, options = {}) {
 
           res.cookie('auth_token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
             sameSite: 'lax',
             path: '/',
             maxAge: 24 * 60 * 60 * 1000
@@ -1002,7 +1002,7 @@ function createAuthRouter(pool, options = {}) {
 
         res.cookie('auth_token', token, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
+          secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
           sameSite: 'lax',
           path: '/',
           maxAge: 24 * 60 * 60 * 1000

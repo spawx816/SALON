@@ -1,0 +1,64 @@
+{
+    email {$ACME_EMAIL}
+    admin off
+    log {
+        output stdout
+        format json
+    }
+}
+
+# Servir EXCLUSIVAMENTE staging.etereasapp.com como entorno privado de pruebas
+staging.etereasapp.com {
+    # 1. Barrera Privada de Staging (HTTP Basic Auth a nivel Edge)
+    basic_auth {
+        {$STAGING_AUTH_USER} {$STAGING_AUTH_HASH}
+    }
+
+    # 2. Archivo robots.txt estricto (Prohibición total de indexación)
+    respond /robots.txt "User-agent: *\nDisallow: /\n" 200
+
+    # 3. Cabeceras de Seguridad
+    header {
+        X-Robots-Tag "noindex, nofollow, noarchive"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        # HSTS solo para staging (sin includeSubDomains ni preload en esta fase)
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+
+    # 4. Compresión
+    encode zstd gzip
+
+    # 5. Reverse Proxy hacia el contenedor de aplicación
+    reverse_proxy salonpro_app:5005 {
+        # Eliminar cabecera Authorization para que el backend no confunda Basic Auth con JWT Bearer
+        header_up -Authorization
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        transport http {
+            dial_timeout 5s
+            response_header_timeout 30s
+        }
+    }
+
+    # 6. Límites de Request y Timeouts
+    request_body {
+        max_size 10MB
+    }
+
+    # 7. Logs de Acceso en formato JSON estructurado
+    log {
+        output file /var/log/caddy/staging_access.log {
+            roll_size 10MB
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+    }
+}

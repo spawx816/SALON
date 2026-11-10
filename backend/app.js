@@ -116,7 +116,8 @@ function createApp(dependencies = {}) {
   // CORS
   app.use(cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      const isProductionOrStaging = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+      if (!origin || allowedOrigins.includes(origin) || !isProductionOrStaging) {
         callback(null, true);
       } else {
         callback(new Error('Acceso no permitido por política CORS'));
@@ -130,7 +131,7 @@ function createApp(dependencies = {}) {
   // Test endpoints guard (FAIL CLOSED)
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/test')) {
-      if (process.env.NODE_ENV === 'production' || process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
+      if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging' || process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
         return res.status(403).json({ error: 'Endpoints de prueba deshabilitados por política de seguridad.' });
       }
     }
@@ -348,7 +349,8 @@ function createApp(dependencies = {}) {
 
     if (originToCheck) {
       const isLoopback = originToCheck.startsWith('http://127.0.0.1:') || originToCheck.startsWith('http://localhost:');
-      const isAllowed = (process.env.NODE_ENV !== 'production' && isLoopback) || allowedOrigins.some(ao => originToCheck.toLowerCase() === ao.toLowerCase());
+      const isDev = process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'staging';
+      const isAllowed = (isDev && isLoopback) || allowedOrigins.some(ao => originToCheck.toLowerCase() === ao.toLowerCase());
       if (!isAllowed) {
         return res.status(403).json({ error: 'Origen no autorizado por política de protección CSRF.', code: 'CSRF_ORIGIN_DENIED' });
       }

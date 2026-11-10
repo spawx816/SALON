@@ -79,7 +79,11 @@ function extractTokenFromRequest(req) {
     if (authHeader.toLowerCase().startsWith('bearer ')) {
       return authHeader.slice(7).trim();
     }
-    return authHeader.trim();
+    if (authHeader.toLowerCase().startsWith('basic ')) {
+      // Edge HTTP Basic Auth (Caddy staging barrier) - ignore and fall through to HttpOnly cookie
+    } else {
+      return authHeader.trim();
+    }
   }
 
   // 2. Fallback: HttpOnly cookie (cookie-parser or raw cookie header)
