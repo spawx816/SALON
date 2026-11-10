@@ -38,7 +38,8 @@ secrets/
 *.xlsx
 .superadmin_credential.json
 backend/.superadmin_credential.json
-backend/backups/
+backend/backups/*
+!backend/backups/independent_schema.sql
 backend/certs/*.p12
 backend/dgii_reception_output/
 backend/dgii_test_output/

@@ -48,7 +48,7 @@ async function up(client) {
     CREATE TABLE IF NOT EXISTS inventory_locations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-      salon_id INT REFERENCES salons(id) ON DELETE SET NULL,
+      salon_id VARCHAR(100) REFERENCES salons(id) ON DELETE SET NULL,
       name VARCHAR(150) NOT NULL,
       code VARCHAR(50),
       type VARCHAR(50) DEFAULT 'STORE',
