@@ -39,6 +39,51 @@ function createSalonsRouter(pool, options = {}) {
     }
   });
 
+  // GET /api/salons/autocomplete - Search branches/salons strictly scoped to tenant (REM-P2-01)
+  router.get('/autocomplete', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
+      const q = String(req.query.q || '').trim();
+      if (q.length < 2) {
+        return res.status(400).json({ error: 'El término de búsqueda debe tener al menos 2 caracteres.' });
+      }
+
+      const rawLimit = parseInt(req.query.limit || '20', 10);
+      const limit = Math.min(Math.max(rawLimit, 1), 50);
+      const searchPattern = `%${q}%`;
+
+      const [branches] = await pool.query(`
+        SELECT id, tenant_id, name, address, phone, is_main
+        FROM branches
+        WHERE tenant_id = ?
+          AND (name ILIKE ? OR address ILIKE ?)
+        ORDER BY is_main DESC, name ASC
+        LIMIT ?
+      `, [tenantId, searchPattern, searchPattern, limit]);
+
+      if (branches && branches.length > 0) {
+        return res.json(branches);
+      }
+
+      const [rows] = await pool.query(`
+        SELECT id, tenant_id, name, address, phone
+        FROM salons
+        WHERE tenant_id = ?
+          AND (name ILIKE ? OR address ILIKE ?)
+        ORDER BY name ASC
+        LIMIT ?
+      `, [tenantId, searchPattern, searchPattern, limit]);
+
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/salons
   router.post('/', async (req, res) => {
     const { name, address, phone } = req.body;

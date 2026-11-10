@@ -1,16 +1,93 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const { decodeCursor, computeFilterHash, buildPaginatedResponse } = require('../utils/cursor_pagination');
 
 function createClientsRouter(pool) {
   const router = express.Router();
 
-  // GET /api/clients - List all clients for the authenticated tenant
+  // GET /api/clients/search - Isolated tenant client search/autocomplete (REM-P2-01)
+  router.get('/search', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+
+      const q = String(req.query.q || '').trim();
+      if (q.length < 2) {
+        return res.status(400).json({ error: 'El término de búsqueda debe tener al menos 2 caracteres.' });
+      }
+
+      const rawLimit = parseInt(req.query.limit || '20', 10);
+      const limit = Math.min(Math.max(rawLimit, 1), 50);
+
+      const filterHash = computeFilterHash({ q });
+      let cursorData = null;
+      if (req.query.cursor) {
+        cursorData = decodeCursor(req.query.cursor, tenantId, filterHash);
+      }
+
+      const searchPattern = `%${q}%`;
+      const params = [tenantId, searchPattern, searchPattern, searchPattern, searchPattern];
+      let cursorClause = '';
+
+      if (cursorData) {
+        cursorClause = ' AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?))';
+        params.push(cursorData.last_created_at, cursorData.last_created_at, cursorData.last_id);
+      }
+
+      params.push(limit + 1);
+
+      const [rows] = await pool.query(`
+        SELECT c.id, c.tenant_id, c.nombre, c.apellido, c.telefono, c.cedula, c.email, c.created_at
+        FROM clients c
+        WHERE c.tenant_id = ?
+          AND (c.nombre ILIKE ? OR c.apellido ILIKE ? OR c.telefono ILIKE ? OR c.cedula ILIKE ?)
+          ${cursorClause}
+        ORDER BY c.created_at DESC, c.id DESC
+        LIMIT ?
+      `, params);
+
+      const paginated = buildPaginatedResponse({
+        items: rows,
+        limit,
+        tenant_id: tenantId,
+        filters_hash: filterHash
+      });
+
+      res.json(paginated);
+    } catch (err) {
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message, code: err.code });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/clients - List clients for the authenticated tenant with cursor pagination (REM-P2-05)
   router.get('/', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
         return res.status(403).json({ error: 'Contexto de salón requerido.' });
       }
+
+      const rawLimit = parseInt(req.query.limit || '50', 10);
+      const limit = Math.min(Math.max(rawLimit, 1), 100);
+      const isPaginatedRequested = req.query.paginated === 'true' || Boolean(req.query.cursor);
+
+      let cursorData = null;
+      if (req.query.cursor) {
+        cursorData = decodeCursor(req.query.cursor, tenantId);
+      }
+
+      const params = [tenantId, tenantId, tenantId];
+      let cursorClause = '';
+      if (cursorData) {
+        cursorClause = ' AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?))';
+        params.push(cursorData.last_created_at, cursorData.last_created_at, cursorData.last_id);
+      }
+      params.push(limit + 1);
 
       const [rows] = await pool.query(`
         SELECT c.*,
@@ -42,11 +119,30 @@ function createClientsRouter(pool) {
         LEFT JOIN branches b ON c.salon_id::text = b.id::text AND b.tenant_id = c.tenant_id
         LEFT JOIN salons s ON c.salon_id::text = s.id::text AND s.tenant_id = c.tenant_id
         WHERE c.tenant_id = ?
-        ORDER BY c.created_at DESC
-      `, [tenantId, tenantId, tenantId]);
+        ${cursorClause}
+        ORDER BY c.created_at DESC, c.id DESC
+        LIMIT ?
+      `, params);
 
-      res.json(rows);
+      const paginated = buildPaginatedResponse({
+        items: rows,
+        limit,
+        tenant_id: tenantId
+      });
+
+      if (isPaginatedRequested) {
+        return res.json(paginated);
+      }
+
+      if (paginated.pagination.next_cursor) {
+        res.setHeader('X-Cursor-Next', paginated.pagination.next_cursor);
+        res.setHeader('X-Has-More', 'true');
+      }
+      res.json(paginated.data);
     } catch (err) {
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message, code: err.code });
+      }
       console.error('[CLIENTS GET ERROR]:', err);
       res.status(500).json({ error: err.message });
     }

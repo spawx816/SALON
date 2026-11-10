@@ -24,15 +24,17 @@ const CANONICAL_MIGRATIONS = [
   '20261110_create_tenant_branding',
   '20261110_phase2h_user_token_version',
   '20261110_job_nonces_and_strict_idempotency',
-  '20261110_phase3b_storage_and_portability'
+  '20261110_phase3b_storage_and_portability',
+  '20261110_phase3b_p2p3_extensions'
 ];
 
-// 12 Global / Control Plane / System Tables
+// 13 Global / Control Plane / System Tables
 const GLOBAL_SYSTEM_TABLES = [
   'account_lockouts',
   'billing_codes',
   'blocked_ips',
   'contact_messages',
+  'data_retention_policies',
   'job_request_nonces',
   'login_attempts',
   'pending_tenant_reconciliations',
@@ -50,7 +52,8 @@ const APPROVED_NULLABLE_EXEMPTIONS = {
   'user_sessions': 'Superadmin cross-tenant sessions without active tenant selection',
   'users': 'Superadmin users in control plane',
   'verification_codes': 'Pre-registration verification codes before tenant creation',
-  'saas_webhook_events': 'Raw inbound gateway webhooks before tenant binding'
+  'saas_webhook_events': 'Raw inbound gateway webhooks before tenant binding',
+  'data_retention_runs': 'Global or system-level data retention runs before tenant scoping'
 };
 
 // 83 Tenant-Owned Tables
@@ -71,6 +74,7 @@ const TENANT_OWNED_TABLES = [
   'company_ncf_counters',
   'contract_settings',
   'contracts',
+  'data_retention_runs',
   'dgii_606_purchases',
   'dgii_ncf_sequences',
   'email_logs',
@@ -87,6 +91,8 @@ const TENANT_OWNED_TABLES = [
   'idempotency_keys',
   'inventory_locations',
   'inventory_movements',
+  'inventory_physical_session_items',
+  'inventory_physical_sessions',
   'inventory_products',
   'inventory_purchase_order_items',
   'inventory_purchase_orders',
@@ -142,13 +148,14 @@ const TENANT_OWNED_TABLES = [
   'visits'
 ];
 
-const CANONICAL_97_TABLES = [
+const CANONICAL_101_TABLES = [
   ...GLOBAL_SYSTEM_TABLES,
   ...TENANT_OWNED_TABLES
 ].sort();
 
-const CANONICAL_95_TABLES = CANONICAL_97_TABLES; // Compatibility alias
-const CANONICAL_94_TABLES = CANONICAL_97_TABLES; // Compatibility alias
+const CANONICAL_97_TABLES = CANONICAL_101_TABLES; // Compatibility alias
+const CANONICAL_95_TABLES = CANONICAL_101_TABLES; // Compatibility alias
+const CANONICAL_94_TABLES = CANONICAL_101_TABLES; // Compatibility alias
 
 const CANONICAL_QUARANTINE_TRIGGERS = [
   { triggerName: 'trg_quarantine_salons', tableName: 'salons', functionName: 'fn_enforce_quarantine_block' },
@@ -211,6 +218,7 @@ module.exports = {
   GLOBAL_SYSTEM_TABLES,
   TENANT_OWNED_TABLES,
   APPROVED_NULLABLE_EXEMPTIONS,
+  CANONICAL_101_TABLES,
   CANONICAL_97_TABLES,
   CANONICAL_95_TABLES,
   CANONICAL_94_TABLES,

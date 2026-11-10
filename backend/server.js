@@ -123,6 +123,11 @@ const isMainOrLauncher = require.main === module ||
 if (isMainOrLauncher) {
   serverInstance = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Salon Pro SaaS API Server running securely on http://127.0.0.1:${PORT}`);
+    // Explicit server timeouts (REM-P2-07)
+    serverInstance.headersTimeout = parseInt(process.env.HTTP_HEADERS_TIMEOUT_MS || '65000', 10);
+    serverInstance.requestTimeout = parseInt(process.env.HTTP_REQUEST_TIMEOUT_MS || '30000', 10);
+    serverInstance.keepAliveTimeout = parseInt(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || '61000', 10);
+
     shutdownCoordinator.registerServer(serverInstance);
     shutdownCoordinator.attachProcessSignals();
   });

@@ -258,7 +258,7 @@ async function verifyCurrentMatrix(customPool = null) {
         }
       }
 
-      console.log(`  ✅ [PASS] 95/95 tablas y 15 migraciones reconstruidas limpiamente desde cero en "${disposableSchema}".`);
+      console.log(`  ✅ [PASS] ${CANONICAL_95_TABLES.length}/${CANONICAL_95_TABLES.length} tablas y ${CANONICAL_MIGRATIONS.length} migraciones reconstruidas limpiamente desde cero en "${disposableSchema}".`);
     } finally {
       await conn.query(`DROP SCHEMA IF EXISTS ${disposableSchema} CASCADE;`);
       console.log(`  ✅ [TEARDOWN] Esquema desechable "${disposableSchema}" destruido (DROP SCHEMA CASCADE).`);
@@ -271,7 +271,7 @@ async function verifyCurrentMatrix(customPool = null) {
     }
 
     console.log('\n========================================================================');
-    console.log('🎉 MATRIZ ACTUAL CERTIFICADA AL 100%: 95/95 TABLAS Y 15 MIGRACIONES VÁLIDAS');
+    console.log(`🎉 MATRIZ ACTUAL CERTIFICADA AL 100%: ${CANONICAL_95_TABLES.length}/${CANONICAL_95_TABLES.length} TABLAS Y ${CANONICAL_MIGRATIONS.length} MIGRACIONES VÁLIDAS`);
     console.log('========================================================================\n');
 
     process.exit(0);

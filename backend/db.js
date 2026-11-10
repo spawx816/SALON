@@ -17,6 +17,21 @@ if (missingDbVars.length > 0) {
 let pool;
 
 if (process.env.DB_TYPE === 'postgres') {
+  const timeoutRole = process.env.DB_TIMEOUT_ROLE || process.env.DB_ROLE || 'runtime';
+  let defaultStatementTimeout = 10000; // 10s for runtime
+  let defaultLockTimeout = 5000;       // 5s for runtime
+
+  if (timeoutRole === 'migrator') {
+    defaultStatementTimeout = parseInt(process.env.DB_MIGRATOR_STATEMENT_TIMEOUT_MS || '300000', 10);
+    defaultLockTimeout = parseInt(process.env.DB_MIGRATOR_LOCK_TIMEOUT_MS || '60000', 10);
+  } else if (timeoutRole === 'backup' || timeoutRole === 'restore') {
+    defaultStatementTimeout = parseInt(process.env.DB_BACKUP_STATEMENT_TIMEOUT_MS || '600000', 10);
+    defaultLockTimeout = parseInt(process.env.DB_BACKUP_LOCK_TIMEOUT_MS || '120000', 10);
+  } else {
+    defaultStatementTimeout = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || '10000', 10);
+    defaultLockTimeout = parseInt(process.env.DB_LOCK_TIMEOUT_MS || '5000', 10);
+  }
+
   const pgPool = new Pool({
     host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT || '5432', 10),
@@ -26,6 +41,12 @@ if (process.env.DB_TYPE === 'postgres') {
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
+    statement_timeout: defaultStatementTimeout,
+    query_timeout: defaultStatementTimeout
+  });
+
+  pgPool.on('connect', (client) => {
+    client.query(`SET statement_timeout = ${defaultStatementTimeout}; SET lock_timeout = ${defaultLockTimeout};`).catch(() => {});
   });
 
   function normalizeSql(sql) {
@@ -212,4 +233,36 @@ if (process.env.DB_TYPE === 'postgres') {
   console.log(`🔌 [DB] Usando MySQL Pool (${process.env.DB_HOST}/${process.env.DB_NAME})`);
 }
 
-module.exports = { pool };
+function createRolePool(options = {}) {
+  const role = options.role || 'runtime';
+  let statementTimeout = 10000;
+  let lockTimeout = 5000;
+  if (role === 'migrator') {
+    statementTimeout = parseInt(process.env.DB_MIGRATOR_STATEMENT_TIMEOUT_MS || '300000', 10);
+    lockTimeout = parseInt(process.env.DB_MIGRATOR_LOCK_TIMEOUT_MS || '60000', 10);
+  } else if (role === 'backup' || role === 'restore') {
+    statementTimeout = parseInt(process.env.DB_BACKUP_STATEMENT_TIMEOUT_MS || '600000', 10);
+    lockTimeout = parseInt(process.env.DB_BACKUP_LOCK_TIMEOUT_MS || '120000', 10);
+  } else {
+    statementTimeout = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS || '10000', 10);
+    lockTimeout = parseInt(process.env.DB_LOCK_TIMEOUT_MS || '5000', 10);
+  }
+  const customPgPool = new Pool({
+    host: options.host || process.env.DB_HOST,
+    port: parseInt(options.port || process.env.DB_PORT || '5432', 10),
+    user: options.user || process.env.DB_USER,
+    password: options.password || process.env.DB_PASS,
+    database: options.database || process.env.DB_NAME,
+    max: options.max || 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+    statement_timeout: statementTimeout,
+    query_timeout: statementTimeout
+  });
+  customPgPool.on('connect', (client) => {
+    client.query(`SET statement_timeout = ${statementTimeout}; SET lock_timeout = ${lockTimeout};`).catch(() => {});
+  });
+  return customPgPool;
+}
+
+module.exports = { pool, createRolePool };

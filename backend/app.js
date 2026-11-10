@@ -69,6 +69,7 @@ const { InventoryTransferRepository } = require('./repositories/inventory_transf
 const { InventoryService } = require('./services/inventory.service');
 const { InventoryPurchaseService } = require('./services/inventory_purchase.service');
 const { InventoryTransferService } = require('./services/inventory_transfer.service');
+const { InventoryPhysicalSessionService } = require('./services/inventory_physical_session.service');
 const { SaasPlanRepository } = require('./repositories/saas_plan.repository');
 const { TenantSubscriptionRepository } = require('./repositories/tenant_subscription.repository');
 const { EntitlementsRepository } = require('./repositories/entitlements.repository');
@@ -84,6 +85,7 @@ const { ZeroTaxPolicy } = require('./services/tax_policy');
 const { createAuthMiddleware } = require('./middleware/auth.middleware');
 const { TenantBrandingRepository, InMemoryTenantBrandingRepository } = require('./repositories/tenant_branding.repository');
 const { TenantBrandingService } = require('./services/tenant_branding.service');
+const { logger } = require('./utils/logger');
 
 /**
  * Creates and configures the Express application with all middlewares, routes, and services.
@@ -129,6 +131,7 @@ function createApp(dependencies = {}) {
   }));
 
   app.use(cookieParser());
+  app.use(logger.middleware());
 
   // Test endpoints guard (FAIL CLOSED)
   app.use((req, res, next) => {
@@ -517,6 +520,7 @@ function createApp(dependencies = {}) {
     inventoryService,
     purchaseService: inventoryPurchaseService,
     transferService: inventoryTransferService,
+    physicalSessionService: new InventoryPhysicalSessionService(pool),
     requirePlanFeature
   }));
   app.use('/api/cash-registers', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCashRegistersRouter(pool));

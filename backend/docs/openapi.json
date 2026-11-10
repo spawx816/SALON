@@ -1,0 +1,194 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SalonPro SaaS & Plan Beauty RD Platform API",
+    "version": "3.0.0",
+    "description": "API canónica multi-tenant para salones de belleza y gestión de membresías recurrentes. Incorpora control estricto RBAC, autenticación JWT, idempotencia financiera, almacenamiento cifrado, toma física de inventario y cursores firmados."
+  },
+  "servers": [
+    {
+      "url": "https://staging.etereasapp.com",
+      "description": "Servidor Staging Privado Protegido"
+    },
+    {
+      "url": "http://127.0.0.1:5005",
+      "description": "Entorno Local de Pruebas y Desarrollo"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT con validación de versión (token_version) y rol de usuario."
+      },
+      "CookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "auth_token",
+        "description": "Cookie segura HTTP-Only con SameSite estricto."
+      },
+      "CsrfProtection": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token",
+        "description": "Validación obligatoria de token CSRF para peticiones mutantes con cookie."
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" },
+          "code": { "type": "string" },
+          "error_id": { "type": "string", "format": "uuid" }
+        }
+      },
+      "PaginatedEnvelope": {
+        "type": "object",
+        "required": ["data", "pagination"],
+        "properties": {
+          "data": { "type": "array", "items": { "type": "object" } },
+          "pagination": {
+            "type": "object",
+            "required": ["limit", "has_more", "next_cursor"],
+            "properties": {
+              "limit": { "type": "integer" },
+              "has_more": { "type": "boolean" },
+              "next_cursor": { "type": "string", "nullable": true },
+              "total_count": { "type": "integer", "nullable": true }
+            }
+          }
+        }
+      },
+      "CashRegisterCloseRequest": {
+        "type": "object",
+        "required": ["closing_balance"],
+        "properties": {
+          "closing_balance": { "type": "number", "description": "Monto de efectivo recontado" },
+          "discrepancy_reason": { "type": "string", "description": "Motivo obligatorio si existe diferencia" },
+          "double_confirmed": { "type": "boolean", "description": "Confirmación explícita de discrepancia" },
+          "supervisor_pin": { "type": "string", "description": "PIN de supervisor si excede el umbral" }
+        }
+      },
+      "PhysicalInventorySession": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "session_number": { "type": "string" },
+          "status": { "type": "string", "enum": ["DRAFT", "COUNTING", "REVIEW", "POSTED", "CANCELLED"] },
+          "location_id": { "type": "string" },
+          "branch_id": { "type": "string", "format": "uuid", "nullable": true }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "summary": "Iniciar sesión en sistema",
+        "responses": {
+          "200": { "description": "Autenticación exitosa" },
+          "401": { "description": "Credenciales inválidas" }
+        }
+      }
+    },
+    "/api/auth/revoke-tokens": {
+      "post": {
+        "summary": "Revocar todas las sesiones del usuario incrementando token_version",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Sesiones revocadas exitosamente" }
+        }
+      }
+    },
+    "/api/clients/search": {
+      "get": {
+        "summary": "Búsqueda y autocompletado aislado de clientes por tenant",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string", "minLength": 2 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "maximum": 50 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Resultados de búsqueda paginados con cursor firmado" },
+          "400": { "description": "Término de búsqueda demasiado corto o cursor manipulado" }
+        }
+      }
+    },
+    "/api/cash-registers/{id}/close": {
+      "post": {
+        "summary": "Cierre de caja con control estricto de discrepancias y autorización",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/CashRegisterCloseRequest" } }
+          }
+        },
+        "responses": {
+          "200": { "description": "Caja cerrada exitosamente" },
+          "400": { "description": "Motivo o doble confirmación requerida ante discrepancia" },
+          "401": { "description": "PIN de supervisor inválido" },
+          "403": { "description": "Se requiere PIN de supervisor por superar el umbral" }
+        }
+      }
+    },
+    "/api/inventory/physical-sessions": {
+      "post": {
+        "summary": "Crear sesión de toma física de inventario (BASE y PRO)",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "201": { "description": "Sesión creada con snapshot de stock del sistema" },
+          "409": { "description": "Ya existe una sesión activa para esta sucursal y ubicación" }
+        }
+      }
+    },
+    "/api/inventory/physical-sessions/{id}/post": {
+      "post": {
+        "summary": "Confirmar y ajustar inventario atómicamente con fórmula de ventas concurrentes",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Inventario ajustado atómicamente con bloqueo pesimista" },
+          "409": { "description": "Sesión ya publicada o cancelada" }
+        }
+      }
+    },
+    "/api/tenant/retention/policies": {
+      "get": {
+        "summary": "Listar políticas de retención de datos configuradas",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Listado de políticas de retención con legal hold" }
+        }
+      }
+    },
+    "/api/tenant/retention/dry-run": {
+      "post": {
+        "summary": "Ejecutar evaluación dry-run sin borrado físico",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Reporte emitido con registros elegibles y legal hold respetado" }
+        }
+      }
+    },
+    "/api/tenant/retention/execute": {
+      "post": {
+        "summary": "Ejecutar purga física (Bloqueado por defecto en staging/producción)",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "403": { "description": "Ejecución física bloqueada (PURGE_EXECUTION_BLOCKED)" }
+        }
+      }
+    }
+  }
+}

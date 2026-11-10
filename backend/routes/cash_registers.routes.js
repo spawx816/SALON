@@ -1,4 +1,6 @@
 const express = require('express');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
 
@@ -164,14 +166,22 @@ function createCashRegistersRouter(pool) {
     }
   });
 
-  // 3. Cerrar caja de jornada dentro del tenant autenticado (REM-P1-08)
+  // 3. Cerrar caja de jornada dentro del tenant autenticado (REM-P1-08 & REM-P2-02 & Addendum 2)
   router.post('/:id/close', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const { closing_balance = 0, notes = '' } = req.body || {};
+      const {
+        closing_balance = 0,
+        notes = '',
+        discrepancy_reason = '',
+        double_confirmed = false,
+        supervisor_pin = ''
+      } = req.body || {};
+
       // Operador extraído estrictamente de req.auth para prevenir suplantación de identidad (REM-P1-08)
       const effectiveClosedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.closed_by || 'Recepción';
+      const closedByUserId = req.auth?.userId || req.auth?.id || null;
 
       const [rows] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (rows.length === 0) {
@@ -206,7 +216,83 @@ function createCashRegistersRouter(pool) {
       const cashSales = Number(sales[0]?.cash_sales || 0);
       const expectedBalance = openingBalance + cashSales + ingresos - salidas;
       const actualClosing = Number(closing_balance) || 0;
-      const difference = actualClosing - expectedBalance;
+
+      // Exact Minor Currency Units (Cents) calculation
+      const expectedBalanceCents = Math.round(expectedBalance * 100);
+      const actualClosingCents = Math.round(actualClosing * 100);
+      const differenceCents = actualClosingCents - expectedBalanceCents;
+      const difference = (differenceCents / 100);
+
+      const correlationId = req.headers['x-correlation-id'] || req.correlationId || crypto.randomUUID();
+      let supervisorUserId = null;
+      let supervisorAuthorizedAt = null;
+      let authorizationEventType = null;
+
+      // REM-P2-02 & Addendum 2: Discrepancy checks
+      if (differenceCents !== 0) {
+        const trimmedReason = String(discrepancy_reason || '').trim();
+        if (trimmedReason.length < 5) {
+          return res.status(400).json({
+            error: 'El motivo de la diferencia de arqueo es obligatorio (mínimo 5 caracteres).',
+            code: 'DISCREPANCY_REASON_REQUIRED',
+            difference_cents: differenceCents,
+            expected_balance: expectedBalance,
+            closing_balance: actualClosing
+          });
+        }
+
+        if (double_confirmed !== true && double_confirmed !== 'true') {
+          return res.status(400).json({
+            error: 'Se requiere confirmación doble explícita ante discrepancia en caja.',
+            code: 'DOUBLE_CONFIRMATION_REQUIRED',
+            difference_cents: differenceCents,
+            expected_balance: expectedBalance,
+            closing_balance: actualClosing
+          });
+        }
+
+        const thresholdCents = parseInt(process.env.CASH_DISCREPANCY_SUPERVISOR_THRESHOLD_CENTS || '10000', 10); // RD$ 100.00 default
+
+        if (Math.abs(differenceCents) >= thresholdCents) {
+          if (!supervisor_pin || String(supervisor_pin).trim() === '') {
+            return res.status(403).json({
+              error: 'La diferencia de arqueo excede el umbral permitido y requiere autorización obligatoria con PIN de supervisor.',
+              code: 'SUPERVISOR_PIN_REQUIRED',
+              difference_cents: differenceCents,
+              threshold_cents: thresholdCents
+            });
+          }
+
+          // Verify supervisor PIN against security_settings
+          const [secRows] = await pool.query('SELECT admin_pin_hash FROM security_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+          const pinHash = secRows[0]?.admin_pin_hash;
+          if (!pinHash) {
+            return res.status(500).json({
+              error: 'No se ha configurado el PIN administrativo en este salón.',
+              code: 'PIN_NOT_CONFIGURED'
+            });
+          }
+
+          const isPinValid = bcrypt.compareSync(String(supervisor_pin).trim(), pinHash);
+          if (!isPinValid) {
+            return res.status(401).json({
+              error: 'PIN administrativo de supervisor inválido.',
+              code: 'INVALID_ADMIN_PIN'
+            });
+          }
+
+          // Lookup supervisor user
+          const [supRows] = await pool.query(
+            "SELECT id FROM users WHERE tenant_id = ? AND role IN ('propietario', 'admin', 'supervisor') LIMIT 1",
+            [tenantId]
+          );
+          supervisorUserId = supRows[0]?.id || null;
+          supervisorAuthorizedAt = new Date();
+          authorizationEventType = 'SUPERVISOR_PIN_THRESHOLD_EXCEEDED';
+        } else {
+          authorizationEventType = 'OPERATOR_DOUBLE_CONFIRMED_UNDER_THRESHOLD';
+        }
+      }
 
       await pool.query(
         `UPDATE cash_registers SET
@@ -215,12 +301,34 @@ function createCashRegistersRouter(pool) {
            expected_balance = ?,
            expected_amount = ?,
            difference = ?,
+           difference_amount_cents = ?,
+           discrepancy_reason = ?,
+           supervisor_user_id = ?,
+           supervisor_authorized_at = ?,
+           authorization_event_type = ?,
+           correlation_id = ?,
            closed_by = ?,
            notes = COALESCE(?, notes),
            status = 'Cerrada',
            closed_at = NOW()
          WHERE id = ? AND tenant_id = ?`,
-        [actualClosing, actualClosing, expectedBalance, expectedBalance, difference, effectiveClosedBy, notes || null, id, tenantId]
+        [
+          actualClosing,
+          actualClosing,
+          expectedBalance,
+          expectedBalance,
+          difference,
+          differenceCents,
+          discrepancy_reason ? String(discrepancy_reason).trim() : null,
+          supervisorUserId,
+          supervisorAuthorizedAt,
+          authorizationEventType,
+          correlationId,
+          effectiveClosedBy,
+          notes || null,
+          id,
+          tenantId
+        ]
       );
 
       res.json({
@@ -232,7 +340,12 @@ function createCashRegistersRouter(pool) {
         salidas_manuales: salidas,
         expected_balance: expectedBalance,
         closing_balance: actualClosing,
-        difference
+        difference,
+        difference_amount_cents: differenceCents,
+        discrepancy_reason: discrepancy_reason ? String(discrepancy_reason).trim() : null,
+        supervisor_authorized: Boolean(supervisorUserId),
+        authorization_event_type: authorizationEventType,
+        correlation_id: correlationId
       });
     } catch (err) {
       console.error('[CASH REGISTER CLOSE ERROR]:', err);

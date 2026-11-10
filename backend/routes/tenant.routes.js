@@ -6,6 +6,7 @@ const { SubscriptionAuditRepository } = require('../repositories/subscription_au
 const { EntitlementsService } = require('../services/entitlements.service');
 const { TenantBrandingRepository } = require('../repositories/tenant_branding.repository');
 const { TenantBrandingService } = require('../services/tenant_branding.service');
+const { DataRetentionService } = require('../services/data_retention.service');
 
 function createTenantRouter(pool, options = {}) {
   const router = express.Router();
@@ -286,6 +287,56 @@ function createTenantRouter(pool, options = {}) {
     } catch (error) {
       console.error('Error updating tenant settings:', error);
       res.status(500).json({ error: 'Error guardando personalización: ' + error.message });
+    }
+  });
+
+  // ==============================================================
+  // MOTOR DE RETENCIÓN Y PURGA DRY-RUN (REM-P2-09 & Addendum 1)
+  // ==============================================================
+
+  const retentionService = new DataRetentionService(pool);
+
+  // GET /api/tenant/retention/policies - Listar políticas de retención
+  router.get('/retention/policies', async (req, res) => {
+    try {
+      const policies = await retentionService.listPolicies();
+      res.json(policies);
+    } catch (err) {
+      res.status(500).json({ error: err.message, code: 'RETENTION_ERROR' });
+    }
+  });
+
+  // POST /api/tenant/retention/dry-run - Evaluación sin impacto físico
+  router.post('/retention/dry-run', async (req, res) => {
+    try {
+      const tenantId = req.tenantId || req.auth?.tenantId || (await resolveTenantId(req));
+      const { category } = req.body || {};
+      const result = await retentionService.runRetention({
+        tenantId,
+        category,
+        isDryRun: true,
+        executedBy: req.auth?.userId || req.auth?.id
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'RETENTION_ERROR' });
+    }
+  });
+
+  // POST /api/tenant/retention/execute - Ejecución física (Fail-closed si no está habilitada)
+  router.post('/retention/execute', async (req, res) => {
+    try {
+      const tenantId = req.tenantId || req.auth?.tenantId || (await resolveTenantId(req));
+      const { category } = req.body || {};
+      const result = await retentionService.runRetention({
+        tenantId,
+        category,
+        isDryRun: false,
+        executedBy: req.auth?.userId || req.auth?.id
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'RETENTION_ERROR' });
     }
   });
 

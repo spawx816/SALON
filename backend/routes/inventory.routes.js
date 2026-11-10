@@ -6,9 +6,16 @@
  * - Rutas Pro protegidas por requirePlanFeature('inventory_advanced').
  */
 const express = require('express');
+const { InventoryPhysicalSessionService } = require('../services/inventory_physical_session.service');
 
-function createInventoryRouter({ inventoryService, purchaseService, transferService, requirePlanFeature }) {
+function createInventoryRouter({ inventoryService, purchaseService, transferService, physicalSessionService, requirePlanFeature }) {
   const router = express.Router();
+
+  const getPhysicalService = () => {
+    if (physicalSessionService) return physicalSessionService;
+    const pool = inventoryService?.repo?.pool || inventoryService?.pool || require('../db').pool;
+    return new InventoryPhysicalSessionService(pool);
+  };
 
   // Middleware Base: Toda ruta de inventario requiere la funcionalidad 'inventory'
   router.use(requirePlanFeature('inventory'));
@@ -192,6 +199,97 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
       res.json(alerts);
     } catch (err) {
       res.status(500).json({ error: err.message, code: 'INVENTORY_ERROR' });
+    }
+  });
+
+  // ==========================================
+  // TOMA FÍSICA DE INVENTARIO (BASE Y PRO - REM-P2-03)
+  // ==========================================
+
+  // GET /api/inventory/physical-sessions - Listar sesiones
+  router.get('/physical-sessions', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { limit = 20, offset = 0 } = req.query;
+      const sessions = await getPhysicalService().listSessions({ tenantId, limit, offset });
+      res.json(sessions);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'PHYSICAL_INVENTORY_ERROR' });
+    }
+  });
+
+  // POST /api/inventory/physical-sessions - Crear nueva sesión de toma física
+  router.post('/physical-sessions', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { branch_id, location_id, notes } = req.body || {};
+      const result = await getPhysicalService().createSession({
+        tenantId,
+        branchId: branch_id,
+        locationId: location_id,
+        notes,
+        userId: req.auth?.userId || req.auth?.id
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'PHYSICAL_INVENTORY_ERROR' });
+    }
+  });
+
+  // GET /api/inventory/physical-sessions/:id - Detalle y productos de sesión
+  router.get('/physical-sessions/:id', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const result = await getPhysicalService().getSession({ tenantId, sessionId: req.params.id });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'PHYSICAL_INVENTORY_ERROR' });
+    }
+  });
+
+  // PUT /api/inventory/physical-sessions/:id/items - Registrar conteo físico
+  router.put('/physical-sessions/:id/items', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { items } = req.body || {};
+      const result = await getPhysicalService().recordCounts({
+        tenantId,
+        sessionId: req.params.id,
+        items
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'PHYSICAL_INVENTORY_ERROR' });
+    }
+  });
+
+  // POST /api/inventory/physical-sessions/:id/post - Publicar y ajustar inventario atómicamente
+  router.post('/physical-sessions/:id/post', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const result = await getPhysicalService().postSession({
+        tenantId,
+        sessionId: req.params.id,
+        userId: req.auth?.userId || req.auth?.id
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'PHYSICAL_INVENTORY_ERROR' });
+    }
+  });
+
+  // POST /api/inventory/physical-sessions/:id/cancel - Cancelar sesión
+  router.post('/physical-sessions/:id/cancel', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const result = await getPhysicalService().cancelSession({
+        tenantId,
+        sessionId: req.params.id,
+        userId: req.auth?.userId || req.auth?.id
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'PHYSICAL_INVENTORY_ERROR' });
     }
   });
 

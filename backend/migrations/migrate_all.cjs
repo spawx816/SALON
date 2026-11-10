@@ -27,6 +27,7 @@ const { up: upSecurePin } = require('./20261109_secure_admin_pin_hash.cjs');
 const { up: upUserTokenVersion } = require('./20261110_phase2h_user_token_version.cjs');
 const { up: upJobNoncesAndStrictIdempotency } = require('./20261110_job_nonces_and_strict_idempotency.cjs');
 const { up: upStorageAndPortability } = require('./20261110_phase3b_storage_and_portability.cjs');
+const { up: upP2P3Extensions } = require('./20261110_phase3b_p2p3_extensions.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -189,6 +190,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Tablas private_files y tenant_exports, referencias cifradas para asistencia y contratos (REM-P1-10, P1-11, P1-17)',
     execute: async (targetPool, targetSchema) => {
       return upStorageAndPortability(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261110_phase3b_p2p3_extensions',
+    description: 'Toma física de inventario (REM-P2-03), retención dry-run (REM-P2-09), arqueo de caja (REM-P2-02) e índices compuestos (REM-P2-08)',
+    execute: async (targetPool, targetSchema) => {
+      return upP2P3Extensions(targetPool, targetSchema);
     }
   }
 ];
