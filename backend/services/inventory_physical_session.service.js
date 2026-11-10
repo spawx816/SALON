@@ -150,13 +150,13 @@ class InventoryPhysicalSessionService {
 
     const [items] = await this.pool.query(`
       SELECT i.*,
-             p.nombre as product_name,
-             p.codigo as product_code,
-             p.categoria as category
+             p.name as product_name,
+             p.sku as product_code,
+             p.category as category
       FROM inventory_physical_session_items i
       INNER JOIN inventory_products p ON p.id = i.product_id
       WHERE i.session_id = ? AND i.tenant_id = ?
-      ORDER BY p.nombre ASC
+      ORDER BY p.name ASC
     `, [sessionId, tenantId]);
 
     return {
