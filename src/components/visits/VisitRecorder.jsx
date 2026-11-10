@@ -3270,7 +3270,15 @@ const VisitRecorder = () => {
           rzn_soc_cliente: razonSocialToSend
         });
       } catch (err) {
-        const isFiscalRejection = err.status === 409 || 
+        const isAlreadyBilled = err.code === 'VISIT_ALREADY_BILLED' || err.data?.code === 'VISIT_ALREADY_BILLED';
+        if (isAlreadyBilled) {
+          alert(`⚠️ ${err.data?.message || err.message || 'Esta visita ya fue facturada previamente.'}\n\nComprobante e-NCF: ${err.data?.ncf || 'Emitido'}\nEl POS se reiniciará para la siguiente clienta.`);
+          resetPosToBlankState();
+          await fetchPendingTickets();
+          return;
+        }
+
+        const isFiscalRejection = (err.status === 409 && !isAlreadyBilled) || 
           err.code === 'FISCAL_SEQUENCES_EXHAUSTED' || 
           err.code === 'LOTE_AGOTADO' || 
           err.code === 'LOTE_VENCIDO' || 
