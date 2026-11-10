@@ -33,7 +33,7 @@ COPY --chown=node:node public ./public
 
 # Copy application runtime code (excluding tests, migrations, secrets, and test runner guards)
 COPY --chown=node:node package.json server.js ./
-COPY --chown=node:node backend/server.js backend/app.js backend/db.js backend/dgii_reception_router.js ./backend/
+COPY --chown=node:node backend/package.json backend/server.js backend/app.js backend/db.js backend/dgii_reception_router.js ./backend/
 COPY --chown=node:node backend/routes ./backend/routes
 COPY --chown=node:node backend/middleware ./backend/middleware
 COPY --chown=node:node backend/services ./backend/services
@@ -52,4 +52,5 @@ EXPOSE 5005
 HEALTHCHECK --interval=15s --timeout=3s --start-period=15s --retries=3 \
   CMD node -e "const http = require('http'); const req = http.get('http://127.0.0.1:5005/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)); req.on('error', () => process.exit(1));"
 
-CMD ["node", "backend/server.js"]
+CMD ["node", "server.js"]
+
