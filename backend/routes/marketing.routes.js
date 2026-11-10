@@ -453,25 +453,53 @@ function createMarketingRouter(pool) {
     }
   });
 
-  // Automated daily birthdays cron endpoint (Iterates per tenant strictly) (REM-P1-09)
+  const { checkJobIdempotency, recordJobExecution } = require('../middleware/job_hmac_auth.middleware.cjs');
+
+  // Automated daily birthdays cron endpoint (Iterates per tenant strictly with Anti-Replay & Idempotency)
   router.post('/send-daily-birthdays', async (req, res) => {
     try {
-      const cronSecret = req.headers['x-cron-secret'];
-      const expectedSecret = process.env.CRON_SECRET;
-      if (!expectedSecret || expectedSecret.trim().length < 16) {
-        return res.status(403).json({ error: 'Servicio cron deshabilitado: CRON_SECRET no configurado o inseguro.', code: 'CRON_SECRET_UNCONFIGURED' });
-      }
-      if (!cronSecret || cronSecret !== expectedSecret) {
-        return res.status(401).json({ error: 'CRON_UNAUTHORIZED', message: 'Acceso no autorizado al proceso cron.', code: 'CRON_UNAUTHORIZED' });
+      const todayDateStr = new Date().toISOString().slice(0, 10);
+      const targetTenantId = req.body?.tenant_id ? String(req.body.tenant_id) : null;
+
+      // 1. Single-tenant targeted execution idempotency check
+      if (targetTenantId) {
+        const isDuplicate = await checkJobIdempotency(pool, {
+          tenantId: targetTenantId,
+          jobType: 'daily_birthdays',
+          date: todayDateStr
+        });
+        if (isDuplicate) {
+          return res.status(409).json({
+            error: 'JOB_DUPLICATE_EXECUTION',
+            message: 'El job de cumpleaños ya fue ejecutado para este tenant en la fecha de hoy.',
+            code: 'JOB_DUPLICATE_EXECUTION'
+          });
+        }
       }
 
-      const [activeTenants] = await pool.query("SELECT id FROM tenants WHERE status = 'active'");
+      const [activeTenants] = targetTenantId 
+        ? await pool.query("SELECT id FROM tenants WHERE id = ? AND status = 'active'", [targetTenantId])
+        : await pool.query("SELECT id FROM tenants WHERE status = 'active'");
+
       let totalSent = 0;
+      let processedTenants = 0;
 
       for (const t of activeTenants) {
         const tenantId = t.id;
+
+        // Check per-tenant idempotency
+        const alreadyRan = await checkJobIdempotency(pool, {
+          tenantId,
+          jobType: 'daily_birthdays',
+          date: todayDateStr
+        });
+        if (alreadyRan) continue;
+
         const [mSettings] = await pool.query('SELECT * FROM marketing_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-        if (mSettings.length === 0 || !mSettings[0].birthday_automation_enabled) continue;
+        if (mSettings.length === 0 || !mSettings[0].birthday_automation_enabled) {
+          await recordJobExecution(pool, { tenantId, jobType: 'daily_birthdays', date: todayDateStr, metadata: { sent: 0, reason: 'automation_disabled' } });
+          continue;
+        }
 
         const settings = mSettings[0];
         const [clients] = await pool.query(`
@@ -485,32 +513,45 @@ function createMarketingRouter(pool) {
             AND c.email IS NOT NULL AND c.email != ''
         `, [tenantId]);
 
-        if (clients.length === 0) continue;
+        let tenantSent = 0;
 
-        const [emailSettingsRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-        if (emailSettingsRows.length === 0 || !emailSettingsRows[0].smtp_host) continue;
-
-        const s = emailSettingsRows[0];
-        const transporter = nodemailer.createTransport({
-          host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
-          auth: { user: s.smtp_user, pass: s.smtp_pass }
-        });
-
-        for (const client of clients) {
-          try {
-            await transporter.sendMail({
-              from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
-              to: client.email,
-              subject: settings.birthday_email_subject || '¡Feliz Cumpleaños! 🎉',
-              text: `Hola ${client.nombre}, te deseamos un muy feliz cumpleaños!`
+        if (clients.length > 0) {
+          const [emailSettingsRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+          if (emailSettingsRows.length > 0 && emailSettingsRows[0].smtp_host) {
+            const s = emailSettingsRows[0];
+            const transporter = nodemailer.createTransport({
+              host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+              auth: { user: s.smtp_user, pass: s.smtp_pass }
             });
-            await pool.query('UPDATE clients SET last_birthday_sent_year = EXTRACT(YEAR FROM NOW()) WHERE id = ? AND tenant_id = ?', [client.id, tenantId]);
-            totalSent++;
-          } catch (e) {}
+
+            for (const client of clients) {
+              try {
+                await transporter.sendMail({
+                  from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+                  to: client.email,
+                  subject: settings.birthday_email_subject || '¡Feliz Cumpleaños! 🎉',
+                  text: `Hola ${client.nombre}, te deseamos un muy feliz cumpleaños!`
+                });
+                await pool.query('UPDATE clients SET last_birthday_sent_year = EXTRACT(YEAR FROM NOW()) WHERE id = ? AND tenant_id = ?', [client.id, tenantId]);
+                tenantSent++;
+              } catch (e) {}
+            }
+          }
         }
+
+        totalSent += tenantSent;
+        processedTenants++;
+
+        // Record execution idempotency for tenant
+        await recordJobExecution(pool, {
+          tenantId,
+          jobType: 'daily_birthdays',
+          date: todayDateStr,
+          metadata: { sent: tenantSent, clientsCount: clients.length }
+        });
       }
 
-      res.json({ success: true, sent: totalSent });
+      res.json({ success: true, sent: totalSent, processedTenants });
     } catch (err) {
       console.error('[DAILY BIRTHDAY ERROR]', err);
       res.status(500).json({ error: err.message });

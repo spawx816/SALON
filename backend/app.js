@@ -127,18 +127,8 @@ function createApp(dependencies = {}) {
 
   app.use(cookieParser());
 
-  // Cron and test endpoints guard (FAIL CLOSED)
+  // Test endpoints guard (FAIL CLOSED)
   app.use((req, res, next) => {
-    if (req.path.startsWith('/api/cron') || req.path === '/api/marketing/send-daily-birthdays') {
-      const cronSecret = process.env.CRON_SECRET;
-      if (!cronSecret || cronSecret.trim().length < 16) {
-        return res.status(403).json({ error: 'Servicio cron deshabilitado: CRON_SECRET no configurado o inseguro.', code: 'CRON_SECRET_UNCONFIGURED' });
-      }
-      const providedSecret = req.headers['x-cron-secret'] || req.query.cron_secret;
-      if (!providedSecret || providedSecret !== cronSecret) {
-        return res.status(401).json({ error: 'Acceso no autorizado al servicio de cron.', code: 'CRON_UNAUTHORIZED' });
-      }
-    }
     if (req.path.startsWith('/api/test')) {
       if (process.env.NODE_ENV === 'production' || process.env.ENABLE_TEST_ENDPOINTS !== 'true') {
         return res.status(403).json({ error: 'Endpoints de prueba deshabilitados por política de seguridad.' });
@@ -206,6 +196,17 @@ function createApp(dependencies = {}) {
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
   // REMOVED (TENANT-001): app.use('/uploads', express.static(...)) - Public static access abolished
   app.use(express.static(path.join(__dirname, 'public')));
+
+  // Cron endpoints guard (FAIL CLOSED with Anti-Replay HMAC verification)
+  const { createJobHmacAuthMiddleware } = require('./middleware/job_hmac_auth.middleware.cjs');
+  const jobHmacAuth = createJobHmacAuthMiddleware(pool);
+
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/cron') || req.path === '/api/marketing/send-daily-birthdays') {
+      return jobHmacAuth(req, res, next);
+    }
+    next();
+  });
 
   // Health & Status check endpoints
   app.get('/api/health', (req, res) => {

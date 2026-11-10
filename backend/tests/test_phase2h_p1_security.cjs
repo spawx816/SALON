@@ -444,37 +444,50 @@ async function runPhase2hP1SecuritySuite() {
     pass('REM-P1-08: Cierre de caja vincula closed_by a req.auth ignorando valores suplantados');
 
     // =============================================================
-    // 8. REM-P1-09: x-cron-secret on Birthday Discounts Trigger
+    // 8. REM-P1-09: Anti-Replay HMAC Authentication on Job Triggers
     // =============================================================
-    console.log('\n--- BLOCK 8: REM-P1-09 x-cron-secret Enforcement ---');
+    console.log('\n--- BLOCK 8: REM-P1-09 Anti-Replay HMAC Job Authentication ---');
 
-    // 8.1 Birthday cron trigger without secret -> 401 CRON_UNAUTHORIZED
+    const { generateJobAuthHeaders } = require('../middleware/job_hmac_auth.middleware.cjs');
+
+    // 8.1 Birthday cron trigger without HMAC headers -> 401
     const res81 = await testApp.request({
       method: 'POST',
       path: '/api/marketing/send-daily-birthdays'
     });
-    assert.strictEqual(res81.status, 401, 'Cron sin secreto debe retornar 401');
-    assert.strictEqual(res81.body.code, 'CRON_UNAUTHORIZED');
-    pass('REM-P1-09: Disparador de cumpleaños sin cabecera x-cron-secret es rechazado (401 CRON_UNAUTHORIZED)');
+    assert.strictEqual(res81.status, 401, 'Cron sin cabeceras HMAC debe retornar 401');
+    pass('REM-P1-09: Disparador de cumpleaños sin cabeceras HMAC es rechazado (401)');
 
-    // 8.2 Birthday cron trigger with invalid secret -> 401 CRON_UNAUTHORIZED
+    // 8.2 Birthday cron trigger with invalid signature -> 401 INVALID_JOB_SIGNATURE
     const res82 = await testApp.request({
       method: 'POST',
       path: '/api/marketing/send-daily-birthdays',
-      headers: { 'x-cron-secret': 'invalid-secret-key' }
+      headers: {
+        'x-job-timestamp': String(Date.now()),
+        'x-job-nonce': 'a1b2c3d4e5f60718293a4b5c6d',
+        'x-job-signature': '00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'
+      }
     });
-    assert.strictEqual(res82.status, 401, 'Cron con secreto inválido debe retornar 401');
-    pass('REM-P1-09: Disparador de cumpleaños con x-cron-secret inválido es rechazado (401 CRON_UNAUTHORIZED)');
+    assert.strictEqual(res82.status, 401, 'Cron con firma inválida debe retornar 401');
+    assert.strictEqual(res82.body.code, 'INVALID_JOB_SIGNATURE');
+    pass('REM-P1-09: Disparador de cumpleaños con firma HMAC inválida es rechazado (401 INVALID_JOB_SIGNATURE)');
 
-    // 8.3 Birthday cron trigger with valid secret -> 200 OK
+    // 8.3 Birthday cron trigger with valid HMAC headers -> 200 OK
+    const validHeaders = generateJobAuthHeaders({
+      method: 'POST',
+      path: '/api/marketing/send-daily-birthdays',
+      body: {},
+      secret: process.env.CRON_SECRET
+    });
     const res83 = await testApp.request({
       method: 'POST',
       path: '/api/marketing/send-daily-birthdays',
-      headers: { 'x-cron-secret': process.env.CRON_SECRET }
+      headers: validHeaders,
+      body: {}
     });
-    assert.strictEqual(res83.status, 200, 'Cron con secreto válido debe retornar 200');
+    assert.strictEqual(res83.status, 200, 'Cron con firma HMAC válida debe retornar 200');
     assert.strictEqual(res83.body.success, true);
-    pass('REM-P1-09: Disparador de cumpleaños con x-cron-secret válido ejecuta exitosamente (200 OK)');
+    pass('REM-P1-09: Disparador de cumpleaños con firma HMAC válida ejecuta exitosamente (200 OK)');
 
     // =============================================================
     // 9. REM-P1-13: Global 500 Error Handler & Sanitization
