@@ -24,6 +24,7 @@ const { up: upPhase2bInventory } = require('./20261109_phase2b_inventory_multite
 const { up: upPhase2dBilling } = require('./20261109_phase2d_saas_billing.cjs');
 const { up: upCurrencyUnits } = require('./20261109_financial_minor_currency_units.cjs');
 const { up: upSecurePin } = require('./20261109_secure_admin_pin_hash.cjs');
+const { up: upUserTokenVersion } = require('./20261110_phase2h_user_token_version.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -165,6 +166,13 @@ const MIGRATIONS_REGISTRY = [
       } finally {
         conn.release();
       }
+    }
+  },
+  {
+    version: '20261110_phase2h_user_token_version',
+    description: 'Control de revocación de sesiones e invalidación de JWT via token_version en usuarios',
+    execute: async (targetPool, targetSchema) => {
+      return upUserTokenVersion(targetPool, targetSchema);
     }
   }
 ];

@@ -117,11 +117,13 @@ function createCashRegistersRouter(pool) {
     }
   });
 
-  // 2. Abrir una nueva caja de jornada en el tenant autenticado
+  // 2. Abrir una nueva caja de jornada en el tenant autenticado (REM-P1-08)
   router.post('/open', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { salon_id = 1, opening_balance = 0, opened_by = 'Recepción', notes = '' } = req.body;
+      const { salon_id = 1, opening_balance = 0, notes = '' } = req.body || {};
+      // Operador extraído estrictamente de req.auth para prevenir suplantación de identidad (REM-P1-08)
+      const effectiveOpenedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.opened_by || 'Recepción';
 
       // Verificar si ya hay una caja abierta en este salón y sucursal
       let checkQuery = "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta'";
@@ -150,7 +152,7 @@ function createCashRegistersRouter(pool) {
         `INSERT INTO cash_registers (tenant_id, branch_id, salon_id, opening_amount, opening_balance, opened_by_name, notes, status, opened_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierta', NOW())
          RETURNING id`,
-        [tenantId, branchId, numericSalonId, Number(opening_balance) || 0, Number(opening_balance) || 0, opened_by, notes]
+        [tenantId, branchId, numericSalonId, Number(opening_balance) || 0, Number(opening_balance) || 0, effectiveOpenedBy, notes]
       );
 
       const newId = result.insertId || result[0]?.id;
@@ -162,12 +164,14 @@ function createCashRegistersRouter(pool) {
     }
   });
 
-  // 3. Cerrar caja de jornada dentro del tenant autenticado
+  // 3. Cerrar caja de jornada dentro del tenant autenticado (REM-P1-08)
   router.post('/:id/close', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const { closing_balance = 0, closed_by = 'Recepción', notes = '' } = req.body;
+      const { closing_balance = 0, notes = '' } = req.body || {};
+      // Operador extraído estrictamente de req.auth para prevenir suplantación de identidad (REM-P1-08)
+      const effectiveClosedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.closed_by || 'Recepción';
 
       const [rows] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (rows.length === 0) {
@@ -216,7 +220,7 @@ function createCashRegistersRouter(pool) {
            status = 'Cerrada',
            closed_at = NOW()
          WHERE id = ? AND tenant_id = ?`,
-        [actualClosing, actualClosing, expectedBalance, expectedBalance, difference, closed_by, notes || null, id, tenantId]
+        [actualClosing, actualClosing, expectedBalance, expectedBalance, difference, effectiveClosedBy, notes || null, id, tenantId]
       );
 
       res.json({

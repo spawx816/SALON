@@ -1,5 +1,6 @@
 const express = require('express');
 const nodemailer = require('nodemailer');
+const rateLimit = require('express-rate-limit');
 
 // HTML Escaping helper function to prevent HTML/XSS injection in email templates
 const escapeHtml = (str) => {
@@ -20,8 +21,17 @@ const escapeHtml = (str) => {
 function createContactRouter(pool) {
   const router = express.Router();
 
-  // 1. Enviar mensaje de contacto público
-  router.post('/', async (req, res) => {
+  const contactLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    skip: () => process.env.NODE_ENV === 'test',
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados mensajes enviados. Intenta más tarde.' }
+  });
+
+  // 1. Enviar mensaje de contacto público (REM-P1-04)
+  router.post('/', contactLimiter, async (req, res) => {
     const { nombre, email, mensaje, telefono } = req.body || {};
     
     const cleanNombre = String(nombre || '').trim();
@@ -151,8 +161,15 @@ function createContactRouter(pool) {
     }
   });
 
-  // 2. Obtener lista de mensajes recibidos (para panel administrativo)
+  // 2. Obtener lista de mensajes recibidos (solo SuperAdmin / Control Plane - REM-P1-04)
   router.get('/messages', async (req, res) => {
+    const isSuperAdmin = req.auth?.isSuperAdmin || (req.auth?.role === 'superadmin');
+    if (!isSuperAdmin) {
+      return res.status(403).json({
+        error: 'Acceso denegado: Solo administradores de la plataforma pueden consultar mensajes de contacto.',
+        code: 'CONTROL_PLANE_ROLE_REQUIRED'
+      });
+    }
     try {
       const [rows] = await pool.query('SELECT * FROM contact_messages ORDER BY id DESC LIMIT 100');
       res.json(rows);

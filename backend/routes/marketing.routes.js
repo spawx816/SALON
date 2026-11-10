@@ -378,6 +378,11 @@ function createMarketingRouter(pool) {
       return res.status(403).json({ error: 'Contexto de salón requerido.' });
     }
 
+    const role = (req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
+    if (role !== 'propietario' && role !== 'admin' && !req.auth?.isSuperAdmin) {
+      return res.status(403).json({ error: 'Acceso denegado: Se requieren permisos administrativos para disparar campañas de marketing.', code: 'ADMIN_ROLE_REQUIRED' });
+    }
+
     const { discountPercent, flyerUrl } = req.body;
     try {
       const [mSettings] = await pool.query('SELECT * FROM marketing_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
@@ -448,12 +453,16 @@ function createMarketingRouter(pool) {
     }
   });
 
-  // Automated daily birthdays cron endpoint (Iterates per tenant strictly)
+  // Automated daily birthdays cron endpoint (Iterates per tenant strictly) (REM-P1-09)
   router.post('/send-daily-birthdays', async (req, res) => {
     try {
       const cronSecret = req.headers['x-cron-secret'];
-      if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
-        return res.status(403).json({ error: 'CRON_UNAUTHORIZED', message: 'Acceso no autorizado al proceso cron.' });
+      const expectedSecret = process.env.CRON_SECRET;
+      if (!expectedSecret || expectedSecret.trim().length < 16) {
+        return res.status(403).json({ error: 'Servicio cron deshabilitado: CRON_SECRET no configurado o inseguro.', code: 'CRON_SECRET_UNCONFIGURED' });
+      }
+      if (!cronSecret || cronSecret !== expectedSecret) {
+        return res.status(401).json({ error: 'CRON_UNAUTHORIZED', message: 'Acceso no autorizado al proceso cron.', code: 'CRON_UNAUTHORIZED' });
       }
 
       const [activeTenants] = await pool.query("SELECT id FROM tenants WHERE status = 'active'");

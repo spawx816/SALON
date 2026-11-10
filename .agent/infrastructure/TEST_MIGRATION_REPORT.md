@@ -79,3 +79,4 @@ Resultado:
 | **Restricciones FK hacia `tenants`** | `SELECT count(*) FROM information_schema.table_constraints ... ccu.table_name='tenants'` | **89 foreign keys activas** |
 | **Estado de `salon_saas_staging`** | `SELECT count(*) FROM information_schema.tables WHERE table_schema='public'` | **0 tablas (VACÍA)** |
 | **Estado de `salon_saas_prod`** | `SELECT count(*) FROM information_schema.tables WHERE table_schema='public'` | **0 tablas (VACÍA)** |
+

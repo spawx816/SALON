@@ -16,11 +16,11 @@ function getClientIp(req) {
 function createAuthRouter(pool, options = {}) {
   const router = express.Router();
 
-  // Rate Limiting para Autenticación y Recuperación
+  // Rate Limiting para Autenticación y Recuperación (REM-P1-03)
   const loginLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 10,
-    skip: () => process.env.NODE_ENV === 'test',
+    skip: (req) => process.env.NODE_ENV === 'test' && req.headers['x-test-rate-limit'] !== 'force',
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Demasiados intentos de acceso. Espera un minuto antes de reintentar.' }
@@ -29,7 +29,7 @@ function createAuthRouter(pool, options = {}) {
   const recoveryLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,
-    skip: () => process.env.NODE_ENV === 'test',
+    skip: (req) => process.env.NODE_ENV === 'test' && req.headers['x-test-rate-limit'] !== 'force',
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Demasiadas solicitudes de recuperación o activación. Intenta más tarde.' }
@@ -298,7 +298,7 @@ function createAuthRouter(pool, options = {}) {
 
       if (resolvedUserId && String(resolvedUserId).startsWith('USER-')) {
         const realUserId = String(resolvedUserId).replace('USER-', '');
-        let uQuery = 'UPDATE users SET password_hash = ?, password = NULL WHERE id::text = ?';
+        let uQuery = 'UPDATE users SET password_hash = ?, password = NULL, token_version = COALESCE(token_version, 1) + 1 WHERE id::text = ?';
         const uParams = [hashedPass, realUserId];
         if (rec.tenant_id) {
           uQuery += ' AND tenant_id = ?';
@@ -652,7 +652,7 @@ function createAuthRouter(pool, options = {}) {
 
       if (password && String(password).trim() !== '') {
         const hashed = await bcrypt.hash(String(password), 10);
-        query += `, password_hash = ?, password = NULL`;
+        query += `, password_hash = ?, password = NULL, token_version = COALESCE(token_version, 1) + 1`;
         params.push(hashed);
       }
 
@@ -882,7 +882,8 @@ function createAuthRouter(pool, options = {}) {
             tenantId: isSuperAdmin ? null : u.tenant_id,
             branchId: u.branch_id || u.salon_id || null,
             sessionId,
-            isSuperAdmin
+            isSuperAdmin,
+            tokenVersion: (u.token_version !== undefined && u.token_version !== null) ? Number(u.token_version) : 1
           });
 
           res.cookie('auth_token', token, {
@@ -1032,8 +1033,62 @@ function createAuthRouter(pool, options = {}) {
 
   router.post('/auth/login', loginLimiter, handleLogin);
   router.post('/login', loginLimiter, handleLogin);
+  router.post('/auth/client-login', loginLimiter, handleLogin);
+  router.post('/client-login', loginLimiter, handleLogin);
 
-  // Heartbeat session status validation (AUTHENTICATED & FAIL CLOSED)
+  // Explicit Logout endpoint (REM-P1-01)
+  const handleLogout = async (req, res) => {
+    try {
+      const sessionId = req.auth?.sessionId || req.body?.sessionId;
+      const userId = req.auth?.id;
+      const userName = req.auth?.name;
+      if (sessionId) {
+        if (req.auth?.tenantId) {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id = ?', [sessionId, req.auth.tenantId]);
+        } else {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id IS NULL', [sessionId]);
+        }
+      }
+      if (userId) {
+        await pool.query('UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id::text = ?', [String(userId)]);
+        await logSecurityAudit(userId, userName, 'USER_LOGOUT', 'Cierre de sesión voluntario', req);
+      }
+      res.clearCookie('auth_token');
+      res.json({ success: true, message: 'Sesión finalizada exitosamente.' });
+    } catch (err) {
+      res.status(500).json({ error: 'Error procesando cierre de sesión.' });
+    }
+  };
+
+  router.post('/auth/logout', handleLogout);
+  router.post('/logout', handleLogout);
+
+  // Remote token revocation endpoint (REM-P1-01)
+  const handleRevokeTokens = async (req, res) => {
+    try {
+      const isPrivileged = req.auth?.role === 'propietario' || req.auth?.role === 'admin' || req.auth?.isSuperAdmin;
+      const targetUserId = (req.body?.userId && isPrivileged) ? String(req.body.userId) : (req.auth?.id ? String(req.auth.id) : null);
+
+      if (!targetUserId) {
+        return res.status(400).json({ error: 'Identificador de usuario no proporcionado.' });
+      }
+
+      await pool.query('UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id::text = ?', [targetUserId]);
+      await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id::text = ?', [targetUserId]);
+
+      if (req.auth?.id) {
+        await logSecurityAudit(req.auth.id, req.auth.name, 'TOKENS_REVOKED', `Tokens revocados para usuario ID: ${targetUserId}`, req);
+      }
+
+      res.json({ success: true, message: 'Todos los tokens activos del usuario han sido revocados exitosamente.' });
+    } catch (err) {
+      console.error('[REVOKE TOKENS ERROR]:', err);
+      res.status(500).json({ error: 'Error procesando revocación de tokens.' });
+    }
+  };
+
+  router.post('/auth/revoke-tokens', handleRevokeTokens);
+  router.post('/revoke-tokens', handleRevokeTokens);
   router.post('/auth/session-check', async (req, res) => {
     try {
       const auth = req.auth;
@@ -1088,29 +1143,6 @@ function createAuthRouter(pool, options = {}) {
       console.error('[SESSION CHECK ERROR]:', err);
       // FAIL CLOSED: NUNCA responder valid: true ante error
       return res.status(500).json({ valid: false, error: 'Error verificando sesión en base de datos.' });
-    }
-  });
-
-  // Explicit Logout endpoint
-  router.post('/auth/logout', async (req, res) => {
-    try {
-      const sessionId = req.auth?.sessionId || req.body?.sessionId;
-      const userId = req.auth?.id;
-      const userName = req.auth?.name;
-      if (sessionId) {
-        if (req.auth?.tenantId) {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id = ?', [sessionId, req.auth.tenantId]);
-        } else {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id IS NULL', [sessionId]);
-        }
-      }
-      if (userId) {
-        await logSecurityAudit(userId, userName, 'USER_LOGOUT', 'Cierre de sesión voluntario', req);
-      }
-      res.clearCookie('auth_token');
-      res.json({ success: true, message: 'Sesión finalizada exitosamente.' });
-    } catch (err) {
-      res.status(500).json({ error: 'Error procesando cierre de sesión.' });
     }
   });
 

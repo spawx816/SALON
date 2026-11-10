@@ -96,6 +96,13 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
     }
   });
 
+  // Route to verify global 500 error sanitization and correlation ID (REM-P1-13)
+  router.get('/simulate-500', (_req, _res, next) => {
+    const err = new Error('FATAL: Database connection dropped: SELECT * FROM sensitive_financial_table WHERE secret = 123');
+    err.status = 500;
+    return next(err);
+  });
+
   return router;
 }
 

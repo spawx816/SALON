@@ -37,7 +37,8 @@
     "test:phase2h:shutdown": "node backend/tests/test_phase2h_shutdown.cjs",
     "test:phase2h:superadmin": "node backend/tests/test_phase2h_superadmin_separation.cjs",
     "test:phase2h:branding": "node backend/tests/test_phase2h_branding.cjs",
-    "test:phase2h:all": "node backend/tests/test_phase2h_security.cjs && node backend/tests/test_phase2h_money.cjs && node backend/tests/test_phase2h_jobs.cjs && node backend/tests/test_phase2h_shutdown.cjs && node backend/tests/test_phase2h_superadmin_separation.cjs && node backend/tests/test_phase2h_branding.cjs",
+    "test:phase2h:p1-security": "node backend/tests/test_phase2h_p1_security.cjs",
+    "test:phase2h:all": "node backend/tests/test_phase2h_security.cjs && node backend/tests/test_phase2h_money.cjs && node backend/tests/test_phase2h_jobs.cjs && node backend/tests/test_phase2h_shutdown.cjs && node backend/tests/test_phase2h_superadmin_separation.cjs && node backend/tests/test_phase2h_branding.cjs && node backend/tests/test_phase2h_p1_security.cjs",
     "worker:billing": "node backend/workers/billing.worker.cjs",
     "test:phase1:all": "node backend/scripts/run_all_phase1_tests.cjs"
   },

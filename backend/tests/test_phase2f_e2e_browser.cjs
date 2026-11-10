@@ -1,4 +1,4 @@
-/* global window, document */
+/* global window, document, getComputedStyle */
 /**
  * Test Suite: Phase 2F Local Functional QA End-to-End via Real Browser (Puppeteer + Vite)
  * (backend/tests/test_phase2f_e2e_browser.cjs)

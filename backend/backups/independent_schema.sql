@@ -1123,6 +1123,7 @@ CREATE TABLE IF NOT EXISTS {{SCHEMA}}."users" (
   "tipo" VARCHAR(50) DEFAULT 'employee'::character varying,
   "password" VARCHAR(255),
   "username" VARCHAR(150),
+  "token_version" integer DEFAULT 1,
   "estado" VARCHAR(50) DEFAULT 'Activo'::character varying
 );
 

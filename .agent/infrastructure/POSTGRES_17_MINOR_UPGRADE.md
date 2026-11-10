@@ -59,3 +59,4 @@ Tras la actualización de versión, se ejecutó `certify_role_isolation.py` sobr
 - **Control 14 a 16**: Conexión cruzada rechazada estrictamente (`FATAL: permission denied for database`).
 
 Resultado: **16/16 CONTROLES APROBADOS Y CERTIFICADOS**.
+

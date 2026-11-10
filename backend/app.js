@@ -129,14 +129,14 @@ function createApp(dependencies = {}) {
 
   // Cron and test endpoints guard (FAIL CLOSED)
   app.use((req, res, next) => {
-    if (req.path.startsWith('/api/cron')) {
+    if (req.path.startsWith('/api/cron') || req.path === '/api/marketing/send-daily-birthdays') {
       const cronSecret = process.env.CRON_SECRET;
       if (!cronSecret || cronSecret.trim().length < 16) {
-        return res.status(403).json({ error: 'Servicio cron deshabilitado: CRON_SECRET no configurado o inseguro.' });
+        return res.status(403).json({ error: 'Servicio cron deshabilitado: CRON_SECRET no configurado o inseguro.', code: 'CRON_SECRET_UNCONFIGURED' });
       }
       const providedSecret = req.headers['x-cron-secret'] || req.query.cron_secret;
       if (!providedSecret || providedSecret !== cronSecret) {
-        return res.status(401).json({ error: 'Acceso no autorizado al servicio de cron.' });
+        return res.status(401).json({ error: 'Acceso no autorizado al servicio de cron.', code: 'CRON_UNAUTHORIZED' });
       }
     }
     if (req.path.startsWith('/api/test')) {
@@ -308,7 +308,7 @@ function createApp(dependencies = {}) {
     next();
   });
 
-  // CSRF / Origin Validation for Mutating Requests
+  // CSRF / Origin Validation for Mutating Requests (REM-P1-02)
   app.use((req, res, next) => {
     const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
     if (!mutatingMethods.includes(req.method)) return next();
@@ -316,16 +316,38 @@ function createApp(dependencies = {}) {
     // Whitelist internal/cron/webhook endpoints
     if (
       req.path.startsWith('/api/cron') ||
+      req.path === '/api/marketing/send-daily-birthdays' ||
       req.path.startsWith('/api/test') ||
       req.path.startsWith('/api/saas/billing/webhooks')
     ) {
       return next();
     }
 
-    const origin = req.headers['origin'];
-    if (origin) {
-      const isLoopback = origin.startsWith('http://127.0.0.1:') || origin.startsWith('http://localhost:');
-      const isAllowed = (process.env.NODE_ENV !== 'production' && isLoopback) || allowedOrigins.some(ao => origin.toLowerCase() === ao.toLowerCase());
+    const originHeader = req.headers['origin'];
+    let originToCheck = originHeader;
+    if (!originToCheck && req.headers['referer']) {
+      try {
+        const parsed = new URL(req.headers['referer']);
+        originToCheck = parsed.origin;
+      } catch {
+        return res.status(403).json({ error: 'Referer inválido en protección CSRF.', code: 'CSRF_REFERER_INVALID' });
+      }
+    }
+
+    const hasCookieAuth = Boolean((req.cookies && req.cookies.auth_token) || (req.headers.cookie && req.headers.cookie.includes('auth_token=')));
+    const hasBearerAuth = Boolean(req.headers['authorization'] && req.headers['authorization'].toLowerCase().startsWith('bearer '));
+
+    // Si la solicitud depende de cookies (o si trae origin/referer explícito), se exige verificación estricta de origen
+    if (hasCookieAuth && !hasBearerAuth && !originToCheck) {
+      return res.status(403).json({
+        error: 'Petición rechazada: Se requiere cabecera Origin o Referer válida para solicitudes mutantes basadas en cookies.',
+        code: 'CSRF_ORIGIN_REQUIRED'
+      });
+    }
+
+    if (originToCheck) {
+      const isLoopback = originToCheck.startsWith('http://127.0.0.1:') || originToCheck.startsWith('http://localhost:');
+      const isAllowed = (process.env.NODE_ENV !== 'production' && isLoopback) || allowedOrigins.some(ao => originToCheck.toLowerCase() === ao.toLowerCase());
       if (!isAllowed) {
         return res.status(403).json({ error: 'Origen no autorizado por política de protección CSRF.', code: 'CSRF_ORIGIN_DENIED' });
       }
@@ -339,7 +361,12 @@ function createApp(dependencies = {}) {
   const sendSurveyEmail = dependencies.sendSurveyEmail || ((p, clientId, name, email, tenantId) => sendSurveyEmailHelper(p || pool, clientId, name, email, tenantId));
 
   // Authentication & Multi-Tenant Isolation Shield
-  const { authenticate, rejectControlPlaneRoleOnTenantRoutes, requireControlPlaneRole } = createAuthMiddleware(pool);
+  const {
+    authenticate,
+    rejectControlPlaneRoleOnTenantRoutes,
+    requireControlPlaneRole,
+    rejectClientRoleOnStaffRoutes
+  } = createAuthMiddleware(pool);
 
   const isPublicApiRoute = (req) => {
     if (req.method === 'OPTIONS') return true;
@@ -353,6 +380,7 @@ function createApp(dependencies = {}) {
     // 2. Authentication & Account Recovery routes
     if (
       pathUrl === '/api/login' || pathUrl === '/api/auth/login' ||
+      pathUrl === '/api/client-login' || pathUrl === '/api/auth/client-login' ||
       pathUrl === '/api/forgot-password' || pathUrl === '/api/auth/forgot-password' ||
       pathUrl === '/api/verify-code' || pathUrl === '/api/auth/verify-code' ||
       pathUrl === '/api/reset-password' || pathUrl === '/api/auth/reset-password' ||
@@ -373,15 +401,15 @@ function createApp(dependencies = {}) {
     // 6. Public SaaS billing webhooks (HMAC authenticated)
     if (pathUrl.startsWith('/api/saas/billing/webhooks')) return true;
 
-    // 7. Public Contact messages & client feedback
-    if (method === 'POST' && (pathUrl === '/api/contact' || pathUrl === '/api/contact-messages')) return true;
+    // 7. Public Contact messages (REM-P1-04: Only POST /api/contact is public)
+    if (method === 'POST' && pathUrl === '/api/contact') return true;
 
     // 8. Public Client Survey Submission
     if (method === 'POST' && pathUrl === '/api/surveys') return true;
     if (method === 'GET' && /^\/api\/surveys\/pending\/[^/]+$/i.test(pathUrl)) return true;
 
     // 9. Cron / background tasks
-    if (pathUrl.startsWith('/api/cron')) return true;
+    if (pathUrl.startsWith('/api/cron') || pathUrl === '/api/marketing/send-daily-birthdays') return true;
 
     // 10. Test routes en desarrollo
     if (pathUrl.startsWith('/api/test')) return true;
@@ -477,29 +505,29 @@ function createApp(dependencies = {}) {
     pool
   }));
 
-  app.use('/api/security', createSecurityRouter(pool));
+  app.use('/api/security', rejectClientRoleOnStaffRoutes, createSecurityRouter(pool));
   app.use('/api/salons', rejectControlPlaneRoleOnTenantRoutes, createSalonsRouter(pool, { entitlementsService }));
   app.use('/api/clients', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('clients'), createClientsRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
-  app.use('/api/inventory', rejectControlPlaneRoleOnTenantRoutes, createInventoryRouter({
+  app.use('/api/inventory', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createInventoryRouter({
     inventoryService,
     purchaseService: inventoryPurchaseService,
     transferService: inventoryTransferService,
     requirePlanFeature
   }));
-  app.use('/api/cash-registers', rejectControlPlaneRoleOnTenantRoutes, createCashRegistersRouter(pool));
+  app.use('/api/cash-registers', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCashRegistersRouter(pool));
   app.use('/api/dashboard', rejectControlPlaneRoleOnTenantRoutes, createDashboardRouter(pool));
   app.use('/api/payments', rejectControlPlaneRoleOnTenantRoutes, createPaymentsRouter(pool, { sendPaymentReceiptEmail }));
   app.use('/api/plans', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('memberships'), createPlansRouter(pool));
   app.use('/api/reports', rejectControlPlaneRoleOnTenantRoutes, createReportsRouter(pool));
   app.use('/api/appointments', rejectControlPlaneRoleOnTenantRoutes, createAppointmentsRouter(pool));
-  app.use('/api/settings', rejectControlPlaneRoleOnTenantRoutes, createSettingsRouter(pool));
-  app.use('/api/marketing', rejectControlPlaneRoleOnTenantRoutes, createMarketingRouter(pool));
+  app.use('/api/settings', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createSettingsRouter(pool));
+  app.use('/api/marketing', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createMarketingRouter(pool));
   app.use('/api/holidays', rejectControlPlaneRoleOnTenantRoutes, createHolidaysRouter(pool));
-  app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, createPayrollRouter(pool));
+  app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPayrollRouter(pool));
   app.use('/api/services', rejectControlPlaneRoleOnTenantRoutes, createServicesRouter(pool));
-  app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, createEmployeeSecurityRouter(pool));
+  app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createEmployeeSecurityRouter(pool));
   app.use('/api/gifts', rejectControlPlaneRoleOnTenantRoutes, createGiftsSurveysRouter(pool));
-  app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, createEmployeesRouter(pool));
+  app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createEmployeesRouter(pool));
 
   const { router: visitsRouter, processVisitCommissions } = createVisitsRouter(pool, {
     transmitInvoiceDirectlyToDgii: dgiiService.transmitInvoiceDirectlyToDgii,
@@ -509,7 +537,7 @@ function createApp(dependencies = {}) {
   });
   app.use('/api/visits', rejectControlPlaneRoleOnTenantRoutes, visitsRouter);
 
-  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, createCommissionsRouter(pool, processVisitCommissions));
+  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCommissionsRouter(pool, processVisitCommissions));
 
   const contractsRouterInstance = createContractsRouter(pool, {
     CARDNET_CONFIG,
@@ -531,14 +559,14 @@ function createApp(dependencies = {}) {
     buildAndSignNotaCreditoXml: dgiiService.buildAndSignNotaCreditoXml,
     generateAndTransmitNotaCredito: dgiiService.generateAndTransmitNotaCredito
   });
-  app.use('/api/dgii', rejectControlPlaneRoleOnTenantRoutes, dgiiRouterInstance);
+  app.use('/api/dgii', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, dgiiRouterInstance);
 
   const dgii606Router = createDgii606Router(pool);
-  app.use('/api/dgii/report-606', rejectControlPlaneRoleOnTenantRoutes, dgii606Router);
-  app.use('/api/dgii-606', rejectControlPlaneRoleOnTenantRoutes, dgii606Router);
+  app.use('/api/dgii/report-606', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, dgii606Router);
+  app.use('/api/dgii-606', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, dgii606Router);
 
   const expensesRouter = createExpensesRouter(pool);
-  app.use('/api/expenses', rejectControlPlaneRoleOnTenantRoutes, expensesRouter);
+  app.use('/api/expenses', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, expensesRouter);
 
   const { router: invoicesRouter } = createInvoicesRouter(pool);
   app.use('/api/invoices', rejectControlPlaneRoleOnTenantRoutes, invoicesRouter);
@@ -556,12 +584,12 @@ function createApp(dependencies = {}) {
     });
   });
   app.use('/api/saas', createSaasRouter(pool, { entitlementsService }));
-  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
-  app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, createFilesRouter(pool));
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
+  app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
 
   const contactRouter = createContactRouter(pool);
   app.use('/api/contact', contactRouter);
-  app.use('/api/contact-messages', async (req, res) => {
+  app.use('/api/contact-messages', authenticate, requireControlPlaneRole, async (req, res) => {
     try {
       const [rows] = await pool.query('SELECT * FROM contact_messages ORDER BY id DESC LIMIT 100');
       res.json(rows);
@@ -571,9 +599,41 @@ function createApp(dependencies = {}) {
   });
 
   const attendanceRouter = createAttendanceRouter(pool);
-  app.use('/api/attendance', rejectControlPlaneRoleOnTenantRoutes, attendanceRouter);
+  app.use('/api/attendance', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, attendanceRouter);
 
   app.use('/api/test', createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
+
+  // Global Error Handler & 500 Sanitization Shield (REM-P1-13)
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, _next) => {
+    const errorId = crypto.randomUUID ? crypto.randomUUID() : `err_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const tenantId = req.tenantId || req.auth?.tenantId || null;
+    const userId = req.auth?.id || req.auth?.userId || null;
+
+    console.error(`[INTERNAL ERROR ${errorId}] Path: ${req.method} ${req.originalUrl || req.url} | Tenant: ${tenantId} | User: ${userId}`, err);
+
+    if (res.headersSent) {
+      return;
+    }
+
+    const statusCode = (typeof err.status === 'number' && err.status >= 400 && err.status < 600)
+      ? err.status
+      : (typeof err.statusCode === 'number' && err.statusCode >= 400 && err.statusCode < 600)
+        ? err.statusCode
+        : 500;
+
+    const isClientError = statusCode < 500;
+    const sanitizedMessage = isClientError
+      ? (err.message || 'Solicitud inválida.')
+      : 'Ocurrió un error interno en el servidor.';
+
+    return res.status(statusCode).json({
+      success: false,
+      error: sanitizedMessage,
+      error_id: errorId,
+      code: err.code || (isClientError ? 'CLIENT_ERROR' : 'INTERNAL_SERVER_ERROR')
+    });
+  });
 
   // Expose wired services on app for tests / reflection if needed
   app.locals = {

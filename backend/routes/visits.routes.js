@@ -715,12 +715,60 @@ function createVisitsRouter(pool, helpers = {}) {
     }
   });
 
-  // 9. POST /api/visits/:id/void - Void an invoice / visit within the authenticated tenant
+  // 9. POST /api/visits/:id/void - Void an invoice / visit within the authenticated tenant (REM-P1-06)
   router.post('/:id/void', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const { reason = 'Anulación de factura', voided_by = 'Administrador' } = req.body;
+      const { reason = 'Anulación de factura' } = req.body || {};
+
+      // -------------------------------------------------------------
+      // Autorización de Supervisor o Validación de PIN Maestro/OTP (REM-P1-06)
+      // -------------------------------------------------------------
+      const actorRole = String(req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
+      const isPrivileged = actorRole === 'propietario' || actorRole === 'owner' || actorRole === 'admin' || Boolean(req.auth?.isSuperAdmin);
+
+      const providedPin = req.body?.admin_pin || req.body?.supervisor_pin || req.body?.pin || req.headers['x-admin-pin'];
+
+      if (!isPrivileged) {
+        if (!providedPin) {
+          return res.status(403).json({
+            error: 'Se requiere autorización de supervisor o PIN de administrador para anular facturas.',
+            code: 'SUPERVISOR_PIN_REQUIRED'
+          });
+        }
+
+        const [secRows] = await pool.query(
+          'SELECT admin_pin, admin_pin_hash, active_otp_pin, otp_expires_at FROM security_settings WHERE tenant_id = ? LIMIT 1',
+          [tenantId]
+        );
+        if (!secRows || secRows.length === 0) {
+          return res.status(401).json({
+            error: 'No hay PIN de seguridad configurado para este salón.',
+            code: 'PIN_NOT_CONFIGURED'
+          });
+        }
+
+        const sec = secRows[0];
+        const isOtpValid = sec.active_otp_pin && (String(providedPin) === String(sec.active_otp_pin)) && sec.otp_expires_at && (new Date(sec.otp_expires_at) > new Date());
+        let isMasterValid = false;
+
+        const storedMaster = sec.admin_pin_hash || sec.admin_pin;
+        if (storedMaster) {
+          const { verifyPin } = require('../services/pin_security.service');
+          const verifyRes = await verifyPin(String(providedPin), storedMaster);
+          isMasterValid = verifyRes.matched;
+        }
+
+        if (!isMasterValid && !isOtpValid) {
+          return res.status(401).json({
+            error: 'PIN de supervisor o administrador incorrecto.',
+            code: 'INVALID_ADMIN_PIN'
+          });
+        }
+      }
+
+      const effectiveVoidedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.voided_by || 'Supervisor Autorizado';
 
       const [existing] = await pool.query(
         'SELECT id, status, total, amount, cash_register_id, payment_method FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
@@ -773,7 +821,7 @@ function createVisitsRouter(pool, helpers = {}) {
         await pool.query(
           `INSERT INTO invoice_audit_logs (tenant_id, visit_id, action, reason, user_name, created_at)
            VALUES (?, ?, 'VOID', ?, ?, NOW())`,
-          [tenantId, id, reason, voided_by]
+          [tenantId, id, reason, effectiveVoidedBy]
         );
       } catch (e) {}
 
@@ -802,7 +850,7 @@ function createVisitsRouter(pool, helpers = {}) {
                       visitId: id,
                       lineId: idx,
                       userId: req.user?.id || null,
-                      userName: voided_by,
+                      userName: effectiveVoidedBy,
                       reason
                     });
                   }

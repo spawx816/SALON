@@ -202,7 +202,7 @@ function createAuthMiddleware(pool) {
       } else {
         // Usuario Administrativo / Staff / SuperAdmin
         const [userRows] = await pool.query(
-          'SELECT id, tenant_id, branch_id, salon_id, email, name, nombre, role, role_id, is_active, estado FROM users WHERE id::text = ? LIMIT 1',
+          'SELECT id, tenant_id, branch_id, salon_id, email, name, nombre, role, role_id, is_active, estado, token_version FROM users WHERE id::text = ? LIMIT 1',
           [userId]
         );
         if (!userRows || userRows.length === 0) {
@@ -212,6 +212,22 @@ function createAuthMiddleware(pool) {
         const isActive = uRow.is_active !== false && uRow.is_active !== 0 && String(uRow.estado || 'Activo').toLowerCase() !== 'inactivo';
         if (!isActive) {
           return res.status(403).json({ valid: false, error: 'Usuario desactivado o suspendido.', code: 'USER_INACTIVE' });
+        }
+
+        // -------------------------------------------------------------
+        // Verificación de Revocación de Token mediante token_version (REM-P1-01)
+        // -------------------------------------------------------------
+        if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== null) {
+          const currentTokenVersion = (uRow.token_version !== undefined && uRow.token_version !== null)
+            ? Number(uRow.token_version)
+            : 1;
+          if (Number(decoded.tokenVersion) !== currentTokenVersion) {
+            return res.status(401).json({
+              valid: false,
+              error: 'El token de sesión ha sido revocado o las credenciales fueron modificadas.',
+              code: 'TOKEN_REVOKED'
+            });
+          }
         }
 
         effectiveRole = String(uRow.role || decoded.role || 'admin').toLowerCase();
@@ -411,11 +427,26 @@ function createAuthMiddleware(pool) {
     return next();
   };
 
+  /**
+   * Rejects requests made with B2C Client tokens on staff/operational routes (REM-P1-05)
+   */
+  const rejectClientRoleOnStaffRoutes = (req, res, next) => {
+    const isClient = Boolean(req.auth?.isClient) || String(req.auth?.role || req.headers['x-user-role'] || '').toLowerCase() === 'client';
+    if (isClient) {
+      return res.status(403).json({
+        error: 'Acceso denegado: Clientes no tienen autorización para acceder a módulos operativos o de personal del salón.',
+        code: 'CLIENT_ROLE_FORBIDDEN'
+      });
+    }
+    return next();
+  };
+
   return {
     authenticate,
     requireSuperAdmin,
     requireControlPlaneRole,
     rejectControlPlaneRoleOnTenantRoutes,
+    rejectClientRoleOnStaffRoutes,
     requireTenant,
     signAuthToken,
     verifyAuthToken,
@@ -433,6 +464,16 @@ module.exports = {
       return res.status(403).json({
         error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
+      });
+    }
+    return next();
+  },
+  rejectClientRoleOnStaffRoutes: (req, res, next) => {
+    const isClient = Boolean(req.auth?.isClient) || String(req.auth?.role || req.headers['x-user-role'] || '').toLowerCase() === 'client';
+    if (isClient) {
+      return res.status(403).json({
+        error: 'Acceso denegado: Clientes no tienen autorización para acceder a módulos operativos o de personal del salón.',
+        code: 'CLIENT_ROLE_FORBIDDEN'
       });
     }
     return next();

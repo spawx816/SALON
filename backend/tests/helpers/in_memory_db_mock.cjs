@@ -326,7 +326,7 @@ class InMemoryDbMock {
           const concatVal = params[paramIdx++];
           evaluatedSets.push({ col: assign.col, op: 'concat', concatVal });
         }
-      } else if (assign.expr.includes('current_number + 1')) {
+      } else if (assign.expr.includes('current_number + 1') || assign.expr.includes('token_version + 1') || assign.expr.includes('COALESCE(token_version')) {
         evaluatedSets.push({ col: assign.col, op: 'increment' });
       } else if (assign.expr.includes('washes_used + ?')) {
         const addVal = params[paramIdx++];
@@ -543,8 +543,10 @@ class InMemoryDbMock {
           if (row.client_id !== val) return false;
         } else if (/^file_id\s*=/i.test(cond)) {
           if (row.file_id !== val) return false;
+        } else if (/^(?:[a-zA-Z0-9_]+\.)?user_id(?:::text)?\s*=/i.test(cond)) {
+          if (String(row.user_id) !== String(val)) return false;
         } else {
-          const colMatch = cond.match(/^([a-zA-Z0-9_]+)\s*=/);
+          const colMatch = cond.match(/^(?:[a-zA-Z0-9_]+\.)?([a-zA-Z0-9_]+)(?:::text)?\s*=/i);
           if (colMatch && row[colMatch[1]] !== undefined) {
             if (String(row[colMatch[1]]) !== String(val)) return false;
           }
