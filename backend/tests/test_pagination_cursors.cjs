@@ -36,20 +36,20 @@ async function runPaginationCursorTests() {
       const clientId = `10000000-0000-0000-0000-${String(i).padStart(12, '0')}`;
       const dt = new Date(Date.now() - (100 - i) * 1000);
       await conn.query(`
-        INSERT INTO clients (id, tenant_id, nombre, apellido, telefono, cedula, created_at)
-        VALUES ($1, $2, $3, 'Paginación', $4, $5, $6)
+        INSERT INTO clients (id, tenant_id, nombre, name, telefono, cedula, created_at)
+        VALUES ($1, $2, $3, $3, $4, $5, $6)
         ON CONFLICT (id) DO NOTHING;
-      `, [clientId, tenantA, `Cliente${i}`, `809555${String(i).padStart(4, '0')}`, `402-${String(i).padStart(7, '0')}-1`, dt]);
+      `, [clientId, tenantA, `Cliente${i} Paginación`, `809555${String(i).padStart(4, '0')}`, `402-${String(i).padStart(7, '0')}-1`, dt]);
     }
 
     // Seed 2 clients for Tenant B
     for (let i = 1; i <= 2; i++) {
       const clientId = `20000000-0000-0000-0000-${String(i).padStart(12, '0')}`;
       await conn.query(`
-        INSERT INTO clients (id, tenant_id, nombre, apellido, telefono, cedula)
-        VALUES ($1, $2, $3, 'Aislado B', $4, $5)
+        INSERT INTO clients (id, tenant_id, nombre, name, telefono, cedula)
+        VALUES ($1, $2, $3, $3, $4, $5)
         ON CONFLICT (id) DO NOTHING;
-      `, [clientId, tenantB, `ClienteB${i}`, `809777${String(i).padStart(4, '0')}`, `402-${String(i + 50).padStart(7, '0')}-2`]);
+      `, [clientId, tenantB, `ClienteB${i} Aislado`, `809777${String(i).padStart(4, '0')}`, `402-${String(i + 50).padStart(7, '0')}-2`]);
     }
 
     // --- TEST 1: Codificación y decodificación válida de cursor ---
