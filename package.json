@@ -55,6 +55,7 @@
     "test:physical-inventory": "node backend/tests/test_physical_inventory.cjs",
     "test:pagination": "node backend/tests/test_pagination_cursors.cjs",
     "test:accessibility": "node backend/tests/test_accessibility_modal.cjs",
+    "test:hotfix:visitas": "node backend/tests/test_hotfix_visitas_ticket_modal.cjs",
     "test:logging": "node backend/tests/test_logging_sanitization.cjs",
     "test:retention:dry-run": "node backend/tests/test_retention_dry_run.cjs",
     "test:openapi": "node backend/tests/test_openapi_spec.cjs",

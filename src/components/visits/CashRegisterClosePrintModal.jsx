@@ -13,14 +13,16 @@ export const CashRegisterClosePrintModal = ({
   reportData = null,
   autoPrint = true
 }) => {
+  const { branding } = useTenantBranding();
+
   useEffect(() => {
-    if (isOpen && autoPrint) {
-      const timer = setTimeout(() => {
-        window.print();
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen, autoPrint]);
+    if (!isOpen || !reportData || !autoPrint) return undefined;
+
+    const timer = setTimeout(() => {
+      window.print();
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [isOpen, reportData, autoPrint]);
 
   if (!isOpen || !reportData) return null;
 
@@ -42,8 +44,6 @@ export const CashRegisterClosePrintModal = ({
       return String(dateVal);
     }
   };
-
-  const { branding } = useTenantBranding();
 
   const {
     registerNumber = 'CAJA-001',

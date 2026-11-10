@@ -27,6 +27,8 @@ const { FakePaymentGatewayAdapter } = require('../../services/fakes/fake_payment
 const { FakeBillingJobSchedulerAdapter } = require('../../services/fakes/fake_billing_job_scheduler.adapter');
 const { ZeroTaxPolicy } = require('../../services/tax_policy');
 const { createApp } = require('../../app');
+const { InMemoryTenantBrandingRepository } = require('../../repositories/tenant_branding.repository');
+const { TenantBrandingService } = require('../../services/tenant_branding.service');
 const { signAuthToken } = require('../../middleware/auth.middleware');
 const { InventoryService } = require('../../services/inventory.service');
 const { InventoryPurchaseService } = require('../../services/inventory_purchase.service');
@@ -143,6 +145,11 @@ async function createInMemoryTestApp(options = {}) {
     clock
   });
 
+  // Tenant branding service (exposed on app for E2E branding flows)
+  const tenantBrandingService = new TenantBrandingService({
+    repository: new InMemoryTenantBrandingRepository()
+  });
+
   // Create Express App using dependency injection signature
   const app = createApp({
     repositories: {
@@ -167,9 +174,11 @@ async function createInMemoryTestApp(options = {}) {
       inventoryPurchaseService,
       inventoryTransferService,
       saasLifecycleService: lifecycleService,
-      saasBillingService: billingService
+      saasBillingService: billingService,
+      tenantBrandingService
     }
   });
+  app.tenantBrandingService = tenantBrandingService;
 
   // Start HTTP server on ephemeral port (0)
   const server = http.createServer(app);

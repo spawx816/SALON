@@ -2219,11 +2219,13 @@ export default function InvoiceHistory() {
       )}
 
       {/* MODAL: FACTURA ELECTRÓNICA OFICIAL (REPRESENTACIÓN IMPRESA DGII) */}
-      <ElectronicInvoicePrintModal
-        invoice={selectedInvoiceForPrint}
-        isOpen={showInvoicePrintModal}
-        onClose={() => setShowInvoicePrintModal(false)}
-      />
+      {showInvoicePrintModal && selectedInvoiceForPrint && (
+        <ElectronicInvoicePrintModal
+          invoice={selectedInvoiceForPrint}
+          isOpen={showInvoicePrintModal}
+          onClose={() => setShowInvoicePrintModal(false)}
+        />
+      )}
 
     </div>
   );

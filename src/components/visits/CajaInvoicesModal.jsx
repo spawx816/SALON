@@ -17,7 +17,8 @@ const CajaInvoicesModal = ({
 }) => {
   if (!isOpen) return null;
 
-  const activeInvoices = cajaInvoices.filter(inv => inv.status !== 'Anulado');
+  const safeInvoices = Array.isArray(cajaInvoices) ? cajaInvoices : [];
+  const activeInvoices = safeInvoices.filter(inv => inv.status !== 'Anulado');
   const totals = activeInvoices.reduce((acc, inv) => {
     const amt = Number(inv.total || 0);
     const rawMethod = (inv.metodo_pago || 'Efectivo').toString();
@@ -116,7 +117,7 @@ const CajaInvoicesModal = ({
         </div>
 
         {/* Resumen rápido de totales desglosados */}
-        {cajaInvoices.length > 0 && !loadingCajaInvoices && (
+        {safeInvoices.length > 0 && !loadingCajaInvoices && (
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
@@ -161,7 +162,7 @@ const CajaInvoicesModal = ({
               <RefreshCw size={24} className="spin" style={{ margin: '0 auto 0.5rem' }} />
               <p>Cargando facturas de la caja...</p>
             </div>
-          ) : cajaInvoices.length === 0 ? (
+          ) : safeInvoices.length === 0 ? (
             <div style={{
               padding: '3rem',
               textAlign: 'center',
@@ -195,7 +196,7 @@ const CajaInvoicesModal = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {cajaInvoices.map((inv) => {
+                  {safeInvoices.map((inv) => {
                     const isVoid = inv.status === 'Anulado';
                     const timeStr = new Date(inv.visited_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     return (
@@ -318,7 +319,7 @@ const CajaInvoicesModal = ({
           alignItems: 'center'
         }}>
           <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-            Total Facturas de la Caja: <strong>{cajaInvoices.length}</strong>
+            Total Facturas de la Caja: <strong>{safeInvoices.length}</strong>
           </span>
           <button
             type="button"

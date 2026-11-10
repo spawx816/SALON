@@ -3,15 +3,31 @@ import React from 'react';
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false, error: null, errorInfo: null, errorId: null };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true, error };
+    const randomPart = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const timePart = Date.now().toString(36).toUpperCase();
+    const errorId = `ERR-${timePart}-${randomPart}`;
+    return { hasError: true, error, errorId };
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('CRITICAL UNCAUGHT UI ERROR:', error, errorInfo);
+    const isDev = Boolean(typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV);
+    if (isDev) {
+      console.error(`[UI_ERROR ${this.state.errorId}]`, error, errorInfo);
+    } else {
+      const sanitizedMessage = error?.message
+        ? String(error.message).replace(/([a-zA-Z0-9_.-]{24,})/g, '[REDACTED]')
+        : 'Unknown UI error';
+      console.error(JSON.stringify({
+        level: 'error',
+        event: 'UNCAUGHT_UI_ERROR',
+        error_id: this.state.errorId,
+        message: sanitizedMessage
+      }));
+    }
     this.setState({ errorInfo });
   }
 
@@ -21,6 +37,8 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
+      const isDev = Boolean(typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV);
+
       return (
         <div style={{
           minHeight: '100vh',
@@ -66,7 +84,7 @@ class ErrorBoundary extends React.Component {
               El sistema ha evitado que la pantalla quede en blanco. Puedes recargar la página o volver al panel principal.
             </p>
 
-            {this.state.error && (
+            {isDev && this.state.error ? (
               <div style={{
                 background: '#f1f5f9',
                 padding: '0.85rem',
@@ -80,6 +98,22 @@ class ErrorBoundary extends React.Component {
                 maxHeight: '120px'
               }}>
                 {this.state.error.toString()}
+              </div>
+            ) : (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                padding: '0.75rem 1rem',
+                borderRadius: '10px',
+                textAlign: 'center',
+                fontSize: '0.85rem',
+                color: '#64748b',
+                marginBottom: '1.5rem'
+              }}>
+                <span>Referencia del error: </span>
+                <code style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>
+                  {this.state.errorId || 'ERR-UNKNOWN'}
+                </code>
               </div>
             )}
 

@@ -1065,14 +1065,16 @@ const CashRegistersModule = () => {
       )}
 
       {/* MODAL DE IMPRESIÓN OFICIAL DE CIERRE Y ARQUEO */}
-      <CashRegisterClosePrintModal
-        isOpen={showClosePrintModal}
-        onClose={() => {
-          setShowClosePrintModal(false);
-          setCloseReportData(null);
-        }}
-        reportData={closeReportData}
-      />
+      {showClosePrintModal && closeReportData && (
+        <CashRegisterClosePrintModal
+          isOpen={showClosePrintModal}
+          onClose={() => {
+            setShowClosePrintModal(false);
+            setCloseReportData(null);
+          }}
+          reportData={closeReportData}
+        />
+      )}
 
     </div>
   );

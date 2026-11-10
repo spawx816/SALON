@@ -5707,19 +5707,23 @@ const VisitRecorder = () => {
       )}
 
       {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO 80MM (HOMOLOGADO AL SALÓN - PRE-CUENTA) */}
-      <ThermalTicketModal
-        isOpen={showPrintModal && Boolean(printableTicketData)}
-        onClose={() => setShowPrintModal(false)}
-        printableTicketData={printableTicketData}
-        currentUser={currentUser}
-      />
+      {showPrintModal && printableTicketData && (
+        <ThermalTicketModal
+          isOpen
+          onClose={() => setShowPrintModal(false)}
+          printableTicketData={printableTicketData}
+          currentUser={currentUser}
+        />
+      )}
 
       {/* MODAL: FACTURA ELECTRÓNICA OFICIAL (REPRESENTACIÓN IMPRESA DGII) */}
-      <ElectronicInvoicePrintModal
-        invoice={printableInvoiceData}
-        isOpen={showInvoicePrintModal}
-        onClose={() => setShowInvoicePrintModal(false)}
-      />
+      {showInvoicePrintModal && printableInvoiceData && (
+        <ElectronicInvoicePrintModal
+          invoice={printableInvoiceData}
+          isOpen={showInvoicePrintModal}
+          onClose={() => setShowInvoicePrintModal(false)}
+        />
+      )}
 
       {/* MODAL: VER HISTORIAL COMPLETO DEL CLIENTE */}
       {showHistoryModal && (
@@ -7564,14 +7568,16 @@ const VisitRecorder = () => {
       />
 
       {/* MODAL DE IMPRESIÓN OFICIAL DE CIERRE Y ARQUEO DE CAJA */}
-      <CashRegisterClosePrintModal
-        isOpen={showCloseRegisterPrintModal}
-        onClose={() => {
-          setShowCloseRegisterPrintModal(false);
-          setCloseRegisterPrintData(null);
-        }}
-        reportData={closeRegisterPrintData}
-      />
+      {showCloseRegisterPrintModal && closeRegisterPrintData && (
+        <CashRegisterClosePrintModal
+          isOpen={showCloseRegisterPrintModal}
+          onClose={() => {
+            setShowCloseRegisterPrintModal(false);
+            setCloseRegisterPrintData(null);
+          }}
+          reportData={closeRegisterPrintData}
+        />
+      )}
 
     </div>
   );

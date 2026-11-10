@@ -10,26 +10,38 @@ import { useTenantBranding } from '../../context/TenantBrandingContext';
 export const ThermalTicketModal = ({
   isOpen,
   onClose,
-  printableTicketData = {},
+  printableTicketData,
   currentUser = null
 }) => {
   const { branding } = useTenantBranding();
 
-  const businessName = printableTicketData.business_name || printableTicketData.salon_name || branding?.business_name || 'SalonPro';
-  const logoUrl = printableTicketData.logo_url || branding?.logo_url;
-  const receiptHeader = printableTicketData.receipt_header || branding?.receipt_header || '';
-  const receiptFooter = printableTicketData.receipt_footer || branding?.receipt_footer || '¡Gracias por preferirnos! ♡';
-
   useEffect(() => {
-    if (isOpen) {
-      const timer = setTimeout(() => {
-        window.print();
-      }, 250);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen]);
+    if (!isOpen || !printableTicketData) return undefined;
 
-  if (!isOpen) return null;
+    const timer = setTimeout(() => {
+      window.print();
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [isOpen, printableTicketData]);
+
+  if (!isOpen || !printableTicketData) return null;
+
+  const ticket = printableTicketData;
+
+  const businessName =
+    ticket.business_name ||
+    ticket.salon_name ||
+    branding?.business_name ||
+    'SalonPro';
+
+  const logoUrl = ticket.logo_url || branding?.logo_url;
+  const receiptHeader =
+    ticket.receipt_header || branding?.receipt_header || '';
+  const receiptFooter =
+    ticket.receipt_footer ||
+    branding?.receipt_footer ||
+    '¡Gracias por preferirnos! ♡';
 
   return (
     <div style={{
@@ -98,7 +110,7 @@ export const ThermalTicketModal = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Printer size={18} style={{ color: '#be185d' }} />
             <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>
-              {printableTicketData.isPrecuenta ? 'Precuenta POS (Pendiente de Pago)' : 'Ticket Térmico 80mm'}
+              {ticket.isPrecuenta ? 'Precuenta POS (Pendiente de Pago)' : 'Ticket Térmico 80mm'}
             </span>
           </div>
           <button
@@ -167,7 +179,7 @@ export const ThermalTicketModal = ({
             <div style={{ borderBottom: '1.5px dotted #000000', margin: '5px 0 7px 0' }} />
 
             {/* BANNER PRECUENTA OBLIGATORIO */}
-            {printableTicketData.isPrecuenta && (
+            {ticket.isPrecuenta && (
               <div style={{
                 border: '1.5px solid #000000',
                 background: '#ffffff',
@@ -189,36 +201,36 @@ export const ThermalTicketModal = ({
               <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
                 <span style={{ fontWeight: 800, minWidth: '78px' }}>TICKET No.:</span>
                 <span style={{ fontWeight: 900, fontSize: '12px', letterSpacing: '0.5px' }}>
-                  {printableTicketData.ticketNumber || 'SD-0251'}
+                  {ticket.ticketNumber || 'SD-0251'}
                 </span>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
                 <span style={{ fontWeight: 800, minWidth: '50px' }}>FECHA:</span>
                 <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600 }}>
-                  {printableTicketData.dateFormatted || new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  {ticket.dateFormatted || new Date().toLocaleDateString('es-DO', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                 </span>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
                 <span style={{ fontWeight: 800, minWidth: '50px' }}>HORA:</span>
                 <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600 }}>
-                  {printableTicketData.timeFormatted || new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                  {ticket.timeFormatted || new Date().toLocaleTimeString('es-DO', { hour: '2-digit', minute: '2-digit', hour12: true })}
                 </span>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
                 <span style={{ fontWeight: 800, minWidth: '55px' }}>CLIENTE:</span>
                 <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 800, textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {printableTicketData.clientName || 'CLIENTE GENERAL'}
+                  {ticket.clientName || 'CLIENTE GENERAL'}
                 </span>
               </div>
 
-              {printableTicketData.ncf && !printableTicketData.isPrecuenta && (
+              {ticket.ncf && !ticket.isPrecuenta && (
                 <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px', background: '#f8fafc', border: '1px solid #000000', padding: '1px 3px', borderRadius: '2px' }}>
                   <span style={{ fontWeight: 900, minWidth: '50px' }}>e-NCF:</span>
                   <span style={{ fontWeight: 900, fontSize: '11px', letterSpacing: '0.5px' }}>
-                    {printableTicketData.ncf}
+                    {ticket.ncf}
                   </span>
                 </div>
               )}
@@ -226,7 +238,7 @@ export const ThermalTicketModal = ({
               <div style={{ display: 'flex', alignItems: 'baseline' }}>
                 <span style={{ fontWeight: 800, minWidth: '90px' }}>RECEPCIONISTA:</span>
                 <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600, textTransform: 'capitalize' }}>
-                  {printableTicketData.receptionistName || currentUser?.nombre || currentUser?.name || 'Staff Recepción'}
+                  {ticket.receptionistName || currentUser?.nombre || currentUser?.name || 'Staff Recepción'}
                 </span>
               </div>
             </div>
@@ -246,7 +258,7 @@ export const ThermalTicketModal = ({
                 <div style={{ fontSize: '7px', lineHeight: 1.15 }}>
                   <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>PLAN BEAUTY ACTIVO</div>
                   <div style={{ fontSize: '9.5px', fontWeight: 900, marginTop: '1px' }}>
-                    {printableTicketData.isPlanBeauty ? (printableTicketData.planWashesAvailable ? `${printableTicketData.planWashesAvailable} disp.` : 'Lavado disp.') : 'Lavado disp.'}
+                    {ticket.isPlanBeauty ? (ticket.planWashesAvailable ? `${ticket.planWashesAvailable} disp.` : 'Lavado disp.') : 'Lavado disp.'}
                   </div>
                 </div>
               </div>
@@ -295,7 +307,7 @@ export const ThermalTicketModal = ({
                 'Uñas acrílicas',
                 'Extensiones'
               ].map((srv, idx) => {
-                const matchedService = printableTicketData.services?.find?.(s =>
+                const matchedService = ticket.services?.find?.(s =>
                   s.nombre?.toLowerCase()?.trim() === srv.toLowerCase().trim() ||
                   s.nombre?.toLowerCase()?.includes(srv.toLowerCase()) ||
                   srv.toLowerCase()?.includes(s.nombre?.toLowerCase() || '')
@@ -330,7 +342,7 @@ export const ThermalTicketModal = ({
                 fontSize: '10.5px',
                 marginRight: '2px'
               }}>
-                {printableTicketData.totalAmount ? `RD$ ${Number(printableTicketData.totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : ''}
+                {ticket.totalAmount ? `RD$ ${Number(ticket.totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : ''}
               </div>
             </div>
 
@@ -339,11 +351,11 @@ export const ThermalTicketModal = ({
               <div style={{ background: '#ffffff', padding: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <QRCodeSVG 
                   value={
-                    (printableTicketData.qrUrl && printableTicketData.qrUrl.replace('https://fc.dgii.gov.do/eCF/ConsultaTimbre?', 'https://ecf.dgii.gov.do/eCF/ConsultaTimbre?')) || 
-                    (printableTicketData.ncf 
-                      ? (printableTicketData.ncf.startsWith('E32') && Number(printableTicketData.totalAmount || 0) < 250000
-                          ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=131917038&ENCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`
-                          : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=131917038&RncComprador=${printableTicketData.clientRnc || ''}&ENCF=${printableTicketData.ncf}&MontoTotal=${Number(printableTicketData.totalAmount || 0).toFixed(2)}&FechaEmision=05-11-2026&FechaFirma=05-11-2026%2008%3A53%3A42&CodigoSeguridad=${printableTicketData.securityCode || '000000'}`)
+                    (ticket.qrUrl && ticket.qrUrl.replace('https://fc.dgii.gov.do/eCF/ConsultaTimbre?', 'https://ecf.dgii.gov.do/eCF/ConsultaTimbre?')) || 
+                    (ticket.ncf 
+                      ? (ticket.ncf.startsWith('E32') && Number(ticket.totalAmount || 0) < 250000
+                          ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=131917038&ENCF=${ticket.ncf}&MontoTotal=${Number(ticket.totalAmount || 0).toFixed(2)}&CodigoSeguridad=${ticket.securityCode || '000000'}`
+                          : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=131917038&RncComprador=${ticket.clientRnc || ''}&ENCF=${ticket.ncf}&MontoTotal=${Number(ticket.totalAmount || 0).toFixed(2)}&FechaEmision=05-11-2026&FechaFirma=05-11-2026%2008%3A53%3A42&CodigoSeguridad=${ticket.securityCode || '000000'}`)
                       : 'https://planbeauty.do/servicios'
                     )
                   } 
@@ -362,7 +374,7 @@ export const ThermalTicketModal = ({
                 lineHeight: '1.3',
                 textAlign: 'left'
               }}>
-                {printableTicketData.ncf && !printableTicketData.isPrecuenta ? (
+                {ticket.ncf && !ticket.isPrecuenta ? (
                   <>TIMBRE FISCAL<br />DGII OFICIAL</>
                 ) : (
                   <>MENÚ DE<br />SERVICIOS</>
