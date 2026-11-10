@@ -45,3 +45,17 @@ Al finalizar todas las suites:
 - `salon_saas_staging`: **0 tablas / 0 registros**.
 - `salon_saas_prod`: **0 tablas / 0 registros**.
 - Ninguna prueba tocó ni conectó con staging ni producción.
+
+---
+
+## 5. Auditoría de Gates Faltantes para Staging (Fase 3B.1 - Bloque 0)
+
+Evaluación de los gates previos al despliegue de Staging:
+
+| Gate | Comando | Estado | Observación |
+|---|---|---|---|
+| **P1 Security Suite** | `npm run test:phase2h:p1-security` | **DETENIDO (MISSING SCRIPT)** | `Missing script: "test:phase2h:p1-security"`. Se activó la condición obligatoria de parada: la Fase 2H-C no está finalizada respecto a los entregables P1. |
+| **Linters** | `npm run lint` | **FAIL (Exit 1)** | 3 errores en `test_phase2f_e2e_browser.cjs`: `'getComputedStyle' is not defined` (no-undef). |
+| **Protección de Staging** | Bases de Staging y Prod | **100% INTACTAS** | `salon_saas_staging` y `salon_saas_prod` permanecen estrictamente vacías (0 tablas). Cero modificaciones aplicadas. |
+
+
