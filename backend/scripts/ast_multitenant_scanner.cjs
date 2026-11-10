@@ -235,6 +235,66 @@ function scanFile(filePath) {
           snippet: path.node.value
         });
       }
+
+      if (path.node.value && /^(?:Basic|Bearer)\s+[A-Za-z0-9+/=._-]{16,}/i.test(path.node.value.trim())) {
+        if (!path.parentPath?.isObjectProperty() || path.parentPath.node.key?.name?.toLowerCase() !== 'authorization') {
+          violations.push({
+            type: 'PROHIBITED_HARDCODED_AUTH_HEADER',
+            reason: 'Hardcoded static Basic/Bearer token string literal is strictly prohibited. Use environment variables.',
+            file: filePath,
+            line: path.node.loc?.start?.line || 1,
+            snippet: path.node.value.substring(0, 12) + '...'
+          });
+        }
+      }
+    },
+
+    ObjectExpression(path) {
+      const line = path.node.loc?.start?.line || 1;
+      let hasEmail = false;
+      let hasHardcodedPassword = false;
+      let passwordSnippet = '';
+
+      for (const prop of path.node.properties) {
+        if (prop.type !== 'ObjectProperty') continue;
+        const keyName = prop.key.name || prop.key.value;
+        if (!keyName) continue;
+
+        // Check for email: "..." + password: "..."
+        if (/^(?:email|user|username)$/i.test(keyName) && prop.value.type === 'StringLiteral') {
+          hasEmail = true;
+        }
+        if (/^(?:password|pass|passwd|admin_password)$/i.test(keyName) && prop.value.type === 'StringLiteral' && prop.value.value.trim().length > 0) {
+          hasHardcodedPassword = true;
+          passwordSnippet = prop.value.value.substring(0, 3) + '***';
+        }
+
+        // Check for hardcoded Authorization: "Basic ..." or "Bearer ..."
+        if (/^authorization$/i.test(keyName)) {
+          if (prop.value.type === 'StringLiteral') {
+            const val = prop.value.value.trim();
+            if (/^(?:Basic|Bearer)\s+[A-Za-z0-9+/=._-]{8,}/i.test(val)) {
+              violations.push({
+                type: 'PROHIBITED_HARDCODED_AUTH_HEADER',
+                reason: 'Hardcoded Authorization header with static Basic/Bearer credential is strictly prohibited. Inject tokens via environment variables.',
+                file: filePath,
+                line: prop.loc?.start?.line || line,
+                snippet: val.substring(0, 12) + '...'
+              });
+            }
+          }
+        }
+      }
+
+      if (hasEmail && hasHardcodedPassword) {
+        violations.push({
+          type: 'PROHIBITED_HARDCODED_CREDENTIAL_OBJECT',
+          reason: 'Hardcoded email and password credential object literal is strictly prohibited. Inject credentials via environment variables.',
+          file: filePath,
+          line,
+          snippet: `password: "${passwordSnippet}"`
+        });
+      }
     },
 
     TemplateLiteral(path) {

@@ -15,38 +15,48 @@ const https = require('https');
 
 const BASE_URL = 'https://staging.etereasapp.com';
 
-const authUser = process.env.STAGING_BASIC_AUTH_USER;
-const authPass = process.env.STAGING_BASIC_AUTH_PASSWORD;
+const REQUIRED_ENV = [
+  'STAGING_BASIC_AUTH_USER',
+  'STAGING_BASIC_AUTH_PASSWORD',
+  'STAGING_SUPERADMIN_EMAIL',
+  'STAGING_SUPERADMIN_PASSWORD',
+  'STAGING_TENANT_A_EMAIL',
+  'STAGING_TENANT_A_PASSWORD',
+  'STAGING_TENANT_B_EMAIL',
+  'STAGING_TENANT_B_PASSWORD'
+];
 
-if (!authUser || !authPass || String(authUser).trim() === '' || String(authPass).trim() === '') {
+const missingEnv = REQUIRED_ENV.filter(name => !process.env[name] || String(process.env[name]).trim() === '');
+if (missingEnv.length > 0) {
   console.error('\n❌ [FAIL-CLOSED SECURITY]: Variables de entorno obligatorias ausentes:');
-  console.error('   - STAGING_BASIC_AUTH_USER');
-  console.error('   - STAGING_BASIC_AUTH_PASSWORD');
+  missingEnv.forEach(name => console.error(`   - ${name}`));
   console.error('   Debe proveerlas desde su entorno local o gestor de secretos antes de ejecutar la prueba.\n');
   process.exit(1);
 }
 
-const BASIC_AUTH = Buffer.from(`${String(authUser).trim()}:${String(authPass).trim()}`).toString('base64');
+const authUser = process.env.STAGING_BASIC_AUTH_USER.trim();
+const authPass = process.env.STAGING_BASIC_AUTH_PASSWORD.trim();
+const BASIC_AUTH = Buffer.from(`${authUser}:${authPass}`).toString('base64');
 
 const CREDENTIALS = {
   superadmin: {
-    email: 'superadmin.synth@etereasapp.internal',
-    password: 'SA_wtJ-pvVV0MC_JjhZLNtTgg!9a',
+    email: process.env.STAGING_SUPERADMIN_EMAIL.trim(),
+    password: process.env.STAGING_SUPERADMIN_PASSWORD.trim(),
     expectedRole: 'superadmin'
   },
   tenantA: {
     id: '33e32581-b243-40f6-833a-fe683011095e',
     slug: 'staging-alpha',
-    email: 'owner.alpha@etereasapp.internal',
-    password: 'OA_Mtc42KNpULFs3Yx4S_eAUA!8b',
+    email: process.env.STAGING_TENANT_A_EMAIL.trim(),
+    password: process.env.STAGING_TENANT_A_PASSWORD.trim(),
     expectedPrimaryColor: '#4f46e5',
     expectedName: 'Salon Alpha Synthetic'
   },
   tenantB: {
     id: 'c6da8941-7197-4934-937a-dba08b1eab17',
     slug: 'staging-beta',
-    email: 'owner.beta@etereasapp.internal',
-    password: 'OB_nqK01DWZmqbClaYXWA1uHg!7c',
+    email: process.env.STAGING_TENANT_B_EMAIL.trim(),
+    password: process.env.STAGING_TENANT_B_PASSWORD.trim(),
     expectedPrimaryColor: '#059669',
     expectedName: 'Salon Beta Synthetic'
   }
