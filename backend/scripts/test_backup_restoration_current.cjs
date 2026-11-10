@@ -111,6 +111,9 @@ function generateSyntheticCurrentDataset() {
     idempotency_keys: [
       { tenant_id: tenant1Id, idempotency_key: 'synth_test_idemp_key_1', payload_hash: 'abc123hash', status_code: 200, response_body: { success: true } }
     ],
+    job_request_nonces: [
+      { id: 1, nonce_hash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90', body_hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', signed_timestamp: Date.now(), consumed_at: new Date(), expires_at: new Date(Date.now() + 600000) }
+    ],
     pending_tenant_reconciliations: [
       { id: 101, table_name: 'salons', record_id: 'quarantine_orphan_1', reason: 'AMBIGUOUS_HISTORICAL_DATA', status: 'quarantined' }
     ]
@@ -119,7 +122,7 @@ function generateSyntheticCurrentDataset() {
 
 async function testCurrentBackupRestoration() {
   console.log('========================================================================');
-  console.log('🧪 RESTAURACIÓN CRIPTOGRÁFICA Y VERIFICACIÓN DEL ESQUEMA ACTUAL (94 TABLAS)');
+  console.log('🧪 RESTAURACIÓN CRIPTOGRÁFICA Y VERIFICACIÓN DEL ESQUEMA ACTUAL (95 TABLAS)');
   console.log('========================================================================\n');
 
   const testDbConfig = validateTestEnvironment({ allowDisposableSchema: true });
@@ -210,15 +213,15 @@ async function testCurrentBackupRestoration() {
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = ? AND table_type = 'BASE TABLE';
     `, [sandboxSchema]);
-    assert.strictEqual(tables.length, 94, `Expected exactly 94 tables, found ${tables.length}`);
-    console.log(`  📊 [PASS] Exactamente 94 tablas creadas en "${sandboxSchema}".`);
+    assert.strictEqual(tables.length, 95, `Expected exactly 95 tables, found ${tables.length}`);
+    console.log(`  📊 [PASS] Exactamente 95 tablas creadas en "${sandboxSchema}".`);
 
     const [sequences] = await conn.query(`
       SELECT sequence_name FROM information_schema.sequences
       WHERE sequence_schema = ?;
     `, [sandboxSchema]);
-    assert.strictEqual(sequences.length, 43, `Expected exactly 43 sequences, found ${sequences.length}`);
-    console.log(`  📊 [PASS] Exactamente 43 secuencias creadas en "${sandboxSchema}".`);
+    assert.strictEqual(sequences.length, 44, `Expected exactly 44 sequences, found ${sequences.length}`);
+    console.log(`  📊 [PASS] Exactamente 44 secuencias creadas en "${sandboxSchema}".`);
 
     const [triggers] = await conn.query(`
       SELECT t.tgname FROM pg_trigger t

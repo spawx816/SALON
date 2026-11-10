@@ -1,9 +1,9 @@
-# Inventario de Solo Lectura de la VPS (Fase 3A.0)
+# Inventario de Solo Lectura de la VPS (Fase 3B.0.2)
 
 **Host:** `179.66.139.67` (`srv2145352`)  
-**Fecha de Inspección:** 10 de Noviembre de 2026 00:48:34 UTC  
-**Metodología:** Inspección no intrusiva de solo lectura mediante SSH  
-**Estado:** `VPS NUEVA DISPONIBLE / 100% LIMPIA / LISTA PARA PROVISIONAMIENTO`
+**Fecha de Inspección:** 10 de Noviembre de 2026 (Reconciliado Fase 3B.0.2)  
+**Metodología:** Inspección no intrusiva de solo lectura mediante SSH y Docker CLI  
+**Estado:** `SSH HARDENED / POSTGRES PRIVADO 17.11 / TEST MIGRADO (95 TABLAS / 15 MIGRACIONES) / STAGING Y PROD LIMPIAS (0 TABLAS) / SWAP DIFERIDO`
 
 ---
 
@@ -24,12 +24,10 @@
 
 | Recurso | Capacidad Total | En Uso | Disponible | Observaciones |
 | :--- | :--- | :--- | :--- | :--- |
-| **vCPU** | 1 núcleo (AMD EPYC 9354P) | ~0.2% | ~99.8% | Procesador moderno de alto rendimiento |
-| **RAM** | 3.8 GiB | 463 MiB | 3.4 GiB | Memoria suficiente para Staging y Docker Compose |
-| **Swap** | **0 B** | 0 B | 0 B | **DIFERIDO POR EL OPERADOR / NO BLOQUEA STAGING / REEVALUAR ANTES DE PRODUCCIÓN** (Riesgo residual: La VPS no dispone de swap; un pico de memoria puede activar el OOM Killer. Se mitiga en Fase 3B con límites de memoria en Docker y build local) |
-| **Almacenamiento (`/`)** | 48.9 GiB (`/dev/sda1`) | 1.5 GiB | 46.0 GiB (4%) | Espacio abundante para imágenes Docker y volúmenes |
-| **Partición `/boot`** | 989 MiB (`/dev/sda13`) | 81 MiB | 841 MiB (9%) | Normal |
-| **Partición EFI** | 105 MiB (`/dev/sda15`) | 6.3 MiB | 99 MiB (7%) | Normal |
+| **vCPU** | 1 núcleo (AMD EPYC 9354P) | ~0.5% | ~99.5% | Procesador moderno de alto rendimiento |
+| **RAM** | 3.8 GiB (3910 MB) | ~744 MB (19.0%) | ~3165 MB | Memoria controlada y verificada < 75% |
+| **Swap** | **0 B** | 0 B | 0 B | **DIFERIDO POR EL OPERADOR / NO BLOQUEA STAGING / REEVALUAR ANTES DE PRODUCCIÓN** |
+| **Almacenamiento (`/`)** | 48.9 GiB (`/dev/sda1`) | ~5.8 GiB | ~41.7 GiB (12%) | Espacio abundante |
 
 ---
 
@@ -44,79 +42,48 @@
 
 ---
 
-## 4. Identidad, Acceso y Privilegios Actuales
+## 4. Identidad, Acceso y Privilegios
 
 | Parámetro | Estado |
 | :--- | :--- |
-| **Usuario Conectado** | `root` (UID=0, GID=0) |
-| **Directorio `/root`** | Solo archivos base del sistema (`.bashrc`, `.profile`, `.ssh`) |
-| **Usuarios en `/home`** | Directorio vacío (no existen usuarios nominales aún) |
-| **Acceso SSH** | Puerto 22 escuchando globalmente (`0.0.0.0:22`, `[::]:22`) |
+| **Usuario de Operación** | `deployer` (con `sudo`, miembro de `docker`) |
+| **Login SSH root directo** | ❌ DESHABILITADO (`PermitRootLogin no`) |
+| **Autenticación por Contraseña** | ❌ DESHABILITADA (`PasswordAuthentication no`, `KbdInteractiveAuthentication no`) |
+| **Acceso SSH** | Clave pública Ed25519 en puerto 22 |
 
 ---
 
-## 5. Red, DNS y Puertos en Escucha
+## 5. Red, Docker Engine y Bases de Datos
 
-### 5.1 Direcciones IP
-- **IPv4 Pública:** `179.66.139.67/24` (interfaz `eth0`)
-- **IPv6:** `2a02:4780:95:ade6::1/48`
-- **Loopback:** `127.0.0.1/8`, `::1/128` (`lo`)
+### 5.1 Docker y Compose
+- **Docker Engine:** Community `29.9.3` (API version `1.56`, containerd `v2.4.2`, runc `1.5.2`)
+- **Docker Compose:** `v5.7.0`
+- **Docker Data Root:** `/opt/salonpro/docker-data` (aislado)
 
-### 5.2 Puertos Escuchando (`ss -tulpn`)
-| Protocolo | Dirección Local | Proceso | Exposición Externa |
-| :--- | :--- | :--- | :---: |
-| **TCP** | `0.0.0.0:22` / `[::]:22` | `sshd` (OpenSSH 9.5) | **SÍ (Pública)** |
-| **TCP** | `127.0.0.53:53` / `127.0.0.54:53` | `systemd-resolved` | NO (Solo Loopback) |
-| **TCP** | `127.0.0.1:65529` | `monarx-agent` | NO (Solo Loopback) |
-| **UDP** | `127.0.0.1:323` / `[::1]:323` | `chronyd` | NO (Solo Loopback) |
-| **UDP** | `127.0.0.1:1721` | `monarx-agent` | NO (Solo Loopback) |
-| **UDP** | `127.0.0.53:53` / `127.0.0.54:53` | `systemd-resolved` | NO (Solo Loopback) |
+### 5.2 Contenedor PostgreSQL
+- **Imagen:** `postgres:17.11-bookworm` (digest verificado)
+- **Contenedor:** `salonpro_db` (healthcheck activo, healthy)
+- **Red:** `salon_infra_net` (`driver: bridge`, `internal: true`)
+- **Puertos al Host:** **NINGUNO (CERO PUERTOS EXPUESTOS AL HOST O INTERNET)**
 
-> [!NOTE]
-> No hay servidores web (Apache/Nginx/Caddy), bases de datos (PostgreSQL/MySQL/Redis) ni puertos no autorizados expuestos a Internet.
+### 5.3 Estado Canónico de Bases de Datos
+| Base de Datos | Tablas | Migraciones | Estado |
+| :--- | :---: | :---: | :--- |
+| `salon_saas_test` | **95** | **15** | Migrada y validada al 100% |
+| `salon_saas_staging` | **0** | **0** | **INTACTA / VACÍA** |
+| `salon_saas_prod` | **0** | **0** | **INTACTA / VACÍA** |
 
-### 5.3 Resolución DNS y Conectividad
-- **Servidores DNS Activos:** `153.92.2.6`, `1.1.1.1`, `8.8.4.4` (administrados por `systemd-resolved`).
-- **Latencia de Salida:** 5.5 ms hacia `8.8.8.8` y `google.com` (conectividad limpia y sin pérdidas de paquetes).
-
----
-
-## 6. Estado del Firewall y Seguridad de Red
-
-| Componente | Estado Actual | Observaciones |
-| :--- | :--- | :--- |
-| **UFW (Uncomplicated Firewall)** | `inactive` | **Requerido:** Activar permitiendo solo SSH (22), HTTP (80) y HTTPS (443) |
-| **iptables** | Reglas base con política `ACCEPT` | Sin bloqueos personalizados preexistentes |
-| **Fail2ban / CrowdSec** | No instalado | **Requerido:** Configurar protección contra ataques de fuerza bruta SSH |
-| **Agente de Seguridad Host** | `monarx-agent` en ejecución | Agente de escaneo del proveedor Hostinger |
+### 5.4 Desglose Canónico del Esquema (95 Tablas)
+- **Tablas Globales / Sistema (12):** `account_lockouts`, `billing_codes`, `blocked_ips`, `contact_messages`, `job_request_nonces`, `login_attempts`, `pending_tenant_reconciliations`, `saas_features`, `saas_plan_features`, `saas_plans`, `schema_migrations`, `tenants`.
+- **Tablas Tenant-Owned (83):** 100% auditadas con `tenant_id UUID NOT NULL` y FK hacia `tenants(id) ON DELETE CASCADE`.
+- **Secuencias Canónicas (44):** 43 históricas + `job_request_nonces_id_seq`.
+- **Triggers de Cuarentena (4):** Activos e inmutables contra registros en cuarentena.
 
 ---
 
-## 7. Paquetes y Binarios Existentes
+## 6. Estado de Servicios Web y Aplicación
 
-| Binario | ¿Instalado? | Versión |
-| :--- | :---: | :--- |
-| **git** | ✅ SÍ | `2.53.0` |
-| **python3** | ✅ SÍ | `Python 3.12.x` |
-| **docker** | ❌ NO | *not found* |
-| **docker-compose** | ❌ NO | *not found* |
-| **node** | ❌ NO | *not found* |
-| **npm** | ❌ NO | *not found* |
-| **psql / postgres** | ❌ NO | *not found* |
-| **nginx** | ❌ NO | *not found* |
-| **caddy** | ❌ NO | *not found* |
-
----
-
-## 8. Estado de Actualizaciones del Sistema (`apt`)
-
-- Existen **22 paquetes del sistema operativo** con actualizaciones menores pendientes (`apt`, `ca-certificates`, `bind9`, `linux-image-virtual`, `tmux`, `vim`, etc.).
-- Ningún paquete retenido o roto.
-
----
-
-## 9. Veredicto de Limpieza del Servidor
-
-> **VEREDICTO:** ✅ **VPS 100% LIMPIA Y VERIFICADA.**  
-> No existen contenedores Docker huérfanos, instancias de bases de datos preexistentes, carpetas web contaminadas ni archivos `.env` residuales. El entorno es apto para proceder con la arquitectura de Staging de Fase 3A.
-
+- **Caddy:** No instalado / no en ejecución.
+- **Node.js / App:** Sin proceso activo de backend ni frontend en ejecución.
+- **CardNet / DGII:** En pausa / mock mode estricto.
+- **DNS:** `staging.etereasapp.com` configurado hacia la IP de la VPS con TTL 300.

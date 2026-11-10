@@ -1,5 +1,5 @@
 /**
- * Canonical Schema Contract & Architecture Registry (94 Tables & 14 Migrations)
+ * Canonical Schema Contract & Architecture Registry (95 Tables & 15 Migrations)
  * (backend/scripts/canonical_schema_contract.cjs)
  *
  * Source of truth for database schema compliance, multi-tenant isolation,
@@ -22,15 +22,17 @@ const CANONICAL_MIGRATIONS = [
   '20261109_financial_minor_currency_units',
   '20261109_secure_admin_pin_hash',
   '20261110_create_tenant_branding',
-  '20261110_phase2h_user_token_version'
+  '20261110_phase2h_user_token_version',
+  '20261110_job_nonces_and_strict_idempotency'
 ];
 
-// 11 Global / Control Plane / System Tables
+// 12 Global / Control Plane / System Tables
 const GLOBAL_SYSTEM_TABLES = [
   'account_lockouts',
   'billing_codes',
   'blocked_ips',
   'contact_messages',
+  'job_request_nonces',
   'login_attempts',
   'pending_tenant_reconciliations',
   'saas_features',
@@ -137,10 +139,12 @@ const TENANT_OWNED_TABLES = [
   'visits'
 ];
 
-const CANONICAL_94_TABLES = [
+const CANONICAL_95_TABLES = [
   ...GLOBAL_SYSTEM_TABLES,
   ...TENANT_OWNED_TABLES
 ].sort();
+
+const CANONICAL_94_TABLES = CANONICAL_95_TABLES; // Compatibility alias
 
 const CANONICAL_QUARANTINE_TRIGGERS = [
   { triggerName: 'trg_quarantine_salons', tableName: 'salons', functionName: 'fn_enforce_quarantine_block' },
@@ -149,7 +153,7 @@ const CANONICAL_QUARANTINE_TRIGGERS = [
   { triggerName: 'trg_quarantine_ticket_sequences', tableName: 'ticket_sequences', functionName: 'fn_enforce_quarantine_block' }
 ];
 
-const CANONICAL_43_SEQUENCES = [
+const CANONICAL_44_SEQUENCES = [
   'account_lockouts_id_seq',
   'audit_logs_id_seq',
   'billing_codes_id_seq',
@@ -174,6 +178,7 @@ const CANONICAL_43_SEQUENCES = [
   'gift_cards_id_seq',
   'holidays_id_seq',
   'idempotency_keys_id_seq',
+  'job_request_nonces_id_seq',
   'login_attempts_id_seq',
   'marketing_settings_id_seq',
   'payroll_audit_logs_id_seq',
@@ -195,12 +200,17 @@ const CANONICAL_43_SEQUENCES = [
   'verification_codes_id_seq'
 ];
 
+const CANONICAL_43_SEQUENCES = CANONICAL_44_SEQUENCES; // Compatibility alias
+
 module.exports = {
   CANONICAL_MIGRATIONS,
   GLOBAL_SYSTEM_TABLES,
   TENANT_OWNED_TABLES,
   APPROVED_NULLABLE_EXEMPTIONS,
+  CANONICAL_95_TABLES,
   CANONICAL_94_TABLES,
   CANONICAL_QUARANTINE_TRIGGERS,
+  CANONICAL_44_SEQUENCES,
   CANONICAL_43_SEQUENCES
 };
+

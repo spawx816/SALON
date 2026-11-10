@@ -453,26 +453,27 @@ function createMarketingRouter(pool) {
     }
   });
 
-  const { checkJobIdempotency, recordJobExecution } = require('../middleware/job_hmac_auth.middleware.cjs');
+  const { claimJobExecution, completeJobExecution, failJobExecution } = require('../middleware/job_hmac_auth.middleware.cjs');
 
-  // Automated daily birthdays cron endpoint (Iterates per tenant strictly with Anti-Replay & Idempotency)
+  // Automated daily birthdays cron endpoint (Iterates per tenant strictly with Anti-Replay & Atomic Idempotency)
   router.post('/send-daily-birthdays', async (req, res) => {
     try {
       const todayDateStr = new Date().toISOString().slice(0, 10);
       const targetTenantId = req.body?.tenant_id ? String(req.body.tenant_id) : null;
 
-      // 1. Single-tenant targeted execution idempotency check
+      // 1. Single-tenant targeted execution: atomic acquisition
       if (targetTenantId) {
-        const isDuplicate = await checkJobIdempotency(pool, {
+        const claim = await claimJobExecution(pool, {
           tenantId: targetTenantId,
           jobType: 'daily_birthdays',
           date: todayDateStr
         });
-        if (isDuplicate) {
+        if (!claim.claimed) {
           return res.status(409).json({
             error: 'JOB_DUPLICATE_EXECUTION',
-            message: 'El job de cumpleaños ya fue ejecutado para este tenant en la fecha de hoy.',
-            code: 'JOB_DUPLICATE_EXECUTION'
+            message: 'El job de cumpleaños ya fue reclamado o ejecutado para este tenant en la fecha de hoy.',
+            code: 'JOB_DUPLICATE_EXECUTION',
+            details: claim.details
           });
         }
       }
@@ -487,72 +488,98 @@ function createMarketingRouter(pool) {
       for (const t of activeTenants) {
         const tenantId = t.id;
 
-        // Check per-tenant idempotency
-        const alreadyRan = await checkJobIdempotency(pool, {
-          tenantId,
-          jobType: 'daily_birthdays',
-          date: todayDateStr
-        });
-        if (alreadyRan) continue;
-
-        const [mSettings] = await pool.query('SELECT * FROM marketing_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-        if (mSettings.length === 0 || !mSettings[0].birthday_automation_enabled) {
-          await recordJobExecution(pool, { tenantId, jobType: 'daily_birthdays', date: todayDateStr, metadata: { sent: 0, reason: 'automation_disabled' } });
-          continue;
+        // Atomic claim per tenant if running in batch (when not pre-claimed above)
+        if (!targetTenantId) {
+          const claim = await claimJobExecution(pool, {
+            tenantId,
+            jobType: 'daily_birthdays',
+            date: todayDateStr
+          });
+          if (!claim.claimed) continue; // Already claimed/executed by another concurrent worker
         }
 
-        const settings = mSettings[0];
-        const [clients] = await pool.query(`
-          SELECT DISTINCT c.id, c.email, c.nombre 
-          FROM clients c
-          JOIN contracts cn ON c.id = cn.client_id AND cn.tenant_id = c.tenant_id
-          WHERE c.tenant_id = ?
-            AND DATE_FORMAT(c.fecha_nacimiento, '%m-%d') = DATE_FORMAT(NOW(), '%m-%d')
-            AND cn.status = 'Active'
-            AND (c.last_birthday_sent_year IS NULL OR c.last_birthday_sent_year < EXTRACT(YEAR FROM NOW()))
-            AND c.email IS NOT NULL AND c.email != ''
-        `, [tenantId]);
+        try {
+          const [mSettings] = await pool.query('SELECT * FROM marketing_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+          if (mSettings.length === 0 || !mSettings[0].birthday_automation_enabled) {
+            await completeJobExecution(pool, { tenantId, jobType: 'daily_birthdays', date: todayDateStr, metadata: { sent: 0, reason: 'automation_disabled' } });
+            continue;
+          }
 
-        let tenantSent = 0;
+          const settings = mSettings[0];
+          const [clients] = await pool.query(`
+            SELECT DISTINCT c.id, c.email, c.nombre 
+            FROM clients c
+            JOIN contracts cn ON c.id = cn.client_id AND cn.tenant_id = c.tenant_id
+            WHERE c.tenant_id = ?
+              AND DATE_FORMAT(c.fecha_nacimiento, '%m-%d') = DATE_FORMAT(NOW(), '%m-%d')
+              AND cn.status = 'Active'
+              AND (c.last_birthday_sent_year IS NULL OR c.last_birthday_sent_year < EXTRACT(YEAR FROM NOW()))
+              AND c.email IS NOT NULL AND c.email != ''
+          `, [tenantId]);
 
-        if (clients.length > 0) {
-          const [emailSettingsRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
-          if (emailSettingsRows.length > 0 && emailSettingsRows[0].smtp_host) {
-            const s = emailSettingsRows[0];
-            const transporter = nodemailer.createTransport({
-              host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
-              auth: { user: s.smtp_user, pass: s.smtp_pass }
-            });
+          let tenantSent = 0;
 
-            for (const client of clients) {
-              try {
-                await transporter.sendMail({
-                  from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
-                  to: client.email,
-                  subject: settings.birthday_email_subject || '¡Feliz Cumpleaños! 🎉',
-                  text: `Hola ${client.nombre}, te deseamos un muy feliz cumpleaños!`
-                });
-                await pool.query('UPDATE clients SET last_birthday_sent_year = EXTRACT(YEAR FROM NOW()) WHERE id = ? AND tenant_id = ?', [client.id, tenantId]);
-                tenantSent++;
-              } catch (e) {}
+          if (clients.length > 0) {
+            const [emailSettingsRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+            if (emailSettingsRows.length > 0 && emailSettingsRows[0].smtp_host) {
+              const s = emailSettingsRows[0];
+              const transporter = nodemailer.createTransport({
+                host: s.smtp_host, port: s.smtp_port, secure: s.smtp_port == 465,
+                auth: { user: s.smtp_user, pass: s.smtp_pass }
+              });
+
+              for (const client of clients) {
+                try {
+                  await transporter.sendMail({
+                    from: `"${s.smtp_from || 'PLAN BEAUTY'}" <${s.smtp_user}>`,
+                    to: client.email,
+                    subject: settings.birthday_email_subject || '¡Feliz Cumpleaños! 🎉',
+                    text: `Hola ${client.nombre}, te deseamos un muy feliz cumpleaños!`
+                  });
+                  await pool.query('UPDATE clients SET last_birthday_sent_year = EXTRACT(YEAR FROM NOW()) WHERE id = ? AND tenant_id = ?', [client.id, tenantId]);
+                  tenantSent++;
+                } catch (e) {}
+              }
             }
           }
+
+          totalSent += tenantSent;
+          processedTenants++;
+
+          // Complete execution atomically with status 200
+          await completeJobExecution(pool, {
+            tenantId,
+            jobType: 'daily_birthdays',
+            date: todayDateStr,
+            metadata: { sent: tenantSent, clientsCount: clients.length }
+          });
+        } catch (jobErr) {
+          await failJobExecution(pool, {
+            tenantId,
+            jobType: 'daily_birthdays',
+            date: todayDateStr,
+            error: { message: jobErr.message }
+          });
+          throw jobErr;
         }
-
-        totalSent += tenantSent;
-        processedTenants++;
-
-        // Record execution idempotency for tenant
-        await recordJobExecution(pool, {
-          tenantId,
-          jobType: 'daily_birthdays',
-          date: todayDateStr,
-          metadata: { sent: tenantSent, clientsCount: clients.length }
-        });
       }
 
       res.json({ success: true, sent: totalSent, processedTenants });
     } catch (err) {
+      if (err.code === 'JOB_AUTH_STATE_UNAVAILABLE') {
+        return res.status(503).json({
+          error: 'JOB_AUTH_STATE_UNAVAILABLE',
+          message: 'Estado de persistencia no disponible para ejecutar jobs (fail-closed).',
+          code: 'JOB_AUTH_STATE_UNAVAILABLE'
+        });
+      }
+      if (err.code === 'INVALID_TENANT_UUID') {
+        return res.status(400).json({
+          error: 'INVALID_TENANT_UUID',
+          message: err.message,
+          code: 'INVALID_TENANT_UUID'
+        });
+      }
       console.error('[DAILY BIRTHDAY ERROR]', err);
       res.status(500).json({ error: err.message });
     }

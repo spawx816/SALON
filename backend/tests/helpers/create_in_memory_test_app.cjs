@@ -188,10 +188,10 @@ async function createInMemoryTestApp(options = {}) {
     password = 'Password123!'
   } = {}) {
     const isSuperAdmin = role === 'superadmin';
-    const tenantId = isSuperAdmin ? null : `ten_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const tenantId = isSuperAdmin ? null : crypto.randomUUID();
     const userId = `usr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const sessionId = `ses_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const branchId = isSuperAdmin ? null : `br_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const branchId = isSuperAdmin ? null : crypto.randomUUID();
 
     if (!isSuperAdmin) {
       // 1. Tenant

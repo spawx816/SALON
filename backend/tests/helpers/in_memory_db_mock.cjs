@@ -96,7 +96,9 @@ class InMemoryDbMock {
       contact_messages: [],
       security_audit_logs: [],
       inventory_movements: [],
-      inventory_locations: []
+      inventory_locations: [],
+      idempotency_keys: [],
+      job_request_nonces: []
     };
   }
 
@@ -231,6 +233,16 @@ class InMemoryDbMock {
       row.id = `mock-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     }
 
+    // Check unique constraint for job_request_nonces
+    if (tableName === 'job_request_nonces') {
+      const existing = (tables.job_request_nonces || []).find(n => n.nonce_hash === row.nonce_hash);
+      if (existing) {
+        const err = new Error('duplicate key value violates unique constraint "uq_job_request_nonces_hash"');
+        err.code = '23505';
+        throw err;
+      }
+    }
+
     // ON CONFLICT handling
     const upper = sql.toUpperCase();
     if (upper.includes('ON CONFLICT')) {
@@ -252,6 +264,14 @@ class InMemoryDbMock {
           Object.assign(existing, row);
           return [[existing], []];
         }
+      } else if (tableName === 'idempotency_keys') {
+        const existing = (tables.idempotency_keys || []).find(k => k.tenant_id === row.tenant_id && k.idempotency_key === row.idempotency_key);
+        if (existing) {
+          if (upper.includes('RETURNING')) {
+            return [[], []];
+          }
+          return [[existing], []];
+        }
       } else if (upper.includes('DO NOTHING')) {
         const existing = tables[tableName].find(r => r.id === row.id && (!row.tenant_id || r.tenant_id === row.tenant_id));
         if (existing) {
@@ -261,6 +281,9 @@ class InMemoryDbMock {
     }
 
     tables[tableName].push(row);
+    if (upper.includes('RETURNING')) {
+      return [[row], []];
+    }
     return [{ affectedRows: 1, insertId: row.id }, [row]];
   }
 
