@@ -62,7 +62,7 @@ function maskCedula(val) {
   if (typeof val !== 'string') return '[REDACTED_ID]';
   const clean = val.replace(/\D/g, '');
   if (clean.length < 4) return '***-*****--*';
-  return `***-*****${clean.slice(-4, -1)}-${clean.slice(-1)}`;
+  return `***-*****${clean.slice(-3, -1)}-${clean.slice(-1)}`;
 }
 
 /**
