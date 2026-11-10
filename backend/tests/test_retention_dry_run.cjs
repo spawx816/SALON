@@ -77,7 +77,7 @@ async function runRetentionDryRunTests() {
         ($1, $2, 'EMP-01', 'check_in', $3, $4),
         ($5, $2, 'EMP-01', 'check_in', $6, $7)
       ON CONFLICT (id) DO NOTHING;
-    `, [att1, tenantId, recentDate, file1, att2, tenantId, oldDate, file2]);
+    `, [att1, tenantId, recentDate, file1, att2, oldDate, file2]);
 
     const dryRunRes = await service.runRetention({
       tenantId,
