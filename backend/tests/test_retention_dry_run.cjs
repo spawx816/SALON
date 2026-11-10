@@ -64,7 +64,7 @@ async function runRetentionDryRunTests() {
     const file2 = '77777777-0000-0000-0000-000000000002';
 
     await conn.query(`
-      INSERT INTO private_files (id, tenant_id, file_category, storage_path, file_size_bytes, mime_type, sha256_hash, encryption_iv, encryption_auth_tag)
+      INSERT INTO private_files (id, tenant_id, category, storage_path, byte_size, mime_type, sha256_hash, encryption_iv, encryption_tag)
       VALUES
         ($1, $2, 'attendance_photos', '/tmp/p1.enc', 1024, 'image/jpeg', 'h1', 'iv1', 'tag1'),
         ($3, $2, 'attendance_photos', '/tmp/p2.enc', 1024, 'image/jpeg', 'h2', 'iv2', 'tag2')
