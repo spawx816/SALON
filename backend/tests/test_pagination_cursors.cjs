@@ -31,6 +31,9 @@ async function runPaginationCursorTests() {
       ON CONFLICT (id) DO NOTHING;
     `, [tenantA, tenantB]);
 
+    // Clean previous test clients for idempotency
+    await conn.query('DELETE FROM clients WHERE tenant_id IN ($1, $2)', [tenantA, tenantB]);
+
     // Seed 10 clients for Tenant A with deterministic created_at
     for (let i = 1; i <= 10; i++) {
       const clientId = `10000000-0000-0000-0000-${String(i).padStart(12, '0')}`;
@@ -39,7 +42,7 @@ async function runPaginationCursorTests() {
         INSERT INTO clients (id, tenant_id, nombre, name, telefono, cedula, created_at)
         VALUES ($1, $2, $3, $3, $4, $5, $6)
         ON CONFLICT (id) DO NOTHING;
-      `, [clientId, tenantA, `Cliente${i} Paginación`, `809555${String(i).padStart(4, '0')}`, `402-${String(i).padStart(7, '0')}-1`, dt]);
+      `, [clientId, tenantA, `Cliente${i}`, `809555${String(i).padStart(4, '0')}`, `402-${String(i).padStart(7, '0')}-1`, dt]);
     }
 
     // Seed 2 clients for Tenant B
@@ -49,7 +52,7 @@ async function runPaginationCursorTests() {
         INSERT INTO clients (id, tenant_id, nombre, name, telefono, cedula)
         VALUES ($1, $2, $3, $3, $4, $5)
         ON CONFLICT (id) DO NOTHING;
-      `, [clientId, tenantB, `ClienteB${i} Aislado`, `809777${String(i).padStart(4, '0')}`, `402-${String(i + 50).padStart(7, '0')}-2`]);
+      `, [clientId, tenantB, `ClienteB${i}`, `809777${String(i).padStart(4, '0')}`, `402-${String(i + 50).padStart(7, '0')}-2`]);
     }
 
     // --- TEST 1: Codificación y decodificación válida de cursor ---
