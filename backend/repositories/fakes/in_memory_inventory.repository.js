@@ -364,6 +364,106 @@ class InMemoryInventoryRepository {
     return mapped.slice().reverse().slice(offset, offset + limit);
   }
 
+  async executeAtomicSaleDeduction(tenantId, { productId, locationId, quantity, visitId, lineId = null, userId = null, userName = null }) {
+    if (!tenantId || !productId || !locationId) throw new Error('tenantId, productId y locationId son requeridos');
+    const qty = Number(quantity);
+    if (qty <= 0) return { skipped: true };
+
+    const idempotencyKey = `sale:${visitId}:${productId}${lineId ? `:${lineId}` : ''}`;
+    const existing = await this.getMovementByIdempotencyKey(tenantId, idempotencyKey);
+    if (existing) {
+      return {
+        idempotent: true,
+        movement: existing,
+        message: 'Descuento de inventario previamente procesado'
+      };
+    }
+
+    const currentStock = await this.getStock(tenantId, productId, locationId);
+    const available = Number(currentStock.quantity) || 0;
+    if (available < qty) {
+      const err = new Error(`Stock insuficiente. Disponible: ${available}, Requerido: ${qty}`);
+      err.code = 'INSUFFICIENT_STOCK';
+      err.available = available;
+      err.required = qty;
+      throw err;
+    }
+
+    const newQty = available - qty;
+    const avgCost = Number(currentStock.average_cost) || 0;
+
+    const movement = await this.recordMovement(tenantId, {
+      product_id: productId,
+      location_id: locationId,
+      movement_type: 'SALE',
+      quantity: -qty,
+      unit_cost: avgCost,
+      total_cost: qty * avgCost,
+      balance_after: newQty,
+      reference_type: 'VISIT_SALE',
+      reference_id: String(visitId),
+      idempotency_key: idempotencyKey,
+      reason: `Venta POS Ticket/Visita #${visitId}`,
+      user_id: userId,
+      user_name: userName
+    });
+
+    await this.updateStockBalance(tenantId, productId, locationId, newQty, avgCost);
+
+    return {
+      success: true,
+      movement,
+      previous_stock: available,
+      new_stock: newQty
+    };
+  }
+
+  async executeAtomicSaleVoid(tenantId, { productId, locationId, quantity, visitId, lineId = null, userId = null, userName = null, reason = 'Anulación de venta POS' }) {
+    if (!tenantId || !productId || !locationId) throw new Error('tenantId, productId y locationId son requeridos');
+    const qty = Number(quantity);
+    if (qty <= 0) return { skipped: true };
+
+    const idempotencyKey = `void:${visitId}:${productId}${lineId ? `:${lineId}` : ''}`;
+    const existing = await this.getMovementByIdempotencyKey(tenantId, idempotencyKey);
+    if (existing) {
+      return {
+        idempotent: true,
+        movement: existing,
+        message: 'Reversión de inventario previamente procesada'
+      };
+    }
+
+    const currentStock = await this.getStock(tenantId, productId, locationId);
+    const available = Number(currentStock.quantity) || 0;
+    const newQty = available + qty;
+    const avgCost = Number(currentStock.average_cost) || 0;
+
+    const movement = await this.recordMovement(tenantId, {
+      product_id: productId,
+      location_id: locationId,
+      movement_type: 'VOID_SALE',
+      quantity: qty,
+      unit_cost: avgCost,
+      total_cost: qty * avgCost,
+      balance_after: newQty,
+      reference_type: 'VISIT_VOID',
+      reference_id: String(visitId),
+      idempotency_key: idempotencyKey,
+      reason,
+      user_id: userId,
+      user_name: userName
+    });
+
+    await this.updateStockBalance(tenantId, productId, locationId, newQty, avgCost);
+
+    return {
+      success: true,
+      movement,
+      previous_stock: available,
+      new_stock: newQty
+    };
+  }
+
   async getLowStockAlerts(tenantId, locationId = null) {
     if (!tenantId) return [];
     const alerts = [];

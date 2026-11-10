@@ -291,6 +291,9 @@ async function runPhase2hP1SecuritySuite() {
       path: '/api/contact-messages',
       headers: superAdmin.headers
     });
+    if (res43.status !== 200) {
+      console.log('DEBUG RES43:', res43.status, res43.body);
+    }
     assert.strictEqual(res43.status, 200, 'GET por SuperAdmin debe retornar 200 OK');
     pass('REM-P1-04: GET /api/contact-messages por SuperAdmin es aceptado (200 OK)');
 

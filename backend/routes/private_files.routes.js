@@ -18,7 +18,7 @@ function createPrivateFilesRoutes({ pool, authMiddleware }) {
    * GET /api/tenant/private-files/:fileId
    * Stream decrypted private file for authenticated user.
    */
-  router.get('/tenant/private-files/:fileId', authMiddleware, async (req, res) => {
+  router.get('/private-files/:fileId', authMiddleware, async (req, res) => {
     try {
       const tenantId = req.user.tenant_id;
       const fileId = req.params.fileId;

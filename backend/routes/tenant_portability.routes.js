@@ -17,7 +17,7 @@ function createTenantPortabilityRoutes({ pool, authMiddleware }) {
    * POST /api/tenant/export
    * Initiates encrypted export of tenant data.
    */
-  router.post('/tenant/export', authMiddleware, async (req, res) => {
+  router.post('/export', authMiddleware, async (req, res) => {
     try {
       const tenantId = req.user.tenant_id;
       const userId = req.user.id;
@@ -58,7 +58,7 @@ function createTenantPortabilityRoutes({ pool, authMiddleware }) {
    * GET /api/tenant/export/:exportId/download
    * Downloads decrypted export bundle with token verification.
    */
-  router.get('/tenant/export/:exportId/download', authMiddleware, async (req, res) => {
+  router.get('/export/:exportId/download', authMiddleware, async (req, res) => {
     try {
       const tenantId = req.user.tenant_id;
       const exportId = req.params.exportId;

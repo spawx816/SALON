@@ -591,8 +591,8 @@ function createApp(dependencies = {}) {
   app.use('/api/saas', createSaasRouter(pool, { entitlementsService }));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
   app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
-  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
-  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));
 
   const contactRouter = createContactRouter(pool);
   app.use('/api/contact', contactRouter);

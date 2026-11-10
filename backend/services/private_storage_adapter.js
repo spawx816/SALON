@@ -11,7 +11,17 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { pool: defaultPool } = require('../db');
+let defaultPool = null;
+function getDefaultPool() {
+  if (!defaultPool) {
+    try {
+      defaultPool = require('../db').pool;
+    } catch (_) {
+      defaultPool = null;
+    }
+  }
+  return defaultPool;
+}
 
 // Allowed MIME types and their canonical magic bytes signatures
 const MAGIC_SIGNATURES = [
@@ -39,7 +49,7 @@ function detectDangerousPayload(buf) {
 
 class PrivateStorageAdapter {
   constructor(options = {}) {
-    this.pool = options.pool || defaultPool;
+    this.pool = options.pool || getDefaultPool();
     this.maxSizeBytes = options.maxSizeBytes || 10 * 1024 * 1024; // 10MB
     this.storageRoot = options.storageRoot || process.env.STORAGE_ROOT_DIR || path.join(__dirname, '../data/storage');
     this._initKey(options.encryptionKey);
