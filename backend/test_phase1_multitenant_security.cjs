@@ -77,7 +77,7 @@ async function runCompleteSecuritySuite() {
       console.log(`  ✅ [PASS] ${title}`);
     } else {
       failed++;
-      console.error(`  ❌ [FAIL] ${title} -> ${extra}`);
+      console.error(`  ❌ [FAIL] ${title} -> ${typeof extra === 'object' ? JSON.stringify(extra) : extra}`);
     }
   }
 
@@ -201,10 +201,18 @@ async function runCompleteSecuritySuite() {
     childEnv.PORT = String(testPort);
     childEnv.NODE_ENV = 'test';
     childEnv.ALLOW_INTEGRATION_TESTS = 'true';
+    childEnv.ENABLE_TEST_ENDPOINTS = 'true';
 
     testServerProcess = spawn(process.execPath, [path.join(__dirname, 'server.js')], {
       env: childEnv,
       stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    testServerProcess.stderr.on('data', (d) => {
+      const msg = d.toString();
+      if (!msg.includes('DeprecationWarning')) {
+        console.error('[SERVER STDERR]:', msg.trim());
+      }
     });
 
     testServerProcess.on('error', (procErr) => {
@@ -236,16 +244,21 @@ async function runCompleteSecuritySuite() {
     const hashB = await bcrypt.hash(passB, 10);
     const hashSuper = await bcrypt.hash(superAdminPass, 10);
 
-    // Tenants
+    // Tenants (Plan PRO with full entitlements for testing)
     await pool.query(`
       INSERT INTO tenants (id, business_name, slug, email, status, plan_id, max_users, max_branches)
-      VALUES (?, ?, ?, ?, 'active', 1, 5, 1)
+      VALUES (?, ?, ?, ?, 'active', 2, 5, 1)
     `, [TENANT_A_ID, 'Tenant Test A', `test-a-${Date.now()}`, userAEmail]);
 
     await pool.query(`
       INSERT INTO tenants (id, business_name, slug, email, status, plan_id, max_users, max_branches)
-      VALUES (?, ?, ?, ?, 'active', 1, 5, 1)
+      VALUES (?, ?, ?, ?, 'active', 2, 5, 1)
     `, [TENANT_B_ID, 'Tenant Test B', `test-b-${Date.now()}`, userBEmail]);
+
+    await pool.query(`
+      INSERT INTO tenant_subscriptions (tenant_id, plan_code, status, current_period_start, current_period_end)
+      VALUES (?, 'PRO', 'active', NOW(), NOW() + INTERVAL '30 days'), (?, 'PRO', 'active', NOW(), NOW() + INTERVAL '30 days')
+    `, [TENANT_A_ID, TENANT_B_ID]);
 
     // Branches
     await pool.query(`
@@ -539,21 +552,21 @@ async function runCompleteSecuritySuite() {
       path: `/api/clients/${CLIENT_A_ID}`,
       headers: { Authorization: `Bearer ${tokenB}` }
     });
-    assert('Clientes: Tenant B NO puede leer ficha de cliente de Tenant A (404 Scoped)', cliReadB.status === 404);
+    assert('Clientes: Tenant B NO puede leer ficha de cliente de Tenant A (404 Scoped)', cliReadB.status === 404, cliReadB);
 
     const cliUpdateB = await request({
       path: `/api/clients/${CLIENT_A_ID}`,
       method: 'PUT',
       headers: { Authorization: `Bearer ${tokenB}` }
     }, { nombre: 'HACKED CLIENT' });
-    assert('Clientes: Tenant B NO puede modificar cliente de Tenant A (404 Scoped)', cliUpdateB.status === 404);
+    assert('Clientes: Tenant B NO puede modificar cliente de Tenant A (404 Scoped)', cliUpdateB.status === 404, cliUpdateB);
 
     const cliDelB = await request({
       path: `/api/clients/${CLIENT_A_ID}`,
       method: 'DELETE',
       headers: { Authorization: `Bearer ${tokenB}` }
     });
-    assert('Clientes: Tenant B NO puede eliminar cliente de Tenant A (404 Scoped)', cliDelB.status === 404);
+    assert('Clientes: Tenant B NO puede eliminar cliente de Tenant A (404 Scoped)', cliDelB.status === 404, cliDelB);
 
     const [cliDbA] = await pool.query('SELECT nombre FROM clients WHERE id = ?', [CLIENT_A_ID]);
     assert('Clientes: Registro en BD de Tenant A permanece 100% intacto', cliDbA.length > 0 && cliDbA[0].nombre === 'Cliente Test A');
@@ -586,7 +599,7 @@ async function runCompleteSecuritySuite() {
       path: `/api/payroll/periods/${actualPayrollAId}`,
       headers: { Authorization: `Bearer ${tokenB}` }
     });
-    assert('Nómina: Tenant B NO puede leer período de Tenant A (404 Scoped)', payrollReadB.status === 404);
+    assert('Nómina: Tenant B NO puede leer período de Tenant A (404 Scoped)', payrollReadB.status === 404, payrollReadB);
 
     const payrollDelB = await request({
       path: `/api/payroll/periods/${actualPayrollAId}`,
@@ -766,7 +779,7 @@ async function runCompleteSecuritySuite() {
       owner_email: testOnboardingEmail,
       admin_password: 'TestPassword2026*'
     });
-    assert('Onboarding público asigna status pending (no active directo)', anonOnboarding.status === 201 && anonOnboarding.body?.status === 'pending');
+    assert('Onboarding público asigna status pending (no active directo)', anonOnboarding.status === 201 && anonOnboarding.body?.status === 'pending', anonOnboarding);
     assert('Onboarding público NO devuelve token utilizable mientras esté pending', !anonOnboarding.body?.token);
 
     const createdTenantId = anonOnboarding.body?.tenant_id;

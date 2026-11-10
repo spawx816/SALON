@@ -18,7 +18,7 @@ function createPublicRouter(pool, options = {}) {
 
   const onboardingLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hora
-    max: 10,
+    max: process.env.NODE_ENV === 'test' ? 1000 : 10,
     message: { error: 'Demasiadas solicitudes de registro desde esta dirección IP. Intente más tarde.' },
     standardHeaders: true,
     legacyHeaders: false
@@ -137,8 +137,8 @@ function createPublicRouter(pool, options = {}) {
       // Inserción atómica de Suscripción Inicial (REGLA INNEGOCIABLE: Siempre Plan BASE)
       await conn.query(`
         INSERT INTO tenant_subscriptions (
-          tenant_id, plan_code, status, current_period_start, updated_at
-        ) VALUES (?, 'BASE', 'active', NOW(), NOW())
+          tenant_id, plan_code, status, current_period_start, current_period_end, updated_at
+        ) VALUES (?, 'BASE', 'active', NOW(), NOW() + INTERVAL '30 days', NOW())
         ON CONFLICT (tenant_id) DO UPDATE SET plan_code = 'BASE', status = 'active', updated_at = NOW()
       `, [tenantId]);
 

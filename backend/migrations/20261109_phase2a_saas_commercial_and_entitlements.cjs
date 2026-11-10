@@ -134,6 +134,17 @@ async function up(conn) {
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
       CONSTRAINT uq_tenant_subscription UNIQUE (tenant_id)
     );
+    ALTER TABLE tenant_subscriptions ADD COLUMN IF NOT EXISTS plan_code VARCHAR(50);
+    ALTER TABLE tenant_subscriptions ADD COLUMN IF NOT EXISTS current_period_start TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+    ALTER TABLE tenant_subscriptions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_tenant_subscription'
+      ) THEN
+        ALTER TABLE tenant_subscriptions ADD CONSTRAINT uq_tenant_subscription UNIQUE (tenant_id);
+      END IF;
+    END $$;
   `);
 
   await conn.query(`

@@ -41,6 +41,12 @@ if (process.env.DB_TYPE === 'postgres') {
     // 3. Convert DATE_ADD(expr, INTERVAL n unit) to (expr + INTERVAL 'n unit')
     s = s.replace(/DATE_ADD\s*\(([^,]+),\s*INTERVAL\s+(\d+)\s+([A-Za-z]+)\)/gi, '($1 + INTERVAL \'$2 $3\')');
 
+    // 3b. Convert MySQL DATE_FORMAT to PostgreSQL TO_CHAR
+    s = s.replace(/DATE_FORMAT\s*\(\s*([^,]+?)\s*,\s*'%Y-%m-%d %H:%i:%s'\s*\)/gi, "TO_CHAR($1, 'YYYY-MM-DD HH24:MI:SS')");
+    s = s.replace(/DATE_FORMAT\s*\(\s*([^,]+?)\s*,\s*'%Y-%m-%d'\s*\)/gi, "TO_CHAR($1, 'YYYY-MM-DD')");
+    s = s.replace(/DATE_FORMAT\s*\(\s*([^,]+?)\s*,\s*'%H:%i:%s'\s*\)/gi, "TO_CHAR($1, 'HH24:MI:SS')");
+    s = s.replace(/DATE_FORMAT\s*\(\s*([^,]+?)\s*,\s*'%m-%d'\s*\)/gi, "TO_CHAR($1, 'MM-DD')");
+
     // 4. Convert CAST(expr AS UNSIGNED) to CAST(expr AS BIGINT)
     s = s.replace(/AS\s+UNSIGNED/gi, 'AS BIGINT');
 
