@@ -100,7 +100,7 @@ class DataRetentionService {
         SELECT id, timestamp
         FROM attendance
         WHERE tenant_id = ?
-          AND photo_storage_file_id IS NOT NULL
+          AND photo_file_id IS NOT NULL
       `, [tenantId]);
 
       scannedCount = attRows.length;
@@ -111,8 +111,8 @@ class DataRetentionService {
         const ids = eligible.map(r => r.id);
         const [delRes] = await this.pool.query(`
           UPDATE attendance
-          SET photo_storage_file_id = NULL
-          WHERE tenant_id = ? AND id = ANY(?::uuid[])
+          SET photo_file_id = NULL
+          WHERE tenant_id = ? AND id::text = ANY(?::text[])
         `, [tenantId, ids]);
         purgedCount = delRes.rowCount || ids.length;
       }

@@ -29,6 +29,11 @@ async function runRetentionDryRunTests() {
       ON CONFLICT (id) DO NOTHING;
     `, [tenantId]);
 
+    // Clean previous test data
+    await conn.query('DELETE FROM attendance WHERE tenant_id = $1', [tenantId]);
+    await conn.query('DELETE FROM private_files WHERE tenant_id = $1', [tenantId]);
+    await conn.query('DELETE FROM data_retention_runs WHERE tenant_id = $1', [tenantId]);
+
     // Ensure policies are present
     const policies = await service.listPolicies();
     assert.ok(policies.length >= 3, 'Deben existir al menos 3 políticas configuradas');
@@ -55,14 +60,24 @@ async function runRetentionDryRunTests() {
 
     const att1 = '99999999-0000-0000-0000-000000000001';
     const att2 = '99999999-0000-0000-0000-000000000002';
+    const file1 = '77777777-0000-0000-0000-000000000001';
+    const file2 = '77777777-0000-0000-0000-000000000002';
 
     await conn.query(`
-      INSERT INTO attendance (id, tenant_id, timestamp, photo_storage_file_id)
+      INSERT INTO private_files (id, tenant_id, file_category, storage_path, file_size_bytes, mime_type, sha256_hash, encryption_iv, encryption_auth_tag)
       VALUES
-        ($1, $2, $3, 'file-recent-001'),
-        ($4, $2, $5, 'file-old-002')
+        ($1, $2, 'attendance_photos', '/tmp/p1.enc', 1024, 'image/jpeg', 'h1', 'iv1', 'tag1'),
+        ($3, $2, 'attendance_photos', '/tmp/p2.enc', 1024, 'image/jpeg', 'h2', 'iv2', 'tag2')
       ON CONFLICT (id) DO NOTHING;
-    `, [att1, tenantId, recentDate, att2, tenantId, oldDate]);
+    `, [file1, tenantId, file2]);
+
+    await conn.query(`
+      INSERT INTO attendance (id, tenant_id, employee_id, type, timestamp, photo_file_id)
+      VALUES
+        ($1, $2, 'EMP-01', 'check_in', $3, $4),
+        ($5, $2, 'EMP-01', 'check_in', $6, $7)
+      ON CONFLICT (id) DO NOTHING;
+    `, [att1, tenantId, recentDate, file1, att2, tenantId, oldDate, file2]);
 
     const dryRunRes = await service.runRetention({
       tenantId,
@@ -75,8 +90,8 @@ async function runRetentionDryRunTests() {
     assert.strictEqual(dryRunRes.records_purged, 0);
 
     // Verify record was NOT modified in database
-    const [checkAtt] = await conn.query('SELECT photo_storage_file_id FROM attendance WHERE id = $1', [att2]);
-    assert.strictEqual(checkAtt[0].photo_storage_file_id, 'file-old-002');
+    const [checkAtt] = await conn.query('SELECT photo_file_id FROM attendance WHERE id = $1', [att2]);
+    assert.strictEqual(checkAtt[0].photo_file_id, file2);
     console.log('  ✅ [PASS 2] Dry-run detectó 1 registro elegible sin alterar la base de datos');
 
     // --- TEST 3: Intento de purga física sin Feature Flag bloqueado con 403 ---
@@ -113,10 +128,10 @@ async function runRetentionDryRunTests() {
     assert.strictEqual(execRes.records_purged, 1);
 
     // Verify old record was purged and recent preserved
-    const [verifyRecent] = await conn.query('SELECT photo_storage_file_id FROM attendance WHERE id = $1', [att1]);
-    const [verifyOld] = await conn.query('SELECT photo_storage_file_id FROM attendance WHERE id = $1', [att2]);
-    assert.strictEqual(verifyRecent[0].photo_storage_file_id, 'file-recent-001');
-    assert.strictEqual(verifyOld[0].photo_storage_file_id, null);
+    const [verifyRecent] = await conn.query('SELECT photo_file_id FROM attendance WHERE id = $1', [att1]);
+    const [verifyOld] = await conn.query('SELECT photo_file_id FROM attendance WHERE id = $1', [att2]);
+    assert.strictEqual(verifyRecent[0].photo_file_id, file1);
+    assert.strictEqual(verifyOld[0].photo_file_id, null);
     console.log('  ✅ [PASS 4] Purga física completada: 1 registro purgado, registro reciente intacto');
 
     // Clean up env flag
