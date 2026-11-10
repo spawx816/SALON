@@ -61,13 +61,20 @@ async function runStagingBackupRestore() {
 
     // 2. Extraer datos actuales de Staging
     console.log('\n--- 2. Extracción de Datos de Staging ---');
+    const tableRows = await pool.query(`
+      SELECT table_name FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      ORDER BY table_name;
+    `);
+    const tablesToBackup = tableRows.rows.map(r => r.table_name);
+
     const stagingDataset = {};
-    for (const table of CANONICAL_95_TABLES) {
+    for (const table of tablesToBackup) {
       const res = await pool.query(`SELECT * FROM public."${table}"`);
       stagingDataset[table] = res.rows;
     }
     const totalRecords = Object.values(stagingDataset).reduce((acc, r) => acc + r.length, 0);
-    console.log(`✅ Extraídos registros de ${CANONICAL_95_TABLES.length} tablas (Total registros en staging: ${totalRecords})`);
+    console.log(`✅ Extraídos registros de ${tablesToBackup.length} tablas (Total registros en staging: ${totalRecords})`);
 
     // 3. Cifrado en stream (AES-256-GCM) sin volcado en texto claro a disco
     console.log('\n--- 3. Cifrado Authenticated Stream a Disco ---');
@@ -110,10 +117,10 @@ async function runStagingBackupRestore() {
     console.log(`✅ Esquema sandbox temporal creado: ${sandboxSchema}`);
 
     // Clonar DDL de las tablas en el sandbox
-    for (const table of CANONICAL_95_TABLES) {
+    for (const table of tablesToBackup) {
       await pool.query(`CREATE TABLE "${sandboxSchema}"."${table}" (LIKE public."${table}" INCLUDING ALL)`);
     }
-    console.log(`✅ 95 tablas clonadas en el esquema sandbox`);
+    console.log(`✅ ${tablesToBackup.length} tablas clonadas en el esquema sandbox`);
 
     // 7. Desencriptado Stream e Inserción en Sandbox
     console.log('\n--- 7. Desencriptado y Restauración en Sandbox ---');
@@ -121,9 +128,23 @@ async function runStagingBackupRestore() {
 
     for (const [table, rows] of Object.entries(decryptedDataset)) {
       if (!rows || rows.length === 0) continue;
+
+      const colTypesRes = await pool.query(
+        `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
+        [table]
+      );
+      const colTypeMap = new Map(colTypesRes.rows.map(r => [r.column_name, r.data_type]));
+
       for (const row of rows) {
         const columns = Object.keys(row);
-        const values = Object.values(row);
+        const values = columns.map(col => {
+          const val = row[col];
+          const dt = colTypeMap.get(col);
+          if ((dt === 'json' || dt === 'jsonb') && typeof val === 'object' && val !== null) {
+            return JSON.stringify(val);
+          }
+          return val;
+        });
         const colList = columns.map(c => `"${c}"`).join(', ');
         const valPlaceholders = columns.map((_, idx) => `$${idx + 1}`).join(', ');
         await pool.query(
@@ -136,7 +157,7 @@ async function runStagingBackupRestore() {
 
     // 8. Verificación de Paridad Exacta
     console.log('\n--- 8. Verificación de Paridad Exacta (Staging vs Sandbox) ---');
-    for (const table of CANONICAL_95_TABLES) {
+    for (const table of tablesToBackup) {
       const origRes = await pool.query(`SELECT COUNT(*) FROM public."${table}"`);
       const sandRes = await pool.query(`SELECT COUNT(*) FROM "${sandboxSchema}"."${table}"`);
       assert.strictEqual(

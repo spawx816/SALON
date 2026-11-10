@@ -36,15 +36,15 @@ Este backlog organiza las 41 incidencias y oportunidades de mejora identificadas
 | **REM-P1-07** | Garantizar idempotencia en anulación de facturas (prevenir duplicación de stock) | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-B / test:phase2h:p1-security)** |
 | **REM-P1-08** | Asignar operador de caja (`opened_by`/`closed_by`) exclusivamente desde `req.auth` | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
 | **REM-P1-09** | Disparador de cumpleaños seguro: firma HMAC (`x-job-signature`), timestamp, nonce de un solo uso, protección anti-replay y persistencia fail-closed en `job_request_nonces` | `P1` | **M** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.0.1 / test:jobs:hmac)** |
-| **REM-P1-10** | Migrar almacenamiento de fotos biométricas en `attendance` a URLs o referencias externas | `P1` | **L** | Storage adapter | **NO (Local con Fake)** | Pendiente |
-| **REM-P1-11** | Cifrar o desacoplar almacenamiento de firmas digitales en contratos | `P1` | **M** | Storage adapter | **NO (Local)** | Pendiente |
-| **REM-P1-12** | Optimizar bundle frontend: code-splitting y lazy loading de `xlsx` y módulos pesados | `P1` | **M** | Ninguno | **NO (Local)** | Pendiente |
+| **REM-P1-10** | Migrar almacenamiento de fotos biométricas en `attendance` a URLs o referencias externas (AES-256-GCM Private Storage) | `P1` | **L** | Storage adapter | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
+| **REM-P1-11** | Cifrar o desacoplar almacenamiento de firmas digitales en contratos (AES-256-GCM Private Storage) | `P1` | **M** | Storage adapter | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
+| **REM-P1-12** | Optimizar bundle frontend: code-splitting y eliminación total de `xlsx` vulnerable | `P1` | **M** | Ninguno | **NO (Local)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
 | **REM-P1-13** | Crear middleware global de captura de errores y sanitización de respuestas 500 (sin fuga de stack traces) | `P1` | **S** | Ninguno | **NO (Local)** | **RESUELTO (Fase 2H-C / test:phase2h:p1-security)** |
-| **REM-P1-14** | Actualizar dependencias vulnerables en backend (`proxy-addr`, `axios`, `nodemailer`) | `P1` | **M** | Tests de regresión | **NO (Local)** | Pendiente |
-| **REM-P1-15** | Reemplazar librería vulnerable `xlsx` por alternativa segura (`exceljs` o CSV nativo) | `P1` | **M** | REM-P1-12 | **NO (Local)** | Pendiente |
-| **REM-P1-16** | Optimizar cálculo de comisiones eliminando consultas N+1 con inserts en batch | `P1` | **M** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-17** | Implementar exportación completa de datos de tenant (`tenant data portability`) | `P1` | **L** | Ninguno | **NO (Local)** | Pendiente |
-| **REM-P1-18** | Agregar bloqueo pesimista (`FOR UPDATE`) en descuento de inventario en base relacional | `P1` | **M** | Requiere PostgreSQL | **SÍ (PostgreSQL)** | Pendiente |
+| **REM-P1-14** | Actualizar dependencias vulnerables en backend (`proxy-addr`, `axios`, `nodemailer`, 0 CVEs) | `P1` | **M** | Tests de regresión | **NO (Local)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
+| **REM-P1-15** | Reemplazar librería vulnerable `xlsx` por alternativa segura (CSV RFC 4180 streaming con saneamiento de inyección de fórmulas) | `P1` | **M** | REM-P1-12 | **NO (Local)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
+| **REM-P1-16** | Optimizar cálculo de comisiones eliminando consultas N+1 con inserts en batch y complejidad O(1) | `P1` | **M** | Ninguno | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
+| **REM-P1-17** | Implementar exportación completa de datos de tenant (`tenant data portability` / GDPR con cifrado y re-auth) | `P1` | **L** | Ninguno | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
+| **REM-P1-18** | Agregar bloqueo pesimista (`FOR UPDATE`) en descuento de inventario en base relacional con reversión atómica | `P1` | **M** | Requiere PostgreSQL | **SÍ (PostgreSQL)** | **RESUELTO (Fase 3B.2B / test:phase3b:p1-remaining)** |
 | **REM-P2-01** | Filtrar nombres de salones ajenos en autocompletados globales multi-tenant | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
 | **REM-P2-02** | Incorporar alerta y confirmación doble ante discrepancias de arqueo de caja | `P2` | **S** | Ninguno | **NO (Local)** | Pendiente |
 | **REM-P2-03** | Crear módulo de toma física periódica y ajuste masivo de inventario | `P2` | **M** | Ninguno | **NO (Local)** | Pendiente |

@@ -42,7 +42,7 @@ services:
         max-file: "3"
 
   salonpro_app:
-    image: ${APP_IMAGE:-salonpro-app:8fbe4ae}
+    image: ${APP_IMAGE:-salonpro-app:29a42f6}
     container_name: salonpro_app
     restart: unless-stopped
     read_only: true
@@ -51,6 +51,9 @@ services:
       - /opt/salonpro/secrets/staging.env
     environment:
       - NODE_ENV=staging
+      - STORAGE_ROOT_DIR=/var/lib/salonpro/storage
+    volumes:
+      - salonpro_storage_data:/var/lib/salonpro/storage
     networks:
       - salon_edge_net
       - salon_infra_net
@@ -79,3 +82,5 @@ volumes:
     name: salonpro_caddy_data
   caddy_config:
     name: salonpro_caddy_config
+  salonpro_storage_data:
+    name: salonpro_storage_staging

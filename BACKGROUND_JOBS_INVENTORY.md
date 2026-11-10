@@ -43,14 +43,13 @@ En aplicaciones SaaS con modelos de facturación recurrente (membresías B2C Pla
 ### TAREA 3: Felicitaciones y Descuentos Automáticos de Cumpleaños
 - **Identificador:** `JOB-MARKETING-BIRTHDAYS`
 - **Propósito:** Detectar clientes cuyo cumpleaños sea en la fecha actual (`fecha_nacimiento` coincide con día y mes), enviar correo de felicitación y habilitar el 15% de descuento en el POS para la semana de su cumpleaños.
-- **Frecuencia Actual:** Diariamente (evaluado dentro del `setInterval` de `server.js`).
-- **Ubicación en Código:** `backend/server.js:80-95` y `backend/routes/marketing.routes.js:452-475`
-- **Modelo de Ejecución:** `axios.post` local desde `server.js` hacia su propio puerto HTTP.
-- **Mecanismo de Bloqueo:** Variable en memoria `lastBirthdaySentDate !== todayStr`.
-- **Idempotencia:** **Nula si se reinicia el servidor.** Si PM2 reinicia el proceso al mediodía, `lastBirthdaySentDate` vuelve a ser `null` y el lote de felicitaciones se reenvía a las mismas clientas.
-- **Manejo de Fallos:** Silencia errores con `.catch(() => null)`.
-- **Riesgo Identificado (P1):** La llamada interna en `server.js:86` no envía la cabecera `x-cron-secret` exigida por `marketing.routes.js:454`, provocando que en producción **siempre falle con 403 Forbidden** y ninguna clienta reciba felicitaciones.
-- **Recomendación:** Reemplazar el `axios.post` por una llamada interna a la función de negocio y persistir la fecha de último procesamiento en una tabla de control en base de datos (`system_job_executions`).
+- **Frecuencia Actual:** Diariamente vía worker o endpoint protegido contra replays.
+- **Ubicación en Código:** `backend/routes/marketing.routes.js` y `backend/middleware/job_auth.middleware.cjs`
+- **Modelo de Ejecución:** Invocación interna o endpoint seguro con autenticación criptográfica HMAC.
+- **Mecanismo de Bloqueo:** Tabla relacional `job_request_nonces` con constraint UNIQUE de nonce, hash de payload, validación de ventana temporal (5 minutos) y clave HMAC (`JOB_HMAC_SECRET`).
+- **Idempotencia:** **Alta (Certificada en Fase 3B.0.2 y 3B.2B).** Idempotencia por tenant, fecha de cumpleaños y tipo de job. Nonce de un solo uso con purga de expirados.
+- **Manejo de Fallos:** Fail-closed estricto: 401 si falta firma, expirado, nonce reutilizado o payload alterado.
+- **Estado de Remediación:** `RESUELTO (Fases 3B.0.1, 3B.0.2, 3B.2B)`. Probado en `backend/tests/test_job_hmac_security.cjs` y en suite de regresión completa.
 
 ---
 
