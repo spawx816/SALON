@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import * as XLSX from 'xlsx';
+import { formatCsvRow, downloadCsvFile } from '../../utils/secureCsvExport';
 import { 
   FileSpreadsheet, Download, Printer, Search, RefreshCw, 
   Calendar, Landmark, Filter, CheckCircle2, AlertCircle, FileText, ChevronDown
@@ -97,10 +97,9 @@ export default function Reporte607Module() {
     );
   }, [reportData.records, searchTerm]);
 
-  // Export to Excel (.xlsx) matching Official DGII 607 Specification
+  // Export matching Official DGII 607 Specification (.csv / Excel)
   const handleExportExcel = () => {
     try {
-      const wb = XLSX.utils.book_new();
 
       // =========================================================================
       // HOJA 1: FORMATO OFICIAL DGII 607 (Plantilla Oficial Herramienta de Envío)
@@ -192,205 +191,14 @@ export default function Reporte607Module() {
         ]);
       });
 
-      const wsDgii = XLSX.utils.aoa_to_sheet(dgiiRows);
-      
-      // Formatear celdas numéricas de datos a 2 decimales (0.00) a partir de la fila 6 (índice R = 5)
-      if (wsDgii['!ref']) {
-        const range = XLSX.utils.decode_range(wsDgii['!ref']);
-        for (let R = 5; R <= range.e.r; ++R) {
-          for (let C = 7; C <= 22; ++C) {
-            const cellAddr = XLSX.utils.encode_cell({ r: R, c: C });
-            const cell = wsDgii[cellAddr];
-            if (cell && typeof cell.v === 'number') {
-              cell.z = '0.00';
-            }
-          }
-        }
-      }
+      const csvLines = dgiiRows.map(row => formatCsvRow(row));
+      const fileName = `Formato_607_DGII_${rncEmpresa}_${periodoFiscal}.csv`;
+      downloadCsvFile(fileName, csvLines.join('\r\n'));
 
-      // Auto-anchos para Hoja Oficial DGII 607
-      wsDgii['!cols'] = [
-        { wch: 22 }, // RNC o Cédula
-        { wch: 20 }, // Tipo Identificación
-        { wch: 26 }, // NCF
-        { wch: 26 }, // NCF Modificado
-        { wch: 15 }, // Tipo Ingreso
-        { wch: 20 }, // Fecha Comprobante (AAAAMMDD)
-        { wch: 18 }, // Fecha Retención
-        { wch: 16 }, // Monto Facturado
-        { wch: 15 }, // ITBIS Facturado
-        { wch: 25 }, // ITBIS Retenido
-        { wch: 15 }, // ITBIS Percibido
-        { wch: 26 }, // Retención Renta
-        { wch: 15 }, // ISR Percibido
-        { wch: 26 }, // Impuesto Selectivo
-        { wch: 20 }, // Otros Impuestos
-        { wch: 18 }, // Propina Legal
-        { wch: 15 }, // Efectivo
-        { wch: 28 }, // Cheque/Transf
-        { wch: 22 }, // Tarjeta
-        { wch: 16 }, // Venta a Crédito
-        { wch: 26 }, // Bonos
-        { wch: 14 }, // Permuta
-        { wch: 22 }  // Otras Formas
-      ];
-
-      XLSX.utils.book_append_sheet(wb, wsDgii, '607');
-
-      // =========================================================================
-      // HOJA 2: REPORTE DETALLADO (Formato Visual con Membrete Corporativo y Clientes)
-      // =========================================================================
-      const detailedRows = [
-        [`${reportData?.header?.razon_social || reportData?.header?.nombre_comercial || 'SALONPRO'} - REPORTE DE VENTAS`],
-        ['AVENIDA LOS PALMEROS 96, PISO 1, LOCAL 3, EDIFICIO SUPERMERCADO BRAVO, LOS FRAILES, NUEVO, SANTO DOMINGO ESTE'],
-        ['REPORTE 607 - DECLARACIÓN JURADA DE VENTAS DE BIENES Y SERVICIOS (DGII)'],
-        [
-          `RNC: ${rncEmpresa}`, 
-          '', 
-          `Período: ${periodoFiscal}`, 
-          '', 
-          `Cantidad de Registros: ${totalRegistros}`, 
-          '', 
-          `Fecha de Impresión: ${reportData?.header?.fecha_impresion || new Date().toLocaleDateString('es-DO')}`
-        ],
-        [],
-        [
-          'Id',
-          'Cliente',
-          'RNC o Cédula',
-          'Tipo Identificación',
-          'Número Comprobante Fiscal',
-          'NCF Modificado',
-          'Tipo Ingreso',
-          'Fecha Comprobante',
-          'Fecha Retención',
-          'Monto Facturado',
-          'ITBIS Facturado',
-          'Retención Renta por Terceros',
-          'ITBIS Retenido por Terceros',
-          'ISR Percibido',
-          'Impuesto Selectivo al Consumo',
-          'Otros Impuestos',
-          'Monto Propina Legal',
-          'Efectivo',
-          'Cheque/Transf. o Depósito',
-          'Tarjeta Débito o Crédito',
-          'Venta a Crédito',
-          'Bonos o Certificado de Regalo',
-          'Permuta',
-          'Otras formas de Venta'
-        ]
-      ];
-
-      filteredRecords.forEach((r, idx) => {
-        detailedRows.push([
-          idx + 1,
-          r.cliente || 'CONSUMIDOR FINAL',
-          r.rnc_cedula || '',
-          r.tipo_identificacion || '3',
-          r.numero_comprobante || '',
-          r.ncf_modificado || '',
-          r.tipo_ingreso || '01 - Ingresos por Operaciones (No Financieros)',
-          r.fecha_comprobante || '',
-          r.fecha_retencion || '',
-          Number(r.monto_facturado || 0),
-          Number(r.itbis_facturado || 0),
-          Number(r.retencion_renta || 0),
-          Number(r.itbis_retenido || 0),
-          Number(r.isr_percibido || 0),
-          Number(r.impuesto_selectivo || 0),
-          Number(r.otros_impuestos || 0),
-          Number(r.propina_legal || 0),
-          Number(r.efectivo || 0),
-          Number(r.cheque_transferencia || 0),
-          Number(r.tarjeta || 0),
-          Number(r.venta_credito || 0),
-          Number(r.bonos_certificados || 0),
-          Number(r.permuta || 0),
-          Number(r.otras_formas || 0)
-        ]);
-      });
-
-      const t = reportData.totals || {};
-      detailedRows.push([
-        'TOTALES',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        Number(t.montoFacturado || 0),
-        Number(t.itbisFacturado || 0),
-        Number(t.retencionRenta || 0),
-        Number(t.itbisRetenido || 0),
-        Number(t.isrPercibido || 0),
-        Number(t.impuestoSelectivo || 0),
-        Number(t.otrosImpuestos || 0),
-        Number(t.propinaLegal || 0),
-        Number(t.efectivo || 0),
-        Number(t.chequeTransferencia || 0),
-        Number(t.tarjeta || 0),
-        Number(t.ventaCredito || 0),
-        Number(t.bonosCertificados || 0),
-        Number(t.permuta || 0),
-        Number(t.otrasFormas || 0)
-      ]);
-
-      const wsDetail = XLSX.utils.aoa_to_sheet(detailedRows);
-
-      // Formatear celdas numéricas con separadores de miles y 2 decimales a partir de la fila 7 (R = 6)
-      if (wsDetail['!ref']) {
-        const rangeDetail = XLSX.utils.decode_range(wsDetail['!ref']);
-        for (let R = 6; R <= rangeDetail.e.r; ++R) {
-          for (let C = 9; C <= 23; ++C) {
-            const cellAddr = XLSX.utils.encode_cell({ r: R, c: C });
-            const cell = wsDetail[cellAddr];
-            if (cell && typeof cell.v === 'number') {
-              cell.z = '#,##0.00';
-            }
-          }
-        }
-      }
-
-      wsDetail['!cols'] = [
-        { wch: 8 },  // Id
-        { wch: 28 }, // Cliente
-        { wch: 18 }, // RNC
-        { wch: 18 }, // Tipo ID
-        { wch: 25 }, // NCF
-        { wch: 20 }, // NCF Modificado
-        { wch: 32 }, // Tipo Ingreso
-        { wch: 18 }, // Fecha Comprobante
-        { wch: 16 }, // Fecha Retención
-        { wch: 16 }, // Monto Facturado
-        { wch: 15 }, // ITBIS Facturado
-        { wch: 25 }, // Retención Renta
-        { wch: 24 }, // ITBIS Retenido
-        { wch: 15 }, // ISR Percibido
-        { wch: 26 }, // ISC
-        { wch: 18 }, // Otros Impuestos
-        { wch: 18 }, // Propina Legal
-        { wch: 15 }, // Efectivo
-        { wch: 24 }, // Cheque/Transf
-        { wch: 22 }, // Tarjeta
-        { wch: 16 }, // Venta Crédito
-        { wch: 26 }, // Bonos
-        { wch: 14 }, // Permuta
-        { wch: 20 }  // Otras Formas
-      ];
-
-      XLSX.utils.book_append_sheet(wb, wsDetail, 'Reporte_Detallado_Visual');
-
-      const fileName = `Formato_607_DGII_${rncEmpresa}_${periodoFiscal}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-
-      showNotification('✅ Archivo Excel Formato 607 generado correctamente con la plantilla oficial DGII y detalle visual.', 'success');
+      showNotification('✅ Archivo Formato 607 generado correctamente (.csv / Excel).', 'success');
     } catch (err) {
-      console.error('Error exportando a Excel:', err);
-      showNotification('Error al exportar a Excel', 'error');
+      console.error('Error exportando a CSV:', err);
+      showNotification('Error al exportar reporte', 'error');
     }
   };
 

@@ -168,53 +168,16 @@ class InventoryService {
       locId = defLoc.id;
     }
 
-    const idempotencyKey = `sale:${visitId}:${productId}${lineId ? `:${lineId}` : ''}`;
-    const existingMovement = await this.repo.getMovementByIdempotencyKey(tenantId, idempotencyKey);
-    if (existingMovement) {
-      return {
-        idempotent: true,
-        movement: existingMovement,
-        message: 'Descuento de inventario previamente procesado'
-      };
-    }
-
-    const currentStock = await this.repo.getStock(tenantId, productId, locId);
-    if (currentStock.quantity < qty) {
-      const err = new Error(`Stock insuficiente para el producto "${product.name}". Disponible: ${currentStock.quantity}, Requerido: ${qty}`);
-      err.code = 'INSUFFICIENT_STOCK';
-      err.available = currentStock.quantity;
-      err.required = qty;
-      throw err;
-    }
-
-    const newQty = currentStock.quantity - qty;
-    // Las salidas no modifican el costo promedio
-    const avgCost = currentStock.average_cost;
-
-    const movement = await this.repo.recordMovement(tenantId, {
-      product_id: productId,
-      location_id: locId,
-      movement_type: 'SALE',
-      quantity: -qty,
-      unit_cost: avgCost,
-      total_cost: qty * avgCost,
-      balance_after: newQty,
-      reference_type: 'VISIT_SALE',
-      reference_id: String(visitId),
-      idempotency_key: idempotencyKey,
-      reason: `Venta POS Ticket/Visita #${visitId}`,
-      user_id: userId,
-      user_name: userName
+    // Atomic deduction with row-level locking (SELECT ... FOR UPDATE) and auto-retry
+    return this.repo.executeAtomicSaleDeduction(tenantId, {
+      productId,
+      locationId: locId,
+      quantity: qty,
+      visitId,
+      lineId,
+      userId,
+      userName
     });
-
-    await this.repo.updateStockBalance(tenantId, productId, locId, newQty, avgCost);
-
-    return {
-      success: true,
-      movement,
-      previous_stock: currentStock.quantity,
-      new_stock: newQty
-    };
   }
 
   // === REVERSIÓN POR ANULACIÓN DE VENTA (POS VOID) ===
@@ -234,44 +197,17 @@ class InventoryService {
       locId = defLoc.id;
     }
 
-    const idempotencyKey = `void:${visitId}:${productId}${lineId ? `:${lineId}` : ''}`;
-    const existingVoid = await this.repo.getMovementByIdempotencyKey(tenantId, idempotencyKey);
-    if (existingVoid) {
-      return {
-        idempotent: true,
-        movement: existingVoid,
-        message: 'Reversión de inventario previamente procesada'
-      };
-    }
-
-    const currentStock = await this.repo.getStock(tenantId, productId, locId);
-    const newQty = currentStock.quantity + qty;
-    const avgCost = currentStock.average_cost;
-
-    const movement = await this.repo.recordMovement(tenantId, {
-      product_id: productId,
-      location_id: locId,
-      movement_type: 'SALE_VOID',
+    // Atomic reversal with row-level locking and idempotency protection
+    return this.repo.executeAtomicSaleVoid(tenantId, {
+      productId,
+      locationId: locId,
       quantity: qty,
-      unit_cost: avgCost,
-      total_cost: qty * avgCost,
-      balance_after: newQty,
-      reference_type: 'VISIT_VOID',
-      reference_id: String(visitId),
-      idempotency_key: idempotencyKey,
-      reason,
-      user_id: userId,
-      user_name: userName
+      visitId,
+      lineId,
+      userId,
+      userName,
+      reason
     });
-
-    await this.repo.updateStockBalance(tenantId, productId, locId, newQty, avgCost);
-
-    return {
-      success: true,
-      movement,
-      previous_stock: currentStock.quantity,
-      new_stock: newQty
-    };
   }
 
   // === AJUSTES DE STOCK (IN/OUT) CON AUTORIZACIÓN ===

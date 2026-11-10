@@ -45,96 +45,200 @@ function createVisitsRouter(pool, helpers = {}) {
     }
   };
 
-  // Helper: Calculate and persist employee commissions for a completed visit (scoped strictly by tenant)
-  const processVisitCommissions = async (visitId, itemsDetailRaw, ticketNumber, visitedAt, tenantId) => {
+  // Helper: Batch calculate and persist employee commissions for visits (O(1) database queries, no N+1)
+  const processBatchVisitCommissions = async (visits, tenantId) => {
     try {
-      if (!visitId || !itemsDetailRaw || !tenantId) return;
+      if (!Array.isArray(visits) || visits.length === 0 || !tenantId) return { processed: 0, items: 0 };
       const resolvedTenantId = tenantId;
 
-      let items = [];
-      try {
-        items = typeof itemsDetailRaw === 'string' ? JSON.parse(itemsDetailRaw) : itemsDetailRaw;
-      } catch (e) {
-        return;
-      }
-      if (!Array.isArray(items) || items.length === 0) return;
+      const preparedItems = [];
+      const visitIds = [];
+      const distinctEmpIds = new Set();
+      const distinctEmpNames = new Set();
+      const distinctServiceNames = new Set();
 
+      for (const v of visits) {
+        if (!v || !v.id) continue;
+        visitIds.push(String(v.id));
+
+        let items = [];
+        try {
+          items = typeof v.items_detail === 'string' ? JSON.parse(v.items_detail) : (v.items_detail || []);
+        } catch (_) {
+          continue;
+        }
+        if (!Array.isArray(items) || items.length === 0) continue;
+
+        for (const item of items) {
+          const empIdRaw = item.colaboradorId || item.employee_id || item.stylist_id;
+          const empNameRaw = item.colaboradorNombre || item.colaborador || item.employee_name;
+          if (!empIdRaw && !empNameRaw) continue;
+          if (empNameRaw === 'No asignada' || empNameRaw === 'Sin asignar') continue;
+
+          if (empIdRaw) {
+            distinctEmpIds.add(String(empIdRaw).replace('EMP-', '').trim());
+          }
+          if (empNameRaw) {
+            distinctEmpNames.add(String(empNameRaw).trim().toLowerCase());
+          }
+
+          const serviceName = item.nombre || item.service_name || 'Servicio';
+          distinctServiceNames.add(serviceName.trim().toLowerCase());
+
+          preparedItems.push({
+            visitId: String(v.id),
+            ticketNumber: v.ticket_number || String(v.id),
+            visitedAt: v.visited_at || new Date(),
+            empIdRaw: empIdRaw ? String(empIdRaw).replace('EMP-', '').trim() : null,
+            empNameRaw: empNameRaw ? String(empNameRaw).trim() : null,
+            serviceName,
+            precioBase: Number(item.precioAplicado ?? item.precio ?? 0) * (Number(item.cantidad) || 1),
+            cantidad: Number(item.cantidad) || 1
+          });
+        }
+      }
+
+      if (visitIds.length === 0 || preparedItems.length === 0) {
+        return { processed: visits.length, items: 0 };
+      }
+
+      // Query 1: Batch delete pending commissions for these visits in one query
+      const placeholders = visitIds.map(() => '?').join(', ');
       await pool.query(
-        "DELETE FROM employee_commissions_log WHERE visit_id = ? AND status = 'Pendiente' AND (tenant_id = ? OR ? IS NULL)",
-        [visitId, resolvedTenantId, resolvedTenantId]
+        `DELETE FROM employee_commissions_log WHERE tenant_id = ? AND status = 'Pendiente' AND visit_id IN (${placeholders})`,
+        [resolvedTenantId, ...visitIds]
       );
 
-      for (const item of items) {
-        const empIdRaw = item.colaboradorId || item.employee_id || item.stylist_id;
-        const empNameRaw = item.colaboradorNombre || item.colaborador || item.employee_name;
-        if (!empIdRaw && !empNameRaw) continue;
-        if (empNameRaw === 'No asignada' || empNameRaw === 'Sin asignar') continue;
+      // Query 2: Preload all matching staff records in ONE query
+      const staffMapById = new Map();
+      const staffMapByName = new Map();
 
-        let empRecord = null;
-        if (empIdRaw) {
-          const cleanId = String(empIdRaw).replace('EMP-', '').trim();
-          const [eRows] = await pool.query(
-            'SELECT * FROM staff_records WHERE id::text = ? AND (tenant_id = ? OR ? IS NULL) LIMIT 1',
-            [cleanId, resolvedTenantId, resolvedTenantId]
-          );
-          if (eRows.length > 0) empRecord = eRows[0];
+      const empIdArr = Array.from(distinctEmpIds);
+      const empNameArr = Array.from(distinctEmpNames);
+      if (empIdArr.length > 0 || empNameArr.length > 0) {
+        const conds = [];
+        const params = [resolvedTenantId];
+        if (empIdArr.length > 0) {
+          const ph = empIdArr.map(() => '?').join(', ');
+          conds.push(`id::text IN (${ph})`);
+          params.push(...empIdArr);
         }
-        if (!empRecord && empNameRaw) {
-          const [eRows] = await pool.query(
-            'SELECT * FROM staff_records WHERE LOWER(nombre) = LOWER(?) AND (tenant_id = ? OR ? IS NULL) LIMIT 1',
-            [String(empNameRaw).trim(), resolvedTenantId, resolvedTenantId]
-          );
-          if (eRows.length > 0) empRecord = eRows[0];
+        if (empNameArr.length > 0) {
+          const ph = empNameArr.map(() => '?').join(', ');
+          conds.push(`LOWER(nombre) IN (${ph})`);
+          params.push(...empNameArr);
         }
 
-        if (!empRecord) continue;
+        const [staffRows] = await pool.query(
+          `SELECT id, nombre, localidad, tenant_id FROM staff_records WHERE tenant_id = ? AND (${conds.join(' OR ')})`,
+          params
+        );
 
-        const serviceName = item.nombre || item.service_name || 'Servicio';
-        const precioBase = Number(item.precioAplicado ?? item.precio ?? 0) * (Number(item.cantidad) || 1);
-        if (precioBase <= 0) continue;
+        for (const s of (staffRows || [])) {
+          staffMapById.set(String(s.id), s);
+          if (s.nombre) {
+            staffMapByName.set(s.nombre.trim().toLowerCase(), s);
+          }
+        }
+      }
+
+      // Query 3: Preload all matching services rules in ONE query
+      const serviceMap = new Map();
+      const srvNameArr = Array.from(distinctServiceNames);
+      if (srvNameArr.length > 0) {
+        const ph = srvNameArr.map(() => '?').join(', ');
+        const [serviceRows] = await pool.query(
+          `SELECT id, COALESCE(nombre, name) as service_name, comision_valor, tipo_comision, tenant_id 
+           FROM services 
+           WHERE tenant_id = ? AND LOWER(COALESCE(nombre, name)) IN (${ph})`,
+          [resolvedTenantId, ...srvNameArr]
+        );
+
+        for (const srv of (serviceRows || [])) {
+          if (srv.service_name) {
+            serviceMap.set(srv.service_name.trim().toLowerCase(), srv);
+          }
+        }
+      }
+
+      // In-memory calculation with zero SQL queries per item
+      const insertRows = [];
+      for (const item of preparedItems) {
+        if (item.precioBase <= 0) continue;
+
+        let emp = null;
+        if (item.empIdRaw && staffMapById.has(item.empIdRaw)) {
+          emp = staffMapById.get(item.empIdRaw);
+        } else if (item.empNameRaw && staffMapByName.has(item.empNameRaw.toLowerCase())) {
+          emp = staffMapByName.get(item.empNameRaw.toLowerCase());
+        }
+
+        if (!emp) continue;
 
         let pct = 15;
-        let montoComision = Number((precioBase * (pct / 100)).toFixed(2));
+        let montoComision = Math.round(item.precioBase * (pct / 100) * 100) / 100;
 
-        try {
-          const [srvRows] = await pool.query(
-            'SELECT * FROM services WHERE LOWER(COALESCE(nombre, name)) = LOWER(?) AND (tenant_id = ? OR ? IS NULL) LIMIT 1',
-            [serviceName, resolvedTenantId, resolvedTenantId]
-          );
-          if (srvRows.length > 0 && srvRows[0].comision_valor && Number(srvRows[0].comision_valor) > 0) {
-            if (srvRows[0].tipo_comision === 'Monto Fijo') {
-              montoComision = Number(srvRows[0].comision_valor) * (Number(item.cantidad) || 1);
+        const srvKey = item.serviceName.trim().toLowerCase();
+        if (serviceMap.has(srvKey)) {
+          const srv = serviceMap.get(srvKey);
+          if (srv.comision_valor && Number(srv.comision_valor) > 0) {
+            if (srv.tipo_comision === 'Monto Fijo') {
+              montoComision = Math.round(Number(srv.comision_valor) * item.cantidad * 100) / 100;
               pct = 0;
             } else {
-              pct = Number(srvRows[0].comision_valor);
-              montoComision = Number((precioBase * (pct / 100)).toFixed(2));
+              pct = Number(srv.comision_valor);
+              montoComision = Math.round(item.precioBase * (pct / 100) * 100) / 100;
             }
           }
-        } catch (sErr) {}
+        }
+
+        insertRows.push([
+          resolvedTenantId,
+          item.visitId,
+          item.ticketNumber,
+          String(emp.id),
+          emp.nombre,
+          item.serviceName,
+          item.precioBase,
+          pct,
+          montoComision,
+          'Pendiente',
+          emp.localidad || 'Principal',
+          item.visitedAt
+        ]);
+      }
+
+      // Query 4: Multi-row chunked INSERT (up to 250 rows per statement)
+      const chunkSize = 250;
+      for (let i = 0; i < insertRows.length; i += chunkSize) {
+        const chunk = insertRows.slice(i, i + chunkSize);
+        const rowPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const flatParams = chunk.flat();
 
         await pool.query(
           `INSERT INTO employee_commissions_log (
              tenant_id, visit_id, ticket_number, employee_id, employee_name, service_name,
              precio_servicio, porcentaje_aplicado, monto_comision, status, localidad, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?)`,
-          [
-            resolvedTenantId,
-            visitId,
-            ticketNumber || String(visitId),
-            String(empRecord.id),
-            empRecord.nombre,
-            serviceName,
-            precioBase,
-            pct,
-            montoComision,
-            empRecord.localidad || 'Principal',
-            visitedAt || new Date()
-          ]
+           ) VALUES ${rowPlaceholders}`,
+          flatParams
         );
       }
+
+      return { processed: visits.length, items: insertRows.length };
     } catch (err) {
-      console.warn('[PROCESS VISIT COMMISSIONS WARN]:', err.message);
+      console.warn('[PROCESS BATCH COMMISSIONS WARN]:', err.message);
+      return { error: err.message };
     }
+  };
+
+  // Single-visit helper delegates to the batch processor
+  const processVisitCommissions = async (visitId, itemsDetailRaw, ticketNumber, visitedAt, tenantId) => {
+    return processBatchVisitCommissions([{
+      id: visitId,
+      items_detail: itemsDetailRaw,
+      ticket_number: ticketNumber,
+      visited_at: visitedAt
+    }], tenantId);
   };
 
   // 1. GET /api/visits - List all visits for the authenticated tenant
@@ -974,7 +1078,7 @@ function createVisitsRouter(pool, helpers = {}) {
   router.delete('/pending/all', handleClearPending);
   router.post('/pending/clear-all', handleClearPending);
 
-  return { router, processVisitCommissions };
+  return { router, processVisitCommissions, processBatchVisitCommissions };
 }
 
 module.exports = { createVisitsRouter };

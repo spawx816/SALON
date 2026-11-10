@@ -26,6 +26,7 @@ const { up: upCurrencyUnits } = require('./20261109_financial_minor_currency_uni
 const { up: upSecurePin } = require('./20261109_secure_admin_pin_hash.cjs');
 const { up: upUserTokenVersion } = require('./20261110_phase2h_user_token_version.cjs');
 const { up: upJobNoncesAndStrictIdempotency } = require('./20261110_job_nonces_and_strict_idempotency.cjs');
+const { up: upStorageAndPortability } = require('./20261110_phase3b_storage_and_portability.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -181,6 +182,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Tabla global job_request_nonces y conversión estricta de idempotency_keys a tenant_id UUID con FK hacia tenants(id)',
     execute: async (targetPool, targetSchema) => {
       return upJobNoncesAndStrictIdempotency(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261110_phase3b_storage_and_portability',
+    description: 'Tablas private_files y tenant_exports, referencias cifradas para asistencia y contratos (REM-P1-10, P1-11, P1-17)',
+    execute: async (targetPool, targetSchema) => {
+      return upStorageAndPortability(targetPool, targetSchema);
     }
   }
 ];

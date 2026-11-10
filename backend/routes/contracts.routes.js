@@ -1,4 +1,5 @@
 const express = require('express');
+const { getPrivateStorageAdapter } = require('../services/private_storage_adapter');
 
 function createContractsRouter(pool) {
   const router = express.Router();
@@ -114,6 +115,8 @@ function createContractsRouter(pool) {
         washes_used = 0,
         precio_mensual,
         signature_data,
+        document_photo,
+        selfie_photo,
         card_token,
         payment_profile_id,
         auto_billing_enabled = 1,
@@ -156,14 +159,53 @@ function createContractsRouter(pool) {
       const resolvedName = plan_name || planRows[0]?.name || 'Plan Beauty';
       const resolvedPrice = precio_mensual !== undefined ? precio_mensual : (planRows[0]?.price || 1950);
 
+      // Save sensitive signature & identity documents in private encrypted storage
+      let signatureFileId = null;
+      let docPhotoFileId = null;
+      let selfiePhotoFileId = null;
+
+      try {
+        const storage = getPrivateStorageAdapter({ pool });
+        if (signature_data && typeof signature_data === 'string' && signature_data.length > 20) {
+          const savedSig = await storage.saveBase64({
+            tenantId,
+            category: 'contract_signature',
+            base64Data: signature_data
+          });
+          signatureFileId = savedSig.id;
+        }
+
+        if (document_photo && typeof document_photo === 'string' && document_photo.length > 20) {
+          const savedDoc = await storage.saveBase64({
+            tenantId,
+            category: 'contract_document',
+            base64Data: document_photo
+          });
+          docPhotoFileId = savedDoc.id;
+        }
+
+        if (selfie_photo && typeof selfie_photo === 'string' && selfie_photo.length > 20) {
+          const savedSelfie = await storage.saveBase64({
+            tenantId,
+            category: 'contract_selfie',
+            base64Data: selfie_photo
+          });
+          selfiePhotoFileId = savedSelfie.id;
+        }
+      } catch (storageErr) {
+        console.warn('[CONTRACT_STORAGE_WARN] Could not encrypt contract artifacts:', storageErr.message);
+      }
+
       await pool.query(
         `INSERT INTO contracts (
            id, tenant_id, client_id, plan_id, plan_name, status, wash_Quota, washes_used,
-           precio_mensual, signature_data, card_token, payment_profile_id, auto_billing_enabled,
+           precio_mensual, signature_data, signature_file_id, document_photo, document_photo_file_id,
+           selfie_photo, selfie_photo_file_id, card_token, payment_profile_id, auto_billing_enabled,
            current_period_start, current_period_end, next_billing_date, signed_at
          ) VALUES (
            ?, ?, ?, ?, ?, ?, ?, ?,
-           ?, ?, ?, ?, ?,
+           ?, NULL, ?, NULL, ?,
+           NULL, ?, ?, ?, ?,
            NOW(), DATE_ADD(NOW(), INTERVAL 30 DAY), DATE_ADD(NOW(), INTERVAL 30 DAY), NOW()
          )`,
         [
@@ -176,7 +218,9 @@ function createContractsRouter(pool) {
           wash_Quota,
           washes_used,
           resolvedPrice,
-          signature_data || null,
+          signatureFileId,
+          docPhotoFileId,
+          selfiePhotoFileId,
           card_token || null,
           payment_profile_id || null,
           auto_billing_enabled ? 1 : 0

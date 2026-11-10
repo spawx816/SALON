@@ -23,7 +23,8 @@ const CANONICAL_MIGRATIONS = [
   '20261109_secure_admin_pin_hash',
   '20261110_create_tenant_branding',
   '20261110_phase2h_user_token_version',
-  '20261110_job_nonces_and_strict_idempotency'
+  '20261110_job_nonces_and_strict_idempotency',
+  '20261110_phase3b_storage_and_portability'
 ];
 
 // 12 Global / Control Plane / System Tables
@@ -107,6 +108,7 @@ const TENANT_OWNED_TABLES = [
   'payroll_records',
   'pending_surveys',
   'plans',
+  'private_files',
   'roles',
   'saas_billing_events',
   'saas_billing_jobs',
@@ -128,6 +130,7 @@ const TENANT_OWNED_TABLES = [
   'staff_records',
   'surveys',
   'tenant_branding',
+  'tenant_exports',
   'tenant_feature_overrides',
   'tenant_settings',
   'tenant_subscription_events',
@@ -139,12 +142,13 @@ const TENANT_OWNED_TABLES = [
   'visits'
 ];
 
-const CANONICAL_95_TABLES = [
+const CANONICAL_97_TABLES = [
   ...GLOBAL_SYSTEM_TABLES,
   ...TENANT_OWNED_TABLES
 ].sort();
 
-const CANONICAL_94_TABLES = CANONICAL_95_TABLES; // Compatibility alias
+const CANONICAL_95_TABLES = CANONICAL_97_TABLES; // Compatibility alias
+const CANONICAL_94_TABLES = CANONICAL_97_TABLES; // Compatibility alias
 
 const CANONICAL_QUARANTINE_TRIGGERS = [
   { triggerName: 'trg_quarantine_salons', tableName: 'salons', functionName: 'fn_enforce_quarantine_block' },
@@ -207,6 +211,7 @@ module.exports = {
   GLOBAL_SYSTEM_TABLES,
   TENANT_OWNED_TABLES,
   APPROVED_NULLABLE_EXEMPTIONS,
+  CANONICAL_97_TABLES,
   CANONICAL_95_TABLES,
   CANONICAL_94_TABLES,
   CANONICAL_QUARANTINE_TRIGGERS,

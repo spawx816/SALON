@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import * as XLSX from 'xlsx';
+import { formatCsvRow, downloadCsvFile } from '../../utils/secureCsvExport';
 import { 
   Receipt, Search, Calendar, Filter, Download, Printer, XCircle, 
   CheckCircle, AlertTriangle, ChevronDown, ChevronUp, User, DollarSign, 
@@ -845,35 +845,9 @@ export default function InvoiceHistory() {
       ''
     ]);
 
-    // Create Worksheet
-    const ws = XLSX.utils.aoa_to_sheet(excelRows);
-
-    // Set Column Widths in Excel
-    ws['!cols'] = [
-      { wch: 13 }, // Ticket #
-      { wch: 13 }, // Fecha
-      { wch: 15 }, // Hora Entrada
-      { wch: 17 }, // Hora Facturación
-      { wch: 16 }, // Duración
-      { wch: 26 }, // Cliente
-      { wch: 16 }, // ID
-      { wch: 34 }, // Servicios
-      { wch: 28 }, // Personal
-      { wch: 16 }, // Método
-      { wch: 16 }, // Efectivo
-      { wch: 16 }, // Tarjeta
-      { wch: 19 }, // Transferencia
-      { wch: 22 }, // Total Facturado
-      { wch: 14 }, // Estado
-      { wch: 38 }  // Auditoría
-    ];
-
-    // Create Workbook
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Facturación y Ventas');
-
-    // Download native .xlsx file
-    XLSX.writeFile(wb, `PlanBeauty_Reporte_Facturacion_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    // Format rows into secure CSV with Formula Injection protection
+    const csvContent = excelRows.map(row => formatCsvRow(row)).join('\r\n');
+    downloadCsvFile(`PlanBeauty_Reporte_Facturacion_${new Date().toISOString().slice(0, 10)}.csv`, csvContent);
   };
 
   // Trigger Print View
@@ -968,15 +942,15 @@ export default function InvoiceHistory() {
             <span>Imprimir / Guardar PDF</span>
           </button>
 
-          {/* NATIVE EXCEL .XLSX BUTTON */}
+          {/* EXCEL / CSV BUTTON */}
           <button
             type="button"
             onClick={handleExportExcel}
             style={{ background: '#047857', border: 'none', color: '#ffffff', padding: '0.5rem 1.05rem', borderRadius: '9px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '0 2px 6px rgba(4,120,87,0.3)' }}
-            title="Descargar archivo oficial de Excel (.xlsx) con columnas separadas y números formateados"
+            title="Descargar archivo seguro compatible con Excel (.csv) con columnas separadas y protección contra inyección de fórmulas"
           >
             <FileSpreadsheet size={15} />
-            <span>Descargar Excel (.xlsx)</span>
+            <span>Descargar CSV / Excel</span>
           </button>
 
         </div>

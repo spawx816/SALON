@@ -32,7 +32,7 @@ const {
 
 async function verifyCurrentMatrix(customPool = null) {
   console.log('========================================================================');
-  console.log('🏛️ VERIFICACIÓN INTEGRAL DE MATRIZ ACTUAL (95 TABLAS / 15 MIGRACIONES)');
+  console.log(`🏛️ VERIFICACIÓN INTEGRAL DE MATRIZ ACTUAL (${CANONICAL_95_TABLES.length} TABLAS / ${CANONICAL_MIGRATIONS.length} MIGRACIONES)`);
   console.log('========================================================================\n');
 
   const testConfig = validateTestEnvironment({ allowDisposableSchema: true });

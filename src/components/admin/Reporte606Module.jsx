@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import * as XLSX from 'xlsx';
+import { formatCsvRow, downloadCsvFile } from '../../utils/secureCsvExport';
 import { 
   FileSpreadsheet, Download, Printer, Search, RefreshCw, 
   Calendar, Landmark, Filter, CheckCircle2, AlertCircle, FileText, 
@@ -298,10 +298,8 @@ export default function Reporte606Module() {
   // Exportar Excel Oficial DGII 606 (2 Hojas: Formato Oficial + Resumen Ejecutivo)
   const handleExportExcel = () => {
     try {
-      const wb = XLSX.utils.book_new();
-
       // =========================================================================
-      // HOJA 1: FORMATO OFICIAL DGII 606 (23 Columnas Normadas)
+      // FORMATO OFICIAL DGII 606 (23 Columnas Normadas)
       // =========================================================================
       const dgiiHeaders = [
         'RNC o Cédula',
@@ -361,35 +359,17 @@ export default function Reporte606Module() {
         ];
       });
 
-      const wsDgii = XLSX.utils.aoa_to_sheet([dgiiHeaders, ...dgiiRows]);
-      XLSX.utils.book_append_sheet(wb, wsDgii, 'Formato 606 DGII');
+      const csvLines = [
+        formatCsvRow(dgiiHeaders),
+        ...dgiiRows.map(row => formatCsvRow(row))
+      ];
 
-      // =========================================================================
-      // HOJA 2: RESUMEN EJECUTIVO DE COMPRAS Y PROVEEDORES
-      // =========================================================================
-      const summaryHeaders = ['ID', 'Fecha', 'Proveedor', 'RNC/Cédula', 'NCF', 'Clasificación', 'Subtotal', 'ITBIS', 'Total', 'Estado'];
-      const summaryRows = reportData.records.map(r => [
-        r.id,
-        r.fecha_factura,
-        r.proveedor,
-        r.rnc_cedula,
-        r.ncf,
-        r.clasificacion_gasto,
-        Number(r.total_facturado || 0),
-        Number(r.itbis_facturado || 0),
-        Number(r.total_facturado || 0) + Number(r.itbis_facturado || 0),
-        r.estado
-      ]);
-
-      const wsSummary = XLSX.utils.aoa_to_sheet([summaryHeaders, ...summaryRows]);
-      XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen de Compras');
-
-      const fileName = `DGII_Reporte_606_${currentPeriod}_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-      showNotification('Excel de Reporte 606 exportado exitosamente', 'success');
+      const fileName = `DGII_Reporte_606_${currentPeriod}_${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadCsvFile(fileName, csvLines.join('\r\n'));
+      showNotification('Reporte 606 exportado exitosamente (.csv / Excel)', 'success');
     } catch (err) {
-      console.error('Error exportando Excel 606:', err);
-      showNotification('Error al exportar Excel', 'error');
+      console.error('Error exportando CSV 606:', err);
+      showNotification('Error al exportar reporte', 'error');
     }
   };
 

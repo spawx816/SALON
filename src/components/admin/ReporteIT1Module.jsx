@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
+import { formatCsvRow, downloadCsvFile } from '../../utils/secureCsvExport';
 import {
   FileText, Settings, CheckCircle2, AlertCircle, Info, Plus,
   ChevronDown, Download, Printer, FileSpreadsheet, Tag, X, Check
@@ -265,17 +265,16 @@ export default function ReporteIT1Module() {
     }
   };
 
-  // Export Official DGII IT-1 & Anexo A Excel (.xlsx)
+  // Export Official DGII IT-1 & Anexo A (.csv / Excel)
   const handleExportExcel = () => {
     try {
-      const wb = XLSX.utils.book_new();
       const calc = it1Data.calculation || {};
       const s606 = it1Data.source606 || {};
       const s607 = it1Data.source607 || {};
       const isExento = (it1Data.settings?.regimen_activo || 'exento') === 'exento';
       const periodoLabel = formatPeriodoLabel(it1Data.periodo);
 
-      // Hoja 1: Formulario IT-1 (Oficina Virtual DGII)
+      // Section 1: Formulario IT-1 (Oficina Virtual DGII)
       const it1Rows = [
         ['DIRECCIÓN GENERAL DE IMPUESTOS INTERNOS (DGII)'],
         ['FORMULARIO IT-1: DECLARACIÓN JURADA Y/O PAGO DEL IMPUESTO SOBRE LAS TRANSFERENCIAS DE BIENES INDUSTRIALIZADOS Y SERVICIOS (ITBIS)'],
@@ -312,14 +311,12 @@ export default function ReporteIT1Module() {
         ['-', 'ITBIS Retenido a Terceros en Compras (606)', '606', Number(calc.itbis_retenido_compras || 0)]
       ];
 
-      const wsIT1 = XLSX.utils.aoa_to_sheet(it1Rows);
-      wsIT1['!cols'] = [{ wch: 12 }, { wch: 68 }, { wch: 22 }, { wch: 20 }];
-      XLSX.utils.book_append_sheet(wb, wsIT1, 'Formulario IT-1');
-
-      // Hoja 2: Anexo A (Detalle 606 y 607)
+      // Section 2: Anexo A (Detalle 606 y 607)
       const ncfMap = s607.por_ncf || {};
       const tvMap = s607.por_tipo_venta || {};
       const anexoRows = [
+        [''],
+        ['========================================================================='],
         ['ANEXO A - DECLARACIÓN JURADA DE ITBIS (DATOS DEL 606 Y 607)'],
         [`Período: ${periodoLabel} (${it1Data.periodo}) | RNC: ${it1Data.settings?.rnc || '131917038'} | ${it1Data.settings?.empresa_nombre || 'ETEREAS SRL'}`],
         [''],
@@ -354,16 +351,15 @@ export default function ReporteIT1Module() {
         ['ITBIS Deducible / Acreditable en IT-1', '', '', Number(calc.itbis_deducible || 0)]
       ];
 
-      const wsAnexo = XLSX.utils.aoa_to_sheet(anexoRows);
-      wsAnexo['!cols'] = [{ wch: 14 }, { wch: 62 }, { wch: 22 }, { wch: 24 }];
-      XLSX.utils.book_append_sheet(wb, wsAnexo, 'Anexo A');
+      const allRows = [...it1Rows, ...anexoRows];
+      const csvContent = allRows.map(row => formatCsvRow(row)).join('\r\n');
+      downloadCsvFile(`DGII_IT1_AnexoA_${it1Data.settings?.rnc || '131917038'}_${it1Data.periodo}.csv`, csvContent);
 
-      XLSX.writeFile(wb, `DGII_IT1_AnexoA_${it1Data.settings?.rnc || '131917038'}_${it1Data.periodo}.xlsx`);
       setShowExportMenu(false);
-      showNotification('Archivo Excel Oficial IT-1 y Anexo A descargado correctamente', 'success');
+      showNotification('Archivo Oficial IT-1 y Anexo A descargado correctamente (.csv / Excel)', 'success');
     } catch (err) {
-      console.error('Error exportando Excel IT-1:', err);
-      showNotification('Error al exportar Excel IT-1', 'error');
+      console.error('Error exportando IT-1:', err);
+      showNotification('Error al exportar reporte IT-1', 'error');
     }
   };
 

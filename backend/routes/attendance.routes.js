@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
+const { getPrivateStorageAdapter } = require('../services/private_storage_adapter');
 
 /**
  * Attendance and Facial Recognition Module for Salon Pro & Plan Beauty RD
@@ -25,7 +26,7 @@ function createAttendanceRouter(pool) {
 
   // === ATTENDANCE / PONCHEO ===
 
-  // PUT /api/users/:id/profile-photo - Save profile photo (base64) for facial recognition
+  // PUT /api/users/:id/profile-photo - Save profile photo encrypted in private storage
   router.put('/users/:id/profile-photo', async (req, res) => {
     try {
       const { id } = req.params;
@@ -35,19 +36,32 @@ function createAttendanceRouter(pool) {
       if (!profile_photo) {
         return res.status(400).json({ error: 'La foto de perfil es requerida.' });
       }
+
+      let fileId = null;
+      try {
+        const storage = getPrivateStorageAdapter({ pool });
+        const saved = await storage.saveBase64({
+          tenantId,
+          category: 'profile_photo',
+          base64Data: profile_photo
+        });
+        fileId = saved.id;
+      } catch (storageErr) {
+        console.warn('[STORAGE_ADAPTER_WARN] Could not encrypt profile photo:', storageErr.message);
+      }
       
-      const [result] = await pool.query(
-        'UPDATE users SET profile_photo = ? WHERE id::text = ? AND tenant_id = ?',
-        [profile_photo, String(id), tenantId]
+      await pool.query(
+        'UPDATE users SET profile_photo = NULL, profile_photo_file_id = ? WHERE id::text = ? AND tenant_id = ?',
+        [fileId, String(id), tenantId]
       );
 
       // Also try staff_records if not in users
       await pool.query(
-        'UPDATE staff_records SET profile_photo = ? WHERE id::text = ? AND tenant_id = ?',
-        [profile_photo, String(id), tenantId]
+        'UPDATE staff_records SET profile_photo = NULL, profile_photo_file_id = ? WHERE id::text = ? AND tenant_id = ?',
+        [fileId, String(id), tenantId]
       );
 
-      res.json({ success: true, message: 'Foto de perfil de asistencia actualizada exitosamente.' });
+      res.json({ success: true, message: 'Foto de perfil de asistencia actualizada exitosamente.', file_id: fileId });
     } catch (err) {
       console.error('[ATTENDANCE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
@@ -61,21 +75,40 @@ function createAttendanceRouter(pool) {
       const tenantId = req.verifiedTenantId;
 
       const [rows] = await pool.query(
-        'SELECT profile_photo FROM users WHERE id::text = ? AND tenant_id = ?',
+        'SELECT profile_photo, profile_photo_file_id FROM users WHERE id::text = ? AND tenant_id = ?',
         [String(id), tenantId]
       );
-      if (rows.length > 0 && rows[0].profile_photo) {
-        return res.json({ profile_photo: rows[0].profile_photo });
+
+      let targetFileId = rows && rows[0] ? rows[0].profile_photo_file_id : null;
+      let rawBase64 = rows && rows[0] ? rows[0].profile_photo : null;
+
+      if (!targetFileId && !rawBase64) {
+        const [staffRows] = await pool.query(
+          'SELECT profile_photo, profile_photo_file_id FROM staff_records WHERE id::text = ? AND tenant_id = ?',
+          [String(id), tenantId]
+        );
+        if (staffRows && staffRows[0]) {
+          targetFileId = staffRows[0].profile_photo_file_id;
+          rawBase64 = staffRows[0].profile_photo;
+        }
       }
 
-      const [staffRows] = await pool.query(
-        'SELECT profile_photo FROM staff_records WHERE id::text = ? AND tenant_id = ?',
-        [String(id), tenantId]
-      );
-      if (staffRows.length === 0 || !staffRows[0].profile_photo) {
-        return res.status(404).json({ error: 'Empleado o foto no encontrada.' });
+      if (targetFileId) {
+        try {
+          const storage = getPrivateStorageAdapter({ pool });
+          const fileData = await storage.readFile({ tenantId, fileId: targetFileId });
+          const dataUri = `data:${fileData.mimeType};base64,${fileData.buffer.toString('base64')}`;
+          return res.json({ profile_photo: dataUri, file_id: targetFileId });
+        } catch (readErr) {
+          console.warn('[STORAGE_READ_WARN]', readErr.message);
+        }
       }
-      res.json({ profile_photo: staffRows[0].profile_photo });
+
+      if (rawBase64) {
+        return res.json({ profile_photo: rawBase64 });
+      }
+
+      return res.status(404).json({ error: 'Empleado o foto no encontrada.' });
     } catch (err) {
       console.error('[ATTENDANCE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
@@ -478,13 +511,43 @@ function createAttendanceRouter(pool) {
         );
       }
 
+      let punchPhotoFileId = null;
+      if (photo && typeof photo === 'string' && photo.length > 20) {
+        try {
+          const storage = getPrivateStorageAdapter({ pool });
+          const savedFile = await storage.saveBase64({
+            tenantId,
+            category: 'attendance_photo',
+            base64Data: photo,
+            retentionDays: 90
+          });
+          punchPhotoFileId = savedFile.id;
+        } catch (storageErr) {
+          console.warn('[STORAGE_ADAPTER_WARN] Could not encrypt attendance punch photo:', storageErr.message);
+        }
+      }
+
       await pool.query(
-        `INSERT INTO attendance (id, employee_id, type, photo, geolocation, device_info, timestamp, status, lateness_minutes, extra_minutes, tenant_id) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [punchId, String(employeeId), type, photo || null, geolocation || null, deviceInfo || null, getDRTimestampString(), status, latenessMinutes, extraMinutes, tenantId]
+        `INSERT INTO attendance (
+           id, employee_id, type, photo, photo_file_id, geolocation, device_info, 
+           timestamp, status, lateness_minutes, extra_minutes, tenant_id
+         ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          punchId,
+          String(employeeId),
+          type,
+          punchPhotoFileId,
+          geolocation || null,
+          deviceInfo || null,
+          getDRTimestampString(),
+          status,
+          latenessMinutes,
+          extraMinutes,
+          tenantId
+        ]
       );
       
-      res.json({ success: true, message: `Ponche de ${type === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status} correctamente.`, name: emp.nombre });
+      res.json({ success: true, message: `Ponche de ${type === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status} correctamente.`, name: emp.nombre, photo_file_id: punchPhotoFileId });
     } catch (err) {
       console.error('[ATTENDANCE ERROR]:', err.message);
       res.status(500).json({ error: err.message });

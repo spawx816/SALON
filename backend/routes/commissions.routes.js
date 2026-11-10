@@ -3,25 +3,28 @@ const express = require('express');
 /**
  * Commissions router module for Salon Pro & Plan Beauty RD (Scoped strictly by tenant_id)
  */
-function createCommissionsRouter(pool, processVisitCommissions) {
+function createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions = null) {
   const router = express.Router();
 
-  // --- Sincronización manual / background de comisiones ---
+  // --- Sincronización manual / background de comisiones (Batch O(1) queries) ---
   router.post('/sync', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (typeof processVisitCommissions === 'function') {
-        const [visitsToProcess] = await pool.query(`
-          SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
-          FROM visits v 
-          WHERE v.tenant_id = ? AND v.status = 'Facturado' AND v.items_detail IS NOT NULL 
-          ORDER BY v.visited_at DESC LIMIT 200
-        `, [tenantId]);
+      const [visitsToProcess] = await pool.query(`
+        SELECT v.id, v.ticket_number, v.items_detail, v.visited_at 
+        FROM visits v 
+        WHERE v.tenant_id = ? AND v.status = 'Facturado' AND v.items_detail IS NOT NULL 
+        ORDER BY v.visited_at DESC LIMIT 200
+      `, [tenantId]);
+
+      if (typeof processBatchVisitCommissions === 'function') {
+        await processBatchVisitCommissions(visitsToProcess, tenantId);
+      } else if (typeof processVisitCommissions === 'function') {
         for (const uv of visitsToProcess) {
           await processVisitCommissions(uv.id, uv.items_detail, uv.ticket_number, uv.visited_at, tenantId);
         }
       }
-      res.json({ success: true, message: 'Comisiones sincronizadas correctamente' });
+      res.json({ success: true, message: 'Comisiones sincronizadas correctamente', count: visitsToProcess.length });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

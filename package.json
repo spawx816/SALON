@@ -44,6 +44,13 @@
     "test:phase2h:branding": "node backend/tests/test_phase2h_branding.cjs",
     "test:phase2h:p1-security": "node backend/tests/test_phase2h_p1_security.cjs",
     "test:phase2h:all": "node backend/tests/test_phase2h_security.cjs && node backend/tests/test_phase2h_money.cjs && node backend/tests/test_phase2h_jobs.cjs && node backend/tests/test_phase2h_shutdown.cjs && node backend/tests/test_phase2h_superadmin_separation.cjs && node backend/tests/test_phase2h_branding.cjs && node backend/tests/test_phase2h_p1_security.cjs",
+    "test:bundle-budget": "node backend/scripts/test_bundle_budget.cjs",
+    "test:dependencies": "node backend/scripts/test_dependencies.cjs",
+    "test:storage:private": "node backend/tests/test_storage_private.cjs",
+    "test:inventory:concurrency": "node backend/tests/test_inventory_concurrency.cjs",
+    "test:commissions:batch": "node backend/tests/test_commissions_batch_benchmark.cjs",
+    "test:tenant-export": "node backend/tests/test_tenant_export.cjs",
+    "test:phase3b:p1-remaining": "node backend/tests/test_phase3b_p1_remaining.cjs",
     "worker:billing": "node backend/workers/billing.worker.cjs",
     "test:phase1:all": "node backend/scripts/run_all_phase1_tests.cjs"
   },
@@ -56,8 +63,7 @@
     "react-dom": "^19.2.4",
     "react-hook-form": "^7.72.0",
     "react-router-dom": "^7.13.2",
-    "recharts": "^3.8.0",
-    "xlsx": "^0.18.5"
+    "recharts": "^3.8.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -69,7 +75,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
-    "puppeteer": "^24.43.0",
+    "puppeteer": "^25.16.0",
     "vite": "^8.0.1"
   }
 }

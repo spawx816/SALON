@@ -60,6 +60,8 @@ const { createSaasRouter } = require('./routes/saas.routes');
 const { createTenantRouter } = require('./routes/tenant.routes');
 const { createPublicRouter } = require('./routes/public.routes');
 const { createFilesRouter } = require('./routes/files.routes');
+const { createPrivateFilesRoutes } = require('./routes/private_files.routes');
+const { createTenantPortabilityRoutes } = require('./routes/tenant_portability.routes');
 const { createInventoryRouter } = require('./routes/inventory.routes');
 const { InventoryRepository } = require('./repositories/inventory.repository');
 const { InventoryPurchaseRepository } = require('./repositories/inventory_purchase.repository');
@@ -532,7 +534,7 @@ function createApp(dependencies = {}) {
   app.use('/api/gifts', rejectControlPlaneRoleOnTenantRoutes, createGiftsSurveysRouter(pool));
   app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createEmployeesRouter(pool));
 
-  const { router: visitsRouter, processVisitCommissions } = createVisitsRouter(pool, {
+  const { router: visitsRouter, processVisitCommissions, processBatchVisitCommissions } = createVisitsRouter(pool, {
     transmitInvoiceDirectlyToDgii: dgiiService.transmitInvoiceDirectlyToDgii,
     generateAndTransmitNotaCredito: dgiiService.generateAndTransmitNotaCredito,
     sendSurveyEmail,
@@ -540,7 +542,7 @@ function createApp(dependencies = {}) {
   });
   app.use('/api/visits', rejectControlPlaneRoleOnTenantRoutes, visitsRouter);
 
-  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCommissionsRouter(pool, processVisitCommissions));
+  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions));
 
   const contractsRouterInstance = createContractsRouter(pool, {
     CARDNET_CONFIG,
@@ -589,6 +591,8 @@ function createApp(dependencies = {}) {
   app.use('/api/saas', createSaasRouter(pool, { entitlementsService }));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
   app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
+  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
+  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));
 
   const contactRouter = createContactRouter(pool);
   app.use('/api/contact', contactRouter);
