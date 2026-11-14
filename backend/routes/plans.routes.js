@@ -32,8 +32,8 @@ function createPlansRouter(pool) {
         ];
         for (const [id, name, price, desc, features] of defaultPlans) {
           await pool.query(
-            'INSERT INTO plans (tenant_id, id, name, price, description, features) VALUES (?, ?, ?, ?, ?, ?::jsonb) ON CONFLICT (tenant_id, id) DO NOTHING',
-            [tenantId, id, name, price, desc, features]
+            'INSERT INTO plans (tenant_id, id, title, name, price, description, features) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb) ON CONFLICT (tenant_id, id) DO NOTHING',
+            [tenantId, id, name, name, price, desc, features]
           );
         }
         [rows] = await pool.query(`
