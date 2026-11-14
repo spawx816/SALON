@@ -542,7 +542,9 @@ function createApp(dependencies = {}) {
   app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPayrollRouter(pool));
   app.use('/api/services', rejectControlPlaneRoleOnTenantRoutes, createServicesRouter(pool));
   app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createEmployeeSecurityRouter(pool));
-  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, createGiftsSurveysRouter(pool));
+  const giftsSurveysRouter = createGiftsSurveysRouter(pool);
+  app.use(['/api/gifts', '/api/admin/gifts', '/api/surveys'], rejectControlPlaneRoleOnTenantRoutes);
+  app.use('/api', giftsSurveysRouter);
   app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createEmployeesRouter(pool));
 
   const { router: visitsRouter, processVisitCommissions, processBatchVisitCommissions } = createVisitsRouter(pool, {
