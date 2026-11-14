@@ -623,6 +623,14 @@ function createApp(dependencies = {}) {
 
   app.use('/api/test', createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
 
+  app.use('/api', (req, res) => {
+    return res.status(404).json({
+      success: false,
+      error: `Ruta API no encontrada: ${req.method} ${req.originalUrl || req.url}`,
+      code: 'API_ROUTE_NOT_FOUND'
+    });
+  });
+
   // Global Error Handler & 500 Sanitization Shield (REM-P1-13)
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, _next) => {

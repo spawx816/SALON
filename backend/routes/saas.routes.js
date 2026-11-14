@@ -501,7 +501,8 @@ function createSaasRouter(pool, options = {}) {
           await conn.query(
             `INSERT INTO saas_plan_features (plan_code, feature_key, is_included)
              VALUES (?, ?, ?)
-             ON CONFLICT (plan_code, feature_key) DO UPDATE SET is_included = EXCLUDED.is_included`,
+             ON CONFLICT (plan_code, feature_key) DO UPDATE SET is_included = EXCLUDED.is_included
+             RETURNING plan_code`,
             [planCode, fKey, Boolean(fVal)]
           );
         }
@@ -625,7 +626,8 @@ function createSaasRouter(pool, options = {}) {
             await conn.query(
               `INSERT INTO saas_plan_features (plan_code, feature_key, is_included)
                VALUES (?, ?, ?)
-               ON CONFLICT (plan_code, feature_key) DO UPDATE SET is_included = EXCLUDED.is_included`,
+               ON CONFLICT (plan_code, feature_key) DO UPDATE SET is_included = EXCLUDED.is_included
+               RETURNING plan_code`,
               [existing.code, fKey, Boolean(fVal)]
             );
           }

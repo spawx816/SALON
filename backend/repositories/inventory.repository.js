@@ -681,7 +681,7 @@ class InventoryRepository {
 
         // 1. Validate canonical product in services
         const [prodRows] = await conn.query(
-          'SELECT id, item_type, costo, cost FROM services WHERE tenant_id = ? AND id = ? LIMIT 1',
+          'SELECT id, item_type, costo FROM services WHERE tenant_id = ? AND id = ? LIMIT 1',
           [tenantId, productId]
         );
         if (!prodRows || prodRows.length === 0) {

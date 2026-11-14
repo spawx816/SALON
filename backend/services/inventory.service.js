@@ -363,28 +363,30 @@ class InventoryService {
 
   async _dispatchLowStockEmailBestEffort(tenantId, alert) {
     try {
-      const [settingsRows] = await this.repo.pool.query(
-        'SELECT email, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, business_name FROM settings WHERE tenant_id = ? LIMIT 1',
+      const host = process.env.SMTP_HOST;
+      const user = process.env.SMTP_USER;
+      const pass = process.env.SMTP_PASS;
+      if (!host || !user || !pass) return;
+
+      const [tenantRows] = await this.repo.pool.query(
+        'SELECT email, business_name FROM tenants WHERE id = ? LIMIT 1',
         [tenantId]
       );
-      const s = settingsRows && settingsRows[0] ? settingsRows[0] : {};
-      const host = s.smtp_host || process.env.SMTP_HOST;
-      const user = s.smtp_user || process.env.SMTP_USER;
-      const pass = s.smtp_pass || process.env.SMTP_PASS;
-      const to = s.email || s.smtp_from;
-      if (!host || !user || !pass || !to) return;
+      const t = tenantRows && tenantRows[0] ? tenantRows[0] : {};
+      const to = t.email;
+      if (!to) return;
 
       const nodemailer = require('nodemailer');
       const transporter = nodemailer.createTransport({
         host,
-        port: Number(s.smtp_port || process.env.SMTP_PORT || 587),
-        secure: Number(s.smtp_port || process.env.SMTP_PORT || 587) === 465,
+        port: Number(process.env.SMTP_PORT || 587),
+        secure: Number(process.env.SMTP_PORT || 587) === 465,
         auth: { user, pass }
       });
       await transporter.sendMail({
-        from: s.smtp_from || user,
+        from: process.env.SMTP_FROM || user,
         to,
-        subject: `[${s.business_name || 'Etereas'}] Alerta de stock bajo: ${alert.product_name}`,
+        subject: `[${t.business_name || 'Etereas'}] Alerta de stock bajo: ${alert.product_name}`,
         text: `El producto "${alert.product_name}"${alert.sku ? ` (${alert.sku})` : ''} en ${alert.location_name || 'Almacén'} alcanzó ${alert.current_stock} unidades (umbral configurado: <= ${alert.min_stock}).`
       });
     } catch (_) {

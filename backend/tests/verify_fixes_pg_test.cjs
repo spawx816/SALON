@@ -43,7 +43,7 @@ async function req(server, { method = 'GET', path, headers = {}, body = null }) 
 }
 
 async function main() {
-  const app = createApp(pool);
+  const app = createApp({ pool });
   const server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
@@ -60,18 +60,21 @@ async function main() {
   try {
     // Seed 2 isolated tenants + branches + users + subscriptions
     await pool.query(
-      `INSERT INTO tenants (id, name, slug, status) VALUES (?, ?, ?, 'active'), (?, ?, ?, 'active')`,
-      [tenantA, `Test Salon A ${tag}`, `test-a-${tag}`, tenantB, `Test Salon B ${tag}`, `test-b-${tag}`]
+      `INSERT INTO tenants (id, business_name, slug, email, status) VALUES (?, ?, ?, ?, 'active'), (?, ?, ?, ?, 'active')`,
+      [
+        tenantA, `Test Salon A ${tag}`, `test-a-${tag}`, `tenanta_${tag}@test.local`,
+        tenantB, `Test Salon B ${tag}`, `test-b-${tag}`, `tenantb_${tag}@test.local`
+      ]
     );
     await pool.query(
       `INSERT INTO branches (id, tenant_id, name, is_main) VALUES (?, ?, 'Sucursal A', TRUE), (?, ?, 'Sucursal B', TRUE)`,
       [branchA, tenantA, branchB, tenantB]
     );
     await pool.query(
-      `INSERT INTO users (id, tenant_id, name, email, password, role, is_active, token_version)
-       VALUES (?, ?, 'Admin A', ?, 'hash', 'admin', TRUE, 1),
-              (?, ?, 'Admin B', ?, 'hash', 'admin', TRUE, 1),
-              (?, NULL, 'SuperAdmin Test', ?, 'hash', 'superadmin', TRUE, 1)`,
+      `INSERT INTO users (id, tenant_id, name, email, password, password_hash, role, is_active, token_version)
+       VALUES (?, ?, 'Admin A', ?, 'hash', 'hash', 'admin', TRUE, 1),
+              (?, ?, 'Admin B', ?, 'hash', 'hash', 'admin', TRUE, 1),
+              (?, NULL, 'SuperAdmin Test', ?, 'hash', 'hash', 'superadmin', TRUE, 1)`,
       [
         userAId, tenantA, `admina_${tag}@test.local`,
         userBId, tenantB, `adminb_${tag}@test.local`,
@@ -79,14 +82,15 @@ async function main() {
       ]
     );
     await pool.query(
-      `INSERT INTO tenant_subscriptions (tenant_id, plan_code, status, billing_cycle, max_branches, max_employees, max_users)
-       VALUES (?, 'PRINCIPAL', 'active', 'monthly', 5, 50, 20), (?, 'PRINCIPAL', 'active', 'monthly', 5, 50, 20)`,
+      `INSERT INTO tenant_subscriptions (tenant_id, plan_code, status, billing_cycle, current_period_end)
+       VALUES (?, 'PRINCIPAL', 'active', 'monthly', NOW() + INTERVAL '30 days'),
+              (?, 'PRINCIPAL', 'active', 'monthly', NOW() + INTERVAL '30 days')`,
       [tenantA, tenantB]
     );
 
-    const tokenA = signAuthToken({ id: userAId, sub: userAId, tenant_id: tenantA, role: 'admin', token_version: 1 });
-    const tokenB = signAuthToken({ id: userBId, sub: userBId, tenant_id: tenantB, role: 'admin', token_version: 1 });
-    const tokenSuper = signAuthToken({ id: superAdminId, sub: superAdminId, role: 'superadmin', isSuperAdmin: true, token_version: 1 });
+    const tokenA = signAuthToken({ id: userAId, userId: userAId, sub: userAId, tenant_id: tenantA, tenantId: tenantA, role: 'admin', token_version: 1 });
+    const tokenB = signAuthToken({ id: userBId, userId: userBId, sub: userBId, tenant_id: tenantB, tenantId: tenantB, role: 'admin', token_version: 1 });
+    const tokenSuper = signAuthToken({ id: superAdminId, userId: superAdminId, sub: superAdminId, role: 'superadmin', isSuperAdmin: true, token_version: 1 });
     const hdrA = { Authorization: `Bearer ${tokenA}` };
     const hdrB = { Authorization: `Bearer ${tokenB}` };
     const hdrSuper = { Authorization: `Bearer ${tokenSuper}` };
@@ -136,7 +140,11 @@ async function main() {
       }
     });
     assert.strictEqual(putPlanRes.status, 200, `PUT /api/saas/plans failed: ${putPlanRes.raw}`);
-    assert.strictEqual(putPlanRes.body.included_features.memberships, false, 'PRINCIPAL must keep memberships=false');
+    const plansAfter = await req(server, { method: 'GET', path: '/api/saas/plans', headers: hdrSuper });
+    assert.strictEqual(plansAfter.status, 200);
+    const updatedPrincipal = plansAfter.body.find((p) => p.code === 'PRINCIPAL');
+    assert.strictEqual(updatedPrincipal.description, `Updated ${tag}`, 'Plan description must persist');
+    assert.strictEqual(updatedPrincipal.included_features.memberships, false, 'PRINCIPAL must keep memberships=false');
 
     // Restore original description
     await req(server, {
@@ -313,3 +321,4 @@ main().catch((err) => {
   console.error('INTEGRATION TEST FAILED:', err);
   process.exit(1);
 });
+
