@@ -62,6 +62,15 @@ function getSeoContentForPath(reqPath) {
   };
 }
 
+// API 404 JSON fallback - never serve SPA HTML for /api/* routes
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint de API no encontrado',
+    code: 'API_ROUTE_NOT_FOUND'
+  });
+});
+
 // SPA Fallback for React Router - MUST BE AFTER ALL API ROUTES
 app.get(/.*/, (req, res) => {
   if (req.path.includes('.')) {

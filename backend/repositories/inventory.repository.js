@@ -244,11 +244,24 @@ class InventoryRepository {
       let sql = `
         SELECT s.*, p.sku, COALESCE(p.nombre, p.name) as product_name,
                COALESCE(p.categoria, p.category, 'Productos') as category,
-               p.unit_of_measure, p.min_stock, COALESCE(p.precio, p.price, 0) as sale_price,
+               p.unit_of_measure,
+               COALESCE(iao_loc.min_stock, iao_prod.min_stock, ias.default_min_stock, 5) AS min_stock,
+               COALESCE(iao_loc.alerts_enabled, iao_prod.alerts_enabled, ias.alerts_enabled, TRUE) AS alerts_enabled,
+               CASE
+                 WHEN iao_loc.min_stock IS NOT NULL THEN 'location'
+                 WHEN iao_prod.min_stock IS NOT NULL THEN 'product'
+                 ELSE 'general'
+               END AS threshold_source,
+               COALESCE(p.precio, p.price, 0) as sale_price,
                l.name as location_name
         FROM inventory_stock s
         INNER JOIN services p ON s.product_id = p.id AND s.tenant_id = p.tenant_id AND p.item_type = 'PRODUCTO'
         INNER JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
+        LEFT JOIN inventory_alert_settings ias ON ias.tenant_id = s.tenant_id
+        LEFT JOIN inventory_alert_overrides iao_loc
+          ON iao_loc.tenant_id = s.tenant_id AND iao_loc.product_id = s.product_id AND iao_loc.location_id = s.location_id
+        LEFT JOIN inventory_alert_overrides iao_prod
+          ON iao_prod.tenant_id = s.tenant_id AND iao_prod.product_id = s.product_id AND iao_prod.location_id IS NULL
         WHERE s.tenant_id = ?
       `;
       const params = [tenantId];
@@ -257,7 +270,7 @@ class InventoryRepository {
         params.push(locationId);
       }
       if (lowStockOnly) {
-        sql += ' AND s.quantity <= p.min_stock';
+        sql += ' AND COALESCE(iao_loc.alerts_enabled, iao_prod.alerts_enabled, ias.alerts_enabled, TRUE) = TRUE AND s.quantity <= COALESCE(iao_loc.min_stock, iao_prod.min_stock, ias.default_min_stock, 5)';
       }
       sql += " ORDER BY COALESCE(p.nombre, p.name) ASC LIMIT ? OFFSET ?";
       params.push(Number(limit), Number(offset));
@@ -575,12 +588,24 @@ class InventoryRepository {
     if (this.pool) {
       let sql = `
         SELECT p.id as product_id, p.sku, COALESCE(p.nombre, p.name) as product_name,
-               COALESCE(p.categoria, p.category, 'Productos') as category, p.min_stock,
+               COALESCE(p.categoria, p.category, 'Productos') as category,
+               COALESCE(iao_loc.min_stock, iao_prod.min_stock, ias.default_min_stock, 5) AS min_stock,
+               COALESCE(iao_loc.alerts_enabled, iao_prod.alerts_enabled, ias.alerts_enabled, TRUE) AS alerts_enabled,
+               CASE
+                 WHEN iao_loc.min_stock IS NOT NULL THEN 'location'
+                 WHEN iao_prod.min_stock IS NOT NULL THEN 'product'
+                 ELSE 'general'
+               END AS threshold_source,
                COALESCE(SUM(s.quantity), 0) as current_stock,
                l.name as location_name, l.id as location_id
         FROM services p
         LEFT JOIN inventory_stock s ON p.id = s.product_id AND p.tenant_id = s.tenant_id
         LEFT JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
+        LEFT JOIN inventory_alert_settings ias ON ias.tenant_id = p.tenant_id
+        LEFT JOIN inventory_alert_overrides iao_loc
+          ON iao_loc.tenant_id = p.tenant_id AND iao_loc.product_id = p.id AND iao_loc.location_id = s.location_id
+        LEFT JOIN inventory_alert_overrides iao_prod
+          ON iao_prod.tenant_id = p.tenant_id AND iao_prod.product_id = p.id AND iao_prod.location_id IS NULL
         WHERE p.tenant_id = ? AND p.item_type = 'PRODUCTO' AND p.track_stock = TRUE
           AND COALESCE(p.is_active, TRUE) = TRUE AND COALESCE(p.activo, 1) = 1
       `;
@@ -590,9 +615,12 @@ class InventoryRepository {
         params.push(locationId);
       }
       sql += `
-        GROUP BY p.id, p.sku, p.nombre, p.name, p.categoria, p.category, p.min_stock, l.name, l.id
-        HAVING COALESCE(SUM(s.quantity), 0) <= p.min_stock
-        ORDER BY (COALESCE(SUM(s.quantity), 0) - p.min_stock) ASC
+        GROUP BY p.id, p.sku, p.nombre, p.name, p.categoria, p.category, l.name, l.id,
+                 iao_loc.min_stock, iao_prod.min_stock, ias.default_min_stock,
+                 iao_loc.alerts_enabled, iao_prod.alerts_enabled, ias.alerts_enabled
+        HAVING COALESCE(iao_loc.alerts_enabled, iao_prod.alerts_enabled, ias.alerts_enabled, TRUE) = TRUE
+           AND COALESCE(SUM(s.quantity), 0) <= COALESCE(iao_loc.min_stock, iao_prod.min_stock, ias.default_min_stock, 5)
+        ORDER BY (COALESCE(SUM(s.quantity), 0) - COALESCE(iao_loc.min_stock, iao_prod.min_stock, ias.default_min_stock, 5)) ASC
       `;
       const [rows] = await this.pool.query(sql, params);
       return rows || [];
@@ -745,6 +773,270 @@ class InventoryRepository {
         conn.release();
       }
     }
+  }
+
+  _validateMinStockPrecision(value, unitOfMeasure = 'unit') {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) {
+      const err = new Error('El stock mínimo debe ser un número válido mayor o igual a 0.');
+      err.code = 'INVALID_THRESHOLD';
+      err.status = 400;
+      throw err;
+    }
+    const unit = String(unitOfMeasure || 'unit').trim().toLowerCase();
+    const discreteUnits = new Set(['unit', 'unidad', 'unidades', 'botella', 'caja', 'frasco', 'paquete', 'pieza']);
+    if (discreteUnits.has(unit) && !Number.isInteger(num)) {
+      const err = new Error(`La unidad de medida "${unitOfMeasure}" requiere un umbral entero (sin decimales).`);
+      err.code = 'INVALID_THRESHOLD_PRECISION';
+      err.status = 400;
+      throw err;
+    }
+    return Math.round(num * 10000) / 10000;
+  }
+
+  async getAlertSettings(tenantId) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    if (!this.pool) {
+      return {
+        settings: { tenant_id: tenantId, alerts_enabled: true, default_min_stock: 5, is_default: true },
+        overrides: []
+      };
+    }
+    const [settingsRows] = await this.pool.query(
+      'SELECT tenant_id, alerts_enabled, default_min_stock, updated_by, updated_at FROM inventory_alert_settings WHERE tenant_id = ? LIMIT 1',
+      [tenantId]
+    );
+    const settings = settingsRows && settingsRows.length > 0
+      ? {
+          ...settingsRows[0],
+          alerts_enabled: Boolean(settingsRows[0].alerts_enabled),
+          default_min_stock: Number(settingsRows[0].default_min_stock ?? 5),
+          is_default: false
+        }
+      : { tenant_id: tenantId, alerts_enabled: true, default_min_stock: 5, is_default: true };
+
+    const [overrideRows] = await this.pool.query(`
+      SELECT o.*, COALESCE(p.nombre, p.name) AS product_name, p.sku, p.unit_of_measure,
+             l.name AS location_name
+      FROM inventory_alert_overrides o
+      INNER JOIN services p ON p.id = o.product_id AND p.tenant_id = o.tenant_id AND p.item_type = 'PRODUCTO'
+      LEFT JOIN inventory_locations l ON l.id = o.location_id AND l.tenant_id = o.tenant_id
+      WHERE o.tenant_id = ?
+      ORDER BY COALESCE(p.nombre, p.name) ASC, l.name ASC NULLS FIRST
+    `, [tenantId]);
+
+    const overrides = (overrideRows || []).map(r => ({
+      ...r,
+      min_stock: r.min_stock !== null && r.min_stock !== undefined ? Number(r.min_stock) : null,
+      alerts_enabled: r.alerts_enabled !== null && r.alerts_enabled !== undefined ? Boolean(r.alerts_enabled) : null
+    }));
+
+    return { settings, overrides };
+  }
+
+  async upsertAlertSettings(tenantId, { alerts_enabled, default_min_stock, updated_by = null }) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    const cleanMin = default_min_stock !== undefined && default_min_stock !== null
+      ? this._validateMinStockPrecision(default_min_stock, 'decimal')
+      : 5;
+    const enabled = alerts_enabled !== undefined ? Boolean(alerts_enabled) : true;
+
+    const [rows] = await this.pool.query(`
+      INSERT INTO inventory_alert_settings (tenant_id, alerts_enabled, default_min_stock, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, NOW())
+      ON CONFLICT (tenant_id) DO UPDATE SET
+        alerts_enabled = EXCLUDED.alerts_enabled,
+        default_min_stock = EXCLUDED.default_min_stock,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = NOW()
+      RETURNING tenant_id, alerts_enabled, default_min_stock, updated_by, updated_at
+    `, [tenantId, enabled, cleanMin, updated_by]);
+
+    return {
+      ...rows[0],
+      alerts_enabled: Boolean(rows[0].alerts_enabled),
+      default_min_stock: Number(rows[0].default_min_stock),
+      is_default: false
+    };
+  }
+
+  async upsertAlertOverride(tenantId, { product_id, location_id = null, alerts_enabled = null, min_stock = null, updated_by = null }) {
+    if (!tenantId || !product_id) {
+      const err = new Error('tenant_id y product_id son requeridos');
+      err.status = 400;
+      throw err;
+    }
+    const [prodRows] = await this.pool.query(
+      'SELECT id, item_type, unit_of_measure FROM services WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [product_id, tenantId]
+    );
+    if (!prodRows || prodRows.length === 0) {
+      const err = new Error('Producto no encontrado en el catálogo del negocio.');
+      err.status = 404;
+      throw err;
+    }
+    if (String(prodRows[0].item_type || '').toUpperCase() !== 'PRODUCTO') {
+      const err = new Error('Las alertas de inventario solo aplican a ítems tipo PRODUCTO, no a servicios.');
+      err.status = 400;
+      err.code = 'INVALID_ITEM_TYPE';
+      throw err;
+    }
+
+    const cleanLocId = location_id || null;
+    if (cleanLocId) {
+      const [locRows] = await this.pool.query(
+        'SELECT id FROM inventory_locations WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [cleanLocId, tenantId]
+      );
+      if (!locRows || locRows.length === 0) {
+        const err = new Error('Ubicación/sucursal de inventario no encontrada.');
+        err.status = 404;
+        throw err;
+      }
+    }
+
+    const cleanMin = min_stock !== null && min_stock !== undefined && min_stock !== ''
+      ? this._validateMinStockPrecision(min_stock, prodRows[0].unit_of_measure)
+      : null;
+    const cleanEnabled = alerts_enabled !== null && alerts_enabled !== undefined
+      ? Boolean(alerts_enabled)
+      : null;
+
+    const [rows] = await this.pool.query(`
+      INSERT INTO inventory_alert_overrides (tenant_id, product_id, location_id, alerts_enabled, min_stock, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW())
+      ON CONFLICT (tenant_id, product_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid))
+      DO UPDATE SET
+        alerts_enabled = EXCLUDED.alerts_enabled,
+        min_stock = EXCLUDED.min_stock,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = NOW()
+      RETURNING *
+    `, [tenantId, product_id, cleanLocId, cleanEnabled, cleanMin, updated_by]);
+
+    return {
+      ...rows[0],
+      min_stock: rows[0].min_stock !== null ? Number(rows[0].min_stock) : null,
+      alerts_enabled: rows[0].alerts_enabled !== null ? Boolean(rows[0].alerts_enabled) : null
+    };
+  }
+
+  async deleteAlertOverride(tenantId, overrideId) {
+    if (!tenantId || !overrideId) throw new Error('tenant_id y overrideId son requeridos');
+    const [result] = await this.pool.query(
+      'DELETE FROM inventory_alert_overrides WHERE id = ? AND tenant_id = ? RETURNING id',
+      [overrideId, tenantId]
+    );
+    return result && result.length > 0;
+  }
+
+  async evaluateAndRecordAlertState(tenantId, productId, locationId) {
+    if (!this.pool || !tenantId || !productId || !locationId) {
+      return { evaluated: false };
+    }
+    const [prodRows] = await this.pool.query(
+      `SELECT id, COALESCE(nombre, name) AS product_name, sku, item_type, track_stock,
+              COALESCE(is_active, TRUE) AS is_active, COALESCE(activo, 1) AS activo
+       FROM services WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [productId, tenantId]
+    );
+    if (!prodRows || prodRows.length === 0) return { evaluated: false, reason: 'NOT_FOUND' };
+    const prod = prodRows[0];
+    if (String(prod.item_type || '').toUpperCase() !== 'PRODUCTO' || !prod.track_stock || !prod.is_active || Number(prod.activo) !== 1) {
+      return { evaluated: false, reason: 'NOT_TRACKED_PRODUCT' };
+    }
+
+    const [ruleRows] = await this.pool.query(`
+      SELECT
+        COALESCE(iao_loc.min_stock, iao_prod.min_stock, ias.default_min_stock, 5) AS effective_min_stock,
+        COALESCE(iao_loc.alerts_enabled, iao_prod.alerts_enabled, ias.alerts_enabled, TRUE) AS effective_enabled,
+        CASE
+          WHEN iao_loc.min_stock IS NOT NULL THEN 'location'
+          WHEN iao_prod.min_stock IS NOT NULL THEN 'product'
+          ELSE 'general'
+        END AS threshold_source,
+        COALESCE(st.quantity, 0) AS current_stock,
+        l.name AS location_name
+      FROM (SELECT 1) AS _
+      LEFT JOIN inventory_alert_settings ias ON ias.tenant_id = ?
+      LEFT JOIN inventory_alert_overrides iao_loc
+        ON iao_loc.tenant_id = ? AND iao_loc.product_id = ? AND iao_loc.location_id = ?
+      LEFT JOIN inventory_alert_overrides iao_prod
+        ON iao_prod.tenant_id = ? AND iao_prod.product_id = ? AND iao_prod.location_id IS NULL
+      LEFT JOIN inventory_stock st
+        ON st.tenant_id = ? AND st.product_id = ? AND st.location_id = ?
+      LEFT JOIN inventory_locations l
+        ON l.tenant_id = ? AND l.id = ?
+      LIMIT 1
+    `, [tenantId, tenantId, productId, locationId, tenantId, productId, tenantId, productId, locationId, tenantId, locationId]);
+
+    const rule = ruleRows[0] || {};
+    const effectiveEnabled = Boolean(rule.effective_enabled);
+    const effectiveMinStock = Number(rule.effective_min_stock ?? 5);
+    const currentStock = Number(rule.current_stock ?? 0);
+    const isLow = effectiveEnabled && currentStock <= effectiveMinStock;
+
+    const [stateRows] = await this.pool.query(
+      'SELECT * FROM inventory_alert_states WHERE tenant_id = ? AND product_id = ? AND location_id = ? LIMIT 1',
+      [tenantId, productId, locationId]
+    );
+    const prev = stateRows[0] || null;
+    let newlyTriggered = false;
+    let resolved = false;
+
+    if (!prev) {
+      newlyTriggered = isLow;
+      await this.pool.query(`
+        INSERT INTO inventory_alert_states (
+          tenant_id, product_id, location_id, is_in_low_stock, last_threshold, last_quantity,
+          last_triggered_at, resolved_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NOW())
+      `, [tenantId, productId, locationId, isLow, effectiveMinStock, currentStock, isLow ? new Date() : null]);
+    } else if (!prev.is_in_low_stock && isLow) {
+      newlyTriggered = true;
+      await this.pool.query(`
+        UPDATE inventory_alert_states
+        SET is_in_low_stock = TRUE, last_threshold = ?, last_quantity = ?, last_triggered_at = NOW(), updated_at = NOW()
+        WHERE id = ? AND tenant_id = ?
+      `, [effectiveMinStock, currentStock, prev.id, tenantId]);
+    } else if (prev.is_in_low_stock && isLow) {
+      // Mismo episodio de stock bajo: actualizar último valor sin duplicar notificación
+      await this.pool.query(`
+        UPDATE inventory_alert_states
+        SET last_threshold = ?, last_quantity = ?, updated_at = NOW()
+        WHERE id = ? AND tenant_id = ?
+      `, [effectiveMinStock, currentStock, prev.id, tenantId]);
+    } else if (prev.is_in_low_stock && !isLow) {
+      // Se recuperó estrictamente por encima del umbral: cerrar episodio para permitir nueva alerta futura
+      resolved = true;
+      await this.pool.query(`
+        UPDATE inventory_alert_states
+        SET is_in_low_stock = FALSE, last_threshold = ?, last_quantity = ?, resolved_at = NOW(), updated_at = NOW()
+        WHERE id = ? AND tenant_id = ?
+      `, [effectiveMinStock, currentStock, prev.id, tenantId]);
+    } else {
+      await this.pool.query(`
+        UPDATE inventory_alert_states
+        SET last_threshold = ?, last_quantity = ?, updated_at = NOW()
+        WHERE id = ? AND tenant_id = ?
+      `, [effectiveMinStock, currentStock, prev.id, tenantId]);
+    }
+
+    return {
+      evaluated: true,
+      product_id: productId,
+      product_name: prod.product_name,
+      sku: prod.sku,
+      location_id: locationId,
+      location_name: rule.location_name || null,
+      current_stock: currentStock,
+      min_stock: effectiveMinStock,
+      alerts_enabled: effectiveEnabled,
+      threshold_source: rule.threshold_source || 'general',
+      is_in_low_stock: isLow,
+      newlyTriggered,
+      resolved
+    };
   }
 }
 

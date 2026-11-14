@@ -19,7 +19,10 @@ const GiftCardValidator = ({ isOpen, onClose }) => {
     setLoading(true);
     try {
       const res = await fetch(`/api/gifts?code=${code}`);
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error(`Respuesta inválida (${res.status})`);
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Error ${res.status}`);
       if (data && data.length > 0) {
         setCard(data[0]);
         setStep(2);
@@ -49,13 +52,17 @@ const GiftCardValidator = ({ isOpen, onClose }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: card.code, amount: redeemAmount })
       });
-      const data = await res.json();
+      const ct = res.headers.get('content-type') || '';
+      const data = ct.includes('application/json') ? await res.json() : { error: `Respuesta inválida (${res.status})` };
       if (res.ok) {
         alert("¡Monto canjeado exitosamente!");
         // Refresh card info
         const refreshRes = await fetch(`/api/gifts?code=${card.code}`);
-        const refreshData = await refreshRes.json();
-        setCard(refreshData[0]);
+        const rCt = refreshRes.headers.get('content-type') || '';
+        const refreshData = rCt.includes('application/json') ? await refreshRes.json() : [];
+        if (refreshRes.ok && Array.isArray(refreshData) && refreshData[0]) {
+          setCard(refreshData[0]);
+        }
         setRedeemAmount('');
       } else {
         alert("Error: " + data.error);

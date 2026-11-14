@@ -349,7 +349,7 @@ function createClientsRouter(pool, options = {}) {
       let validatedSalonId = null;
       if (salon_id) {
         const [validBranch] = await pool.query(
-          'SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+          'SELECT id::text AS id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id::text AS id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
           [String(salon_id), tenantId, String(salon_id), tenantId]
         );
         if (validBranch.length > 0) {
@@ -405,8 +405,9 @@ function createClientsRouter(pool, options = {}) {
 
       res.json({ id: clientId, tenant_id: tenantId, success: true });
     } catch (err) {
-      console.error('[CLIENTS POST ERROR]:', err);
-      res.status(500).json({ error: err.message });
+      const errorId = require('crypto').randomUUID();
+      console.error(`[CLIENTS POST ERROR ${errorId}] tenant=${req.tenantId} code=${err.code || 'ERR'}:`, err.message);
+      res.status(500).json({ error: 'No se pudo registrar el cliente. Intenta nuevamente.', error_id: errorId });
     }
   });
 
@@ -451,7 +452,7 @@ function createClientsRouter(pool, options = {}) {
           validatedSalonId = null;
         } else {
           const [validBranch] = await pool.query(
-            'SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+            'SELECT id::text AS id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id::text AS id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
             [String(salon_id), tenantId, String(salon_id), tenantId]
           );
           if (validBranch.length === 0) {

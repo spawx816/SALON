@@ -28,6 +28,15 @@ export default function InventoryModule() {
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [transfers, setTransfers] = useState([]);
   const [valuation, setValuation] = useState([]);
+  const [alertSettings, setAlertSettings] = useState({ alerts_enabled: true, default_min_stock: 5 });
+  const [alertOverrides, setAlertOverrides] = useState([]);
+  const [savingAlerts, setSavingAlerts] = useState(false);
+  const [overrideForm, setOverrideForm] = useState({
+    product_id: '',
+    location_id: '',
+    min_stock: '',
+    alerts_enabled: 'inherit'
+  });
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,6 +74,63 @@ export default function InventoryModule() {
     }
   };
 
+  const handleSaveGeneralAlerts = async (e) => {
+    e.preventDefault();
+    setSavingAlerts(true);
+    try {
+      await dataService.updateInventoryAlertSettings({
+        alerts_enabled: Boolean(alertSettings.alerts_enabled),
+        default_min_stock: Number(alertSettings.default_min_stock)
+      });
+      showNotification('Configuración general de alertas guardada.');
+      await loadTabData();
+    } catch (err) {
+      showNotification(err.message || 'Error guardando configuración de alertas', true);
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
+  const handleSaveOverride = async (e) => {
+    e.preventDefault();
+    if (!overrideForm.product_id) {
+      showNotification('Selecciona un producto para configurar la excepción.', true);
+      return;
+    }
+    setSavingAlerts(true);
+    try {
+      await dataService.upsertInventoryAlertOverride({
+        product_id: Number(overrideForm.product_id),
+        location_id: overrideForm.location_id || null,
+        min_stock: overrideForm.min_stock === '' ? null : Number(overrideForm.min_stock),
+        alerts_enabled:
+          overrideForm.alerts_enabled === 'inherit'
+            ? null
+            : overrideForm.alerts_enabled === 'enabled'
+      });
+      setOverrideForm({ product_id: '', location_id: '', min_stock: '', alerts_enabled: 'inherit' });
+      showNotification('Excepción de alerta guardada.');
+      await loadTabData();
+    } catch (err) {
+      showNotification(err.message || 'Error guardando excepción de alerta', true);
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
+  const handleDeleteOverride = async (overrideId) => {
+    setSavingAlerts(true);
+    try {
+      await dataService.deleteInventoryAlertOverride(overrideId);
+      showNotification('Excepción eliminada. El producto hereda el valor general.');
+      await loadTabData();
+    } catch (err) {
+      showNotification(err.message || 'Error eliminando excepción', true);
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
   useEffect(() => {
     if (!hasInventory) return;
     loadTabData();
@@ -78,12 +144,24 @@ export default function InventoryModule() {
         const data = await dataService.getInventoryProducts({ search: searchTerm });
         setProducts(data || []);
       } else if (activeTab === 'stock') {
-        const [stk, alr] = await Promise.all([
+        const [stk, alr, cfg, prods, locs] = await Promise.all([
           dataService.getInventoryStock(),
-          dataService.getInventoryAlerts()
+          dataService.getInventoryAlerts(),
+          dataService.getInventoryAlertSettings().catch(() => ({ settings: { alerts_enabled: true, default_min_stock: 5 }, overrides: [] })),
+          products.length > 0 ? Promise.resolve(products) : dataService.getInventoryProducts({ activeOnly: true }).catch(() => []),
+          locations.length > 0 ? Promise.resolve(locations) : dataService.getInventoryLocations().catch(() => [])
         ]);
         setStockList(stk || []);
         setAlerts(alr || []);
+        if (cfg?.settings) {
+          setAlertSettings({
+            alerts_enabled: Boolean(cfg.settings.alerts_enabled),
+            default_min_stock: cfg.settings.default_min_stock ?? 5
+          });
+        }
+        setAlertOverrides(cfg?.overrides || []);
+        if (products.length === 0) setProducts(prods || []);
+        if (locations.length === 0) setLocations(locs || []);
       } else if (activeTab === 'movements') {
         const data = await dataService.getInventoryMovements();
         setMovements(data || []);
@@ -410,6 +488,124 @@ export default function InventoryModule() {
           {/* TAB 2: EXISTENCIAS & ALERTAS */}
           {activeTab === 'stock' && (
             <div>
+              {/* PANEL DE CONFIGURACIÓN EDITABLE DE ALERTAS */}
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '1rem 1.25rem', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                      Configuración de Alertas de Inventario
+                    </h3>
+                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: '#475569' }}>
+                      Alertar cuando las existencias sean iguales o inferiores a <strong>{Number(alertSettings.default_min_stock ?? 0)}</strong>
+                    </p>
+                  </div>
+                  <form onSubmit={handleSaveGeneralAlerts} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.75rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(alertSettings.alerts_enabled)}
+                        onChange={(e) => setAlertSettings({ ...alertSettings, alerts_enabled: e.target.checked })}
+                      />
+                      Alertas activas
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>
+                      Umbral general:
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={alertSettings.default_min_stock}
+                        onChange={(e) => setAlertSettings({ ...alertSettings, default_min_stock: e.target.value })}
+                        style={{ width: '80px', padding: '0.35rem 0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={savingAlerts}
+                      style={{ background: '#0f172a', color: '#fff', border: 'none', padding: '0.42rem 0.85rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      {savingAlerts ? 'Guardando...' : 'Guardar general'}
+                    </button>
+                  </form>
+                </div>
+
+                {/* EXCEPCIONES POR PRODUCTO O SUCURSAL */}
+                <form onSubmit={handleSaveOverride} style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>Excepción:</span>
+                  <select
+                    value={overrideForm.product_id}
+                    onChange={(e) => setOverrideForm({ ...overrideForm, product_id: e.target.value })}
+                    style={{ padding: '0.35rem 0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.82rem', minWidth: '180px' }}
+                  >
+                    <option value="">Seleccionar producto...</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>{p.name || p.nombre} {p.sku ? `(${p.sku})` : ''}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={overrideForm.location_id}
+                    onChange={(e) => setOverrideForm({ ...overrideForm, location_id: e.target.value })}
+                    style={{ padding: '0.35rem 0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.82rem' }}
+                  >
+                    <option value="">Todas las ubicaciones</option>
+                    {locations.map(l => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Umbral (ej: 0)"
+                    value={overrideForm.min_stock}
+                    onChange={(e) => setOverrideForm({ ...overrideForm, min_stock: e.target.value })}
+                    style={{ width: '115px', padding: '0.35rem 0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.82rem' }}
+                  />
+                  <select
+                    value={overrideForm.alerts_enabled}
+                    onChange={(e) => setOverrideForm({ ...overrideForm, alerts_enabled: e.target.value })}
+                    style={{ padding: '0.35rem 0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.82rem' }}
+                  >
+                    <option value="inherit">Estado: Heredar general</option>
+                    <option value="enabled">Estado: Activa</option>
+                    <option value="disabled">Estado: Desactivada</option>
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={savingAlerts}
+                    style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '0.38rem 0.75rem', borderRadius: '6px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Guardar excepción
+                  </button>
+                </form>
+
+                {alertOverrides.length > 0 && (
+                  <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                    {alertOverrides.map(ov => (
+                      <span
+                        key={ov.id}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.25rem 0.55rem', fontSize: '0.78rem', color: '#334155' }}
+                      >
+                        <strong>{ov.product_name}</strong>
+                        <span>({ov.location_name || 'Todas'})</span>
+                        <span>
+                          {ov.min_stock !== null ? `≤ ${ov.min_stock}` : 'Umbral heredado'}
+                          {ov.alerts_enabled === false ? ' · Desactivada' : ov.alerts_enabled === true ? ' · Activa' : ''}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteOverride(ov.id)}
+                          title="Eliminar excepción y heredar valor general"
+                          style={{ border: 'none', background: 'transparent', color: '#dc2626', cursor: 'pointer', fontWeight: 700, padding: 0 }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {alerts.length > 0 && (
                 <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '1rem', marginBottom: '1.5rem' }}>
                   <h3 style={{ margin: '0 0 0.5rem', color: '#b45309', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -436,6 +632,7 @@ export default function InventoryModule() {
                       <th style={{ padding: '0.75rem 1rem' }}>Producto</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Almacén / Ubicación</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Cantidad Disponible</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>Umbral Mínimo</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Costo Promedio</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Estado</th>
                       <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Acción</th>
@@ -443,7 +640,12 @@ export default function InventoryModule() {
                   </thead>
                   <tbody>
                     {stockList.map(s => {
-                      const isLow = s.quantity <= s.min_stock;
+                      const isLow = Boolean(s.alerts_enabled ?? true) && Number(s.quantity) <= Number(s.min_stock ?? 0);
+                      const sourceLabel = s.threshold_source === 'location'
+                        ? 'Por sucursal'
+                        : s.threshold_source === 'product'
+                          ? 'Por producto'
+                          : 'Heredado del valor general';
                       return (
                         <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                           <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{s.sku || '—'}</td>
@@ -451,6 +653,10 @@ export default function InventoryModule() {
                           <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{s.location_name}</td>
                           <td style={{ padding: '0.75rem 1rem', fontWeight: 700, fontSize: '1rem', color: isLow ? '#dc2626' : '#0f172a' }}>
                             {Number(s.quantity).toFixed(2)} {s.unit_of_measure}
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', fontSize: '0.82rem', color: '#475569' }}>
+                            <div><strong>≤ {Number(s.min_stock ?? 0)}</strong></div>
+                            <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{sourceLabel}</div>
                           </td>
                           <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>RD$ {Number(s.average_cost).toFixed(2)}</td>
                           <td style={{ padding: '0.75rem 1rem' }}>

@@ -51,12 +51,32 @@ function createDgiiRouter(pool) {
   router.get('/sequences/availability', async (req, res) => {
     try {
       const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      }
+      const dgiiEnabled = process.env.DGII_ENABLED === 'true';
       const [rows] = await pool.query(
-        'SELECT * FROM dgii_ncf_sequences WHERE tenant_id = ? AND is_active = 1',
+        `SELECT id,
+                COALESCE(tipo_comprobante, '') AS type_code,
+                COALESCE(tipo_comprobante, '') AS tipo_comprobante,
+                COALESCE(serie, '') AS prefix,
+                COALESCE(serie, '') AS serie,
+                COALESCE(nombre_comprobante, '') AS name,
+                COALESCE(nombre_comprobante, '') AS nombre_comprobante,
+                COALESCE(secuencia_actual, 1) AS current_number,
+                COALESCE(secuencia_actual, 1) AS secuencia_actual,
+                COALESCE(secuencia_hasta, 0) AS max_number,
+                COALESCE(secuencia_hasta, 0) AS secuencia_hasta,
+                fecha_vencimiento AS expiration_date,
+                fecha_vencimiento,
+                estado,
+                1 AS is_active
+         FROM dgii_ncf_sequences
+         WHERE tenant_id = ? AND (estado = 'Activo' OR estado = '1')`,
         [tenantId]
       );
       const map = {};
-      rows.forEach(r => {
+      (rows || []).forEach(r => {
         const remaining = Math.max(0, Number(r.max_number || 0) - Number(r.current_number || 1) + 1);
         map[r.type_code] = {
           ...r,
@@ -64,7 +84,7 @@ function createDgiiRouter(pool) {
           available: remaining > 0
         };
       });
-      res.json({ sequences: rows, byType: map });
+      res.json({ dgiiEnabled, sequences: rows || [], byType: map });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

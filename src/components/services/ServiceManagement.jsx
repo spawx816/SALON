@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Sparkles, Plus, Search, Edit3, Trash2, Power, CheckCircle2, XCircle, 
   Tag, DollarSign, Percent, ShieldCheck, ArrowUpDown, Filter, AlertCircle,
@@ -6,8 +7,11 @@ import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
+import { useAuth } from '../../context/AuthContext';
 
 const ServiceManagement = () => {
+  const { user, isAdmin } = useAuth();
+  const canManageCommissions = Boolean(isAdmin || user?.permissions?.manage_commissions || user?.permissions?.manage_staff);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,7 +28,8 @@ const ServiceManagement = () => {
   const [formData, setFormData] = useState({
     nombre: '',
     descripcion: '',
-    categoria: 'Peluquería',
+    categoria: '',
+    commission_category_id: '',
     precio: '',
     tipo_item: 'Servicio',
     sku: '',
@@ -48,7 +53,12 @@ const ServiceManagement = () => {
   const [parsedItems, setParsedItems] = useState([]);
   const [bulkLoading, setBulkLoading] = useState(false);
 
-  const [categoriesList, setCategoriesList] = useState(['Peluquería', 'Coloración', 'Tratamientos', 'Uñas', 'Estética', 'Productos', 'General']);
+  const [categoriesList, setCategoriesList] = useState([]);
+  const [commissionCategories, setCommissionCategories] = useState([]);
+
+  const activeCommissionCategories = commissionCategories.filter(
+    c => String(c.estado || '').toLowerCase() === 'activo'
+  );
 
   useEffect(() => {
     loadServices();
@@ -67,12 +77,16 @@ const ServiceManagement = () => {
         dataService.getCommissionCategories().catch(() => [])
       ]);
       setServices(data || []);
+      const normalizedCommCats = Array.isArray(commCats) ? commCats : [];
+      setCommissionCategories(normalizedCommCats);
 
-      const commCatNames = Array.isArray(commCats) ? commCats.map(c => c.nombre).filter(Boolean) : [];
+      const activeCommCatNames = normalizedCommCats
+        .filter(c => String(c.estado || '').toLowerCase() === 'activo')
+        .map(c => c.nombre)
+        .filter(Boolean);
       const serviceCatNames = Array.isArray(data) ? data.map(s => s.categoria).filter(Boolean) : [];
-      const defaultCats = ['Peluquería', 'Coloración', 'Tratamientos', 'Uñas', 'Estética', 'Productos', 'General'];
 
-      const combined = Array.from(new Set([...commCatNames, ...serviceCatNames, ...defaultCats])).filter(Boolean);
+      const combined = Array.from(new Set([...activeCommCatNames, ...serviceCatNames])).filter(Boolean);
       setCategoriesList(combined);
     } catch (e) {
       console.error('Error cargando servicios:', e);
@@ -83,10 +97,12 @@ const ServiceManagement = () => {
 
   const handleOpenNewModal = () => {
     setEditingService(null);
+    const defaultCat = activeCommissionCategories[0] || null;
     setFormData({
       nombre: '',
       descripcion: '',
-      categoria: categoriesList[0] || 'Peluquería',
+      categoria: defaultCat?.nombre || '',
+      commission_category_id: defaultCat ? String(defaultCat.id) : '',
       precio: '',
       tipo_item: 'Servicio',
       sku: '',
@@ -106,10 +122,15 @@ const ServiceManagement = () => {
   const handleOpenEditModal = (service) => {
     setEditingService(service);
     const isProduct = service.item_type === 'PRODUCTO' || service.tipo_item === 'Producto' || service.categoria === 'Productos';
+    const matchedCommCat = commissionCategories.find(
+      c => (service.commission_category_id && Number(c.id) === Number(service.commission_category_id)) ||
+        (service.categoria && String(c.nombre || '').toLowerCase() === String(service.categoria).toLowerCase())
+    );
     setFormData({
       nombre: service.nombre || '',
       descripcion: service.descripcion || '',
-      categoria: service.categoria || 'Peluquería',
+      categoria: matchedCommCat?.nombre || service.categoria || '',
+      commission_category_id: matchedCommCat ? String(matchedCommCat.id) : (service.commission_category_id ? String(service.commission_category_id) : ''),
       precio: service.precio || '',
       tipo_item: isProduct ? 'Producto' : 'Servicio',
       sku: service.sku || '',
@@ -136,6 +157,10 @@ const ServiceManagement = () => {
       alert('El nombre del servicio o ítem es obligatorio.');
       return;
     }
+    if (!formData.commission_category_id) {
+      alert('Debes seleccionar una categoría activa de Esquemas de comisiones.');
+      return;
+    }
     if (isNaN(parseFloat(formData.precio)) || parseFloat(formData.precio) < 0) {
       alert('Por favor ingresa un precio válido.');
       return;
@@ -157,6 +182,7 @@ const ServiceManagement = () => {
       const payload = {
         ...formData,
         nombre: cleanName,
+        commission_category_id: Number(formData.commission_category_id),
         item_type: formData.tipo_item === 'Producto' ? 'PRODUCTO' : 'SERVICIO',
         costo: formData.tipo_item === 'Producto' && formData.costo !== '' ? parseFloat(formData.costo) || 0 : 0,
         min_stock: formData.tipo_item === 'Producto' ? (parseInt(formData.min_stock, 10) || 0) : 0,
@@ -811,19 +837,66 @@ Depilación Facial Completa,Estética,600,20,0`;
                   <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.35rem' }}>
                     Categoría <span style={{ color: '#ec4899' }}>*</span>
                   </label>
-                  <select
-                    value={formData.categoria}
-                    onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}
-                    style={{
-                      width: '100%', padding: '0.75rem 1rem', borderRadius: '12px',
-                      border: '1px solid #e4e4e7', fontSize: '0.88rem', fontWeight: 700,
-                      color: '#0f172a', background: '#fafafa', outline: 'none', cursor: 'pointer'
-                    }}
-                  >
-                    {categoriesList.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
+                  {(() => {
+                    const historicalInactiveCat = editingService
+                      ? commissionCategories.find(
+                          c =>
+                            String(c.id) === String(formData.commission_category_id) &&
+                            String(c.estado || '').toLowerCase() !== 'activo'
+                        )
+                      : null;
+                    return (
+                      <>
+                        <select
+                          required
+                          value={formData.commission_category_id}
+                          onChange={(e) => {
+                            const selected = activeCommissionCategories.find(
+                              c => String(c.id) === String(e.target.value)
+                            );
+                            setFormData({
+                              ...formData,
+                              commission_category_id: e.target.value,
+                              categoria: selected ? selected.nombre : ''
+                            });
+                          }}
+                          style={{
+                            width: '100%', padding: '0.75rem 1rem', borderRadius: '12px',
+                            border: '1px solid #e4e4e7', fontSize: '0.88rem', fontWeight: 700,
+                            color: '#0f172a', background: '#fafafa', outline: 'none', cursor: 'pointer'
+                          }}
+                        >
+                          {activeCommissionCategories.length === 0 && !historicalInactiveCat && (
+                            <option value="">Sin categorías activas en Esquemas de comisiones</option>
+                          )}
+                          {historicalInactiveCat && (
+                            <option value={String(historicalInactiveCat.id)} disabled>
+                              {historicalInactiveCat.nombre} (Inactiva — histórica)
+                            </option>
+                          )}
+                          {activeCommissionCategories.map(cat => (
+                            <option key={cat.id} value={String(cat.id)}>
+                              {cat.nombre}
+                            </option>
+                          ))}
+                        </select>
+                        {activeCommissionCategories.length === 0 && (
+                          <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', color: '#b45309', fontWeight: 600 }}>
+                            No hay categorías activas configuradas en Esquemas de comisiones.{' '}
+                            {canManageCommissions && (
+                              <Link
+                                to="/comisiones"
+                                onClick={() => setShowModal(false)}
+                                style={{ color: '#9333ea', textDecoration: 'underline', fontWeight: 700 }}
+                              >
+                                Configurar en Comisiones
+                              </Link>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div>

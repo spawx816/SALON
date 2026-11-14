@@ -3432,6 +3432,77 @@ export const dataService = {
     return await res.json();
   },
 
+  getInventoryAlertSettings: async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/alert-settings`, {
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  updateInventoryAlertSettings: async (payload) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/alert-settings`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  upsertInventoryAlertOverride: async (payload) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/alert-overrides`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  deleteInventoryAlertOverride: async (overrideId) => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/inventory/alert-overrides/${overrideId}`, {
+      method: 'DELETE',
+      headers: {
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Error ${res.status}`);
+    }
+    return await res.json();
+  },
+
   // Pro: Ubicaciones, Proveedores, Compras, Transferencias, Valorización
   getInventoryLocations: async () => {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;

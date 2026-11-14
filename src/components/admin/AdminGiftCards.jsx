@@ -12,10 +12,18 @@ const AdminGiftCards = () => {
   const fetchCards = async () => {
     try {
       const res = await fetch('/api/admin/gifts');
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Respuesta no válida del servidor (${res.status})`);
+      }
       const data = await res.json();
-      setCards(data);
+      if (!res.ok) {
+        throw new Error(data?.error || `Error ${res.status}`);
+      }
+      setCards(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error fetching cards:', err);
+      setCards([]);
     } finally {
       setLoading(false);
     }
@@ -39,7 +47,8 @@ const AdminGiftCards = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: selectedCard.code, amount: redeemAmount })
       });
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      const data = contentType.includes('application/json') ? await res.json() : { error: `Respuesta inesperada (${res.status})` };
       if (res.ok) {
         alert("¡Tarjeta canjeada exitosamente!");
         setSelectedCard(null);

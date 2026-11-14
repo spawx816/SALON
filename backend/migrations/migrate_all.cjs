@@ -30,6 +30,7 @@ const { up: upStorageAndPortability } = require('./20261110_phase3b_storage_and_
 const { up: upP2P3Extensions } = require('./20261110_phase3b_p2p3_extensions.cjs');
 const { up: upClientsInBasePlan } = require('./20261111_phase3c_clients_in_base_plan.cjs');
 const { up: upUnifyCatalogInventory } = require('./20261114_unify_catalog_inventory.cjs');
+const { up: upCatalogCategoriesAndAlerts } = require('./20261114_catalog_categories_and_inventory_alerts.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -213,6 +214,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Unifica Catálogo (services) como fuente única de productos y servicios y reapunta FKs de inventario hacia services(id)',
     execute: async (targetPool, targetSchema) => {
       return upUnifyCatalogInventory(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261114_catalog_categories_and_inventory_alerts',
+    description: 'Vincula services.commission_category_id a commission_categories y agrega configuración/overrides/estado de alertas de inventario',
+    execute: async (targetPool, targetSchema) => {
+      return upCatalogCategoriesAndAlerts(targetPool, targetSchema);
     }
   }
 ];

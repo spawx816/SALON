@@ -1091,7 +1091,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                           🎟️ Membresías (Plan Beauty)
                         </span>
                         <span style={{ fontWeight: '800', color: features.memberships ? '#db2777' : '#94a3b8' }}>
-                          {features.memberships ? 'Incluido en Plan' : 'Add-on Opcional ($29/mes)'}
+                          {features.memberships ? 'Incluido en Plan' : 'Add-on US$99/mes por sucursal + implementación'}
                         </span>
                       </div>
                     </div>
@@ -1300,13 +1300,15 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     { key: 'cajas', label: 'Apertura y Cierre de Cajas' },
                     { key: 'services_catalog', label: 'Catálogo de Servicios' },
                     { key: 'clients', label: 'Directorio de Clientes / CRM' },
-                    { key: 'memberships', label: 'Membresías Recurrentes (Plan Beauty)' }
+                    { key: 'memberships', label: 'Membresías B2C (Add-on independiente US$99/mes/sucursal)', lockedOff: true }
                   ].map(f => (
-                    <label key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: '#334155', cursor: 'pointer' }}>
+                    <label key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: f.lockedOff ? '#94a3b8' : '#334155', cursor: f.lockedOff ? 'not-allowed' : 'pointer' }}>
                       <input
                         type="checkbox"
-                        checked={Boolean(planFormData.included_features?.[f.key])}
+                        disabled={Boolean(f.lockedOff)}
+                        checked={f.lockedOff ? false : Boolean(planFormData.included_features?.[f.key])}
                         onChange={(e) => {
+                          if (f.lockedOff) return;
                           setPlanFormData({
                             ...planFormData,
                             included_features: {

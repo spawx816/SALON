@@ -62,7 +62,7 @@ function createPaymentsRouter(pool, helpers = {}) {
       let validatedSalonId = null;
       if (salon_id) {
         const [validBranch] = await pool.query(
-          'SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+          'SELECT id::text AS id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id::text AS id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
           [String(salon_id), tenantId, String(salon_id), tenantId]
         );
         if (validBranch.length > 0) validatedSalonId = String(validBranch[0].id);
@@ -228,7 +228,7 @@ function createPaymentsRouter(pool, helpers = {}) {
       let validatedSalonId = null;
       if (salon_id) {
         const [validBranch] = await pool.query(
-          'SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+          'SELECT id::text AS id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id::text AS id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
           [String(salon_id), tenantId, String(salon_id), tenantId]
         );
         if (validBranch.length > 0) validatedSalonId = String(validBranch[0].id);

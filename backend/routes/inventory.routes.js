@@ -167,6 +167,79 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
     }
   });
 
+  const canConfigureAlerts = (req) => {
+    const roleLower = String(req.user?.role || req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
+    if (['admin', 'superadmin', 'administrador', 'owner', 'propietario'].includes(roleLower)) {
+      return true;
+    }
+    const perms = req.user?.permissions || {};
+    return Boolean(perms.manage_inventory || perms.inventory || perms.manage_settings);
+  };
+
+  // 9b. GET /api/inventory/alert-settings - Configuración general y overrides de alertas
+  router.get('/alert-settings', async (req, res) => {
+    try {
+      const data = await inventoryService.getAlertSettings(req.tenantId);
+      res.json(data);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'INVENTORY_ERROR' });
+    }
+  });
+
+  // 9c. PUT /api/inventory/alert-settings - Guardar configuración general de alertas del tenant
+  router.put('/alert-settings', async (req, res) => {
+    try {
+      if (!canConfigureAlerts(req)) {
+        return res.status(403).json({ error: 'No tienes permisos para configurar alertas de inventario.', code: 'FORBIDDEN' });
+      }
+      const { alerts_enabled, default_min_stock } = req.body || {};
+      const updated = await inventoryService.updateAlertSettings(req.tenantId, {
+        alerts_enabled,
+        default_min_stock,
+        updated_by: req.user?.name || req.user?.email || 'Admin'
+      });
+      res.json(updated);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'INVENTORY_ERROR' });
+    }
+  });
+
+  // 9d. PUT /api/inventory/alert-overrides - Crear o editar override por producto / sucursal
+  router.put('/alert-overrides', async (req, res) => {
+    try {
+      if (!canConfigureAlerts(req)) {
+        return res.status(403).json({ error: 'No tienes permisos para configurar alertas de inventario.', code: 'FORBIDDEN' });
+      }
+      const { product_id, location_id, alerts_enabled, min_stock } = req.body || {};
+      const updated = await inventoryService.upsertAlertOverride(req.tenantId, {
+        product_id,
+        location_id: location_id || null,
+        alerts_enabled,
+        min_stock,
+        updated_by: req.user?.name || req.user?.email || 'Admin'
+      });
+      res.json(updated);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'INVENTORY_ERROR' });
+    }
+  });
+
+  // 9e. DELETE /api/inventory/alert-overrides/:id - Eliminar override (vuelve a heredar valor general)
+  router.delete('/alert-overrides/:id', async (req, res) => {
+    try {
+      if (!canConfigureAlerts(req)) {
+        return res.status(403).json({ error: 'No tienes permisos para configurar alertas de inventario.', code: 'FORBIDDEN' });
+      }
+      const deleted = await inventoryService.deleteAlertOverride(req.tenantId, req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: 'Excepción de alerta no encontrada.', code: 'NOT_FOUND' });
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message, code: err.code || 'INVENTORY_ERROR' });
+    }
+  });
+
   // ==========================================
   // TOMA FÍSICA DE INVENTARIO (BASE Y PRO - REM-P2-03)
   // ==========================================

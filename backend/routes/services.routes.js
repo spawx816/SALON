@@ -25,8 +25,53 @@ function createServicesRouter(pool) {
       tax_rate: r.tax_rate !== undefined && r.tax_rate !== null ? parseFloat(r.tax_rate) : 0.18,
       min_stock: r.min_stock !== undefined && r.min_stock !== null ? parseFloat(r.min_stock) : 0,
       track_stock: r.track_stock !== undefined && r.track_stock !== null ? Boolean(r.track_stock) : isProduct,
+      commission_category_id: r.commission_category_id !== undefined && r.commission_category_id !== null ? Number(r.commission_category_id) : null,
+      commission_category_nombre: r.commission_category_nombre || null,
+      commission_category_estado: r.commission_category_estado || null,
       current_stock: r.current_stock !== undefined && r.current_stock !== null ? parseFloat(r.current_stock) : 0,
     };
+  };
+
+  const resolveCommissionCategory = async (tenantId, commissionCategoryId, fallbackExistingId = null, fallbackName = null) => {
+    if (commissionCategoryId !== undefined && commissionCategoryId !== null && commissionCategoryId !== '') {
+      const parsedId = parseInt(commissionCategoryId, 10);
+      if (!Number.isInteger(parsedId) || parsedId <= 0) {
+        return { error: 'La categoría seleccionada no es válida.', status: 400 };
+      }
+      const [rows] = await pool.query(
+        'SELECT id, nombre, estado FROM commission_categories WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [parsedId, tenantId]
+      );
+      if (!rows || rows.length === 0) {
+        return { error: 'La categoría seleccionada no existe en los esquemas de comisiones del negocio.', status: 400 };
+      }
+      const cat = rows[0];
+      const isKeepingSameHistorical = fallbackExistingId && Number(fallbackExistingId) === Number(cat.id);
+      const isActiveCat = String(cat.estado || '').toLowerCase() === 'activo';
+      if (!isActiveCat && !isKeepingSameHistorical) {
+        return { error: 'La categoría seleccionada está inactiva y no puede asignarse a nuevos ítems.', status: 400 };
+      }
+      return { id: cat.id, nombre: cat.nombre, estado: cat.estado };
+    }
+    if (fallbackExistingId) {
+      const [rows] = await pool.query(
+        'SELECT id, nombre, estado FROM commission_categories WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [fallbackExistingId, tenantId]
+      );
+      if (rows && rows.length > 0) {
+        return { id: rows[0].id, nombre: rows[0].nombre, estado: rows[0].estado };
+      }
+    }
+    if (fallbackName) {
+      const [rows] = await pool.query(
+        'SELECT id, nombre, estado FROM commission_categories WHERE tenant_id = ? AND LOWER(nombre) = LOWER(?) LIMIT 1',
+        [tenantId, String(fallbackName).trim()]
+      );
+      if (rows && rows.length > 0 && String(rows[0].estado || '').toLowerCase() === 'activo') {
+        return { id: rows[0].id, nombre: rows[0].nombre, estado: rows[0].estado };
+      }
+    }
+    return { error: 'Debes seleccionar una categoría activa configurada en Esquemas de comisiones.', status: 400 };
   };
 
   // Obtener lista de servicios y productos del catálogo canónico del tenant autenticado
@@ -36,12 +81,15 @@ function createServicesRouter(pool) {
       const { active_only, item_type } = req.query;
       let query = `
         SELECT s.*,
+               cc.nombre AS commission_category_nombre,
+               cc.estado AS commission_category_estado,
                COALESCE((
                  SELECT SUM(st.quantity)
                  FROM inventory_stock st
                  WHERE st.product_id = s.id AND st.tenant_id = s.tenant_id
                ), 0) AS current_stock
         FROM services s
+        LEFT JOIN commission_categories cc ON cc.id = s.commission_category_id AND cc.tenant_id = s.tenant_id
         WHERE s.tenant_id = ?
       `;
       const params = [tenantId];
@@ -61,32 +109,8 @@ function createServicesRouter(pool) {
     }
   });
 
-  // Obtener servicio por ID dentro del tenant autenticado
-  router.get('/:id', async (req, res) => {
-    try {
-      const tenantId = req.tenantId;
-      const { id } = req.params;
-      const [rows] = await pool.query(
-        `SELECT s.*,
-                COALESCE((
-                  SELECT SUM(st.quantity)
-                  FROM inventory_stock st
-                  WHERE st.product_id = s.id AND st.tenant_id = s.tenant_id
-                ), 0) AS current_stock
-         FROM services s
-         WHERE s.id = ? AND s.tenant_id = ?`,
-        [id, tenantId]
-      );
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
-      }
-      res.json(normalizeCatalogRow(rows[0]));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   // Obtener los servicios más utilizados por sucursal dentro del tenant autenticado
+  // IMPORTANTE: debe declararse ANTES de '/:id' para que 'top' no se interprete como UUID.
   router.get('/top', async (req, res) => {
     try {
       const tenantId = req.tenantId;
@@ -186,6 +210,34 @@ function createServicesRouter(pool) {
     }
   });
 
+  // Obtener servicio por ID dentro del tenant autenticado
+  router.get('/:id', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { id } = req.params;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
+        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
+      }
+      const [rows] = await pool.query(
+        `SELECT s.*,
+                COALESCE((
+                  SELECT SUM(st.quantity)
+                  FROM inventory_stock st
+                  WHERE st.product_id = s.id AND st.tenant_id = s.tenant_id
+                ), 0) AS current_stock
+         FROM services s
+         WHERE s.id = ? AND s.tenant_id = ?`,
+        [id, tenantId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
+      }
+      res.json(normalizeCatalogRow(rows[0]));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Importación masiva de servicios (scoped al tenant autenticado)
   router.post('/bulk-import', async (req, res) => {
     try {
@@ -244,7 +296,7 @@ function createServicesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const {
-        nombre, name, categoria, category, subcategoria, precio, price, costo, cost,
+        nombre, name, categoria, category, commission_category_id, subcategoria, precio, price, costo, cost,
         duracion, duration, activo, tipo_comision, comision_valor,
         item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
       } = req.body;
@@ -252,6 +304,16 @@ function createServicesRouter(pool) {
       const rawPrice = precio !== undefined ? precio : price;
       if (!finalName || rawPrice === undefined) {
         return res.status(400).json({ error: 'Nombre y precio son obligatorios' });
+      }
+
+      const catResolution = await resolveCommissionCategory(
+        tenantId,
+        commission_category_id,
+        null,
+        categoria || category
+      );
+      if (catResolution.error) {
+        return res.status(catResolution.status || 400).json({ error: catResolution.error, code: 'INVALID_COMMISSION_CATEGORY' });
       }
 
       const rawType = String(item_type || tipo_item || 'SERVICIO').trim().toUpperCase();
@@ -264,7 +326,7 @@ function createServicesRouter(pool) {
       const isActive = activo !== undefined ? (activo ? 1 : 0) : 1;
       const cleanSku = sku ? String(sku).trim() : null;
       const cleanBarcode = barcode ? String(barcode).trim() : null;
-      const cleanCategory = categoria || category || (canonicalType === 'PRODUCTO' ? 'Productos' : 'Peluquería');
+      const cleanCategory = catResolution.nombre;
 
       if (cleanSku) {
         const [dupSku] = await pool.query(
@@ -287,17 +349,18 @@ function createServicesRouter(pool) {
 
       const [result] = await pool.query(
         `INSERT INTO services (
-          tenant_id, name, nombre, categoria, category, subcategoria,
+          tenant_id, name, nombre, categoria, category, commission_category_id, subcategoria,
           precio, price, costo, duracion, duration_minutes,
           activo, is_active, tipo_comision, comision_valor,
           item_type, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
         [
           tenantId,
           finalName,
           finalName,
           cleanCategory,
           cleanCategory,
+          catResolution.id,
           subcategoria || 'General',
           parsedPrice,
           parsedPrice,
@@ -335,7 +398,7 @@ function createServicesRouter(pool) {
       const tenantId = req.tenantId;
       const { id } = req.params;
       const {
-        nombre, name, categoria, category, subcategoria, precio, price, costo, cost,
+        nombre, name, categoria, category, commission_category_id, subcategoria, precio, price, costo, cost,
         duracion, duration, activo, tipo_comision, comision_valor,
         item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
       } = req.body;
@@ -379,7 +442,16 @@ function createServicesRouter(pool) {
         ? 0
         : (parseInt(duracion !== undefined ? duracion : (duration !== undefined ? duration : existing.duracion)) || 30);
       const isActive = activo !== undefined ? (activo ? 1 : 0) : (existing.activo ?? 1);
-      const cleanCategory = categoria || category || existing.categoria || existing.category || 'General';
+      const catResolution = await resolveCommissionCategory(
+        tenantId,
+        commission_category_id,
+        existing.commission_category_id,
+        categoria || category || existing.categoria || existing.category
+      );
+      if (catResolution.error) {
+        return res.status(catResolution.status || 400).json({ error: catResolution.error, code: 'INVALID_COMMISSION_CATEGORY' });
+      }
+      const cleanCategory = catResolution.nombre;
       const cleanSku = sku !== undefined ? (sku ? String(sku).trim() : null) : existing.sku;
       const cleanBarcode = barcode !== undefined ? (barcode ? String(barcode).trim() : null) : existing.barcode;
 
@@ -404,7 +476,7 @@ function createServicesRouter(pool) {
 
       const [result] = await pool.query(
         `UPDATE services SET
-          name=?, nombre=?, categoria=?, category=?, subcategoria=?,
+          name=?, nombre=?, categoria=?, category=?, commission_category_id=?, subcategoria=?,
           precio=?, price=?, costo=?, duracion=?, duration_minutes=?,
           activo=?, is_active=?, tipo_comision=?, comision_valor=?,
           item_type=?, sku=?, barcode=?, unit_of_measure=?, tax_rate=?, min_stock=?, track_stock=?,
@@ -415,6 +487,7 @@ function createServicesRouter(pool) {
           finalName,
           cleanCategory,
           cleanCategory,
+          catResolution.id,
           subcategoria || existing.subcategoria || 'General',
           parsedPrice,
           parsedPrice,

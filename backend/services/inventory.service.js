@@ -149,6 +149,7 @@ class InventoryService {
     });
 
     await this.repo.updateStockBalance(tenantId, productId, locId, newQty, newAvgCost);
+    await this.evaluateLowStockAlert(tenantId, productId, locId);
 
     return {
       movement,
@@ -182,7 +183,7 @@ class InventoryService {
     }
 
     // Atomic deduction with row-level locking (SELECT ... FOR UPDATE) and auto-retry
-    return this.repo.executeAtomicSaleDeduction(tenantId, {
+    const res = await this.repo.executeAtomicSaleDeduction(tenantId, {
       productId,
       locationId: locId,
       quantity: qty,
@@ -191,6 +192,8 @@ class InventoryService {
       userId,
       userName
     });
+    await this.evaluateLowStockAlert(tenantId, productId, locId);
+    return res;
   }
 
   // === REVERSIÓN POR ANULACIÓN DE VENTA (POS VOID) ===
@@ -211,7 +214,7 @@ class InventoryService {
     }
 
     // Atomic reversal with row-level locking and idempotency protection
-    return this.repo.executeAtomicSaleVoid(tenantId, {
+    const res = await this.repo.executeAtomicSaleVoid(tenantId, {
       productId,
       locationId: locId,
       quantity: qty,
@@ -221,6 +224,8 @@ class InventoryService {
       userName,
       reason
     });
+    await this.evaluateLowStockAlert(tenantId, productId, locId);
+    return res;
   }
 
   // === AJUSTES DE STOCK (IN/OUT) CON AUTORIZACIÓN ===
@@ -259,7 +264,7 @@ class InventoryService {
     }
 
     if (this.repo.pool && typeof this.repo.executeAtomicAdjustment === 'function') {
-      return this.repo.executeAtomicAdjustment(tenantId, {
+      const res = await this.repo.executeAtomicAdjustment(tenantId, {
         productId,
         locationId: locId,
         quantity: qty,
@@ -269,6 +274,8 @@ class InventoryService {
         userName,
         productCost: Number(product.cost ?? product.costo ?? 0) || 0
       });
+      const alertEval = await this.evaluateLowStockAlert(tenantId, productId, locId);
+      return { ...res, alert_evaluation: alertEval };
     }
 
     const currentStock = await this.repo.getStock(tenantId, productId, locId);
@@ -320,6 +327,69 @@ class InventoryService {
   async listMovements(tenantId, filters = {}) {
     if (!tenantId) return [];
     return this.repo.listMovements(tenantId, filters);
+  }
+
+  // === CONFIGURACIÓN Y EVALUACIÓN DE ALERTAS DE STOCK ===
+  async getAlertSettings(tenantId) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    return this.repo.getAlertSettings(tenantId);
+  }
+
+  async updateAlertSettings(tenantId, payload) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    return this.repo.upsertAlertSettings(tenantId, payload);
+  }
+
+  async upsertAlertOverride(tenantId, payload) {
+    if (!tenantId) throw new Error('tenant_id es requerido');
+    return this.repo.upsertAlertOverride(tenantId, payload);
+  }
+
+  async deleteAlertOverride(tenantId, overrideId) {
+    if (!tenantId || !overrideId) throw new Error('tenant_id y overrideId son requeridos');
+    return this.repo.deleteAlertOverride(tenantId, overrideId);
+  }
+
+  async evaluateLowStockAlert(tenantId, productId, locationId) {
+    if (!this.repo || typeof this.repo.evaluateAndRecordAlertState !== 'function') {
+      return { evaluated: false };
+    }
+    const result = await this.repo.evaluateAndRecordAlertState(tenantId, productId, locationId);
+    if (result && result.newlyTriggered && this.repo.pool) {
+      await this._dispatchLowStockEmailBestEffort(tenantId, result).catch(() => {});
+    }
+    return result;
+  }
+
+  async _dispatchLowStockEmailBestEffort(tenantId, alert) {
+    try {
+      const [settingsRows] = await this.repo.pool.query(
+        'SELECT email, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, business_name FROM settings WHERE tenant_id = ? LIMIT 1',
+        [tenantId]
+      );
+      const s = settingsRows && settingsRows[0] ? settingsRows[0] : {};
+      const host = s.smtp_host || process.env.SMTP_HOST;
+      const user = s.smtp_user || process.env.SMTP_USER;
+      const pass = s.smtp_pass || process.env.SMTP_PASS;
+      const to = s.email || s.smtp_from;
+      if (!host || !user || !pass || !to) return;
+
+      const nodemailer = require('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host,
+        port: Number(s.smtp_port || process.env.SMTP_PORT || 587),
+        secure: Number(s.smtp_port || process.env.SMTP_PORT || 587) === 465,
+        auth: { user, pass }
+      });
+      await transporter.sendMail({
+        from: s.smtp_from || user,
+        to,
+        subject: `[${s.business_name || 'Etereas'}] Alerta de stock bajo: ${alert.product_name}`,
+        text: `El producto "${alert.product_name}"${alert.sku ? ` (${alert.sku})` : ''} en ${alert.location_name || 'Almacén'} alcanzó ${alert.current_stock} unidades (umbral configurado: <= ${alert.min_stock}).`
+      });
+    } catch (_) {
+      // No interrumpir operación de inventario si el canal SMTP no está disponible
+    }
   }
 }
 

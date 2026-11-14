@@ -381,10 +381,33 @@ function createSaasRouter(pool, options = {}) {
         const query = "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' ORDER BY id ASC";
         const [plans] = await pool.query(query);
         if (plans && plans.length > 0) {
-          return res.json(plans.map(p => ({
-            ...p,
-            code: normalizePlanCode(p.code)
-          })));
+          let planFeaturesRows = [];
+          try {
+            const [pf] = await pool.query('SELECT plan_code, feature_key, is_included FROM saas_plan_features');
+            planFeaturesRows = pf || [];
+          } catch (_) {}
+
+          return res.json(plans.map(p => {
+            const normCode = normalizePlanCode(p.code);
+            const baseIncluded = (typeof p.included_features === 'object' && p.included_features !== null)
+              ? { ...p.included_features }
+              : {};
+            const matrixForPlan = planFeaturesRows.filter(
+              r => String(r.plan_code || '').toUpperCase() === String(p.code || '').toUpperCase() || normalizePlanCode(r.plan_code) === normCode
+            );
+            for (const row of matrixForPlan) {
+              baseIncluded[row.feature_key] = Boolean(row.is_included);
+            }
+            // Modelo comercial vigente: membresías B2C es add-on independiente, nunca incluido gratis en Plan Principal
+            if (normCode === 'PRINCIPAL') {
+              baseIncluded.memberships = false;
+            }
+            return {
+              ...p,
+              code: normCode,
+              included_features: baseIncluded
+            };
+          }));
         }
       }
 
@@ -418,14 +441,19 @@ function createSaasRouter(pool, options = {}) {
   router.post('/plans', authenticate, requireSuperAdmin, async (req, res) => {
     const {
       name,
+      code,
       slug,
       description = '',
       badge_text = '',
+      price_per_branch,
       price_monthly = 0,
       price_yearly = 0,
+      users_per_branch = 3,
+      extra_user_price = 15,
       max_branches = 1,
       max_users = 5,
-      features = [],
+      billing_cycle = 'monthly',
+      included_features = {},
       is_public = true,
       is_featured = false,
       is_active = true
@@ -435,72 +463,198 @@ function createSaasRouter(pool, options = {}) {
       return res.status(400).json({ error: 'El nombre del plan es obligatorio' });
     }
 
+    const conn = await pool.getConnection();
     try {
-      const cleanSlug = (slug || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-      const featuresJson = JSON.stringify(Array.isArray(features) ? features : []);
+      await conn.beginTransaction();
+      const cleanSlug = (slug || code || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const planCode = String(code || cleanSlug).toUpperCase();
+      const normalizedFeatures = (typeof included_features === 'object' && included_features !== null && !Array.isArray(included_features))
+        ? { ...included_features }
+        : {};
+      if (normalizePlanCode(planCode) === 'PRINCIPAL') {
+        normalizedFeatures.memberships = false;
+      }
+      const featuresJson = JSON.stringify(normalizedFeatures);
+      const effectivePrice = price_per_branch !== undefined ? (parseFloat(price_per_branch) || 0) : (parseFloat(price_monthly) || 0);
 
-      await pool.query(`
-        INSERT INTO saas_plans (name, slug, description, badge_text, price_monthly, price_yearly, max_branches, max_users, features, is_public, is_featured, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+      const [inserted] = await conn.query(`
+        INSERT INTO saas_plans (
+          name, code, slug, description, badge_text, price, price_per_branch, price_monthly, price_yearly,
+          users_per_branch, extra_user_price, max_branches, max_users, billing_cycle, included_features,
+          is_public, is_featured, is_active
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)
+        RETURNING *
       `, [
-        name, cleanSlug, description, badge_text,
-        parseFloat(price_monthly) || 0, parseFloat(price_yearly) || 0,
-        parseInt(max_branches) || 1, parseInt(max_users) || 5,
-        featuresJson, Boolean(is_public), Boolean(is_featured), Boolean(is_active)
+        name, planCode, cleanSlug, description, badge_text,
+        effectivePrice, effectivePrice, parseFloat(price_monthly) || effectivePrice, parseFloat(price_yearly) || 0,
+        parseInt(users_per_branch, 10) || 3, parseFloat(extra_user_price) || 0,
+        parseInt(max_branches, 10) || 1, parseInt(max_users, 10) || 5,
+        billing_cycle || 'monthly', featuresJson,
+        Boolean(is_public), Boolean(is_featured), Boolean(is_active)
       ]);
 
-      res.status(201).json({ success: true, message: 'Plan SaaS creado exitosamente' });
+      const [validFeatureRows] = await conn.query('SELECT key FROM saas_features');
+      const validKeys = new Set((validFeatureRows || []).map(r => r.key));
+      for (const [fKey, fVal] of Object.entries(normalizedFeatures)) {
+        if (validKeys.has(fKey)) {
+          await conn.query(
+            `INSERT INTO saas_plan_features (plan_code, feature_key, is_included)
+             VALUES (?, ?, ?)
+             ON CONFLICT (plan_code, feature_key) DO UPDATE SET is_included = EXCLUDED.is_included`,
+            [planCode, fKey, Boolean(fVal)]
+          );
+        }
+      }
+
+      await conn.commit();
+      res.status(201).json({ success: true, plan: inserted?.[0] || null, message: 'Plan SaaS creado exitosamente' });
     } catch (error) {
+      await conn.rollback();
       console.error('Error creating SaaS plan:', error);
       res.status(500).json({ error: 'Error creando plan SaaS: ' + error.message });
+    } finally {
+      conn.release();
     }
   });
 
   // PUT /api/saas/plans/:id - Actualizar plan SaaS existente (PROTEGIDO SUPERADMIN)
   router.put('/plans/:id', authenticate, requireSuperAdmin, async (req, res) => {
     const { id } = req.params;
-    const {
-      name,
-      description = '',
-      badge_text = '',
-      price_monthly = 0,
-      price_yearly = 0,
-      max_branches = 1,
-      max_users = 5,
-      features = [],
-      is_public = true,
-      is_featured = false,
-      is_active = true
-    } = req.body;
+    const body = req.body || {};
 
+    const conn = await pool.getConnection();
     try {
-      const featuresJson = JSON.stringify(Array.isArray(features) ? features : []);
-      await pool.query(`
+      await conn.beginTransaction();
+
+      const [existingRows] = await conn.query('SELECT * FROM saas_plans WHERE id = ? LIMIT 1 FOR UPDATE', [id]);
+      if (!existingRows || existingRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Plan SaaS no encontrado' });
+      }
+      const existing = existingRows[0];
+      const normCode = normalizePlanCode(existing.code);
+
+      const nextName = body.name !== undefined ? body.name : existing.name;
+      const nextDescription = body.description !== undefined ? body.description : (existing.description || '');
+      const nextBadgeText = body.badge_text !== undefined ? body.badge_text : (existing.badge_text || '');
+      const nextPricePerBranch = body.price_per_branch !== undefined
+        ? (parseFloat(body.price_per_branch) || 0)
+        : Number(existing.price_per_branch ?? existing.price ?? 0);
+      const nextPriceMonthly = body.price_monthly !== undefined
+        ? (parseFloat(body.price_monthly) || 0)
+        : (existing.price_monthly !== null && existing.price_monthly !== undefined ? Number(existing.price_monthly) : nextPricePerBranch);
+      const nextPriceYearly = body.price_yearly !== undefined
+        ? (parseFloat(body.price_yearly) || 0)
+        : Number(existing.price_yearly ?? 0);
+      const nextUsersPerBranch = body.users_per_branch !== undefined
+        ? (parseInt(body.users_per_branch, 10) || 1)
+        : Number(existing.users_per_branch ?? 3);
+      const nextExtraUserPrice = body.extra_user_price !== undefined
+        ? (parseFloat(body.extra_user_price) || 0)
+        : Number(existing.extra_user_price ?? 0);
+      const nextMaxBranches = body.max_branches !== undefined
+        ? (parseInt(body.max_branches, 10) || 1)
+        : Number(existing.max_branches ?? 1);
+      const nextMaxUsers = body.max_users !== undefined
+        ? (parseInt(body.max_users, 10) || 1)
+        : Number(existing.max_users ?? 5);
+      const nextBillingCycle = body.billing_cycle !== undefined ? body.billing_cycle : (existing.billing_cycle || 'monthly');
+      const nextIsPublic = body.is_public !== undefined ? Boolean(body.is_public) : Boolean(existing.is_public);
+      const nextIsFeatured = body.is_featured !== undefined ? Boolean(body.is_featured) : Boolean(existing.is_featured);
+      const nextIsActive = body.is_active !== undefined ? Boolean(body.is_active) : Boolean(existing.is_active);
+
+      const baseFeatures = (typeof existing.included_features === 'object' && existing.included_features !== null)
+        ? { ...existing.included_features }
+        : {};
+      const incomingFeatures = (typeof body.included_features === 'object' && body.included_features !== null && !Array.isArray(body.included_features))
+        ? body.included_features
+        : null;
+      const mergedFeatures = incomingFeatures ? { ...baseFeatures, ...incomingFeatures } : baseFeatures;
+
+      // Modelo comercial vigente: Clientes e Inventario incluidos; Membresías B2C es add-on independiente
+      if (normCode === 'PRINCIPAL') {
+        mergedFeatures.memberships = false;
+      }
+
+      const [updatedRows] = await conn.query(`
         UPDATE saas_plans
         SET name = ?,
             description = ?,
             badge_text = ?,
+            price = ?,
+            price_per_branch = ?,
             price_monthly = ?,
             price_yearly = ?,
+            users_per_branch = ?,
+            extra_user_price = ?,
             max_branches = ?,
             max_users = ?,
-            features = ?::jsonb,
+            billing_cycle = ?,
+            included_features = ?::jsonb,
             is_public = ?,
             is_featured = ?,
             is_active = ?
         WHERE id = ?
+        RETURNING *
       `, [
-        name, description, badge_text,
-        parseFloat(price_monthly) || 0, parseFloat(price_yearly) || 0,
-        parseInt(max_branches) || 1, parseInt(max_users) || 5,
-        featuresJson, Boolean(is_public), Boolean(is_featured), Boolean(is_active),
+        nextName,
+        nextDescription,
+        nextBadgeText,
+        nextPricePerBranch,
+        nextPricePerBranch,
+        nextPriceMonthly,
+        nextPriceYearly,
+        nextUsersPerBranch,
+        nextExtraUserPrice,
+        nextMaxBranches,
+        nextMaxUsers,
+        nextBillingCycle,
+        JSON.stringify(mergedFeatures),
+        nextIsPublic,
+        nextIsFeatured,
+        nextIsActive,
         id
       ]);
 
-      res.json({ success: true, message: 'Plan SaaS actualizado exitosamente' });
+      if (incomingFeatures) {
+        const [validFeatureRows] = await conn.query('SELECT key FROM saas_features');
+        const validKeys = new Set((validFeatureRows || []).map(r => r.key));
+        for (const [fKey, fVal] of Object.entries(mergedFeatures)) {
+          if (validKeys.has(fKey)) {
+            await conn.query(
+              `INSERT INTO saas_plan_features (plan_code, feature_key, is_included)
+               VALUES (?, ?, ?)
+               ON CONFLICT (plan_code, feature_key) DO UPDATE SET is_included = EXCLUDED.is_included`,
+              [existing.code, fKey, Boolean(fVal)]
+            );
+          }
+        }
+      }
+
+      if (entitlementsService?.auditRepo?.log) {
+        try {
+          await entitlementsService.auditRepo.log({
+            tenantId: null,
+            actorId: req.user?.id || 'superadmin',
+            action: 'SAAS_PLAN_UPDATED',
+            details: { planId: id, planCode: existing.code, updatedFields: Object.keys(body) }
+          });
+        } catch (_) {}
+      }
+
+      await conn.commit();
+      res.json({
+        success: true,
+        plan: updatedRows?.[0] ? { ...updatedRows[0], code: normCode, included_features: mergedFeatures } : null,
+        message: 'Plan SaaS actualizado exitosamente'
+      });
     } catch (error) {
+      await conn.rollback();
       console.error('Error updating SaaS plan:', error);
       res.status(500).json({ error: 'Error actualizando plan SaaS: ' + error.message });
+    } finally {
+      conn.release();
     }
   });
 
