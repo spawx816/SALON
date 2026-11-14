@@ -57,46 +57,46 @@ export default function PayrollComparisonModal({
     const itemsB = detailB?.items || [];
 
     // Totales de ambos períodos
-    const netoA = parseFloat(pA.total_neto || 715875);
-    const netoB = parseFloat(pB.total_neto || 696900);
+    const netoA = parseFloat(pA.total_neto || 0);
+    const netoB = parseFloat(pB.total_neto || 0);
     const diffNeto = netoA - netoB;
     const pctNeto = netoB > 0 ? ((diffNeto / netoB) * 100).toFixed(1) : '0.0';
 
-    const ingA = parseFloat(pA.total_ingresos || 842350);
-    const ingB = parseFloat(pB.total_ingresos || 818200);
+    const ingA = parseFloat(pA.total_ingresos || 0);
+    const ingB = parseFloat(pB.total_ingresos || 0);
     const diffIng = ingA - ingB;
     const pctIng = ingB > 0 ? ((diffIng / ingB) * 100).toFixed(1) : '0.0';
 
-    const descA = parseFloat(pA.total_descuentos || 126475);
-    const descB = parseFloat(pB.total_descuentos || 121300);
+    const descA = parseFloat(pA.total_descuentos || 0);
+    const descB = parseFloat(pB.total_descuentos || 0);
     const diffDesc = descA - descB;
     const pctDesc = descB > 0 ? ((diffDesc / descB) * 100).toFixed(1) : '0.0';
 
-    const empA = parseInt(pA.total_empleados || 42);
-    const empB = parseInt(pB.total_empleados || 42);
+    const empA = parseInt(pA.total_empleados || 0, 10);
+    const empB = parseInt(pB.total_empleados || 0, 10);
     const diffEmp = empA - empB;
     const pctEmp = empB > 0 ? ((diffEmp / empB) * 100).toFixed(1) : '0.0';
 
     // Desglose de conceptos de Ingresos
     const sumField = (items, field) => items.reduce((acc, it) => acc + parseFloat(it[field] || 0), 0);
 
-    const calcSalarioA = itemsA.length ? sumField(itemsA, 'salario_fijo') : 402500;
-    const calcSalarioB = itemsB.length ? sumField(itemsB, 'salario_fijo') : 398100;
+    const calcSalarioA = itemsA.length ? sumField(itemsA, 'salario_fijo') : 0;
+    const calcSalarioB = itemsB.length ? sumField(itemsB, 'salario_fijo') : 0;
 
-    const calcComisionesA = itemsA.length ? sumField(itemsA, 'comisiones') : 188750;
-    const calcComisionesB = itemsB.length ? sumField(itemsB, 'comisiones') : 166450;
+    const calcComisionesA = itemsA.length ? sumField(itemsA, 'comisiones') : 0;
+    const calcComisionesB = itemsB.length ? sumField(itemsB, 'comisiones') : 0;
 
-    const calcHorasExtrasA = itemsA.length ? sumField(itemsA, 'horas_extras') : 28600;
-    const calcHorasExtrasB = itemsB.length ? sumField(itemsB, 'horas_extras') : 32500;
+    const calcHorasExtrasA = itemsA.length ? sumField(itemsA, 'horas_extras') : 0;
+    const calcHorasExtrasB = itemsB.length ? sumField(itemsB, 'horas_extras') : 0;
 
     const calcDescansoA = itemsA.length ? sumField(itemsA, 'descanso') : 0;
     const calcDescansoB = itemsB.length ? sumField(itemsB, 'descanso') : 0;
 
-    const calcFeriadosA = itemsA.length ? sumField(itemsA, 'feriados') : 12300;
-    const calcFeriadosB = itemsB.length ? sumField(itemsB, 'feriados') : 11200;
+    const calcFeriadosA = itemsA.length ? sumField(itemsA, 'feriados') : 0;
+    const calcFeriadosB = itemsB.length ? sumField(itemsB, 'feriados') : 0;
 
-    const calcOtrosIngA = itemsA.length ? sumField(itemsA, 'otros_ingresos') : 210200;
-    const calcOtrosIngB = itemsB.length ? sumField(itemsB, 'otros_ingresos') : 210000;
+    const calcOtrosIngA = itemsA.length ? sumField(itemsA, 'otros_ingresos') : 0;
+    const calcOtrosIngB = itemsB.length ? sumField(itemsB, 'otros_ingresos') : 0;
 
     const ingresosRows = [
       {
@@ -144,20 +144,20 @@ export default function PayrollComparisonModal({
     ];
 
     // Desglose de conceptos de Descuentos
-    const calcTssA = itemsA.length ? sumField(itemsA, 'tss') : 48500;
-    const calcTssB = itemsB.length ? sumField(itemsB, 'tss') : 47200;
+    const calcTssA = itemsA.length ? sumField(itemsA, 'tss') : 0;
+    const calcTssB = itemsB.length ? sumField(itemsB, 'tss') : 0;
 
-    const calcPrestamosA = itemsA.length ? sumField(itemsA, 'prestamos') : 24800;
-    const calcPrestamosB = itemsB.length ? sumField(itemsB, 'prestamos') : 22400;
+    const calcPrestamosA = itemsA.length ? sumField(itemsA, 'prestamos') : 0;
+    const calcPrestamosB = itemsB.length ? sumField(itemsB, 'prestamos') : 0;
 
-    const calcAnticiposA = itemsA.length ? sumField(itemsA, 'servicios') : 18750;
-    const calcAnticiposB = itemsB.length ? sumField(itemsB, 'servicios') : 17300;
+    const calcAnticiposA = itemsA.length ? sumField(itemsA, 'servicios') : 0;
+    const calcAnticiposB = itemsB.length ? sumField(itemsB, 'servicios') : 0;
 
-    const calcSeguroA = 12350;
-    const calcSeguroB = 12350;
+    const calcSeguroA = itemsA.length ? sumField(itemsA, 'seguro_medico') : 0;
+    const calcSeguroB = itemsB.length ? sumField(itemsB, 'seguro_medico') : 0;
 
-    const calcOtrosDescA = itemsA.length ? sumField(itemsA, 'otros_descuentos') : 22075;
-    const calcOtrosDescB = itemsB.length ? sumField(itemsB, 'otros_descuentos') : 22050;
+    const calcOtrosDescA = itemsA.length ? sumField(itemsA, 'otros_descuentos') : 0;
+    const calcOtrosDescB = itemsB.length ? sumField(itemsB, 'otros_descuentos') : 0;
 
     const descuentosRows = [
       {
