@@ -128,7 +128,8 @@ const AppContent = () => {
   const isPayrollActive = location.pathname.startsWith('/nomina') || location.pathname.startsWith('/comisiones') || location.pathname.startsWith('/descuentos-empleados');
 
   const isSuperAdmin = user?.role?.toLowerCase() === 'superadmin' || user?.role_name?.toLowerCase()?.includes('superadmin');
-  const isAdmin = !isSuperAdmin && (user?.role?.toLowerCase() === 'owner' || user?.role?.toLowerCase() === 'propietario' || user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador');
+  const isOwner = !isSuperAdmin && (user?.role?.toLowerCase() === 'owner' || user?.role?.toLowerCase() === 'propietario');
+  const isAdmin = !isSuperAdmin && (isOwner || user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador');
   const isClient = user?.role?.toLowerCase() === 'client' || user?.role?.toLowerCase() === 'cliente';
   const isAccountant = user?.role?.toLowerCase() === 'contador' || user?.role_name?.toLowerCase() === 'contador';
 
@@ -799,11 +800,11 @@ const AppContent = () => {
                           onClick={closeMobileMenu} 
                         />
                       )}
-                      {isAdmin && (
+                      {isOwner && (
                         <SidebarLink 
                           to="/facturacion-saas" 
                           icon={CreditCard} 
-                          label="Suscripción SaaS" 
+                          label="Mi suscripción" 
                           active={location.pathname === '/facturacion-saas' || location.pathname === '/billing'} 
                           onClick={closeMobileMenu} 
                         />
@@ -1067,8 +1068,8 @@ const AppContent = () => {
                   <Route path="/servicios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <ServiceManagement />)} />
                   <Route path="/inventario" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <InventoryModule />)} />
                   <Route path="/inventory" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <InventoryModule />)} />
-                  <Route path="/billing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <SaasBillingModule />)} />
-                  <Route path="/facturacion-saas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <SaasBillingModule />)} />
+                  <Route path="/billing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isOwner ? <SaasBillingModule /> : <Navigate to="/" replace />)} />
+                  <Route path="/facturacion-saas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isOwner ? <SaasBillingModule /> : <Navigate to="/" replace />)} />
                   <Route path="/comisiones" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <CommissionManagement />)} />
                   <Route path="/encuesta" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El sistema de Encuestas de Satisfacción" /> : ((isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />))} />
                   <Route path="/regalos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El módulo de Gift Cards y Certificados" /> : (isAdmin ? <AdminGiftCards /> : <GiftCertificates />))} />

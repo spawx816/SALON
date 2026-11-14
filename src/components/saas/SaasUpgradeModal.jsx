@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
-import { Sparkles, Check, ArrowRight, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import { Sparkles, Check, ArrowRight, AlertCircle, Loader2, X } from 'lucide-react';
+import './SaasBillingModule.css';
 
-export default function SaasUpgradeModal({ isOpen, onClose, currentPlan = 'BASE', onConfirmUpgrade, currency = 'DOP' }) {
+export default function SaasUpgradeModal({
+  isOpen,
+  onClose,
+  currentPlan = 'BASE',
+  onConfirmUpgrade,
+  currency = 'DOP',
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -20,119 +27,127 @@ export default function SaasUpgradeModal({ isOpen, onClose, currentPlan = 'BASE'
     }
   };
 
-  const isProTarget = currentPlan === 'BASE';
-  const proMonthly = currency === 'USD' ? 'US$ 99.00' : 'RD$ 5,900.00';
-  const baseMonthly = currency === 'USD' ? 'US$ 49.00' : 'RD$ 2,900.00';
+  const isProTarget = String(currentPlan).toUpperCase() === 'BASE';
+  const proMonthly = currency === 'USD' ? 'US$99' : 'RD$5,900.00';
+  const baseMonthly = currency === 'USD' ? 'US$49' : 'RD$2,900.00';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className={`p-6 ${isProTarget ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white' : 'bg-slate-900 text-white'}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-5 h-5 text-amber-200" />
-            <span className="text-xs uppercase tracking-widest font-bold text-amber-200">
-              {isProTarget ? 'Upgrade de Nivel Empresarial' : 'Cambio a Plan Base'}
+    <div
+      className="sb-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sb-upgrade-modal-title"
+    >
+      <div className="sb-modal-card">
+        <div className="sb-modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="sb-icon-box" aria-hidden="true">
+              <Sparkles size={16} />
             </span>
+            <div>
+              <h3 id="sb-upgrade-modal-title">
+                {isProTarget ? 'Cambiar a Plan PRO' : 'Cambiar a Plan Base'}
+              </h3>
+              <p className="sb-meta-text" style={{ margin: 0 }}>
+                {isProTarget
+                  ? 'Desbloquea membresías, contratos, marketing y multi-sucursal.'
+                  : 'El cambio a Plan Base se programará para el final del período actual.'}
+              </p>
+            </div>
           </div>
-          <h3 className="text-2xl font-bold">
-            {isProTarget ? 'Evoluciona a SalonPro PRO' : 'Solicitar Plan Base'}
-          </h3>
-          <p className="text-sm opacity-90 mt-1">
-            {isProTarget
-              ? 'Desbloquea membresías Plan Beauty, contratos, marketing y transferencias multi-sucursal.'
-              : 'Regresa al plan operativo esencial con POS, DGII y nómina.'}
-          </p>
+          <button
+            type="button"
+            className="sb-modal-close"
+            onClick={onClose}
+            disabled={loading}
+            aria-label="Cerrar"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {isProTarget ? (
-            <div className="space-y-4">
-              <div className="bg-amber-50/70 border border-amber-200/60 rounded-xl p-4">
-                <div className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-1">
-                  Transparencia de Prorrateo Matemático
-                </div>
-                <p className="text-xs text-amber-900 leading-relaxed">
-                  Solo pagarás la diferencia proporcional por los días restantes de tu ciclo mensual actual. El crédito no utilizado de tu Plan Base ({baseMonthly}) se deducirá automáticamente del cargo del nuevo Plan PRO ({proMonthly}).
-                </p>
-              </div>
-
-              <div className="space-y-2 text-sm">
-                <div className="font-semibold text-slate-800">Todo lo incluido en tu nuevo Plan PRO:</div>
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Directorio y fichas completas de Clientas (CRM)</span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Membresías mensuales recurrentes Plan Beauty</span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Transferencias de stock entre sucursales y proveedores</span>
-                </div>
-                <div className="flex items-center gap-2 text-slate-600">
-                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Ampliación hasta 5 sucursales y 15 usuarios</span>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3 text-sm text-slate-600">
-              <p>
-                El cambio a Plan Base se programará para entrar en vigencia al final de tu período de facturación actual.
-              </p>
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
-                <div className="font-semibold text-slate-700">Requisitos de Límites:</div>
-                <div>• Máximo 1 sucursal activa</div>
-                <div>• Máximo 3 usuarios colaboradores</div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={loading}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold text-sm shadow-md transition-all ${
-                isProTarget
-                  ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20'
-                  : 'bg-slate-800 hover:bg-slate-900 text-white shadow-slate-800/20'
-              }`}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Procesando...</span>
-                </>
-              ) : (
-                <>
-                  <span>{isProTarget ? 'Confirmar Upgrade a PRO' : 'Confirmar Downgrade'}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
+        {error && (
+          <div className="sb-alert sb-alert-error" role="alert">
+            <AlertCircle size={16} />
+            <span>{error}</span>
           </div>
+        )}
+
+        <div className="sb-kv-list" style={{ marginBottom: '16px' }}>
+          <div className="sb-kv-row">
+            <span className="sb-kv-label">Plan seleccionado</span>
+            <span className="sb-kv-value">{isProTarget ? 'Plan PRO' : 'Plan Base'}</span>
+          </div>
+          <div className="sb-kv-row">
+            <span className="sb-kv-label">Tarifa mensual</span>
+            <span className="sb-kv-value">
+              {isProTarget ? `${proMonthly} / mes` : `${baseMonthly} / mes`}
+            </span>
+          </div>
+        </div>
+
+        {isProTarget ? (
+          <div className="sb-empty-box" style={{ textAlign: 'left', marginBottom: '16px' }}>
+            <div style={{ fontWeight: 600, marginBottom: '8px', color: '#0f172a' }}>
+              Incluye todo lo del Plan Base (POS, Clientes/CRM, caja y nómina) más:
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '6px' }}>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={14} color="#059669" />
+                <span>Módulo de membresías, contratos y cobros recurrentes</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={14} color="#059669" />
+                <span>Automatizaciones de marketing</span>
+              </li>
+              <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Check size={14} color="#059669" />
+                <span>Capacidad ampliada de sucursales y usuarios</span>
+              </li>
+            </ul>
+          </div>
+        ) : (
+          <div className="sb-empty-box" style={{ textAlign: 'left', marginBottom: '16px' }}>
+            <div style={{ fontWeight: 600, marginBottom: '6px', color: '#0f172a' }}>
+              Requisitos para cambiar a Plan Base:
+            </div>
+            <div>• Máximo 1 sucursal activa</div>
+            <div>• Máximo 3 usuarios colaboradores</div>
+            <div style={{ marginTop: '6px' }}>
+              Mantiene POS, Clientes/CRM, facturación y nómina; los módulos exclusivos de PRO se desactivan al finalizar el ciclo actual.
+            </div>
+          </div>
+        )}
+
+        <div className="sb-modal-footer">
+          <button
+            type="button"
+            className="sb-btn"
+            onClick={onClose}
+            disabled={loading}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="sb-btn sb-btn-primary"
+            onClick={handleConfirm}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <Loader2 size={15} className="sb-spin" />
+                <span>Procesando...</span>
+              </>
+            ) : (
+              <>
+                <span>{isProTarget ? 'Confirmar cambio a PRO' : 'Confirmar cambio a Base'}</span>
+                <ArrowRight size={15} />
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>
   );
 }
-
