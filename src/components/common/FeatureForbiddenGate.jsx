@@ -1,10 +1,10 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, Sparkles, ArrowLeft, ArrowUpRight } from 'lucide-react';
+import './FeatureForbiddenGate.css';
 
 export default function FeatureForbiddenGate({
-  featureName = 'Esta funcionalidad',
-  requiredPlan = 'PRO'
+  featureName = 'Esta funcionalidad'
 }) {
   const navigate = useNavigate();
 
@@ -12,37 +12,37 @@ export default function FeatureForbiddenGate({
     <div
       role="alert"
       aria-live="polite"
-      className="min-h-[70vh] flex items-center justify-center p-4 sm:p-6"
+      className="ffg-wrapper"
     >
-      <div className="max-w-lg w-full bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden p-6 sm:p-8 text-center space-y-6">
+      <div className="ffg-card">
         {/* Icon & Badge */}
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center">
-            <ShieldAlert className="w-8 h-8" aria-hidden="true" />
+        <div className="ffg-header">
+          <div className="ffg-icon-box">
+            <ShieldAlert className="ffg-icon-lg" aria-hidden="true" />
           </div>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
-            <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+          <span className="ffg-badge">
+            <Sparkles className="ffg-icon-xs" aria-hidden="true" />
             Add-on Requerido
           </span>
         </div>
 
         {/* Text Details */}
-        <div className="space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+        <div className="ffg-body">
+          <h1 className="ffg-title">
             Acceso Restringido (403)
           </h1>
-          <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base leading-relaxed">
+          <p className="ffg-description">
             {featureName} requiere el add-on de Suscripciones y Membresías B2C. Puedes solicitar su activación desde Mi suscripción sin afectar tu operación ni tus registros de clientes.
           </p>
         </div>
 
         {/* Benefits Pill */}
-        <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-700/60 text-left text-xs sm:text-sm text-slate-700 dark:text-slate-300 space-y-2">
-          <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" aria-hidden="true" />
+        <div className="ffg-benefits">
+          <div className="ffg-benefits-title">
+            <Sparkles className="ffg-icon-sm" aria-hidden="true" />
             <span>Incluye el add-on Suscripciones y Membresías B2C:</span>
           </div>
-          <ul className="space-y-1 pl-6 list-disc text-slate-600 dark:text-slate-400">
+          <ul className="ffg-benefits-list">
             <li>Planes de membresía B2C y control de beneficios por ciclo</li>
             <li>Contratos digitales firmados por tus clientas</li>
             <li>Seguimiento de cobros recurrentes de membresías</li>
@@ -50,21 +50,21 @@ export default function FeatureForbiddenGate({
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col sm:flex-row gap-3 pt-2">
+        <div className="ffg-actions">
           <button
             type="button"
             onClick={() => navigate('/facturacion-saas')}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold shadow-lg shadow-amber-500/20 transition-all focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+            className="ffg-btn ffg-btn-primary"
           >
             <span>Ir a Mi suscripción</span>
-            <ArrowUpRight className="w-4 h-4" aria-hidden="true" />
+            <ArrowUpRight className="ffg-icon-sm" aria-hidden="true" />
           </button>
           <button
             type="button"
             onClick={() => navigate('/')}
-            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400"
+            className="ffg-btn ffg-btn-secondary"
           >
-            <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+            <ArrowLeft className="ffg-icon-sm" aria-hidden="true" />
             <span>Volver al Inicio</span>
           </button>
         </div>
