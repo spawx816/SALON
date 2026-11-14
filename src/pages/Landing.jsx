@@ -1,129 +1,190 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
-  User,
-  Lock,
-  Mail,
-  CreditCard,
-  ShieldCheck,
-  CalendarDays,
-  CheckCircle,
-  CheckCircle2,
-  MapPin,
-  Phone,
-  Eye,
-  EyeOff,
-  Sparkles,
-  X,
-  Clock,
-  Scissors,
-  ChevronDown,
-  ChevronUp,
-  HelpCircle,
-  Building2,
   Receipt,
   Users,
-  Crown,
-  Wallet
+  Clock,
+  FileSpreadsheet,
+  BarChart3,
+  LineChart,
+  Eye,
+  EyeOff,
+  Check,
+  X,
+  Plus,
+  Minus,
+  Menu,
+  ChevronRight,
+  Lock
 } from 'lucide-react';
-import './Landing.css';
 import { validateName, cleanPhone } from '../utils/formUtils';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
-import { PublicHeader, PublicFooter } from '../components/common/PublicLayout';
+import './LandingEtereas.css';
 
-const SAAS_FAQS = [
+const CANONICAL_FALLBACK_PLANS = [
   {
-    question: '¿Cuál es la diferencia exacta entre el Plan Base y el Plan Pro?',
-    answer: 'El Plan Base ($49 USD/mes por sucursal) incluye el sistema POS de recepción, facturación fiscal DGII (606, 607, IT-1), catálogo de productos y servicios, cajas registradoras, directorio CRM de clientes, control de personal, comisiones, nómina y creación de usuarios, pero NO incluye las suscripciones mensuales ni los contratos de membresía. El Plan Pro ($99 USD/mes por sucursal) incluye todo el Plan Base más el ecosistema completo de Suscripciones y Membresías (Plan Beauty, contratos digitales, cupos de lavados de 30 días, descuentos de cumpleaños, marketing, encuestas y Gift Cards).'
+    id: 1,
+    code: 'base',
+    name: 'Plan Base',
+    price_monthly: 49,
+    extra_user_price: 15,
+    users_included: 3,
+    branches_included: 1,
+    description:
+      'Todo lo esencial para operar tu negocio: POS, cajas, inventario operativo, Clientes/CRM, asistencia, nómina y reportes DGII.'
   },
   {
-    question: '¿Puedo comenzar con el Plan Base y luego subir mi salón al Plan Pro?',
-    answer: 'Sí. Tu salón puede iniciar operando su facturación diaria, inventario y comisiones en el Plan Base y activar el Plan Pro en cualquier momento desde el módulo de Personalización y Plan sin perder su historial contable ni sus configuraciones.'
-  },
-  {
-    question: '¿Cuántos usuarios y sucursales incluye cada licencia?',
-    answer: 'Cada sucursal licenciada incluye 3 usuarios operativos (por ejemplo: Administrador, Recepcionista/Cajera y Contador). Puedes agregar sucursales adicionales o asientos de usuario extra ($15 USD/mes por asiento adicional) según crezca tu equipo.'
-  },
-  {
-    question: '¿El sistema es compatible con impresoras térmicas de recepción y reportes de la DGII?',
-    answer: 'Sí. El POS cuenta con formato homologado para impresoras térmicas de 80mm (área útil de 60mm con código QR de verificación), manejo de secuencias de comprobantes fiscales (NCF / e-CF), Notas de Crédito y generación automática de los reportes 606, 607 e IT-1.'
-  },
-  {
-    question: '¿Cómo se protegen los descuentos manuales y cambios de precio en la caja?',
-    answer: 'El sistema cuenta con autorización mediante PIN de Administrador. Ningún cajero o recepcionista puede alterar manualmente un porcentaje de descuento ni rebajar un precio base sin ingresar el PIN o código dinámico autorizado.'
-  },
-  {
-    question: '¿Puedo personalizar el sistema con el logo y nombre de mi salón?',
-    answer: 'Sí. Cada salón registrado en la plataforma cuenta con aislamiento Multi-Tenant propio, pudiendo configurar su nombre comercial, RNC, logo, pie de factura y catálogo de servicios independiente.'
+    id: 2,
+    code: 'pro',
+    name: 'Plan Pro',
+    price_monthly: 99,
+    extra_user_price: 15,
+    users_included: 3,
+    branches_included: 1,
+    description:
+      'Todo el Plan Base más Suscripciones y Membresías B2C, contratos digitales, automatizaciones de Marketing e Inventario Avanzado.'
   }
 ];
+
+const MODULES_LIST = [
+  {
+    kicker: '01 · VENTAS Y FACTURACIÓN',
+    title: 'Vende y factura desde un mismo lugar.',
+    desc: 'Gestiona ventas, cobros, cierres de caja, comprobantes fiscales NCF y reportes DGII (606, 607 e IT-1; e-CF en certificación).',
+    flow: 'Ventas → Comisiones y reportes',
+    Icon: Receipt
+  },
+  {
+    kicker: '02 · RECURSOS HUMANOS Y CLIENTES',
+    title: 'Organiza tu equipo y tu CRM.',
+    desc: 'Centraliza la información de tus empleados, horarios, novedades y el directorio CRM de clientes incluido en Base y Pro.',
+    flow: 'Equipo y CRM → Información centralizada',
+    Icon: Users
+  },
+  {
+    kicker: '03 · CONTROL DE ASISTENCIA',
+    title: 'Del ponche facial al cálculo.',
+    desc: 'Registra ponches con foto facial y calcula horas extra, tardanzas y ausencias según los horarios y reglas configuradas.',
+    flow: 'Asistencia → Planilla de pago',
+    Icon: Clock
+  },
+  {
+    kicker: '04 · NÓMINA AUTOMÁTICA',
+    title: 'Cada cálculo llega a tu nómina.',
+    desc: 'Integra asistencia, comisiones y descuentos para alimentar automáticamente la planilla de pago. Gestiona regalías e históricos.',
+    flow: 'Comisiones + Asistencia → Nómina',
+    Icon: FileSpreadsheet
+  },
+  {
+    kicker: '05 · CONTABILIDAD',
+    title: 'Tus finanzas, mejor organizadas.',
+    desc: 'Organiza la información contable y los gastos operativos de tu empresa para dar seguimiento claro a tus finanzas.',
+    flow: 'Operación → Control contable',
+    Icon: BarChart3
+  },
+  {
+    kicker: '06 · INTELIGENCIA DE NEGOCIOS',
+    title: 'Información para tomar decisiones.',
+    desc: 'Consulta reportes estratégicos de ventas, clientes y costos. En Plan Pro incorpora analítica de membresías y multisucursal.',
+    flow: 'Datos → Decisiones estratégicas',
+    Icon: LineChart
+  }
+];
+
+const CHART_DATA = {
+  week: {
+    total: 'RD$ 248,500',
+    yLabels: ['60 mil', '30 mil', '0'],
+    bars: [
+      { label: 'Lun', pct: 46, value: 'RD$ 27,600' },
+      { label: 'Mar', pct: 62, value: 'RD$ 37,200' },
+      { label: 'Mié', pct: 48, value: 'RD$ 28,800' },
+      { label: 'Jue', pct: 70, value: 'RD$ 42,000' },
+      { label: 'Vie', pct: 56, value: 'RD$ 33,600' },
+      { label: 'Sáb', pct: 88, value: 'RD$ 52,800', peak: true },
+      { label: 'Dom', pct: 44, value: 'RD$ 26,500' }
+    ]
+  },
+  month: {
+    total: 'RD$ 1,042,800',
+    yLabels: ['250 mil', '125 mil', '0'],
+    bars: [
+      { label: 'S1', pct: 64, value: 'RD$ 160,000' },
+      { label: 'S2', pct: 72, value: 'RD$ 180,000' },
+      { label: 'S3', pct: 58, value: 'RD$ 145,000' },
+      { label: 'S4', pct: 86, value: 'RD$ 215,000', peak: true },
+      { label: 'S5', pct: 68, value: 'RD$ 170,000' },
+      { label: 'S6', pct: 40, value: 'RD$ 100,000' },
+      { label: 'S7', pct: 29, value: 'RD$ 72,800' }
+    ]
+  }
+};
+
+const EtereasLogoMark = ({ className = 'et-brand-symbol' }) => (
+  <svg className={className} viewBox="0 0 40 40" aria-hidden="true">
+    <path fill="#2563eb" d="M8 5h26l-6 8H8a4 4 0 0 1 0-8Z" />
+    <path fill="#5a55ed" d="M8 16h22l-6 8H8a4 4 0 0 1 0-8Z" />
+    <path fill="#8b62f2" d="M8 27h26l-6 8H8a4 4 0 0 1 0-8Z" />
+  </svg>
+);
 
 const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const { login } = useAuth();
 
+  const isStagingHost =
+    typeof window !== 'undefined' && window.location.hostname.startsWith('staging.');
+  const canonicalOrigin =
+    typeof window !== 'undefined' && window.location.hostname.includes('www.etereasapp.com')
+      ? 'https://www.etereasapp.com/'
+      : 'https://etereasapp.com/';
+
   useDocumentMetadata({
-    title: 'Salon Pro & Plan Beauty SaaS | Software POS, Facturación y Membresías para Salones',
-    description: 'Plataforma SaaS Multi-Tenant para salones de belleza y centros estéticos: POS de recepción, facturación fiscal DGII (606, 607, IT-1), nómina, comisiones y membresías recurrentes.',
-    canonicalUrl: 'https://planbeautyrd.com/',
-    robots: 'index, follow'
+    title: 'ETEREAS — Toda tu empresa. Una sola plataforma.',
+    description:
+      'Plataforma SaaS Multi-Tenant de gestión empresarial: facturación POS, asistencia facial, nómina automática, CRM de clientes y membresías.',
+    canonicalUrl: canonicalOrigin,
+    robots: isStagingHost ? 'noindex, nofollow' : 'index, follow'
   });
 
-  // Datos estructurados Schema.org para SEO Técnico
-  const structuredData = {
-    '@context': 'https://schema.org',
-    '@type': 'SoftwareApplication',
-    name: 'Salon Pro & Plan Beauty SaaS',
-    applicationCategory: 'BusinessApplication',
-    operatingSystem: 'Web, Windows, macOS, iOS, Android',
-    offers: [
-      {
-        '@type': 'Offer',
-        name: 'Plan Base',
-        price: '49.00',
-        priceCurrency: 'USD',
-        description: 'POS de recepción, facturación fiscal DGII (606, 607, IT-1), cajas, directorio CRM de clientes, comisiones y nómina para salones de belleza.'
-      },
-      {
-        '@type': 'Offer',
-        name: 'Plan Pro',
-        price: '99.00',
-        priceCurrency: 'USD',
-        description: 'Todo el Plan Base más motor de membresías recurrentes tipo Plan Beauty, contratos digitales y marketing.'
-      }
-    ],
-    creator: {
-      '@type': 'Organization',
-      name: 'SalonPro SaaS',
-      url: 'https://planbeautyrd.com'
-    }
-  };
+  // Navigation & UI state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [extraModulesOpen, setExtraModulesOpen] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState('week');
+  const [activeBarIdx, setActiveBarIdx] = useState(null);
 
-  const [isLogin, setIsLogin] = useState(initialIsLogin);
+  // Plans & configurator state (strictly BASE & PRO from canonical catalog)
+  const [saasPlans, setSaasPlans] = useState(CANONICAL_FALLBACK_PLANS);
+  const [selectedPlanCode, setSelectedPlanCode] = useState('base');
+  const [branchesCount, setBranchesCount] = useState(1);
+  const [extraUsersCount, setExtraUsersCount] = useState(0);
+  const [planDetailsOpen, setPlanDetailsOpen] = useState(false);
+
+  // Hero login form state (real AuthContext login)
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Estado para Registro Progresivo de Salón (Tenant SaaS en 3 pasos)
-  const [ownerName, setOwnerName] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [businessName, setBusinessName] = useState('');
-  const [rnc, setRnc] = useState('');
-  const [selectedPlanCode, setSelectedPlanCode] = useState('pro'); // 'base' | 'pro'
-  const [licensedBranches, setLicensedBranches] = useState(1);
-  const [ownerPassword, setOwnerPassword] = useState('');
-  const [acceptTerms, setAcceptTerms] = useState(false);
-  const [saasPlans, setSaasPlans] = useState([]);
-
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
-  // Control de pasos del registro
-  const [regSuccess, setRegSuccess] = useState(false);
+  // Onboarding modal state (3-step registration -> POST /api/public/onboarding)
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(
+    Boolean(initialAuthModal && !initialIsLogin)
+  );
   const [regStep, setRegStep] = useState(1);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(initialAuthModal);
+  const [businessName, setBusinessName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [rnc, setRnc] = useState('');
+  const [ownerPassword, setOwnerPassword] = useState('');
+  const [showOwnerPassword, setShowOwnerPassword] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState('');
+  const [regSuccess, setRegSuccess] = useState(false);
 
-  // Recuperación de contraseña
+  // Forgot / Reset password modal state
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotStep, setForgotStep] = useState(1);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -133,109 +194,95 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [forgotError, setForgotError] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
 
-  // Activación de cuenta
+  // Activation modal state
   const [showActivation, setShowActivation] = useState(false);
-  const [activationCode, setActivationCode] = useState('');
   const [pendingClientId, setPendingClientId] = useState(null);
+  const [activationCode, setActivationCode] = useState('');
+  const [activationError, setActivationError] = useState('');
 
-  // FAQ Accordion
-  const [openFaqIndex, setOpenFaqIndex] = useState(0);
-
-  // Referencias para Accesibilidad de Modales (Focus Trap + Retorno de foco)
-  const authModalRef = useRef(null);
-  const forgotModalRef = useRef(null);
-  const activationModalRef = useRef(null);
+  const loginInputRef = useRef(null);
+  const activeModalRef = useRef(null);
   const lastTriggerRef = useRef(null);
 
+  // Focus login input when navigating directly to /login
   useEffect(() => {
-    setIsLogin(initialIsLogin);
-    setIsAuthModalOpen(initialAuthModal);
-  }, [initialIsLogin, initialAuthModal]);
+    if (initialAuthModal && initialIsLogin) {
+      setTimeout(() => {
+        loginInputRef.current?.focus();
+      }, 60);
+    } else if (initialAuthModal && !initialIsLogin) {
+      setIsRegisterModalOpen(true);
+    }
+  }, [initialAuthModal, initialIsLogin]);
 
+  // Load canonical plans from backend
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
     const loadPlans = async () => {
       try {
         const res = await fetch('/api/saas/plans?public_only=true');
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted && Array.isArray(data) && data.length > 0) {
-            setSaasPlans(data);
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows = Array.isArray(data) ? data : Array.isArray(data?.plans) ? data.plans : [];
+        if (mounted && rows.length > 0) {
+          const normalized = rows
+            .filter((p) => ['base', 'pro'].includes(String(p.code || '').toLowerCase()))
+            .map((p) => ({
+              ...p,
+              code: String(p.code).toLowerCase(),
+              price_monthly: Number(p.price_monthly || (String(p.code).toLowerCase() === 'pro' ? 99 : 49)),
+              extra_user_price: Number(p.extra_user_price || 15),
+              users_included: Number(p.users_included || 3),
+              branches_included: Number(p.branches_included || 1)
+            }));
+          if (normalized.length > 0) {
+            setSaasPlans(normalized);
           }
         }
       } catch {
-        // Fallback silencioso a los dos planes oficiales Base ($49) y Pro ($99)
+        // Keep canonical fallback
       }
     };
     loadPlans();
     return () => {
-      isMounted = false;
+      mounted = false;
     };
   }, []);
 
-  const openAuthModal = useCallback((loginMode, triggerElement = null, preselectedPlan = null) => {
-    if (triggerElement) {
-      lastTriggerRef.current = triggerElement;
-    } else if (document.activeElement instanceof HTMLElement) {
-      lastTriggerRef.current = document.activeElement;
-    }
-    if (preselectedPlan) {
-      setSelectedPlanCode(preselectedPlan);
-    }
-    setError('');
-    setRegSuccess(false);
-    setIsLogin(loginMode);
-    setIsAuthModalOpen(true);
-  }, []);
-
   const closeAllModals = useCallback(() => {
-    setIsAuthModalOpen(false);
+    setIsRegisterModalOpen(false);
     setShowForgotModal(false);
     setShowActivation(false);
-    setError('');
+    setRegError('');
     setForgotError('');
+    setActivationError('');
     if (lastTriggerRef.current && typeof lastTriggerRef.current.focus === 'function') {
-      setTimeout(() => {
-        lastTriggerRef.current?.focus();
-      }, 20);
+      setTimeout(() => lastTriggerRef.current?.focus(), 20);
     }
   }, []);
 
-  // Gestión de teclado (Escape y Focus Trap) en el modal activo
+  // Keyboard Trap & Escape for active modal
   useEffect(() => {
-    const activeContainer = isAuthModalOpen
-      ? authModalRef.current
-      : showForgotModal
-      ? forgotModalRef.current
-      : showActivation
-      ? activationModalRef.current
-      : null;
+    const isAnyOpen = isRegisterModalOpen || showForgotModal || showActivation;
+    const container = activeModalRef.current;
+    if (!isAnyOpen || !container) return undefined;
 
-    if (!activeContainer) return undefined;
+    const focusableSel =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
+    const firstInput = container.querySelector('input:not([disabled]), button:not([disabled])');
+    firstInput?.focus();
 
-    const focusableSelector =
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const focusables = activeContainer.querySelectorAll(focusableSelector);
-    const firstInput = activeContainer.querySelector('input:not([disabled]), select:not([disabled])');
-    if (firstInput) {
-      firstInput.focus();
-    } else if (focusables.length > 0) {
-      focusables[0].focus();
-    }
-
-    const handleKeyDown = (e) => {
+    const onKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         closeAllModals();
         return;
       }
-
       if (e.key === 'Tab') {
-        const currentFocusables = activeContainer.querySelectorAll(focusableSelector);
-        if (currentFocusables.length === 0) return;
-        const first = currentFocusables[0];
-        const last = currentFocusables[currentFocusables.length - 1];
-
+        const items = container.querySelectorAll(focusableSel);
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
         if (e.shiftKey && document.activeElement === first) {
           e.preventDefault();
           last.focus();
@@ -245,51 +292,74 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         }
       }
     };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isRegisterModalOpen, showForgotModal, showActivation, closeAllModals]);
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isAuthModalOpen, showForgotModal, showActivation, isLogin, regStep, forgotStep, closeAllModals]);
+  const openOnboardingModal = (planCode = selectedPlanCode, triggerEl = null) => {
+    if (triggerEl) {
+      lastTriggerRef.current = triggerEl;
+    } else if (document.activeElement instanceof HTMLElement) {
+      lastTriggerRef.current = document.activeElement;
+    }
+    setSelectedPlanCode(planCode === 'pro' ? 'pro' : 'base');
+    setRegStep(1);
+    setRegError('');
+    setRegSuccess(false);
+    setIsRegisterModalOpen(true);
+    setMobileMenuOpen(false);
+  };
 
-  const handleLogin = async (e) => {
+  const focusLoginCard = () => {
+    setMobileMenuOpen(false);
+    const el = document.getElementById('acceso');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => loginInputRef.current?.focus(), 250);
+  };
+
+  // Real login submission
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    setLoginError('');
+    if (!email.trim() || !password) {
+      setLoginError('Ingresa tu usuario o correo y tu contraseña.');
+      return;
+    }
+    setLoginLoading(true);
     try {
-      const success = await login(email, password);
-      if (success) {
-        window.location.href = '/';
+      const result = await login(email.trim(), password);
+      if (!result.success) {
+        if (result.requiresActivation) {
+          setPendingClientId(result.clientId);
+          setShowActivation(true);
+        } else {
+          setLoginError(result.error || 'Credenciales incorrectas.');
+        }
       }
-    } catch (err) {
-      if (err.status === 'Pendiente') {
-        setPendingClientId(err.id);
-        setError('');
-        setIsAuthModalOpen(false);
-        setShowActivation(true);
-      } else {
-        setError(err.message || 'Credenciales inválidas o usuario inactivo.');
-      }
+    } catch {
+      setLoginError('Error de conexión con el servidor.');
     } finally {
-      setLoading(false);
+      setLoginLoading(false);
     }
   };
 
-  const handleRegisterStepValidation = (e) => {
+  // Real 3-step onboarding submission
+  const handleRegisterStep = async (e) => {
     e.preventDefault();
-    setError('');
+    setRegError('');
 
     if (regStep === 1) {
-      if (!ownerName.trim() || !validateName(ownerName.trim())) {
-        setError('Ingresa el nombre del propietario o administrador usando solo letras.');
+      if (!validateName(ownerName)) {
+        setRegError('Ingresa tu nombre y apellido reales.');
         return;
       }
-      if (cleanPhone(telefono).length < 10) {
-        setError('Ingresa un teléfono de contacto válido de 10 dígitos.');
+      if (!regEmail.trim() || !regEmail.includes('@')) {
+        setRegError('Ingresa un correo electrónico válido.');
         return;
       }
-      if (!email.trim() || !email.includes('@')) {
-        setError('Ingresa un correo electrónico corporativo o personal válido.');
+      const digits = cleanPhone(telefono);
+      if (digits.length < 10) {
+        setRegError('Ingresa un teléfono válido de al menos 10 dígitos.');
         return;
       }
       setRegStep(2);
@@ -298,47 +368,32 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
 
     if (regStep === 2) {
       if (!businessName.trim() || businessName.trim().length < 3) {
-        setError('Ingresa el nombre comercial de tu salón de belleza.');
+        setRegError('Ingresa el nombre comercial de tu empresa o salón.');
         return;
       }
       if (!ownerPassword || ownerPassword.length < 6) {
-        setError('Define una contraseña de acceso de al menos 6 caracteres.');
+        setRegError('Define una contraseña de acceso de al menos 6 caracteres.');
         return;
       }
       setRegStep(3);
       return;
     }
 
-    if (regStep === 3) {
-      if (!acceptTerms) {
-        setError('Debes aceptar los términos y condiciones del servicio para registrar tu salón.');
-        return;
-      }
-      handleRegisterSalonSubmit();
+    if (!acceptTerms) {
+      setRegError('Debes aceptar los términos y condiciones del servicio para continuar.');
+      return;
     }
-  };
 
-  const handleRegisterSalonSubmit = async () => {
-    setError('');
-    setLoading(true);
+    setRegLoading(true);
     try {
-      const matchedPlan = saasPlans.find((p) => p.code === selectedPlanCode);
-      const planId = matchedPlan ? matchedPlan.id : selectedPlanCode === 'pro' ? 2 : 1;
-      const slugBase = businessName
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
-      const uniqueSlug = `${slugBase || 'salon'}-${Math.floor(100 + Math.random() * 900)}`;
-
       const res = await fetch('/api/public/onboarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           business_name: businessName.trim(),
           owner_name: ownerName.trim(),
-          owner_email: email.trim(),
-          owner_phone: telefono,
+          owner_email: regEmail.trim(),
+          owner_phone: telefono.trim(),
           admin_password: ownerPassword,
           rnc: rnc.trim() || null,
           address: 'Principal',
@@ -346,25 +401,16 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'No se pudo registrar el salón.');
-
+      if (!res.ok) throw new Error(data.error || 'No se pudo completar el registro.');
       setRegSuccess(true);
-      setIsAuthModalOpen(true);
     } catch (err) {
-      setError(err.message);
+      setRegError(err.message || 'Error al registrar el espacio de trabajo.');
     } finally {
-      setLoading(false);
+      setRegLoading(false);
     }
   };
 
-  const handleBackToLogin = () => {
-    setRegSuccess(false);
-    setIsLogin(true);
-    setPassword(ownerPassword);
-    setError('');
-    setRegStep(1);
-  };
-
+  // Forgot & Reset Password
   const handleForgotPassword = async (e) => {
     e.preventDefault();
     setForgotError('');
@@ -373,11 +419,10 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrCedula: forgotEmail })
+        body: JSON.stringify({ emailOrCedula: forgotEmail.trim() })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'No se pudo enviar el código.');
-
       setForgotStep(2);
     } catch (err) {
       setForgotError(err.message);
@@ -395,14 +440,13 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          emailOrCedula: forgotEmail,
-          code: resetCode,
+          emailOrCedula: forgotEmail.trim(),
+          code: resetCode.trim(),
           newPassword
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Código inválido o expirado.');
-
       setForgotSuccess(true);
       setTimeout(() => {
         setShowForgotModal(false);
@@ -411,9 +455,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         setForgotEmail('');
         setResetCode('');
         setNewPassword('');
-        setIsLogin(true);
-        setIsAuthModalOpen(true);
-      }, 2500);
+        focusLoginCard();
+      }, 2000);
     } catch (err) {
       setForgotError(err.message);
     } finally {
@@ -421,1348 +464,1018 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     }
   };
 
+  // Account activation
   const handleActivate = async (e) => {
     e.preventDefault();
-    setError('');
+    setActivationError('');
     try {
       const res = await fetch('/api/auth/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: pendingClientId, code: activationCode })
+        body: JSON.stringify({ clientId: pendingClientId, code: activationCode.trim() })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Código de activación incorrecto.');
-
       setShowActivation(false);
       setActivationCode('');
-      setIsLogin(true);
-      setIsAuthModalOpen(true);
+      focusLoginCard();
     } catch (err) {
-      setError(err.message);
+      setActivationError(err.message);
     }
   };
 
-  const unitPrice = selectedPlanCode === 'pro' ? 99 : 49;
-  const totalEstimatedMonthly = unitPrice * (Number(licensedBranches) || 1);
+  // Active plan metadata derived strictly from canonical catalog
+  const activePlan =
+    saasPlans.find((p) => p.code === selectedPlanCode) ||
+    CANONICAL_FALLBACK_PLANS.find((p) => p.code === selectedPlanCode) ||
+    CANONICAL_FALLBACK_PLANS[0];
+
+  const unitPrice = Number(activePlan.price_monthly || (selectedPlanCode === 'pro' ? 99 : 49));
+  const extraUserPrice = Number(activePlan.extra_user_price || 15);
+  const usersPerBranch = Number(activePlan.users_included || 3);
+  const monthlySubtotal = branchesCount * unitPrice + extraUsersCount * extraUserPrice;
+
+  const planFeaturesList =
+    selectedPlanCode === 'pro'
+      ? [
+          { label: 'POS, ventas y cierres de caja', included: true },
+          { label: 'Directorio y fichas de Clientes (CRM)', included: true },
+          { label: 'Suscripciones y Membresías B2C + Contratos', included: true },
+          { label: 'Automatizaciones de Marketing y Gift Cards', included: true },
+          { label: 'Inventario Avanzado Multisucursal', included: true },
+          { label: 'Control de asistencia, comisiones y nómina', included: true },
+          { label: 'Comprobantes NCF y reportes DGII (606, 607, IT-1)', included: true },
+          { label: `${usersPerBranch} usuarios incluidos por sucursal`, included: true }
+        ]
+      : [
+          { label: 'POS, ventas y cierres de caja', included: true },
+          { label: 'Directorio y fichas de Clientes (CRM)', included: true },
+          { label: 'Inventario operativo de sucursal', included: true },
+          { label: 'Control de asistencia, comisiones y nómina', included: true },
+          { label: 'Comprobantes NCF y reportes DGII (606, 607, IT-1)', included: true },
+          { label: `${usersPerBranch} usuarios incluidos por sucursal`, included: true },
+          { label: 'Membresías B2C y Contratos (solo Plan Pro)', included: false },
+          { label: 'Marketing e Inventario Avanzado (solo Plan Pro)', included: false }
+        ];
+
+  const activeChart = CHART_DATA[chartPeriod];
 
   return (
-    <div className="landing-page">
-      {/* 0. SEO ESTRUCTURADO (JSON-LD) */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
-      />
+    <div id="top" className="etereas-landing">
+      {/* Header */}
+      <header className="et-header">
+        <div className="et-container et-header-inner">
+          <a href="#top" className="et-brand" aria-label="Etereas Inicio">
+            <EtereasLogoMark />
+            <span>etereas.</span>
+          </a>
 
-      {/* 1. HEADER COMPACTO */}
-      <PublicHeader onOpenAuth={openAuthModal} />
+          <nav className="et-nav" aria-label="Navegación principal">
+            <a href="#integracion" className="et-nav-link">
+              La plataforma
+            </a>
+            <a href="#planes" className="et-nav-link">
+              Plan y precio
+            </a>
+            <button type="button" className="et-nav-link" onClick={focusLoginCard}>
+              Iniciar sesión
+            </button>
+            <button
+              type="button"
+              className="et-btn-primary"
+              onClick={(e) => openOnboardingModal(selectedPlanCode, e.currentTarget)}
+            >
+              Contratar →
+            </button>
+          </nav>
+
+          <div className="et-mobile-controls">
+            <button type="button" className="et-mobile-login-pill" onClick={focusLoginCard}>
+              Iniciar sesión
+            </button>
+            <button
+              type="button"
+              className="et-mobile-menu-btn"
+              aria-label={mobileMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={mobileMenuOpen}
+              onClick={() => setMobileMenuOpen((v) => !v)}
+            >
+              {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          </div>
+        </div>
+
+        <div className={`et-mobile-drawer ${mobileMenuOpen ? 'open' : ''}`}>
+          <a href="#integracion" onClick={() => setMobileMenuOpen(false)}>
+            La plataforma
+          </a>
+          <a href="#planes" onClick={() => setMobileMenuOpen(false)}>
+            Plan y precio
+          </a>
+          <button type="button" className="et-drawer-link" onClick={focusLoginCard}>
+            Iniciar sesión
+          </button>
+          <Link to="/contacto" onClick={() => setMobileMenuOpen(false)}>
+            Solicitar demostración
+          </Link>
+          <button
+            type="button"
+            className="et-btn-primary"
+            onClick={(e) => openOnboardingModal(selectedPlanCode, e.currentTarget)}
+          >
+            Contratar →
+          </button>
+        </div>
+      </header>
 
       <main>
-        {/* 2. HERO ORIENTADO A CONVERSIÓN SAAS */}
-        <section className="hero" id="inicio">
-          <div className="container">
-            <div className="hero-grid">
-              <div className="hero-content">
-                <div className="hero-eyebrow">
-                  <span className="live-pulse" aria-hidden="true" />
-                  <Sparkles size={15} aria-hidden="true" />
-                  <span>Plataforma SaaS para Salones en República Dominicana</span>
-                </div>
+        {/* 1. Hero + Connected Login Card */}
+        <section className="et-hero">
+          <div className="et-container et-hero-grid">
+            <div>
+              <p className="et-eyebrow">SOFTWARE DE GESTIÓN EMPRESARIAL</p>
+              <h1 className="et-hero-title">
+                Toda tu empresa.
+                <br />
+                <span className="et-accent-text">
+                  Una sola
+                  <br />
+                  plataforma.
+                </span>
+              </h1>
+              <p className="et-hero-lead">
+                Facturación, asistencia facial, CRM de clientes y nómina conectadas. Menos trabajo
+                manual. Más control de tu negocio.
+              </p>
 
-                <h1>
-                  El software integral para administrar y escalar <span>tu salón de belleza</span>
-                </h1>
-
-                <p className="hero-lead">
-                  Controla tu recepción con POS térmico de 80mm/60mm, facturación fiscal DGII (e-CF), cajas registradoras, directorio de clientes, comisiones de personal y nómina en el <strong>Plan Base</strong>, o impulsa ingresos recurrentes con membresías mensuales y marketing en el <strong>Plan Pro</strong>.
-                </p>
-
-                <div className="hero-offer-pills" aria-label="Resumen de planes SaaS">
-                  <div className="offer-pill">
-                    <Receipt size={18} aria-hidden="true" />
-                    <span><strong>Plan Base $49/mes:</strong> POS, Facturación DGII y Cajas</span>
-                  </div>
-                  <div className="offer-pill">
-                    <Crown size={18} aria-hidden="true" />
-                    <span><strong>Plan Pro $99/mes:</strong> + Suscripciones y Marketing</span>
-                  </div>
-                </div>
-
-                <div className="hero-cta-group">
-                  <button
-                    type="button"
-                    onClick={(e) => openAuthModal(false, e.currentTarget, 'pro')}
-                    className="landing-btn btn-accent"
-                  >
-                    Registrar mi salón
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => openAuthModal(true, e.currentTarget)}
-                    className="landing-btn btn-secondary-outline"
-                  >
-                    <User size={18} aria-hidden="true" />
-                    <span>Iniciar sesión</span>
-                  </button>
-                </div>
-
-                <p className="hero-brand-note">
-                  <ShieldCheck size={16} aria-hidden="true" />
-                  <span>Probado y homologado en operación real en salones y peluquerías profesionales.</span>
-                </p>
+              <div className="et-hero-ctas">
+                <button
+                  type="button"
+                  className="et-btn-primary"
+                  onClick={(e) => openOnboardingModal(selectedPlanCode, e.currentTarget)}
+                >
+                  Contratar ETEREAS →
+                </button>
+                <a href="#integracion" className="et-btn-ghost">
+                  Conocer la plataforma ↓
+                </a>
               </div>
 
-              <div className="hero-visual">
-                <div className="hero-visual-card">
-                  <div className="hero-photo-frame">
-                    <img
-                      src="/landing_assets/hero_v2_opt.jpg"
-                      alt="Operación diaria en salón de belleza con software POS y membresías"
-                      width="800"
-                      height="1000"
-                      fetchPriority="high"
+              <div className="et-hero-offer">
+                <span className="et-offer-badge">BASE Y PRO</span>
+                <span>
+                  Desde <strong className="et-offer-price">US$49/mes</strong> (Base) ·{' '}
+                  <strong className="et-offer-price">US$99/mes</strong> (Pro) por sucursal
+                </span>
+                <span className="et-hero-offer-sub">
+                  3 usuarios incluidos por sucursal · Clientes CRM en ambos planes
+                </span>
+              </div>
+            </div>
+
+            <div id="acceso" className="et-login-card" aria-labelledby="login-card-title">
+              <div className="et-login-brand">
+                <EtereasLogoMark className="et-brand-symbol" />
+                <span>MI ETEREAS</span>
+              </div>
+              <h2 id="login-card-title">Tu empresa te espera.</h2>
+              <p className="et-login-subtitle">Entra a tu espacio de trabajo.</p>
+
+              {loginError && (
+                <div className="et-alert-error" role="alert">
+                  {loginError}
+                </div>
+              )}
+
+              <form onSubmit={handleLoginSubmit} noValidate>
+                <div className="et-field">
+                  <label htmlFor="et-login-email">Usuario o correo</label>
+                  <input
+                    ref={loginInputRef}
+                    id="et-login-email"
+                    type="text"
+                    className="et-input"
+                    placeholder="Usuario o correo asignado"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+
+                <div className="et-field">
+                  <label htmlFor="et-login-password">Contraseña</label>
+                  <div className="et-input-wrap">
+                    <input
+                      id="et-login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      className="et-input has-toggle"
+                      placeholder="Tu contraseña"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
                     />
-                  </div>
-
-                  {/* Mockup flotante de POS & Ingresos en Vivo */}
-                  <div className="hero-pos-preview-card" aria-label="Demostración visual de interfaz POS">
-                    <div className="preview-card-header">
-                      <div className="preview-card-status">
-                        <span className="status-dot green" aria-hidden="true" />
-                        <span className="status-text">POS Recepción &bull; Turno en Vivo</span>
-                      </div>
-                      <span className="preview-badge-fiscal">e-CF DGII</span>
-                    </div>
-
-                    <div className="preview-kpi-row">
-                      <div className="preview-kpi-item">
-                        <span className="kpi-label">Ventas del Día</span>
-                        <strong className="kpi-value">RD$ 48,250.00</strong>
-                      </div>
-                      <div className="preview-kpi-item align-right">
-                        <span className="kpi-label">Plan Beauty Activo</span>
-                        <strong className="kpi-value text-accent">34 Socias</strong>
-                      </div>
-                    </div>
-
-                    <div className="preview-ticket-snippet">
-                      <div className="snippet-line">
-                        <span>Ticket #0142 &bull; Pre-cuenta 60mm</span>
-                        <span className="tag-ok">Validado</span>
-                      </div>
-                      <div className="snippet-details">
-                        <span>Lavado y Secado (Plan Beauty)</span>
-                        <strong>RD$ 0.00</strong>
-                      </div>
-                      <div className="snippet-details">
-                        <span>Tratamiento Profundo + Botox</span>
-                        <strong>RD$ 2,400.00</strong>
-                      </div>
-                    </div>
-
-                    <div className="preview-card-footer">
-                      <div className="footer-plan-tag">
-                        <strong>Desde $49 USD/mes</strong>
-                        <span>Por sucursal &bull; Sin permanencia</span>
-                      </div>
-                      <span className="preview-verified-badge">
-                        <ShieldCheck size={14} aria-hidden="true" />
-                        <span>Homologación Verificada</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Indicadores de confianza del software */}
-            <div className="hero-footer-badges">
-              <div className="badges-grid">
-                <div className="badge-item">
-                  <div className="badge-icon" aria-hidden="true"><Receipt size={20} /></div>
-                  <div className="badge-text">
-                    <h2>POS y Facturación Fiscal</h2>
-                    <p>Tickets térmicos 60mm/80mm, secuencias e-CF y reportes 606, 607 e IT-1.</p>
-                  </div>
-                </div>
-                <div className="badge-item">
-                  <div className="badge-icon" aria-hidden="true"><Users size={20} /></div>
-                  <div className="badge-text">
-                    <h2>Comisiones y Nómina</h2>
-                    <p>Cálculo automático por estilista, manicurista, lavapelo y quiosco de asistencia.</p>
-                  </div>
-                </div>
-                <div className="badge-item">
-                  <div className="badge-icon" aria-hidden="true"><Crown size={20} /></div>
-                  <div className="badge-text">
-                    <h2>Motor de Suscripciones</h2>
-                    <p>En Plan Pro: membresías de 4 lavados/30 días, contratos digitales y Gift Cards.</p>
-                  </div>
-                </div>
-                <div className="badge-item">
-                  <div className="badge-icon" aria-hidden="true"><ShieldCheck size={20} /></div>
-                  <div className="badge-text">
-                    <h2>Seguridad con PIN</h2>
-                    <p>Autorización obligatoria de administrador para descuentos o rebajas en caja.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 3. MÓDULOS Y BENEFICIOS CONCRETOS + ORIGEN ABATTE */}
-        <section className="section-block bg-white" id="modulos">
-          <div className="container">
-            <div className="section-header">
-              <span className="section-tag">Módulos de la Plataforma</span>
-              <h2 className="section-title">
-                Todo lo que tu salón necesita en <span>una sola plataforma</span>
-              </h2>
-              <p className="section-subtitle">
-                Diseñado específicamente para el flujo real de recepción, estilistas, caja y contabilidad de salones de belleza.
-              </p>
-            </div>
-
-            <div className="benefits-grid">
-              <article className="benefit-card">
-                <div className="benefit-icon" aria-hidden="true">
-                  <Receipt size={24} />
-                </div>
-                <h3>POS de Recepción y Cajas</h3>
-                <p>
-                  Facturación ágil de servicios y productos, apertura y cuadre de cajas por turno, impresión automática de pre-cuentas térmicas y control de métodos de pago.
-                </p>
-                <div className="benefit-tags">
-                  <span>80mm / 60mm térmico</span>
-                  <span>Cuadre de caja</span>
-                  <span>PIN de seguridad</span>
-                </div>
-              </article>
-
-              <article className="benefit-card">
-                <div className="benefit-icon" aria-hidden="true">
-                  <Wallet size={24} />
-                </div>
-                <h3>Nómina, Comisiones y Contabilidad</h3>
-                <p>
-                  Liquidación automática de comisiones por servicio realizado, descuentos a empleados, registro de egresos y exportación directa de reportes fiscales 606, 607 e ITBIS (IT-1).
-                </p>
-                <div className="benefit-tags">
-                  <span>Comisiones automáticas</span>
-                  <span>Reportes 606/607</span>
-                  <span>ITBIS IT-1</span>
-                </div>
-              </article>
-
-              <article className="benefit-card">
-                <div className="benefit-icon" aria-hidden="true">
-                  <Crown size={24} />
-                </div>
-                <h3>Membresías y Suscripciones (Exclusivo Plan Pro)</h3>
-                <p>
-                  Habilita tu propio programa de suscripción mensual con control de cupos de lavados por ciclo de 30 días, contratos firmados y descuentos de cumpleaños.
-                </p>
-                <div className="benefit-tags">
-                  <span>Ciclos de 30 días</span>
-                  <span>Contratos firmados</span>
-                  <span>4 lavados/mes</span>
-                </div>
-              </article>
-            </div>
-
-            <div className="brand-alliance-banner">
-              <div className="brand-alliance-text">
-                <h3>Arquitectura Multi-Tenant diseñada para la identidad de tu salón</h3>
-                <p>
-                  Cada salón opera con su propia marca, logo, colores, usuarios, comisiones, catálogo POS e inventario totalmente aislado.
-                </p>
-              </div>
-              <a href="#planes" className="landing-btn btn-primary">
-                Comparar Plan Base y Pro
-              </a>
-            </div>
-          </div>
-        </section>
-
-        {/* 4. CÓMO FUNCIONA LA IMPLEMENTACIÓN SAAS */}
-        <section className="section-block bg-alt" id="como-funciona">
-          <div className="container">
-            <div className="section-header">
-              <span className="section-tag">Puesta en marcha</span>
-              <h2 className="section-title">
-                ¿Cómo funciona <span>para tu salón</span>?
-              </h2>
-              <p className="section-subtitle">
-                Configura tu salón en minutos y elige el nivel de licenciamiento que se ajuste a tu modelo operativo.
-              </p>
-            </div>
-
-            <div className="steps-grid">
-              <div className="step">
-                <span className="step-num">PASO 01</span>
-                <div className="step-icon-bg" aria-hidden="true">
-                  <Building2 size={28} />
-                </div>
-                <h3>Elige tu nivel de operación</h3>
-                <p>
-                  Selecciona el <strong>Plan Base</strong> si buscas facturación POS y control interno, o el <strong>Plan Pro</strong> para sumar suscripciones mensuales y marketing.
-                </p>
-              </div>
-
-              <div className="step">
-                <span className="step-num">PASO 02</span>
-                <div className="step-icon-bg" aria-hidden="true">
-                  <Scissors size={28} />
-                </div>
-                <h3>Configura catálogo y comisiones</h3>
-                <p>
-                  Personaliza el logo de tu salón, registra tus servicios, productos, estilistas, porcentajes de comisión y usuarios de recepción.
-                </p>
-              </div>
-
-              <div className="step">
-                <span className="step-num">PASO 03</span>
-                <div className="step-icon-bg" aria-hidden="true">
-                  <CheckCircle size={28} />
-                </div>
-                <h3>Factura y controla en tiempo real</h3>
-                <p>
-                  Emite tickets térmicos en recepción, audita tus cierres de caja diarios y supervisa la rentabilidad de cada sucursal en tiempo real.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 5 & 6. QUÉ INCLUYE CADA PLAN + PRECIOS Y CONDICIONES (2 PLANES: BASE Y PRO) */}
-        <section className="section-block bg-white" id="planes">
-          <div className="container">
-            <div className="section-header">
-              <span className="section-tag">Licenciamiento Transparente</span>
-              <h2 className="section-title">
-                Dos planes diseñados para <span>cada etapa de tu salón</span>
-              </h2>
-              <p className="section-subtitle">
-                Sin planes confusos: elige operación pura de punto de venta en el <strong>Plan Base</strong> o desbloquea membresías recurrentes y marketing en el <strong>Plan Pro</strong>.
-              </p>
-            </div>
-
-            <div className="saas-plans-grid">
-              {/* PLAN BASE */}
-              <article className="saas-plan-card">
-                <div>
-                  <span className="plan-ribbon base">Operación Esencial POS</span>
-                  <div className="pricing-header-inner" style={{ marginBottom: '0.5rem' }}>
-                    <Building2 size={28} aria-hidden="true" />
-                    <h3>PLAN <span>BASE</span></h3>
-                  </div>
-                  <p style={{ color: 'var(--lp-muted)', fontSize: '0.9rem', margin: '0 0 1.25rem 0' }}>
-                    Ideal para salones que requieren facturación rápida a clientes de paso, control de inventario, cajas y nómina sin club de membresías.
-                  </p>
-
-                  <div className="price-tag" style={{ justifyContent: 'flex-start', margin: '0 0 0.25rem 0' }}>
-                    $49 <span>USD / mes por sucursal</span>
-                  </div>
-                  <p className="price-subcopy" style={{ textAlign: 'left', marginBottom: '1.25rem' }}>
-                    Incluye 3 usuarios por sucursal (+$15 USD/mes por usuario extra).
-                  </p>
-
-                  <ul className="pricing-list">
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Punto de Venta (POS)</strong> y tickets térmicos de 80mm/60mm.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Catálogo completo</strong> de servicios y productos.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Cajas registradoras</strong>, aperturas y cierres de turno.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Creación de usuarios</strong>, roles y PIN de seguridad.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Comisiones, Nómina</strong> y control de asistencia.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Contabilidad DGII:</strong> secuencias e-CF, 606, 607 e IT-1.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Directorio CRM de Clientes:</strong> registro, búsqueda, historial y fichas de clientes.</span>
-                    </li>
-                    <li className="plan-item-excluded">
-                      <X size={18} aria-hidden="true" className="icon-excluded" />
-                      <span>No incluye módulo de Suscripciones (Plan Beauty).</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => openAuthModal(false, e.currentTarget, 'base')}
-                  className="landing-btn btn-primary"
-                  style={{ width: '100%' }}
-                >
-                  Comenzar con Plan Base
-                </button>
-              </article>
-
-              {/* PLAN PRO */}
-              <article className="saas-plan-card pro-featured">
-                <div>
-                  <span className="plan-ribbon pro">✦ Más Completo &bull; Suscripciones + Marketing</span>
-                  <div className="pricing-header-inner" style={{ marginBottom: '0.5rem' }}>
-                    <Crown size={28} aria-hidden="true" style={{ color: 'var(--lp-accent)' }} />
-                    <h3>PLAN <span>PRO</span></h3>
-                  </div>
-                  <p style={{ color: 'var(--lp-muted)', fontSize: '0.9rem', margin: '0 0 1.25rem 0' }}>
-                    Para salones que desean fidelizar a su cartera de clientas y generar ingresos recurrentes con membresías mensuales tipo Plan Beauty.
-                  </p>
-
-                  <div className="price-tag" style={{ justifyContent: 'flex-start', margin: '0 0 0.25rem 0' }}>
-                    $99 <span>USD / mes por sucursal</span>
-                  </div>
-                  <p className="price-subcopy" style={{ textAlign: 'left', marginBottom: '1.25rem' }}>
-                    Incluye 3 usuarios por sucursal (+$15 USD/mes por usuario extra).
-                  </p>
-
-                  <ul className="pricing-list">
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Todo lo incluido en el Plan Base</strong> (POS, Cajas, DGII, Nómina).</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Directorio CRM de Clientes</strong> (incluido también en Plan Base) vinculado a membresías y contratos.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Módulo completo de Suscripciones (Plan Beauty):</strong> creación de planes y control de ciclos de 30 días.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Validación automática en POS</strong> de lavados disponibles (RD$ 0 cuando tiene cupo activo).</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Contratos digitales</strong> con firma en pantalla y cobros recurrentes.</span>
-                    </li>
-                    <li>
-                      <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Descuento automático de cumpleaños (15%)</strong>, encuestas de satisfacción y Gift Cards.</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={(e) => openAuthModal(false, e.currentTarget, 'pro')}
-                  className="landing-btn btn-accent"
-                  style={{ width: '100%' }}
-                >
-                  Comenzar con Plan Pro
-                </button>
-              </article>
-            </div>
-
-            <div className="pricing-conditions-note" style={{ maxWidth: '1080px', margin: '0 auto' }}>
-              <strong>Condiciones de licenciamiento SaaS:</strong> La facturación de la licencia es mensual por cada sucursal activa registrada. En el <strong>Plan Base</strong>, los módulos de suscripciones, contratos de membresía y marketing permanecen ocultos para mantener una interfaz limpia enfocada en caja rápida y gestión de clientes. Puedes cambiar entre Plan Base y Plan Pro en cualquier momento desde tu panel administrativo. Consulta nuestros{' '}
-              <Link to="/terminos-y-condiciones" style={{ color: 'var(--lp-accent)', fontWeight: 700 }}>
-                Términos del Servicio
-              </Link>{' '}
-              y{' '}
-              <Link to="/cancelacion-y-reembolsos" style={{ color: 'var(--lp-accent)', fontWeight: 700 }}>
-                Política de Cancelación
-              </Link>.
-            </div>
-          </div>
-        </section>
-
-        {/* 7. RED DE SALONES CONECTADOS EN OPERACIÓN REAL */}
-        <section className="section-block bg-alt" id="sucursales">
-          <div className="container">
-            <div className="branches-flex">
-              <div className="branches-info">
-                <span className="section-tag">Red de Salones Conectados</span>
-                <h2 className="section-title" style={{ textAlign: 'left', marginBottom: '1.25rem' }}>
-                  Impulsando en vivo salones y <span>centros de belleza líderes</span>
-                </h2>
-                <p style={{ color: 'var(--lp-muted)', marginBottom: '1.5rem', fontSize: '0.95rem' }}>
-                  Nuestra plataforma gestiona en tiempo real la facturación POS, las comisiones de estilistas y las membresías mensuales de salones en República Dominicana:
-                </p>
-
-                <article className="branch-card">
-                  <MapPin className="pin-icon" size={22} aria-hidden="true" />
-                  <div>
-                    <h3>Sucursal Zona Oriental (Plan Pro Activo)</h3>
-                    <p>Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F, Santo Domingo Este.</p>
-                    <p className="branch-hours">Operando POS Térmico, Cajas, Comisiones y Membresías Plan Beauty</p>
-                  </div>
-                </article>
-
-                <article className="branch-card">
-                  <MapPin className="pin-icon" size={22} aria-hidden="true" />
-                  <div>
-                    <h3>Sucursal Santo Domingo Norte (Plan Pro Activo)</h3>
-                    <p>Av. Hermanas Mirabal, dentro de Multicentro comercial, Santo Domingo Norte.</p>
-                    <p className="branch-hours">Operando Multi-Sucursal en tiempo real con inventario sincronizado</p>
-                  </div>
-                </article>
-
-                <article className="branch-card">
-                  <Phone className="pin-icon" size={22} aria-hidden="true" />
-                  <div>
-                    <h3>Ventas y Demostraciones SaaS</h3>
-                    <p>Teléfono: (809) 561-5000 &bull; Correo: contacto@salonpro.com</p>
-                  </div>
-                </article>
-              </div>
-
-              <div className="branches-image">
-                <img
-                  src="/landing_assets/salon2_opt.jpg"
-                  alt="Estaciones de trabajo de salón de belleza operando con la plataforma SaaS"
-                  width="800"
-                  height="800"
-                  loading="lazy"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 8. GARANTÍAS TÉCNICAS Y OPERATIVAS VERIFICABLES */}
-        <section className="section-block bg-white" aria-labelledby="trust-heading">
-          <div className="container">
-            <div className="section-header">
-              <span className="section-tag">Arquitectura Empresarial</span>
-              <h2 id="trust-heading" className="section-title">
-                Seguridad y control empresarial <span>multi-tenant</span>
-              </h2>
-              <p className="section-subtitle">
-                Construido con las reglas operativas reales que protegen la caja y la contabilidad del dueño de salón.
-              </p>
-            </div>
-
-            <div className="trust-grid">
-              <div className="trust-card">
-                <div className="benefit-icon" aria-hidden="true">
-                  <Building2 size={22} />
-                </div>
-                <h3>Aislamiento por Salón (Tenant)</h3>
-                <p>
-                  Cada salón cuenta con sus propias sucursales, personal, cierres de caja, clientes y secuencias fiscales completamente independientes.
-                </p>
-              </div>
-
-              <div className="trust-card">
-                <div className="benefit-icon" aria-hidden="true">
-                  <ShieldCheck size={22} />
-                </div>
-                <h3>Control de Caja con PIN</h3>
-                <p>
-                  Bloqueo automático ante intentos de modificar precios base o aplicar descuentos manuales sin autorización del administrador.
-                </p>
-              </div>
-
-              <div className="trust-card">
-                <div className="benefit-icon" aria-hidden="true">
-                  <Receipt size={22} />
-                </div>
-                <h3>Impresión Térmica Homologada</h3>
-                <p>
-                  Formato de pre-cuenta y factura calibrado a 60mm sobre impresoras de 80mm para evitar recortes en el cabezal térmico, con QR integrado.
-                </p>
-              </div>
-
-              <div className="trust-card">
-                <div className="benefit-icon" aria-hidden="true">
-                  <Phone size={22} />
-                </div>
-                <h3>Soporte Especializado en RD</h3>
-                <p>
-                  Adaptado a las normativas fiscales de la DGII en República Dominicana (606, 607, IT-1 y e-CF) con acompañamiento directo.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 9. PREGUNTAS FRECUENTES DEL SAAS */}
-        <section className="section-block bg-alt" id="faq">
-          <div className="container">
-            <div className="section-header">
-              <span className="section-tag">Resuelve tus dudas</span>
-              <h2 className="section-title">
-                Preguntas <span>frecuentes</span> sobre la plataforma
-              </h2>
-              <p className="section-subtitle">
-                Respuestas claras sobre el licenciamiento de Plan Base, Plan Pro, usuarios y módulos incluidos.
-              </p>
-            </div>
-
-            <div className="faq-list">
-              {SAAS_FAQS.map((item, idx) => {
-                const isOpen = openFaqIndex === idx;
-                const answerId = `landing-faq-answer-${idx}`;
-                return (
-                  <div key={idx} className="faq-item">
                     <button
                       type="button"
-                      className="faq-trigger"
-                      aria-expanded={isOpen}
-                      aria-controls={answerId}
-                      onClick={() => setOpenFaqIndex(isOpen ? -1 : idx)}
+                      className="et-pass-toggle"
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      onClick={() => setShowPassword((v) => !v)}
                     >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                        <HelpCircle size={18} aria-hidden="true" style={{ color: 'var(--lp-accent)', flexShrink: 0 }} />
-                        <span>{item.question}</span>
-                      </span>
-                      {isOpen ? (
-                        <ChevronUp size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
-                      ) : (
-                        <ChevronDown size={18} aria-hidden="true" style={{ flexShrink: 0 }} />
-                      )}
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
-                    {isOpen && (
-                      <div id={answerId} className="faq-answer">
-                        {item.answer}
-                      </div>
-                    )}
                   </div>
-                );
-              })}
+                </div>
+
+                <button
+                  type="submit"
+                  className="et-btn-primary et-login-submit"
+                  disabled={loginLoading}
+                >
+                  {loginLoading ? 'Ingresando...' : 'Iniciar sesión →'}
+                </button>
+              </form>
+
+              <div className="et-login-meta">
+                <button
+                  type="button"
+                  className="et-inline-link"
+                  onClick={() => {
+                    lastTriggerRef.current = document.activeElement;
+                    setShowForgotModal(true);
+                  }}
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+                <span>
+                  ¿Aún no tienes espacio?{' '}
+                  <button
+                    type="button"
+                    className="et-inline-link"
+                    onClick={(e) => openOnboardingModal(selectedPlanCode, e.currentTarget)}
+                  >
+                    Registrar empresa →
+                  </button>
+                </span>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* 10. CTA FINAL */}
-        <section className="final-cta-section">
-          <div className="container">
-            <div className="final-cta-box">
-              <h2>¿Listo para modernizar la gestión de <span>tu salón</span>?</h2>
-              <p>
-                Crea la cuenta de tu salón en minutos eligiendo el Plan Base ($49/mes) o el Plan Pro con Suscripciones y Marketing ($99/mes).
+        {/* 2. People Band */}
+        <section className="et-people-section" aria-label="Tecnología que conecta personas">
+          <div className="et-container">
+            <div className="et-people-card">
+              <div className="et-people-media">
+                <img
+                  src="/landing_assets/equipo-etereas.png"
+                  alt="Equipo de trabajo colaborando frente a una computadora con la plataforma Etereas"
+                  width="1536"
+                  height="1024"
+                  loading="lazy"
+                  decoding="async"
+                />
+                <span className="et-media-caption">Imagen ilustrativa</span>
+              </div>
+              <div className="et-people-copy">
+                <p className="et-eyebrow">TECNOLOGÍA QUE CONECTA PERSONAS</p>
+                <h2>
+                  Tu equipo conectado.
+                  <br />
+                  Tu negocio en movimiento.
+                </h2>
+                <p>
+                  Una misma plataforma para quienes venden, gestionan el equipo y toman decisiones.
+                </p>
+                <a href="#integracion" className="et-text-link">
+                  Conoce todo lo que integra →
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. Modules Grid */}
+        <section id="integracion" className="et-section">
+          <div className="et-container">
+            <p className="et-eyebrow">EL VALOR ESTÁ EN LA CONEXIÓN</p>
+            <div className="et-section-header-split">
+              <h2 className="et-section-h2">
+                De tu operación
+                <br />a tus resultados.
+              </h2>
+              <p className="et-section-sub">
+                La información pasa de un módulo a otro. Tu equipo trabaja en un mismo lugar.
               </p>
-              <div className="final-cta-buttons">
+            </div>
+
+            <div className="et-modules-grid">
+              {MODULES_LIST.map(({ kicker, title, desc, flow, Icon }) => (
+                <article key={kicker} className="et-module-item">
+                  <div className="et-module-icon" aria-hidden="true">
+                    <Icon size={18} />
+                  </div>
+                  <p className="et-module-kicker">{kicker}</p>
+                  <h3>{title}</h3>
+                  <p>{desc}</p>
+                  <span className="et-module-flow">{flow}</span>
+                </article>
+              ))}
+            </div>
+
+            <div className="et-accordion-bar">
+              <button
+                type="button"
+                className="et-accordion-btn"
+                aria-expanded={extraModulesOpen}
+                onClick={() => setExtraModulesOpen((v) => !v)}
+              >
+                <span>
+                  También incluido: clientes CRM (Base y Pro), membresías B2C (Pro) y gestión por
+                  sucursal
+                </span>
+                {extraModulesOpen ? <Minus size={16} /> : <Plus size={16} />}
+              </button>
+              {extraModulesOpen && (
+                <div className="et-accordion-panel">
+                  <span className="et-pill-item">Perfiles y CRM de clientes (Base y Pro)</span>
+                  <span className="et-pill-item">Membresías B2C y renovaciones (Plan Pro)</span>
+                  <span className="et-pill-item">Gestión por sucursal</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* 4. Sales Insight */}
+        <section className="et-section" aria-labelledby="insight-heading">
+          <div className="et-container et-insight-grid">
+            <div className="et-insight-copy">
+              <p className="et-eyebrow">TUS RESULTADOS, A LA VISTA</p>
+              <h2 id="insight-heading" className="et-section-h2">
+                Tu negocio,
+                <br />
+                en perspectiva.
+              </h2>
+              <p className="et-body">
+                Consulta tus ventas y compara períodos. La información de tu operación, lista para
+                tomar decisiones.
+              </p>
+              <a href="#planes" className="et-text-link">
+                Todo conectado en tu plan →
+              </a>
+            </div>
+
+            <div className="et-chart-card">
+              <div className="et-chart-top">
+                <div>
+                  <div className="et-chart-label">Resumen de ventas</div>
+                  <div className="et-chart-value">{activeChart.total}</div>
+                </div>
+                <div className="et-period-toggle" role="group" aria-label="Período del gráfico">
+                  <button
+                    type="button"
+                    className={`et-period-btn ${chartPeriod === 'week' ? 'active' : ''}`}
+                    aria-pressed={chartPeriod === 'week'}
+                    onClick={() => {
+                      setChartPeriod('week');
+                      setActiveBarIdx(null);
+                    }}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    type="button"
+                    className={`et-period-btn ${chartPeriod === 'month' ? 'active' : ''}`}
+                    aria-pressed={chartPeriod === 'month'}
+                    onClick={() => {
+                      setChartPeriod('month');
+                      setActiveBarIdx(null);
+                    }}
+                  >
+                    Mes
+                  </button>
+                </div>
+              </div>
+
+              <div className="et-bars-wrap">
+                <div className="et-y-axis" aria-hidden="true">
+                  {activeChart.yLabels.map((lbl) => (
+                    <span key={lbl}>{lbl}</span>
+                  ))}
+                </div>
+                <div className="et-bars-grid">
+                  {activeChart.bars.map((bar, idx) => (
+                    <div key={bar.label} className="et-bar-col">
+                      <button
+                        type="button"
+                        className={`et-bar ${bar.peak || activeBarIdx === idx ? 'peak' : ''}`}
+                        style={{ height: `${bar.pct}%` }}
+                        aria-label={`${bar.label}: ${bar.value}`}
+                        onMouseEnter={() => setActiveBarIdx(idx)}
+                        onMouseLeave={() => setActiveBarIdx(null)}
+                        onFocus={() => setActiveBarIdx(idx)}
+                      />
+                      <span className="et-bar-day">{bar.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="et-chart-footer">
+                <span>
+                  <span className="et-legend-dot" />
+                  {activeBarIdx !== null
+                    ? `${activeChart.bars[activeBarIdx].label}: ${activeChart.bars[activeBarIdx].value}`
+                    : 'Ventas registradas'}
+                </span>
+                <span>Datos ilustrativos · Explora el gráfico</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* 5. Pricing & Plan Configurator (BASE & PRO Canonical) */}
+        <section id="planes" className="et-pricing-section" aria-labelledby="pricing-heading">
+          <div className="et-container">
+            <div className="et-pricing-head">
+              <p className="et-eyebrow">ELIGE TU ALCANCE. CONECTA TU EMPRESA.</p>
+              <h2 id="pricing-heading" className="et-section-h2">
+                Dos planes claros.
+                <br />
+                Toda tu operación.
+              </h2>
+              <p className="et-sub">
+                Elige Plan Base o Plan Pro, tus sucursales y usuarios. Tu mensualidad, clara desde el
+                inicio.
+              </p>
+            </div>
+
+            <div className="et-pricing-card">
+              <div className="et-pricing-left">
+                <div className="et-plan-tabs" role="tablist" aria-label="Seleccionar plan">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selectedPlanCode === 'base'}
+                    className={`et-plan-tab ${selectedPlanCode === 'base' ? 'active' : ''}`}
+                    onClick={() => setSelectedPlanCode('base')}
+                  >
+                    Plan Base · US$49
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selectedPlanCode === 'pro'}
+                    className={`et-plan-tab ${selectedPlanCode === 'pro' ? 'active' : ''}`}
+                    onClick={() => setSelectedPlanCode('pro')}
+                  >
+                    Plan Pro · US$99
+                  </button>
+                </div>
+
+                <p className="et-eyebrow" style={{ marginBottom: '6px' }}>
+                  {selectedPlanCode === 'pro' ? 'PLAN ETEREAS PRO' : 'PLAN ETEREAS BASE'}
+                </p>
+                <h3 className="et-plan-name">
+                  {selectedPlanCode === 'pro' ? 'ETEREAS PRO' : 'ETEREAS BASE'}
+                </h3>
+
+                <div className="et-price-row">
+                  <span className="et-price-big">US${unitPrice}</span>
+                  <span className="et-price-unit">/ mes por sucursal</span>
+                </div>
+
+                <p className="et-plan-desc">{activePlan.description}</p>
+
+                <ul className="et-check-list">
+                  {planFeaturesList.map((item) => (
+                    <li key={item.label} className={item.included ? '' : 'excluded'}>
+                      {item.included ? (
+                        <Check size={15} color="#2563eb" style={{ flexShrink: 0, marginTop: 2 }} />
+                      ) : (
+                        <Lock size={14} color="#94a3b8" style={{ flexShrink: 0, marginTop: 2 }} />
+                      )}
+                      <span>{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+
                 <button
                   type="button"
-                  onClick={(e) => openAuthModal(false, e.currentTarget, 'pro')}
-                  className="landing-btn btn-accent"
+                  className="et-details-btn"
+                  aria-expanded={planDetailsOpen}
+                  onClick={() => setPlanDetailsOpen((v) => !v)}
                 >
-                  Registrar mi salón
+                  <ChevronRight
+                    size={14}
+                    style={{
+                      transform: planDetailsOpen ? 'rotate(90deg)' : 'none',
+                      transition: 'transform 0.15s ease'
+                    }}
+                  />
+                  Ver qué incluye el plan
                 </button>
-                <button
-                  type="button"
-                  onClick={(e) => openAuthModal(true, e.currentTarget)}
-                  className="landing-btn btn-secondary-outline"
-                >
-                  Iniciar sesión
-                </button>
+
+                {planDetailsOpen && (
+                  <div className="et-details-box">
+                    {selectedPlanCode === 'pro'
+                      ? 'Incluye todo el Plan Base (POS, cajas, CRM de clientes, inventario operativo, asistencia facial, nómina, comisiones, contabilidad y reportes DGII 606/607/IT-1) más Suscripciones y Membresías B2C, contratos digitales, automatizaciones de Marketing e Inventario Avanzado.'
+                      : 'Incluye POS, cajas registradoras, directorio CRM de clientes, inventario operativo de sucursal, asistencia facial, nómina, comisiones, contabilidad básica y reportes DGII (606/607/IT-1). Membresías B2C, contratos y Marketing requieren Plan Pro.'}
+                  </div>
+                )}
+
+                <p className="et-legal-note">
+                  Precios mensuales por sucursal en USD según catálogo vigente. Facturación
+                  electrónica e-CF y pasarela CardNet en proceso de certificación; equipo biométrico
+                  e impuestos locales según alcance de contratación.
+                </p>
+              </div>
+
+              <div className="et-pricing-right">
+                <div>
+                  <p className="et-eyebrow" style={{ marginBottom: '6px' }}>
+                    A TU MEDIDA
+                  </p>
+                  <h3 className="et-plan-name" style={{ fontSize: '21px', marginBottom: '22px' }}>
+                    Configura tu plan
+                  </h3>
+
+                  <div className="et-stepper-group">
+                    <span className="et-stepper-label">Sucursales</span>
+                    <div className="et-stepper">
+                      <button
+                        type="button"
+                        className="et-stepper-btn"
+                        aria-label="Disminuir sucursales"
+                        disabled={branchesCount <= 1}
+                        onClick={() => setBranchesCount((b) => Math.max(1, b - 1))}
+                      >
+                        −
+                      </button>
+                      <span className="et-stepper-val">{branchesCount}</span>
+                      <button
+                        type="button"
+                        className="et-stepper-btn"
+                        aria-label="Aumentar sucursales"
+                        onClick={() => setBranchesCount((b) => b + 1)}
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="et-stepper-hint">
+                      {branchesCount * usersPerBranch} usuarios incluidos ({usersPerBranch} por
+                      sucursal)
+                    </div>
+                  </div>
+
+                  <div className="et-stepper-group">
+                    <span className="et-stepper-label">Usuarios adicionales en total</span>
+                    <div className="et-stepper">
+                      <button
+                        type="button"
+                        className="et-stepper-btn"
+                        aria-label="Disminuir usuarios adicionales"
+                        disabled={extraUsersCount <= 0}
+                        onClick={() => setExtraUsersCount((u) => Math.max(0, u - 1))}
+                      >
+                        −
+                      </button>
+                      <span className="et-stepper-val">{extraUsersCount}</span>
+                      <button
+                        type="button"
+                        className="et-stepper-btn"
+                        aria-label="Aumentar usuarios adicionales"
+                        onClick={() => setExtraUsersCount((u) => u + 1)}
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="et-stepper-hint">
+                      US${extraUserPrice}/mes por cada usuario adicional
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="et-subtotal-row">
+                    <span className="et-subtotal-label">
+                      Subtotal mensual ({selectedPlanCode === 'pro' ? 'Pro' : 'Base'})
+                    </span>
+                    <span className="et-subtotal-val">US${monthlySubtotal}</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="et-btn-primary et-cta-full"
+                    onClick={(e) => openOnboardingModal(selectedPlanCode, e.currentTarget)}
+                  >
+                    Contratar {selectedPlanCode === 'pro' ? 'Plan Pro' : 'Plan Base'} →
+                  </button>
+                  <p className="et-cta-sub">Revisa tu selección antes de continuar.</p>
+                </div>
               </div>
             </div>
           </div>
         </section>
       </main>
 
-      {/* 11. FOOTER */}
-      <PublicFooter />
+      {/* Pre-footer & Footer */}
+      <div className="et-prefooter">
+        ¿Quieres conocerlo antes?
+        <Link to="/contacto">Solicitar demostración</Link>
+      </div>
 
-      {/* ========================================================================
-          MODAL UNIFICADO ACCESIBLE DE AUTENTICACIÓN (LOGIN & REGISTRO DE SALÓN EN 3 PASOS)
-          No se duplica en el DOM: solo se monta cuando el usuario lo abre.
-          ======================================================================== */}
-      {isAuthModalOpen && (
+      <footer className="et-footer">
+        <div className="et-container et-footer-inner">
+          <a href="#top" className="et-brand" style={{ fontSize: '18px' }}>
+            <EtereasLogoMark className="et-brand-symbol" />
+            <span>etereas.</span>
+          </a>
+
+          <span>Software de gestión empresarial</span>
+
+          <div className="et-footer-links">
+            <Link to="/contacto">Contacto</Link>
+            <Link to="/terminos-y-condiciones">Términos</Link>
+            <Link to="/politica-de-privacidad">Privacidad</Link>
+          </div>
+        </div>
+      </footer>
+
+      {/* Onboarding / Registration Modal (POST /api/public/onboarding) */}
+      {isRegisterModalOpen && (
         <div
-          className="activation-overlay"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeAllModals();
-          }}
+          className="et-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reg-modal-title"
+          onClick={(e) => e.target === e.currentTarget && closeAllModals()}
         >
-          <div
-            ref={authModalRef}
-            className="modal-dialog-wrapper"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="auth-modal-title"
-          >
-            <div className="login-card">
-              <div className="modal-header-row">
-                <div>
-                  <h2 id="auth-modal-title">
-                    {regSuccess
-                      ? '¡SALÓN REGISTRADO!'
-                      : isLogin
-                      ? 'INICIA SESIÓN'
-                      : 'REGISTRA TU SALÓN'}
-                  </h2>
-                  <hr className="title-hr" />
+          <div className="et-modal-card" ref={activeModalRef}>
+            <button
+              type="button"
+              className="et-modal-close"
+              aria-label="Cerrar ventana"
+              onClick={closeAllModals}
+            >
+              <X size={18} />
+            </button>
+
+            {regSuccess ? (
+              <div>
+                <div className="et-alert-success" role="status">
+                  ¡Tu espacio de trabajo <strong>{businessName}</strong> ha sido registrado!
                 </div>
+                <h2 id="reg-modal-title">Registro completado</h2>
+                <p className="et-login-subtitle" style={{ marginBottom: 18 }}>
+                  Ya puedes iniciar sesión con <strong>{regEmail}</strong> y la contraseña que
+                  definiste.
+                </p>
                 <button
                   type="button"
-                  onClick={closeAllModals}
-                  className="modal-close-btn"
-                  aria-label="Cerrar ventana"
+                  className="et-btn-primary et-cta-full"
+                  onClick={() => {
+                    setEmail(regEmail);
+                    setPassword(ownerPassword);
+                    closeAllModals();
+                    focusLoginCard();
+                  }}
                 >
-                  <X size={20} aria-hidden="true" />
+                  Ir a iniciar sesión →
                 </button>
               </div>
-
-              {!isLogin && !regSuccess && (
-                <div className="stepper-header" aria-label={`Progreso de registro: Paso ${regStep} de 3`}>
-                  <div className="stepper-meta">
-                    <span>Paso {regStep} de 3</span>
-                    <span>
-                      {regStep === 1 && 'Datos del propietario'}
-                      {regStep === 2 && 'Salón y Plan SaaS'}
-                      {regStep === 3 && 'Resumen y activación'}
-                    </span>
-                  </div>
-                  <div className="stepper-bars">
-                    <div className={`stepper-bar ${regStep === 1 ? 'active' : 'completed'}`} />
-                    <div className={`stepper-bar ${regStep === 2 ? 'active' : regStep > 2 ? 'completed' : ''}`} />
-                    <div className={`stepper-bar ${regStep === 3 ? 'active' : ''}`} />
-                  </div>
+            ) : (
+              <form onSubmit={handleRegisterStep} noValidate>
+                <p className="et-eyebrow" style={{ marginBottom: 6 }}>
+                  ALTA DE EMPRESA · PASO {regStep} DE 3
+                </p>
+                <h2 id="reg-modal-title">Crear espacio en Etereas</h2>
+                <div className="et-stepper-bars" aria-hidden="true">
+                  <div className={`et-stepper-bar ${regStep >= 1 ? 'active' : ''}`} />
+                  <div className={`et-stepper-bar ${regStep >= 2 ? 'active' : ''}`} />
+                  <div className={`et-stepper-bar ${regStep >= 3 ? 'active' : ''}`} />
                 </div>
-              )}
 
-              <div aria-live="polite" aria-atomic="true">
-                {error && (
-                  <div className="error-msg" role="alert">
-                    {error}
+                {regError && (
+                  <div className="et-alert-error" role="alert">
+                    {regError}
                   </div>
                 )}
-              </div>
 
-              {regSuccess ? (
-                <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
-                  <div
-                    style={{
-                      width: '64px',
-                      height: '64px',
-                      background: '#f0fdf4',
-                      color: '#166534',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      margin: '0 auto 1rem'
-                    }}
-                    aria-hidden="true"
-                  >
-                    <CheckCircle2 size={36} />
-                  </div>
-                  <p style={{ color: 'var(--lp-muted)', fontSize: '0.92rem', lineHeight: 1.6, marginBottom: '1.5rem' }}>
-                    Tu salón <strong>{businessName}</strong> ha sido creado con el <strong>{selectedPlanCode === 'pro' ? 'Plan Pro ($99/mes)' : 'Plan Base ($49/mes)'}</strong>. Ya puedes ingresar con tu correo <strong>{email}</strong> y tu contraseña.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleBackToLogin}
-                    className="landing-btn btn-primary"
-                    style={{ width: '100%' }}
-                  >
-                    Ir a iniciar sesión
-                  </button>
-                </div>
-              ) : isLogin ? (
-                <form onSubmit={handleLogin} noValidate>
-                  <div className="landing-form-group">
-                    <label htmlFor="login-identifier" className="field-label">
-                      Correo electrónico o usuario <span className="req">*</span>
-                    </label>
-                    <div className="input-with-icon">
-                      <User className="input-icon" size={18} aria-hidden="true" />
+                {regStep === 1 && (
+                  <>
+                    <div className="et-field">
+                      <label htmlFor="reg-owner-name">Nombre y apellido del propietario</label>
                       <input
-                        id="login-identifier"
+                        id="reg-owner-name"
                         type="text"
-                        autoComplete="username"
-                        placeholder="admin@tusalon.com o cédula"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        className="et-input"
+                        value={ownerName}
+                        onChange={(e) => setOwnerName(e.target.value)}
+                        placeholder="Ej. Laura Méndez"
                         required
                       />
                     </div>
-                  </div>
-
-                  <div className="landing-form-group">
-                    <label htmlFor="login-password" className="field-label">
-                      Contraseña <span className="req">*</span>
-                    </label>
-                    <div className="input-with-icon">
-                      <Lock className="input-icon" size={18} aria-hidden="true" />
+                    <div className="et-field">
+                      <label htmlFor="reg-owner-email">Correo electrónico</label>
                       <input
-                        id="login-password"
-                        className="has-toggle"
-                        type={showPassword ? 'text' : 'password'}
-                        autoComplete="current-password"
-                        placeholder="Ingresa tu contraseña"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        id="reg-owner-email"
+                        type="email"
+                        className="et-input"
+                        value={regEmail}
+                        onChange={(e) => setRegEmail(e.target.value)}
+                        placeholder="laura@empresa.com"
                         required
                       />
-                      <button
-                        type="button"
-                        className="toggle-pass"
-                        aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                        onClick={() => setShowPassword(!showPassword)}
-                      >
-                        {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
-                      </button>
                     </div>
-                  </div>
+                    <div className="et-field">
+                      <label htmlFor="reg-owner-phone">Teléfono</label>
+                      <input
+                        id="reg-owner-phone"
+                        type="tel"
+                        className="et-input"
+                        value={telefono}
+                        onChange={(e) => setTelefono(e.target.value)}
+                        placeholder="809-555-0100"
+                        required
+                      />
+                    </div>
+                  </>
+                )}
 
-                  <button
-                    type="submit"
-                    className="landing-btn btn-primary"
-                    style={{ width: '100%', marginTop: '0.5rem' }}
-                    disabled={loading}
-                  >
-                    {loading ? 'INGRESANDO...' : 'INICIAR SESIÓN'}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="forgot-link"
-                    onClick={() => {
-                      setIsAuthModalOpen(false);
-                      setShowForgotModal(true);
-                      setForgotStep(1);
-                      setForgotError('');
-                    }}
-                  >
-                    ¿Olvidaste tu contraseña?
-                  </button>
-
-                  <p className="landing-form-footer">
-                    ¿Aún no has registrado tu salón?{' '}
-                    <button
-                      type="button"
-                      className="toggle-link"
-                      onClick={() => {
-                        setIsLogin(false);
-                        setError('');
-                        setRegStep(1);
-                      }}
-                    >
-                      Registrar mi salón
-                    </button>
-                  </p>
-                </form>
-              ) : (
-                <form onSubmit={handleRegisterStepValidation} noValidate>
-                  {regStep === 1 && (
-                    <>
-                      <div className="landing-form-group">
-                        <label htmlFor="reg-owner-name" className="field-label">
-                          Nombre del propietario o administrador <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <User className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="reg-owner-name"
-                            type="text"
-                            autoComplete="name"
-                            placeholder="Ej. Laura Martínez"
-                            value={ownerName}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setOwnerName(val);
-                              if (val && !validateName(val)) {
-                                setError('El nombre solo debe contener letras y espacios.');
-                              } else {
-                                setError('');
-                              }
-                            }}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="landing-form-group">
-                        <label htmlFor="reg-telefono" className="field-label">
-                          Teléfono móvil / WhatsApp <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <Phone className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="reg-telefono"
-                            type="tel"
-                            inputMode="tel"
-                            autoComplete="tel"
-                            placeholder="8090000000"
-                            value={telefono}
-                            onChange={(e) => setTelefono(cleanPhone(e.target.value))}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="landing-form-group">
-                        <label htmlFor="reg-email" className="field-label">
-                          Correo electrónico del administrador <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <Mail className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="reg-email"
-                            type="email"
-                            autoComplete="email"
-                            placeholder="admin@tusalon.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <button type="submit" className="landing-btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }}>
-                        Continuar al paso 2
-                      </button>
-                    </>
-                  )}
-
-                  {regStep === 2 && (
-                    <>
-                      <div className="landing-form-group">
-                        <label htmlFor="reg-business-name" className="field-label">
-                          Nombre comercial del salón <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <Building2 className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="reg-business-name"
-                            type="text"
-                            autoComplete="organization"
-                            placeholder="Ej. Glamour Beauty Studio"
-                            value={businessName}
-                            onChange={(e) => setBusinessName(e.target.value)}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="field-row-2col">
-                        <div className="landing-form-group">
-                          <label htmlFor="reg-plan" className="field-label">
-                            Plan SaaS <span className="req">*</span>
-                          </label>
-                          <div className="input-with-icon">
-                            <Crown className="input-icon" size={18} aria-hidden="true" />
-                            <select
-                              id="reg-plan"
-                              value={selectedPlanCode}
-                              onChange={(e) => setSelectedPlanCode(e.target.value)}
-                              required
-                            >
-                              <option value="base">Plan Base ($49/sede)</option>
-                              <option value="pro">Plan Pro ($99/sede)</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="landing-form-group">
-                          <label htmlFor="reg-branches" className="field-label">
-                            Sucursales <span className="req">*</span>
-                          </label>
-                          <div className="input-with-icon">
-                            <MapPin className="input-icon" size={18} aria-hidden="true" />
-                            <select
-                              id="reg-branches"
-                              value={licensedBranches}
-                              onChange={(e) => setLicensedBranches(Number(e.target.value))}
-                              required
-                            >
-                              {[1, 2, 3, 4, 5].map((n) => (
-                                <option key={n} value={n}>
-                                  {n} {n === 1 ? 'Sucursal' : 'Sucursales'}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="landing-form-group">
-                        <label htmlFor="reg-rnc" className="field-label">
-                          RNC del salón (Opcional)
-                        </label>
-                        <div className="input-with-icon">
-                          <CreditCard className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="reg-rnc"
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="Ej. 131-00000-1"
-                            value={rnc}
-                            onChange={(e) => setRnc(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="landing-form-group">
-                        <label htmlFor="reg-owner-password" className="field-label">
-                          Crea tu contraseña de administrador <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <Lock className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="reg-owner-password"
-                            className="has-toggle"
-                            type={showPassword ? 'text' : 'password'}
-                            autoComplete="new-password"
-                            placeholder="Mínimo 6 caracteres"
-                            value={ownerPassword}
-                            onChange={(e) => setOwnerPassword(e.target.value)}
-                            required
-                          />
-                          <button
-                            type="button"
-                            className="toggle-pass"
-                            aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                            onClick={() => setShowPassword(!showPassword)}
-                          >
-                            {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setError('');
-                            setRegStep(1);
-                          }}
-                          className="landing-btn btn-secondary-outline"
-                          style={{ flex: 1 }}
+                {regStep === 2 && (
+                  <>
+                    <div className="et-field">
+                      <label htmlFor="reg-business-name">Nombre comercial de tu empresa</label>
+                      <input
+                        id="reg-business-name"
+                        type="text"
+                        className="et-input"
+                        value={businessName}
+                        onChange={(e) => setBusinessName(e.target.value)}
+                        placeholder="Ej. Estudio Central"
+                        required
+                      />
+                    </div>
+                    <div className="et-field-row-2">
+                      <div className="et-field">
+                        <label htmlFor="reg-plan">Plan inicial</label>
+                        <select
+                          id="reg-plan"
+                          className="et-input"
+                          value={selectedPlanCode}
+                          onChange={(e) => setSelectedPlanCode(e.target.value)}
                         >
-                          Atrás
-                        </button>
-                        <button type="submit" className="landing-btn btn-primary" style={{ flex: 2 }}>
-                          Revisar resumen
-                        </button>
+                          <option value="base">Plan Base (US$49/mes)</option>
+                          <option value="pro">Plan Pro (US$99/mes)</option>
+                        </select>
                       </div>
-                    </>
-                  )}
-
-                  {regStep === 3 && (
-                    <>
-                      <div className="plan-summary-box">
-                        <h3>Resumen de Licencia SaaS para tu Salón</h3>
-                        <ul className="plan-summary-list">
-                          <li><strong>Salón:</strong> {businessName} {rnc ? `(RNC: ${rnc})` : ''}</li>
-                          <li><strong>Administrador:</strong> {ownerName} ({email})</li>
-                          <li>
-                            <strong>Plan seleccionado:</strong>{' '}
-                            {selectedPlanCode === 'pro'
-                              ? 'Plan Pro ($99 USD/mes por sede — Incluye Suscripciones + Marketing)'
-                              : 'Plan Base ($49 USD/mes por sede — POS, Cajas, Usuarios y DGII)'}
-                          </li>
-                          <li>
-                            <strong>Sucursales y Usuarios:</strong> {licensedBranches} {licensedBranches === 1 ? 'sucursal' : 'sucursales'} ({licensedBranches * 3} usuarios incluidos)
-                          </li>
-                          <li><strong>Total mensual estimado:</strong> ${totalEstimatedMonthly}.00 USD / mes</li>
-                        </ul>
-                      </div>
-
-                      <p style={{ fontSize: '0.82rem', color: 'var(--lp-muted)', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
-                        Al confirmar, crearemos el entorno aislado de tu salón y tu usuario propietario sin realizar ningún cobro automático en este paso.
-                      </p>
-
-                      <div className="checkbox-consent-group">
+                      <div className="et-field">
+                        <label htmlFor="reg-rnc">RNC / Cédula (opcional)</label>
                         <input
-                          id="reg-accept-terms"
-                          type="checkbox"
-                          checked={acceptTerms}
-                          onChange={(e) => setAcceptTerms(e.target.checked)}
+                          id="reg-rnc"
+                          type="text"
+                          className="et-input"
+                          value={rnc}
+                          onChange={(e) => setRnc(e.target.value)}
+                          placeholder="Opcional"
+                        />
+                      </div>
+                    </div>
+                    <div className="et-field">
+                      <label htmlFor="reg-password">Contraseña de acceso</label>
+                      <div className="et-input-wrap">
+                        <input
+                          id="reg-password"
+                          type={showOwnerPassword ? 'text' : 'password'}
+                          className="et-input has-toggle"
+                          value={ownerPassword}
+                          onChange={(e) => setOwnerPassword(e.target.value)}
+                          placeholder="Mínimo 6 caracteres"
                           required
                         />
-                        <label htmlFor="reg-accept-terms">
-                          He leído y acepto los{' '}
-                          <Link to="/terminos-y-condiciones" target="_blank" rel="noopener noreferrer">
-                            Términos y Condiciones
-                          </Link>{' '}
-                          y la{' '}
-                          <Link to="/cancelacion-y-reembolsos" target="_blank" rel="noopener noreferrer">
-                            Política de Cancelación
-                          </Link>.
-                        </label>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: '0.75rem' }}>
                         <button
                           type="button"
-                          onClick={() => {
-                            setError('');
-                            setRegStep(2);
-                          }}
-                          className="landing-btn btn-secondary-outline"
-                          style={{ flex: 1 }}
-                          disabled={loading}
+                          className="et-pass-toggle"
+                          aria-label={showOwnerPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                          onClick={() => setShowOwnerPassword((v) => !v)}
                         >
-                          Atrás
-                        </button>
-                        <button
-                          type="submit"
-                          className="landing-btn btn-accent"
-                          style={{ flex: 2 }}
-                          disabled={loading}
-                        >
-                          {loading ? 'CREANDO SALÓN...' : 'CREAR MI SALÓN AHORA'}
+                          {showOwnerPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
                       </div>
-                    </>
-                  )}
+                    </div>
+                  </>
+                )}
 
-                  <p className="landing-form-footer">
-                    ¿Tu salón ya tiene cuenta?{' '}
+                {regStep === 3 && (
+                  <>
+                    <div className="et-summary-box">
+                      <div>
+                        <strong>Empresa:</strong> {businessName}
+                      </div>
+                      <div>
+                        <strong>Propietario:</strong> {ownerName} ({regEmail})
+                      </div>
+                      <div>
+                        <strong>Plan seleccionado:</strong>{' '}
+                        {selectedPlanCode === 'pro'
+                          ? 'Plan Pro (US$99/mes por sucursal)'
+                          : 'Plan Base (US$49/mes por sucursal)'}
+                      </div>
+                      <div>
+                        <strong>Configuración estimada:</strong> {branchesCount} sucursal(es),{' '}
+                        {extraUsersCount} usuario(s) extra — Subtotal US${monthlySubtotal}/mes
+                      </div>
+                    </div>
+                    <label className="et-checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={acceptTerms}
+                        onChange={(e) => setAcceptTerms(e.target.checked)}
+                      />
+                      <span>
+                        Acepto los{' '}
+                        <Link to="/terminos-y-condiciones" onClick={closeAllModals}>
+                          Términos y Condiciones
+                        </Link>{' '}
+                        y la{' '}
+                        <Link to="/politica-de-privacidad" onClick={closeAllModals}>
+                          Política de Privacidad
+                        </Link>
+                        .
+                      </span>
+                    </label>
+                  </>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                  {regStep > 1 && (
                     <button
                       type="button"
-                      className="toggle-link"
-                      onClick={() => {
-                        setIsLogin(true);
-                        setError('');
-                      }}
+                      className="et-mobile-login-pill"
+                      style={{ flex: 1, height: 44 }}
+                      onClick={() => setRegStep((s) => Math.max(1, s - 1))}
                     >
-                      Inicia sesión
+                      Atrás
                     </button>
-                  </p>
-                </form>
-              )}
-            </div>
+                  )}
+                  <button
+                    type="submit"
+                    className="et-btn-primary"
+                    style={{ flex: 2, height: 44 }}
+                    disabled={regLoading}
+                  >
+                    {regStep < 3
+                      ? 'Continuar →'
+                      : regLoading
+                      ? 'Creando espacio...'
+                      : 'Confirmar registro →'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
 
-      {/* MODAL ACCESIBLE DE RECUPERACIÓN DE CONTRASEÑA */}
+      {/* Forgot Password Modal */}
       {showForgotModal && (
         <div
-          className="activation-overlay"
-          style={{ zIndex: 2100 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeAllModals();
-          }}
+          className="et-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="forgot-modal-title"
+          onClick={(e) => e.target === e.currentTarget && closeAllModals()}
         >
-          <div
-            ref={forgotModalRef}
-            className="modal-dialog-wrapper"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="forgot-modal-title"
-          >
-            <div className="login-card">
-              <div className="modal-header-row">
-                <div>
-                  <h2 id="forgot-modal-title">
-                    {forgotStep === 1 ? 'RECUPERAR CUENTA' : 'NUEVA CONTRASEÑA'}
-                  </h2>
-                  <hr className="title-hr" />
+          <div className="et-modal-card" ref={activeModalRef}>
+            <button
+              type="button"
+              className="et-modal-close"
+              aria-label="Cerrar recuperación"
+              onClick={closeAllModals}
+            >
+              <X size={18} />
+            </button>
+            <h2 id="forgot-modal-title">Recuperar contraseña</h2>
+            <p className="et-login-subtitle">
+              {forgotStep === 1
+                ? 'Ingresa tu correo o cédula para recibir un código de recuperación.'
+                : 'Ingresa el código recibido y define tu nueva contraseña.'}
+            </p>
+
+            {forgotError && (
+              <div className="et-alert-error" role="alert">
+                {forgotError}
+              </div>
+            )}
+            {forgotSuccess && (
+              <div className="et-alert-success" role="status">
+                Contraseña actualizada correctamente. Ya puedes iniciar sesión.
+              </div>
+            )}
+
+            {forgotStep === 1 ? (
+              <form onSubmit={handleForgotPassword}>
+                <div className="et-field">
+                  <label htmlFor="forgot-email">Correo o cédula</label>
+                  <input
+                    id="forgot-email"
+                    type="text"
+                    className="et-input"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    required
+                  />
                 </div>
                 <button
-                  type="button"
-                  onClick={closeAllModals}
-                  className="modal-close-btn"
-                  aria-label="Cerrar recuperación de contraseña"
+                  type="submit"
+                  className="et-btn-primary et-cta-full"
+                  disabled={forgotLoading}
                 >
-                  <X size={20} aria-hidden="true" />
+                  {forgotLoading ? 'Enviando...' : 'Enviar código →'}
                 </button>
-              </div>
-
-              <div aria-live="polite" aria-atomic="true">
-                {forgotError && (
-                  <div className="error-msg" role="alert">
-                    {forgotError}
-                  </div>
-                )}
-                {forgotSuccess && (
-                  <div className="success-msg" role="status">
-                    ¡Contraseña actualizada con éxito! Redirigiendo al inicio de sesión...
-                  </div>
-                )}
-              </div>
-
-              {!forgotSuccess && (
-                <form onSubmit={forgotStep === 1 ? handleForgotPassword : handleResetPassword}>
-                  {forgotStep === 1 ? (
-                    <>
-                      <p style={{ fontSize: '0.88rem', color: 'var(--lp-muted)', marginBottom: '1.15rem' }}>
-                        Ingresa tu correo electrónico registrado para recibir un código de verificación de 6 dígitos.
-                      </p>
-                      <div className="landing-form-group">
-                        <label htmlFor="forgot-identifier" className="field-label">
-                          Correo electrónico <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <Mail className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="forgot-identifier"
-                            type="text"
-                            placeholder="admin@tusalon.com"
-                            value={forgotEmail}
-                            onChange={(e) => setForgotEmail(e.target.value)}
-                            required
-                          />
-                        </div>
-                      </div>
-                      <button
-                        type="submit"
-                        className="landing-btn btn-primary"
-                        style={{ width: '100%' }}
-                        disabled={forgotLoading}
-                      >
-                        {forgotLoading ? 'ENVIANDO...' : 'ENVIAR CÓDIGO'}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p style={{ fontSize: '0.88rem', color: 'var(--lp-muted)', marginBottom: '1.15rem' }}>
-                        Hemos enviado un código a <strong>{forgotEmail}</strong>. Ingrésalo junto a tu nueva contraseña.
-                      </p>
-                      <div className="landing-form-group">
-                        <label htmlFor="forgot-code" className="field-label">
-                          Código de 6 dígitos <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <ShieldCheck className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="forgot-code"
-                            type="text"
-                            inputMode="numeric"
-                            placeholder="000000"
-                            value={resetCode}
-                            onChange={(e) => setResetCode(e.target.value)}
-                            maxLength="6"
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div className="landing-form-group">
-                        <label htmlFor="forgot-new-password" className="field-label">
-                          Nueva contraseña <span className="req">*</span>
-                        </label>
-                        <div className="input-with-icon">
-                          <Lock className="input-icon" size={18} aria-hidden="true" />
-                          <input
-                            id="forgot-new-password"
-                            className="has-toggle"
-                            type={showPassword ? 'text' : 'password'}
-                            autoComplete="new-password"
-                            placeholder="Crea tu nueva contraseña"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            required
-                          />
-                          <button
-                            type="button"
-                            className="toggle-pass"
-                            aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                            onClick={() => setShowPassword(!showPassword)}
-                          >
-                            {showPassword ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
-                          </button>
-                        </div>
-                      </div>
-                      <button
-                        type="submit"
-                        className="landing-btn btn-primary"
-                        style={{ width: '100%' }}
-                        disabled={forgotLoading}
-                      >
-                        {forgotLoading ? 'ACTUALIZANDO...' : 'RESTABLECER CONTRASEÑA'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setForgotStep(1)}
-                        className="forgot-link"
-                      >
-                        Reintentar con otro correo
-                      </button>
-                    </>
-                  )}
-                </form>
-              )}
-            </div>
+              </form>
+            ) : (
+              <form onSubmit={handleResetPassword}>
+                <div className="et-field">
+                  <label htmlFor="reset-code">Código de verificación</label>
+                  <input
+                    id="reset-code"
+                    type="text"
+                    className="et-input"
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="et-field">
+                  <label htmlFor="reset-new-pass">Nueva contraseña</label>
+                  <input
+                    id="reset-new-pass"
+                    type="password"
+                    className="et-input"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="et-btn-primary et-cta-full"
+                  disabled={forgotLoading}
+                >
+                  {forgotLoading ? 'Guardando...' : 'Actualizar contraseña →'}
+                </button>
+              </form>
+            )}
           </div>
         </div>
       )}
 
-      {/* MODAL ACCESIBLE DE ACTIVACIÓN DE CUENTA */}
+      {/* Activation Modal */}
       {showActivation && (
         <div
-          className="activation-overlay"
-          style={{ zIndex: 2200 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeAllModals();
-          }}
+          className="et-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="activation-modal-title"
+          onClick={(e) => e.target === e.currentTarget && closeAllModals()}
         >
-          <div
-            ref={activationModalRef}
-            className="modal-dialog-wrapper"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="activation-modal-title"
-          >
-            <div className="activation-card" style={{ textAlign: 'center' }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={closeAllModals}
-                  className="modal-close-btn"
-                  aria-label="Cerrar ventana de activación"
-                >
-                  <X size={20} aria-hidden="true" />
-                </button>
+          <div className="et-modal-card" ref={activeModalRef}>
+            <button
+              type="button"
+              className="et-modal-close"
+              aria-label="Cerrar activación"
+              onClick={closeAllModals}
+            >
+              <X size={18} />
+            </button>
+            <h2 id="activation-modal-title">Activar cuenta</h2>
+            <p className="et-login-subtitle">
+              Ingresa el código de activación enviado a tu correo.
+            </p>
+            {activationError && (
+              <div className="et-alert-error" role="alert">
+                {activationError}
               </div>
-              <div className="activation-icon-bg" aria-hidden="true">
-                <Lock size={30} />
-              </div>
-              <h2 id="activation-modal-title" style={{ textAlign: 'center' }}>ACTIVA TU CUENTA</h2>
-              <p style={{ fontSize: '0.9rem', color: 'var(--lp-muted)', margin: '0.75rem 0 1rem' }}>
-                Ingresa el código de 6 dígitos enviado a tu correo electrónico para activar tu perfil.
-              </p>
-
-              <div aria-live="polite" aria-atomic="true">
-                {error && (
-                  <div className="error-msg" role="alert">
-                    {error}
-                  </div>
-                )}
-              </div>
-
-              <form onSubmit={handleActivate}>
-                <label htmlFor="activation-code-input" className="field-label" style={{ textAlign: 'center' }}>
-                  Código de activación
-                </label>
+            )}
+            <form onSubmit={handleActivate}>
+              <div className="et-field">
+                <label htmlFor="activation-code">Código de activación</label>
                 <input
-                  id="activation-code-input"
+                  id="activation-code"
                   type="text"
-                  inputMode="numeric"
-                  maxLength="6"
-                  placeholder="000000"
+                  className="et-input"
                   value={activationCode}
                   onChange={(e) => setActivationCode(e.target.value)}
-                  className="activation-input"
                   required
                 />
-
-                <button type="submit" className="landing-btn btn-primary" style={{ width: '100%' }}>
-                  VERIFICAR Y ACTIVAR
-                </button>
-                <button
-                  type="button"
-                  onClick={closeAllModals}
-                  className="forgot-link"
-                >
-                  Cancelar
-                </button>
-              </form>
-            </div>
+              </div>
+              <button type="submit" className="et-btn-primary et-cta-full">
+                Activar cuenta →
+              </button>
+            </form>
           </div>
         </div>
       )}
