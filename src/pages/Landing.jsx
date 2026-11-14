@@ -1100,17 +1100,15 @@ return (
                     +
                   </button>
                 </div>
-                {extraUserPrice !== null && (
-                  { extraUserPrice !== null ? (
-                    <div className="et-stepper-hint">
-                      US${extraUserPrice}/mes por cada usuario adicional
-                    </div>
-                  )}
+                {extraUserPrice !== null ? (
+                  <div className="et-stepper-hint">
+                    US${extraUserPrice}/mes por cada usuario adicional
+                  </div>
                 ) : !plansLoading && !plansError ? (
-                <div className="et-stepper-hint" style={{ color: '#b45309' }}>
-                  Tarifa por usuario adicional pendiente de cotización
-                </div>
-                    ) : null}
+                  <div className="et-stepper-hint" style={{ color: '#b45309' }}>
+                    Tarifa por usuario adicional pendiente de cotización
+                  </div>
+                ) : null}
               </div>
 
               <div
@@ -1476,14 +1474,12 @@ return (
                   <div>
                     <strong>Plan inicial:</strong>{' '}
                     {wantsMembershipsAddon
-                      ? `Plan Principal + Add-on Membresías B2C (${effectiveAddonBranches} sucursal(es) · US$${addonMonthlySubtotal}/mes + implementación por separado)`
-                        ? `Plan Principal + Add-on Suscripciones y Membresías (${effectiveAddonBranches} sucursal(es) · US$${addonMonthlySubtotal}/mes + implementación por separado)`
-                        : 'Plan Principal (sin adicionales contratados)'}
+                      ? `Plan Principal + Add-on Suscripciones y Membresías (${effectiveAddonBranches} sucursal(es) · US$${addonMonthlySubtotal}/mes + implementación por separado)`
+                      : 'Plan Principal (sin adicionales contratados)'}
                   </div>
                   <div>
                     <strong>Configuración solicitada:</strong> {branchesCount} sucursal(es),{' '}
                     {extraUsersCount} usuario(s) extra
-                    {monthlySubtotal !== null ? ` — Subtotal US$${monthlySubtotal}/mes` : ''}
                     {totalEstimatedMonthly !== null
                       ? ` — Total US$${totalEstimatedMonthly}/mes`
                       : branchesSubtotal !== null && extraUsersPendingQuote
