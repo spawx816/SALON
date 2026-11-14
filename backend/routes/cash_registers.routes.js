@@ -533,8 +533,8 @@ function createCashRegistersRouter(pool) {
         return res.status(404).json({ error: 'Caja no encontrada en este salón' });
       }
       const [rows] = await pool.query(`
-        SELECT v.id, v.invoice_number, v.ncf, v.total, v.metodo_pago, v.status, v.visited_at,
-               COALESCE(c.name, 'Cliente General') as client_name
+        SELECT v.id, v.ticket_number, v.ticket_number as invoice_number, v.ncf, v.total, v.metodo_pago, v.status, v.visited_at,
+               COALESCE(c.nombre, v.client_name, 'Cliente General') as client_name
         FROM visits v
         LEFT JOIN clients c ON c.id::text = v.client_id::text AND c.tenant_id = v.tenant_id
         WHERE v.tenant_id = ? AND v.cash_register_id = ?
