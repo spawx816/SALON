@@ -470,24 +470,28 @@ function createCashRegistersRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const { type = 'Salida', amount, concept, reason, category = 'General', created_by = 'Recepción' } = req.body;
+      const { type = 'Salida', amount, concept, reason, payment_method = 'Efectivo' } = req.body;
 
       const [regCheck] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (regCheck.length === 0) {
         return res.status(404).json({ error: 'Caja no encontrada en este salón.' });
       }
 
-      if (!amount || Number(amount) <= 0) {
+      const numAmount = Number(amount);
+      if (!numAmount || numAmount <= 0) {
         return res.status(400).json({ error: 'El monto debe ser mayor a 0.' });
       }
 
       const finalConcept = concept || reason || 'Movimiento de caja';
+      const amountCents = Math.round(numAmount * 100);
+      const operatorId = req.auth?.id ? String(req.auth.id) : null;
+      const operatorName = req.auth?.name || req.auth?.email || 'Recepción';
 
       const [result] = await pool.query(
-        `INSERT INTO cash_register_movements (tenant_id, cash_register_id, type, amount, concept, category, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+        `INSERT INTO cash_register_movements (tenant_id, cash_register_id, type, payment_method, amount, amount_cents, concept, user_id, user_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
          RETURNING id`,
-        [tenantId, id, type, Number(amount), finalConcept, category, created_by]
+        [tenantId, id, type, payment_method, numAmount, amountCents, finalConcept, operatorId, operatorName]
       );
 
       res.json({
