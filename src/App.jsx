@@ -340,52 +340,93 @@ const AppContent = () => {
 
       {/* Floating Sidebar */}
       <aside className={`floating-sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
-        <div className="sidebar-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '1.25rem', marginBottom: '1rem' }}>
-          <Link to={isSuperAdmin ? "/saas" : "/"} onClick={closeMobileMenu} className="brand" style={{ padding: '0.5rem 0', justifyContent: 'center', width: '100%', display: 'flex', textDecoration: 'none' }}>
-            {isSuperAdmin ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem' }}>
-                <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.02em', color: '#ffffff' }}>Salon<span style={{ color: '#60a5fa' }}>Pro</span></span>
-                <span style={{ fontSize: '0.62rem', background: 'rgba(59,130,246,0.25)', color: '#93c5fd', padding: '0.15rem 0.5rem', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.05em' }}>CONTROL PLANE</span>
-              </div>
-            ) : branding?.logo_url ? (
-              <img 
-                src={branding.logo_url} 
-                alt={branding.business_name || 'SalonPro'} 
-                style={{ width: '100%', maxWidth: '220px', maxHeight: '55px', height: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))', cursor: 'pointer' }} 
-              />
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ fontSize: '1.25rem', fontWeight: 900, letterSpacing: '-0.02em', color: '#ffffff' }}>
-                  {branding?.business_name || 'SalonPro'}
-                </span>
-              </div>
+        <div className="sidebar-header">
+          <Link
+            to={isSuperAdmin ? "/saas" : "/"}
+            onClick={closeMobileMenu}
+            className="brand sidebar-etereas-brand"
+          >
+            <svg className="sidebar-etereas-mark" viewBox="0 0 40 40" aria-hidden="true">
+              <path fill="#60a5fa" d="M8 5h26l-6 8H8a4 4 0 0 1 0-8Z" />
+              <path fill="#3b82f6" d="M8 16h22l-6 8H8a4 4 0 0 1 0-8Z" />
+              <path fill="#2563eb" d="M8 27h26l-6 8H8a4 4 0 0 1 0-8Z" />
+            </svg>
+            <span className="sidebar-etereas-wordmark">ETEREAS</span>
+            {isSuperAdmin && (
+              <span className="sidebar-control-pill">CONTROL PLANE</span>
             )}
           </Link>
         </div>
 
-        <div className="sidebar-user">
-          <div className="user-avatar">{(user?.nombre || user?.name || 'U').charAt(0)}</div>
-          <div className="user-info">
-            <p className="user-name">{user?.nombre || user?.name || 'Usuario'}</p>
-            <p className="user-role">{user?.role_name || user?.role || 'Visitante'}</p>
-            {!isClient && (
-              <span style={{
-                display: 'inline-block',
-                marginTop: '0.25rem',
-                padding: '0.1rem 0.45rem',
-                borderRadius: '4px',
-                fontSize: '0.65rem',
-                fontWeight: 800,
-                letterSpacing: '0.03em',
-                background: isSuperAdmin ? 'rgba(59,130,246,0.2)' : (hasProPlan ? 'rgba(212,175,55,0.2)' : 'rgba(148,163,184,0.2)'),
-                color: isSuperAdmin ? '#60a5fa' : (hasProPlan ? '#fbbf24' : '#cbd5e1'),
-                border: `1px solid ${isSuperAdmin ? 'rgba(59,130,246,0.4)' : (hasProPlan ? 'rgba(212,175,55,0.4)' : 'rgba(148,163,184,0.3)')}`
-              }}>
-                {isSuperAdmin ? 'CONTROL PLANE SAAS' : (hasProPlan ? 'PLAN PRINCIPAL + MEMBRESÍAS' : 'PLAN PRINCIPAL')}
-              </span>
-            )}
-          </div>
-        </div>
+        {(() => {
+          const ROLE_LABELS = {
+            owner: 'Propietario',
+            admin: 'Administrador',
+            administrador: 'Administrador',
+            administradora: 'Administradora',
+            receptionist: 'Recepcionista',
+            recepcionista: 'Recepcionista',
+            accountant: 'Contador',
+            contador: 'Contador',
+            stylist: 'Estilista',
+            estilista: 'Estilista',
+            client: 'Cliente',
+            super_admin: 'Super Admin',
+          };
+          const rawRole = String(user?.role || '').trim().toLowerCase();
+          const roleDisplay =
+            user?.role_name ||
+            ROLE_LABELS[rawRole] ||
+            (user?.role ? String(user.role) : 'Usuario');
+          const tenantDisplayName = isSuperAdmin
+            ? (user?.nombre || user?.name || 'Etereas Platform')
+            : (branding?.business_name || user?.tenant?.business_name || user?.tenant?.name || 'Mi Salón');
+          const tenantInitial = tenantDisplayName.trim().charAt(0).toUpperCase() || 'E';
+
+          return (
+            <div className="sidebar-user sidebar-tenant-card">
+              <div className="user-avatar tenant-avatar-box" aria-hidden="true">
+                {!isSuperAdmin && branding?.logo_url ? (
+                  <img
+                    src={branding.logo_url}
+                    alt={tenantDisplayName}
+                    className="tenant-avatar-img"
+                  />
+                ) : (
+                  <span>{tenantInitial}</span>
+                )}
+              </div>
+              <div className="user-info tenant-info">
+                <p className="user-name tenant-name" title={tenantDisplayName}>
+                  {tenantDisplayName}
+                </p>
+                <p className="user-role tenant-role" title={roleDisplay}>
+                  {roleDisplay}
+                </p>
+                {!isClient && (
+                  <span style={{
+                    display: 'inline-block',
+                    marginTop: '0.25rem',
+                    padding: '0.1rem 0.45rem',
+                    borderRadius: '4px',
+                    fontSize: '0.65rem',
+                    fontWeight: 800,
+                    letterSpacing: '0.03em',
+                    maxWidth: '100%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    background: isSuperAdmin ? 'rgba(59,130,246,0.2)' : (hasProPlan ? 'rgba(212,175,55,0.2)' : 'rgba(148,163,184,0.2)'),
+                    color: isSuperAdmin ? '#60a5fa' : (hasProPlan ? '#fbbf24' : '#cbd5e1'),
+                    border: `1px solid ${isSuperAdmin ? 'rgba(59,130,246,0.4)' : (hasProPlan ? 'rgba(212,175,55,0.4)' : 'rgba(148,163,184,0.3)')}`
+                  }}>
+                    {isSuperAdmin ? 'CONTROL PLANE SAAS' : (hasProPlan ? 'PLAN PRINCIPAL + MEMBRESÍAS' : 'PLAN PRINCIPAL')}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <nav className="sidebar-nav hide-scrollbar">
           {isSuperAdmin ? (

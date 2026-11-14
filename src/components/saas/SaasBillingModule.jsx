@@ -78,6 +78,8 @@ export default function SaasBillingModule() {
 
   const [showAddonModal, setShowAddonModal] = useState(false);
   const [addonNote, setAddonNote] = useState('');
+  const [branches, setBranches] = useState([]);
+  const [selectedBranchIds, setSelectedBranchIds] = useState([]);
   const [requestingAddon, setRequestingAddon] = useState(false);
 
   const [showAddCardModal, setShowAddCardModal] = useState(false);
@@ -105,6 +107,7 @@ export default function SaasBillingModule() {
 
       setSubscription(subRes?.subscription || null);
       setSubPricing(subRes?.pricing || null);
+      setBranches(Array.isArray(subRes?.branches) ? subRes.branches : []);
       setInvoices(Array.isArray(invRes?.invoices) ? invRes.invoices : []);
       setPaymentMethods(Array.isArray(pmRes?.paymentMethods) ? pmRes.paymentMethods : []);
     } catch (err) {
@@ -118,18 +121,32 @@ export default function SaasBillingModule() {
     loadBillingData();
   }, [loadBillingData]);
 
+  const toggleAddonBranch = (branchId) => {
+    setSelectedBranchIds((prev) =>
+      prev.includes(branchId) ? prev.filter((id) => id !== branchId) : [...prev, branchId]
+    );
+  };
+
   const handleRequestAddon = async (e) => {
     e.preventDefault();
+    if (branches.length > 0 && selectedBranchIds.length === 0) {
+      setError('Selecciona al menos una sucursal para solicitar el módulo adicional.');
+      return;
+    }
     try {
       setRequestingAddon(true);
       setError(null);
-      const res = await dataService.requestSaasAddon('memberships', addonNote.trim());
+      const res = await dataService.requestSaasAddon('memberships', {
+        note: addonNote.trim(),
+        branchIds: selectedBranchIds,
+      });
       setSuccessMsg(
         res?.message ||
           'Solicitud registrada. Nuestro equipo comercial te contactará para coordinar la activación del módulo adicional.'
       );
       setShowAddonModal(false);
       setAddonNote('');
+      setSelectedBranchIds([]);
     } catch (err) {
       setError(err.message || 'No se pudo enviar la solicitud.');
     } finally {
@@ -489,6 +506,11 @@ export default function SaasBillingModule() {
             <p className="sb-meta-text" style={{ margin: '4px 0 0' }}>
               Módulo adicional para ofrecer planes mensuales, contratos digitales y cobros recurrentes a los clientes de tu salón.
             </p>
+            <p className="sb-meta-text" style={{ margin: '4px 0 0', fontWeight: 600, color: '#0f172a' }}>
+              {subPricing?.addons?.memberships?.pricingDisplay ||
+                entPricing?.addons?.memberships?.pricingDisplay ||
+                'US$99/mes por sucursal + implementación e integración con pasarela de pago'}
+            </p>
           </div>
         </div>
 
@@ -638,11 +660,98 @@ export default function SaasBillingModule() {
             <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
               Este módulo adicional habilita la creación de planes de membresía B2C, contratos digitales y cobros recurrentes para los clientes de tu salón.
             </p>
-            <p className="sb-meta-text" style={{ marginBottom: '16px' }}>
-              Esta solicitud no genera cargos automáticos; nuestro equipo comercial confirmará condiciones y activación contigo.
+            <p className="sb-meta-text" style={{ marginBottom: '14px', fontWeight: 600, color: '#0f172a' }}>
+              {subPricing?.addons?.memberships?.pricingDisplay ||
+                entPricing?.addons?.memberships?.pricingDisplay ||
+                'US$99/mes por sucursal + implementación e integración con pasarela de pago'}
             </p>
 
             <form onSubmit={handleRequestAddon}>
+              <div className="sb-field" style={{ marginBottom: '14px' }}>
+                <label>Sucursales donde deseas habilitar el add-on</label>
+                {branches.length === 0 ? (
+                  <p className="sb-meta-text" style={{ margin: '6px 0 0' }}>
+                    No se detectaron sucursales adicionales; nuestro equipo confirmará la sucursal a habilitar antes de activar el servicio.
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      marginTop: '6px',
+                      padding: '10px 12px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      background: '#f8fafc',
+                    }}
+                  >
+                    {branches.map((branch) => {
+                      const checked = selectedBranchIds.includes(branch.id);
+                      return (
+                        <label
+                          key={branch.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '10px',
+                            cursor: 'pointer',
+                            fontWeight: 500,
+                            color: '#0f172a',
+                          }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleAddonBranch(branch.id)}
+                            />
+                            <span>{branch.name}</span>
+                          </span>
+                          <span style={{ fontSize: '0.85rem', color: '#475569' }}>
+                            US${subPricing?.addons?.memberships?.usd ?? 99}/mes
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  background: '#ffffff',
+                  marginBottom: '14px',
+                  fontSize: '0.88rem',
+                }}
+              >
+                <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                  Desglose antes de confirmar
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
+                  <span>Sucursales seleccionadas</span>
+                  <strong>{selectedBranchIds.length}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: '#334155' }}>
+                  <span>Tarifa por sucursal habilitada</span>
+                  <span>US${subPricing?.addons?.memberships?.usd ?? 99}/mes</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px solid #e2e8f0', marginBottom: '6px', color: '#0f172a' }}>
+                  <strong>Total mensual estimado del add-on</strong>
+                  <strong>
+                    US${selectedBranchIds.length * (subPricing?.addons?.memberships?.usd ?? 99)}/mes
+                  </strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', color: '#475569', fontSize: '0.82rem' }}>
+                  <span>Implementación e integración con pasarela de pago</span>
+                  <span style={{ textAlign: 'right', fontWeight: 600 }}>Cotización por separado</span>
+                </div>
+              </div>
+
               <div className="sb-field">
                 <label htmlFor="sb-addon-note">Comentarios o consulta (opcional)</label>
                 <textarea
@@ -655,11 +764,18 @@ export default function SaasBillingModule() {
                 />
               </div>
 
+              <p className="sb-meta-text" style={{ margin: '8px 0 12px' }}>
+                Esta solicitud no genera cargos automáticos; nuestro equipo comercial confirmará la cotización de implementación y activación contigo.
+              </p>
+
               <div className="sb-modal-footer">
                 <button
                   type="button"
                   className="sb-btn"
-                  onClick={() => setShowAddonModal(false)}
+                  onClick={() => {
+                    setShowAddonModal(false);
+                    setSelectedBranchIds([]);
+                  }}
                   disabled={requestingAddon}
                 >
                   Cancelar
@@ -667,9 +783,9 @@ export default function SaasBillingModule() {
                 <button
                   type="submit"
                   className="sb-btn sb-btn-primary"
-                  disabled={requestingAddon}
+                  disabled={requestingAddon || (branches.length > 0 && selectedBranchIds.length === 0)}
                 >
-                  {requestingAddon ? 'Enviando...' : 'Enviar solicitud'}
+                  {requestingAddon ? 'Enviando...' : 'Confirmar solicitud'}
                 </button>
               </div>
             </form>

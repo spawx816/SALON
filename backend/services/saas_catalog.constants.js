@@ -80,12 +80,17 @@ function readConfiguredPrice(envKey) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+const MEMBERSHIPS_ADDON_DEFAULT_USD = 99;
+const MEMBERSHIPS_ADDON_PRICING_DISPLAY =
+  'US$99/mes por sucursal + implementación e integración con pasarela de pago';
+
 function getConfiguredPricing() {
   const principalUsd = readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD');
   const principalDop = readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_DOP');
   const extraUserUsd = readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD');
   const extraUserDop = readConfiguredPrice('SAAS_EXTRA_USER_PRICE_DOP');
-  const membershipsAddonUsd = readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_USD');
+  const membershipsAddonUsd =
+    readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_USD') ?? MEMBERSHIPS_ADDON_DEFAULT_USD;
   const membershipsAddonDop = readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_DOP');
 
   return {
@@ -100,7 +105,10 @@ function getConfiguredPricing() {
       memberships: {
         usd: membershipsAddonUsd,
         dop: membershipsAddonDop,
-        isConfigured: membershipsAddonUsd !== null || membershipsAddonDop !== null,
+        billingUnit: 'per_enabled_branch',
+        setupFeeQuotedSeparately: true,
+        pricingDisplay: MEMBERSHIPS_ADDON_PRICING_DISPLAY,
+        isConfigured: true,
       },
     },
   };
@@ -128,8 +136,11 @@ const ADDONS_CATALOG = Object.freeze([
     code: SAAS_ADDONS.MEMBERSHIPS,
     feature_key: SAAS_FEATURES.MEMBERSHIPS,
     name: 'Suscripciones y Membresías B2C',
-    price_monthly: readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_USD'),
+    price_monthly: readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_USD') ?? MEMBERSHIPS_ADDON_DEFAULT_USD,
     price_monthly_dop: readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_DOP'),
+    billing_unit: 'per_enabled_branch',
+    setup_fee_quoted_separately: true,
+    pricing_display: MEMBERSHIPS_ADDON_PRICING_DISPLAY,
     description:
       'Módulo independiente para crear planes de membresía para tus clientes, gestionar contratos digitales y procesar cobros recurrentes B2C.',
   },

@@ -3707,9 +3707,16 @@ export const dataService = {
     return resData;
   },
 
-  requestSaasAddon: async (addonCode, note = '') => {
+  requestSaasAddon: async (addonCode, payloadOrNote = '') => {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
     const user = userStr ? JSON.parse(userStr) : null;
+    const body =
+      typeof payloadOrNote === 'object' && payloadOrNote !== null
+        ? {
+            note: payloadOrNote.note || '',
+            branchIds: Array.isArray(payloadOrNote.branchIds) ? payloadOrNote.branchIds : [],
+          }
+        : { note: payloadOrNote, branchIds: [] };
     const res = await fetch(`${API_URL}/saas/billing/addons/${encodeURIComponent(addonCode)}/request`, {
       method: 'POST',
       headers: {
@@ -3717,7 +3724,7 @@ export const dataService = {
         'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
         'x-user-role': user?.role || ''
       },
-      body: JSON.stringify({ note })
+      body: JSON.stringify(body)
     });
     const resData = await res.json();
     if (!res.ok) throw new Error(resData.error || 'Error al solicitar contratación del módulo');

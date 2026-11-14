@@ -51,9 +51,25 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         return res.status(404).json({ error: 'Suscripción no encontrada', code: 'SUBSCRIPTION_NOT_FOUND' });
       }
 
+      let branches = [];
+      if (pool && typeof pool.query === 'function') {
+        try {
+          const [rows] = await pool.query(
+            'SELECT id, name FROM salons WHERE tenant_id = ? ORDER BY id ASC',
+            [tenantId]
+          );
+          if (Array.isArray(rows)) {
+            branches = rows.map((r) => ({ id: r.id, name: r.name }));
+          }
+        } catch (branchErr) {
+          console.warn('[SAAS BILLING] No se pudieron listar sucursales:', branchErr?.message || branchErr);
+        }
+      }
+
       res.json({
         subscription: sub,
-        pricing: getConfiguredPricing()
+        pricing: getConfiguredPricing(),
+        branches,
       });
     } catch (err) {
       console.error('[SAAS BILLING ERROR] Error al consultar suscripción:', err);
@@ -72,9 +88,48 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
         return res.status(400).json({ error: 'Add-on no reconocido', code: 'INVALID_ADDON_CODE' });
       }
+
+      const requestedIds = Array.isArray(req.body?.branchIds)
+        ? [...new Set(req.body.branchIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
+        : [];
+
+      let tenantBranches = [];
+      if (pool && typeof pool.query === 'function') {
+        const [rows] = await pool.query(
+          'SELECT id, name FROM salons WHERE tenant_id = ? ORDER BY id ASC',
+          [tenantId]
+        );
+        if (Array.isArray(rows)) {
+          tenantBranches = rows.map((r) => ({ id: Number(r.id), name: r.name }));
+        }
+      }
+
+      const tenantBranchMap = new Map(tenantBranches.map((b) => [b.id, b]));
+      const invalidBranch = requestedIds.find((id) => !tenantBranchMap.has(id));
+      if (invalidBranch) {
+        return res.status(400).json({
+          error: 'Una o más sucursales seleccionadas no pertenecen a tu cuenta.',
+          code: 'INVALID_BRANCH_SELECTION',
+        });
+      }
+
+      if (tenantBranches.length > 0 && requestedIds.length === 0) {
+        return res.status(400).json({
+          error: 'Debes seleccionar al menos una sucursal habilitada para solicitar el módulo.',
+          code: 'BRANCH_SELECTION_REQUIRED',
+        });
+      }
+
+      const selectedBranches = requestedIds.map((id) => tenantBranchMap.get(id));
+      const pricing = getConfiguredPricing();
+      const unitPriceUsd = pricing?.addons?.memberships?.usd ?? 99;
+      const branchCount = selectedBranches.length;
+      const monthlyUsd = branchCount * unitPriceUsd;
+
       const sub = await lifecycleService.getSubscription(tenantId);
       const actorId = req.user?.id || 'owner';
       const note = req.body?.note ? String(req.body.note).slice(0, 300) : 'Solicitud de contratación de add-on Suscripciones/Membresías B2C';
+      const branchSummary = selectedBranches.map((b) => `${b.id}:${b.name}`).join(', ');
       await pool.query(
         `INSERT INTO tenant_subscription_events (
           tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id, created_at
@@ -85,13 +140,22 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
           sub?.plan_code || 'PRINCIPAL',
           sub?.status || 'active',
           sub?.status || 'active',
-          `addon_request:${addonCode}: ${note}`,
+          `addon_request:${addonCode}: branches=[${branchSummary}] monthly_usd=${monthlyUsd} | ${note}`,
           actorId,
         ]
       );
       res.json({
         success: true,
-        message: 'Solicitud registrada. Nuestro equipo comercial te contactará para coordinar la activación del módulo adicional.'
+        breakdown: {
+          addonCode,
+          unitPriceUsd,
+          branchCount,
+          monthlyUsd,
+          branches: selectedBranches,
+          setupFeeQuotedSeparately: true,
+          pricingDisplay: pricing?.addons?.memberships?.pricingDisplay,
+        },
+        message: `Solicitud registrada para ${branchCount} sucursal(es) (US$${monthlyUsd}/mes + implementación e integración con pasarela de pago por separado). Nuestro equipo comercial te contactará para coordinar la activación.`,
       });
     } catch (err) {
       console.error('[SAAS ADDON REQUEST ERROR]:', err);

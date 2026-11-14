@@ -786,15 +786,15 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                 onClick={() => setExtraModulesOpen((v) => !v)}
               >
                 <span>
-                  También incluido: clientes CRM (Base y Pro), membresías B2C (Pro) y gestión por
-                  sucursal
+                  También incluido: clientes CRM en el Plan Principal, membresías B2C (add-on opcional)
+                  y gestión por sucursal
                 </span>
                 {extraModulesOpen ? <Minus size={16} /> : <Plus size={16} />}
               </button>
               {extraModulesOpen && (
                 <div className="et-accordion-panel">
-                  <span className="et-pill-item">Perfiles y CRM de clientes (Base y Pro)</span>
-                  <span className="et-pill-item">Membresías B2C y renovaciones (Add-on opcional)</span>
+                  <span className="et-pill-item">Perfiles y CRM de clientes (Plan Principal)</span>
+                  <span className="et-pill-item">Membresías B2C y renovaciones (US$99/mes por sucursal + implementación)</span>
                   <span className="et-pill-item">Gestión por sucursal</span>
                 </div>
               )}
@@ -964,7 +964,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                     El Plan Principal incluye POS, cajas, Clientes/CRM, inventario avanzado multisucursal,
                     asistencia facial, nómina, comisiones, marketing y reportes DGII (606, 607, IT-1).
                     El módulo adicional de Suscripciones y Membresías B2C (planes de clientes, contratos digitales
-                    y cobros recurrentes) se contrata por separado.
+                    y cobros recurrentes) tiene un costo de US$99/mes por sucursal + implementación e integración
+                    con pasarela de pago (cotización por separado).
                   </div>
                 )}
 
