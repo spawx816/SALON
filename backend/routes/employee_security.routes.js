@@ -32,7 +32,7 @@ function createEmployeeSecurityRouter(pool) {
       try {
         await pool.query(`
           UPDATE employee_discounts ed
-          SET ed.status = 'Anulado'
+          SET status = 'Anulado'
           FROM visits v
           WHERE ed.tenant_id = $1
             AND v.tenant_id = $1

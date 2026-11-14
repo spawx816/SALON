@@ -24,9 +24,9 @@ function createReportsRouter(pool) {
         ? String(endDate)
         : new Date().toISOString().split('T')[0];
 
-      const salonFilterV = salonId && salonId !== 'all' ? ' AND (v.branch_id::text = ? OR v.salon_id::text = ?)' : '';
+      const salonFilterV = salonId && salonId !== 'all' ? ' AND v.salon_id::text = ?' : '';
       const vParams = salonId && salonId !== 'all'
-        ? [tenantId, start, end + ' 23:59:59', String(salonId), String(salonId)]
+        ? [tenantId, start, end + ' 23:59:59', String(salonId)]
         : [tenantId, start, end + ' 23:59:59'];
 
       const [visitAggRows] = await pool.query(`
@@ -35,7 +35,7 @@ function createReportsRouter(pool) {
                COUNT(*) as facturas,
                COALESCE(SUM(v.total), 0) as facturacion
         FROM visits v
-        LEFT JOIN branches b ON v.branch_id::text = b.id::text AND b.tenant_id = v.tenant_id
+        LEFT JOIN branches b ON v.salon_id::text = b.id::text AND b.tenant_id = v.tenant_id
         WHERE v.tenant_id = ? AND v.visited_at >= ? AND v.visited_at <= ? AND v.status = 'Facturado' ${salonFilterV}
         GROUP BY DATE(v.visited_at), COALESCE(b.name, 'Principal')
         ORDER BY DATE(v.visited_at) DESC
