@@ -525,7 +525,7 @@ function createApp(dependencies = {}) {
   }));
   app.use('/api/cash-registers', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCashRegistersRouter(pool));
   app.use('/api/dashboard', rejectControlPlaneRoleOnTenantRoutes, createDashboardRouter(pool));
-  app.use('/api/payments', rejectControlPlaneRoleOnTenantRoutes, createPaymentsRouter(pool, { sendPaymentReceiptEmail }));
+  app.use('/api/payments', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('memberships'), createPaymentsRouter(pool, { sendPaymentReceiptEmail }));
   app.use('/api/plans', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('memberships'), createPlansRouter(pool));
   app.use('/api/reports', rejectControlPlaneRoleOnTenantRoutes, createReportsRouter(pool));
   app.use('/api/appointments', rejectControlPlaneRoleOnTenantRoutes, createAppointmentsRouter(pool));

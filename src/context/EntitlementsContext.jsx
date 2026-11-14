@@ -79,10 +79,14 @@ export const EntitlementsProvider = ({ children }) => {
     return Boolean(entitlements.features?.[featureKey]);
   }, [user, entitlements]);
 
-  const plan = (entitlements?.currentPlan || entitlements?.plan || user?.tenant?.plan_code || 'BASE').toUpperCase();
-  const isPro = plan === 'PRO';
-  const isBase = plan === 'BASE';
+  const rawPlan = (entitlements?.currentPlan || entitlements?.plan || 'PRINCIPAL').toUpperCase();
+  const plan = rawPlan === 'BASE' || rawPlan === 'PRO' ? 'PRINCIPAL' : rawPlan;
   const isSuspended = Boolean(entitlements?.isSuspended || entitlements?.status === 'suspended' || entitlements?.subscriptionStatus === 'suspended');
+  const hasMembershipsAddon = Boolean(!isSuspended && (entitlements?.addons?.memberships?.active || entitlements?.features?.memberships));
+  const membershipsAddon = entitlements?.addons?.memberships || { active: hasMembershipsAddon, source: 'none', reason: null, expiresAt: null };
+  const pricing = entitlements?.pricing || null;
+  const isPro = hasMembershipsAddon;
+  const isBase = !hasMembershipsAddon;
 
   return (
     <EntitlementsContext.Provider
@@ -91,6 +95,9 @@ export const EntitlementsProvider = ({ children }) => {
         plan,
         isPro,
         isBase,
+        hasMembershipsAddon,
+        membershipsAddon,
+        pricing,
         isSuspended,
         hasFeature,
         canAccess: hasFeature,
@@ -112,9 +119,12 @@ export const useEntitlements = () => {
     // Fallback seguro si se usa fuera del Provider
     return {
       entitlements: null,
-      plan: 'BASE',
+      plan: 'PRINCIPAL',
       isPro: false,
       isBase: true,
+      hasMembershipsAddon: false,
+      membershipsAddon: { active: false, source: 'none', reason: null, expiresAt: null },
+      pricing: null,
       isSuspended: false,
       hasFeature: () => false,
       canAccess: () => false,

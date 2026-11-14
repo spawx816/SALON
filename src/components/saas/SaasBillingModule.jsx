@@ -19,19 +19,14 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useEntitlements } from '../../context/EntitlementsContext';
-import SaasUpgradeModal from './SaasUpgradeModal';
 import './SaasBillingModule.css';
-
-const PLAN_FALLBACK_PRICE = {
-  USD: { BASE: 4900, PRO: 9900 },
-  DOP: { BASE: 290000, PRO: 590000 },
-};
 
 const STATUS_META = {
   active: { label: 'Activa', badgeClass: 'sb-badge-active' },
   trialing: { label: 'Prueba', badgeClass: 'sb-badge-active' },
   past_due: { label: 'Gracia', badgeClass: 'sb-badge-warning' },
   suspended: { label: 'Suspendida', badgeClass: 'sb-badge-danger' },
+  cancelled: { label: 'Cancelada', badgeClass: 'sb-badge-neutral' },
   canceled: { label: 'Cancelada', badgeClass: 'sb-badge-neutral' },
 };
 
@@ -71,16 +66,20 @@ function formatDateEs(dateValue) {
 
 export default function SaasBillingModule() {
   const navigate = useNavigate();
-  const { entitlements, refetch: refetchEntitlements } = useEntitlements();
+  const { entitlements, hasMembershipsAddon, membershipsAddon, pricing: entPricing, refetch: refetchEntitlements } = useEntitlements();
 
   const [subscription, setSubscription] = useState(null);
+  const [subPricing, setSubPricing] = useState(null);
   const [invoices, setInvoices] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showAddonModal, setShowAddonModal] = useState(false);
+  const [addonNote, setAddonNote] = useState('');
+  const [requestingAddon, setRequestingAddon] = useState(false);
+
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
@@ -105,6 +104,7 @@ export default function SaasBillingModule() {
       ]);
 
       setSubscription(subRes?.subscription || null);
+      setSubPricing(subRes?.pricing || null);
       setInvoices(Array.isArray(invRes?.invoices) ? invRes.invoices : []);
       setPaymentMethods(Array.isArray(pmRes?.paymentMethods) ? pmRes.paymentMethods : []);
     } catch (err) {
@@ -118,16 +118,23 @@ export default function SaasBillingModule() {
     loadBillingData();
   }, [loadBillingData]);
 
-  const handleUpgrade = async () => {
-    const res = await dataService.upgradeSaasSubscription();
-    setSuccessMsg(res?.message || 'Plan actualizado a PRO exitosamente.');
-    await Promise.all([loadBillingData(), refetchEntitlements()]);
-  };
-
-  const handleDowngrade = async () => {
-    const res = await dataService.downgradeSaasSubscription();
-    setSuccessMsg(res?.message || 'Cambio a Plan Base programado.');
-    await Promise.all([loadBillingData(), refetchEntitlements()]);
+  const handleRequestAddon = async (e) => {
+    e.preventDefault();
+    try {
+      setRequestingAddon(true);
+      setError(null);
+      const res = await dataService.requestSaasAddon('memberships', addonNote.trim());
+      setSuccessMsg(
+        res?.message ||
+          'Solicitud registrada. Nuestro equipo comercial te contactará para coordinar la activación del módulo adicional.'
+      );
+      setShowAddonModal(false);
+      setAddonNote('');
+    } catch (err) {
+      setError(err.message || 'No se pudo enviar la solicitud.');
+    } finally {
+      setRequestingAddon(false);
+    }
   };
 
   const handlePayInvoice = async (invoiceId) => {
@@ -190,16 +197,23 @@ export default function SaasBillingModule() {
     }
   };
 
-  const planCode = String(subscription?.plan_code || entitlements?.plan || 'BASE').toUpperCase();
-  const isPro = planCode === 'PRO';
-  const currency = String(subscription?.currency || 'DOP').toUpperCase();
+  const currency = String(subscription?.currency || 'USD').toUpperCase();
   const status = String(subscription?.status || entitlements?.status || 'active').toLowerCase();
   const statusMeta = STATUS_META[status] || { label: status, badgeClass: 'sb-badge-neutral' };
 
-  const priceMinor =
-    subscription?.price_minor ??
-    PLAN_FALLBACK_PRICE[currency === 'USD' ? 'USD' : 'DOP'][isPro ? 'PRO' : 'BASE'];
-  const formattedPrice = formatMinor(priceMinor, currency);
+  const activePricing = subPricing || entPricing;
+  const configuredUsd = activePricing?.principal?.usd;
+  const configuredDop = activePricing?.principal?.dop;
+  const hasRealSubPrice = subscription?.price_minor !== undefined && subscription?.price_minor !== null && Number(subscription.price_minor) > 0;
+
+  let formattedPrice = null;
+  if (hasRealSubPrice) {
+    formattedPrice = formatMinor(subscription.price_minor, currency);
+  } else if (currency === 'DOP' && configuredDop !== null && configuredDop !== undefined) {
+    formattedPrice = formatMinor(Math.round(Number(configuredDop) * 100), 'DOP');
+  } else if (configuredUsd !== null && configuredUsd !== undefined) {
+    formattedPrice = formatMinor(Math.round(Number(configuredUsd) * 100), 'USD');
+  }
 
   const nextBillingFormatted = formatDateEs(
     subscription?.current_period_end || subscription?.next_billing_date
@@ -207,11 +221,12 @@ export default function SaasBillingModule() {
   const cancelAtPeriodEnd = Boolean(subscription?.cancel_at_period_end);
 
   const branchesUsed = entitlements?.usage?.branches ?? 0;
-  const branchesLimit = entitlements?.limits?.branches ?? (isPro ? 5 : 1);
+  const branchesLimit = entitlements?.limits?.branches ?? 1;
   const usersUsed = entitlements?.usage?.users ?? 0;
-  const usersLimit = entitlements?.limits?.users ?? (isPro ? 10 : 3);
+  const usersLimit = entitlements?.limits?.users ?? 3;
 
   const defaultPm = paymentMethods.find((pm) => pm.isDefault) || paymentMethods[0] || null;
+  const isLegacyTransition = membershipsAddon?.source === 'legacy_pro_transition';
 
   if (loading && !subscription && invoices.length === 0) {
     return (
@@ -230,7 +245,7 @@ export default function SaasBillingModule() {
       <div className="sb-header">
         <div>
           <h1>Mi suscripción</h1>
-          <p>Tu plan, pagos y licencias en un solo lugar.</p>
+          <p>Tu plan, pagos, licencias y módulos adicionales en un solo lugar.</p>
         </div>
         <div className="sb-header-actions">
           <button
@@ -280,7 +295,7 @@ export default function SaasBillingModule() {
         </div>
       )}
 
-      {/* Row 1: Plan actual + Próximo cobro */}
+      {/* Row 1: Plan Principal + Próximo cobro */}
       <div className="sb-grid-2">
         <section className="sb-card" aria-labelledby="sb-plan-title">
           <div>
@@ -290,7 +305,7 @@ export default function SaasBillingModule() {
                   <Layers size={18} />
                 </span>
                 <h2 id="sb-plan-title" className="sb-card-title">
-                  {isPro ? 'Plan Pro' : 'Plan Base'}
+                  Plan Principal
                 </h2>
                 <span className={`sb-badge ${statusMeta.badgeClass}`}>
                   {statusMeta.label}
@@ -299,31 +314,26 @@ export default function SaasBillingModule() {
             </div>
 
             <div className="sb-price-line">
-              <span className="sb-price-amount">{formattedPrice}</span>
-              <span className="sb-price-period">
-                / {subscription?.billing_cycle === 'annual' ? 'año' : 'mes'}
-              </span>
+              {formattedPrice ? (
+                <>
+                  <span className="sb-price-amount">{formattedPrice}</span>
+                  <span className="sb-price-period">
+                    / {subscription?.billing_cycle === 'annual' ? 'año' : 'mes'}
+                  </span>
+                </>
+              ) : (
+                <span className="sb-price-amount" style={{ fontSize: '22px' }}>
+                  Tarifa según acuerdo comercial
+                </span>
+              )}
             </div>
 
             <p className="sb-meta-text">
               {branchesLimit} {branchesLimit === 1 ? 'sucursal incluida' : 'sucursales incluidas'} · Hasta {usersLimit} usuarios
             </p>
             <p className="sb-meta-text" style={{ marginTop: '4px' }}>
-              {isPro
-                ? 'Incluye POS, Clientes/CRM, membresías, contratos, marketing y multi-sucursal.'
-                : 'Incluye POS, Clientes/CRM, caja y nómina. Membresías disponible en Plan Pro.'}
+              Incluye POS, cajas, comprobantes DGII e-CF, Clientes/CRM, inventario avanzado, nómina, comisiones, marketing y reportes.
             </p>
-          </div>
-
-          <div className="sb-card-actions">
-            <button
-              type="button"
-              className={isPro ? 'sb-btn' : 'sb-btn sb-btn-primary'}
-              onClick={() => setShowUpgradeModal(true)}
-            >
-              <Sparkles size={15} />
-              <span>{isPro ? 'Cambiar a Plan Base' : 'Cambiar a Plan Pro'}</span>
-            </button>
           </div>
         </section>
 
@@ -347,12 +357,13 @@ export default function SaasBillingModule() {
             </div>
 
             <p className="sb-meta-text">
-              {formattedPrice} · {subscription?.billing_cycle === 'annual' ? 'Facturación anual' : 'Facturación mensual'}
+              {formattedPrice ? `${formattedPrice} · ` : ''}
+              {subscription?.billing_cycle === 'annual' ? 'Facturación anual' : 'Facturación mensual'}
             </p>
             <p className="sb-meta-text" style={{ marginTop: '4px' }}>
-              {cancelAtPeriodEnd || status === 'canceled'
+              {cancelAtPeriodEnd || status === 'canceled' || status === 'cancelled'
                 ? 'Renovación automática desactivada.'
-                : 'Renovación automática activa.'}
+                : 'Suscripción activa.'}
             </p>
           </div>
         </section>
@@ -456,7 +467,7 @@ export default function SaasBillingModule() {
         </section>
       </div>
 
-      {/* Row 3: Módulo de membresías */}
+      {/* Row 3: Add-on Suscripciones / Membresías B2C */}
       <section className="sb-row-card" aria-labelledby="sb-memberships-title">
         <div className="sb-card-title-wrap">
           <span className="sb-icon-box" aria-hidden="true">
@@ -465,20 +476,24 @@ export default function SaasBillingModule() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <h2 id="sb-memberships-title" className="sb-card-title">
-                Módulo de membresías
+                Add-on Suscripciones y Membresías B2C
               </h2>
-              <span className={`sb-badge ${isPro ? 'sb-badge-active' : 'sb-badge-neutral'}`}>
-                {isPro ? 'Incluido en Plan Pro' : 'No incluido en Plan Base'}
+              <span className={`sb-badge ${hasMembershipsAddon ? 'sb-badge-active' : 'sb-badge-neutral'}`}>
+                {hasMembershipsAddon
+                  ? isLegacyTransition
+                    ? 'Activo (Transición)'
+                    : 'Activo'
+                  : 'No contratado'}
               </span>
             </div>
             <p className="sb-meta-text" style={{ margin: '4px 0 0' }}>
-              Gestiona planes, contratos y cobros recurrentes de tus clientes.
+              Módulo adicional para ofrecer planes mensuales, contratos digitales y cobros recurrentes a los clientes de tu salón.
             </p>
           </div>
         </div>
 
         <div>
-          {isPro ? (
+          {hasMembershipsAddon ? (
             <button
               type="button"
               className="sb-btn"
@@ -490,10 +505,10 @@ export default function SaasBillingModule() {
             <button
               type="button"
               className="sb-btn sb-btn-primary"
-              onClick={() => setShowUpgradeModal(true)}
+              onClick={() => setShowAddonModal(true)}
             >
               <Sparkles size={15} />
-              <span>Cambiar a Plan Pro</span>
+              <span>Solicitar contratación</span>
             </button>
           )}
         </div>
@@ -586,7 +601,7 @@ export default function SaasBillingModule() {
           Estado de la suscripción: <strong>{statusMeta.label}</strong>
           {cancelAtPeriodEnd && ' (cancelación programada al fin del ciclo)'}
         </div>
-        {status !== 'canceled' && !cancelAtPeriodEnd ? (
+        {status !== 'canceled' && status !== 'cancelled' && !cancelAtPeriodEnd ? (
           <button
             type="button"
             className="sb-btn-danger-link"
@@ -599,14 +614,68 @@ export default function SaasBillingModule() {
         )}
       </div>
 
-      {/* Upgrade / Downgrade Modal */}
-      <SaasUpgradeModal
-        isOpen={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-        currentPlan={planCode}
-        currency={currency}
-        onConfirmUpgrade={isPro ? handleDowngrade : handleUpgrade}
-      />
+      {/* Add-on Request Modal */}
+      {showAddonModal && (
+        <div
+          className="sb-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sb-addon-modal-title"
+        >
+          <div className="sb-modal-card">
+            <div className="sb-modal-header">
+              <h3 id="sb-addon-modal-title">Solicitar add-on de Membresías B2C</h3>
+              <button
+                type="button"
+                className="sb-modal-close"
+                onClick={() => setShowAddonModal(false)}
+                aria-label="Cerrar"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
+              Este módulo adicional habilita la creación de planes de membresía B2C, contratos digitales y cobros recurrentes para los clientes de tu salón.
+            </p>
+            <p className="sb-meta-text" style={{ marginBottom: '16px' }}>
+              Esta solicitud no genera cargos automáticos; nuestro equipo comercial confirmará condiciones y activación contigo.
+            </p>
+
+            <form onSubmit={handleRequestAddon}>
+              <div className="sb-field">
+                <label htmlFor="sb-addon-note">Comentarios o consulta (opcional)</label>
+                <textarea
+                  id="sb-addon-note"
+                  rows={3}
+                  className="sb-input"
+                  value={addonNote}
+                  onChange={(e) => setAddonNote(e.target.value)}
+                  placeholder="Cuéntanos sobre tus necesidades de membresías o sucursales..."
+                />
+              </div>
+
+              <div className="sb-modal-footer">
+                <button
+                  type="button"
+                  className="sb-btn"
+                  onClick={() => setShowAddonModal(false)}
+                  disabled={requestingAddon}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="sb-btn sb-btn-primary"
+                  disabled={requestingAddon}
+                >
+                  {requestingAddon ? 'Enviando...' : 'Enviar solicitud'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add Card Modal */}
       {showAddCardModal && (
@@ -816,7 +885,7 @@ export default function SaasBillingModule() {
               <div className="sb-kv-row">
                 <span className="sb-kv-label">Concepto</span>
                 <span className="sb-kv-value">
-                  Etereas {selectedInvoice.plan_code} ({selectedInvoice.billing_cycle || 'mensual'})
+                  Etereas {selectedInvoice.plan_code} ({selectedInvoice.billing_cycle === 'annual' ? 'anual' : 'mensual'})
                 </span>
               </div>
               <div className="sb-kv-row">

@@ -101,10 +101,9 @@ async function runAllTests() {
   const TENANT_A = 'tenant-alpha-001';
   const TENANT_B = 'tenant-beta-002';
 
-  // Setup subscriptions: Tenant A is BASE, Tenant B is PRO
-  await entitlementsService.createInitialSubscription(TENANT_A, { actorId: 'admin-a' }); // BASE
+  // Setup subscriptions: Tenant A and Tenant B start on Plan PRINCIPAL (includes inventory_advanced)
+  await entitlementsService.createInitialSubscription(TENANT_A, { actorId: 'admin-a' });
   await entitlementsService.createInitialSubscription(TENANT_B, { actorId: 'admin-b' });
-  await entitlementsService.changeTenantPlan(TENANT_B, SAAS_PLANS.PRO, { actorId: 'superadmin', reason: 'Upgrade to PRO' }); // PRO
 
   // TEST 1: Crear producto con tenant autenticado
   await runAsyncTest('Test 1: Crear producto con tenant autenticado', async () => {
@@ -427,11 +426,10 @@ async function runAllTests() {
     assert.strictEqual(hasInv.allowed, true, 'Base debe tener inventory permitido');
   });
 
-  // TEST 21: Base no puede usar inventario avanzado
-  await runAsyncTest('Test 21: Plan Base no puede usar inventario avanzado (403)', async () => {
+  // TEST 21: Plan Principal incluye inventario avanzado
+  await runAsyncTest('Test 21: Plan Principal incluye inventario avanzado', async () => {
     const hasAdv = await entitlementsService.hasFeature(TENANT_A, SAAS_FEATURES.INVENTORY_ADVANCED);
-    assert.strictEqual(hasAdv.allowed, false, 'Base debe tener inventory_advanced bloqueado');
-    assert.strictEqual(hasAdv.code, 'FEATURE_NOT_INCLUDED');
+    assert.strictEqual(hasAdv.allowed, true, 'Plan Principal debe incluir inventory_advanced');
   });
 
   // TEST 22: Pro puede usar inventario básico
@@ -732,11 +730,17 @@ async function runAllTests() {
     }
   });
 
-  // TEST 40: Rutas avanzadas requieren inventory_advanced (403 en Base)
-  await runAsyncTest('Test 40: Rutas avanzadas devuelven 403 FEATURE_NOT_INCLUDED en Plan Base', async () => {
+  // TEST 40: Rutas avanzadas requieren inventory_advanced (403 si se revoca por override)
+  await runAsyncTest('Test 40: Rutas avanzadas devuelven 403 FEATURE_NOT_INCLUDED cuando se revoca el feature', async () => {
+    await entitlementsService.entitlementsRepo.upsertOverride(TENANT_A, {
+      feature_key: SAAS_FEATURES.INVENTORY_ADVANCED,
+      is_enabled: false,
+      reason: 'Revocación de prueba',
+      actor_id: 'superadmin'
+    });
     const reqAdvanced = requirePlanFeature(SAAS_FEATURES.INVENTORY_ADVANCED);
     const mockReq = {
-      tenantId: TENANT_A, // Tenant A está en Plan BASE
+      tenantId: TENANT_A,
       user: { role: 'admin', tenantId: TENANT_A }
     };
     let statusCode = null;
@@ -751,7 +755,7 @@ async function runAllTests() {
 
     assert.strictEqual(statusCode, 403);
     assert.strictEqual(jsonResult.code, 'FEATURE_NOT_INCLUDED');
-    assert.strictEqual(nextCalled, false, 'No debe permitir acceso a ruta avanzada en Plan Base');
+    assert.strictEqual(nextCalled, false, 'No debe permitir acceso a ruta avanzada cuando está revocado');
   });
 
   console.log('\n=== TEST RESULTS SUMMARY ===');

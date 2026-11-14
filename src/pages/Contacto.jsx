@@ -14,7 +14,7 @@ const Contacto = () => {
   useDocumentMetadata({
     title: 'Contacto y Demostración | ETEREAS',
     description:
-      'Solicita una demostración o ponte en contacto con el equipo de Etereas para implementar Plan Base o Plan Pro en tu empresa.',
+      'Solicita una demostración o ponte en contacto con el equipo de Etereas para implementar el Plan Principal y el módulo adicional de Suscripciones/Membresías B2C en tu empresa.',
     canonicalUrl: `${baseOrigin}/contacto`,
     robots: isStagingHost ? 'noindex, nofollow' : 'index, follow'
   });
@@ -69,8 +69,7 @@ const Contacto = () => {
             Hablemos de tu <span className="et-accent-text">operación.</span>
           </h1>
           <p>
-            ¿Quieres una demostración de Etereas o asesoría para elegir entre Plan Base (US$49/mes)
-            y Plan Pro (US$99/mes)? Envíanos tu consulta.
+            ¿Quieres una demostración de Etereas o asesoría para activar el Plan Principal y el módulo adicional de Suscripciones/Membresías B2C? Envíanos tu consulta.
           </p>
         </div>
 

@@ -222,24 +222,23 @@ async function runAll() {
       assert.ok(res.body.tenant_id);
       onboardedTenantId = res.body.tenant_id;
 
-      // Verify DB state: plan must be strictly BASE, ignoring 'PRO' from payload
+      // Verify DB state: plan must be strictly PRINCIPAL, ignoring 'PRO' from payload
       const tenantRow = harness.dbMock.tables.tenants.find(t => t.id === onboardedTenantId);
       assert.ok(tenantRow);
       assert.strictEqual(tenantRow.status, 'pending');
-      assert.strictEqual(tenantRow.plan_id, 1, 'Tenant plan_id must be forced to Base (1)');
 
       const subRow = harness.dbMock.tables.tenant_subscriptions.find(s => s.tenant_id === onboardedTenantId);
       assert.ok(subRow);
-      assert.strictEqual(subRow.plan_code, 'BASE', 'Subscription plan_code must be strictly BASE');
+      assert.strictEqual(subRow.plan_code, 'PRINCIPAL', 'Subscription plan_code must be strictly PRINCIPAL');
     });
 
     // =========================================================================
-    // FLOW 2: BASE CONSULTA ENTITLEMENTS CORRECTOS
+    // FLOW 2: PRINCIPAL CONSULTA ENTITLEMENTS CORRECTOS
     // =========================================================================
     let tenantBaseUser = null;
-    await runAsyncTest('Flow 2.1: Active tenant user on Plan BASE queries entitlements and receives correct Base limits & features', async () => {
+    await runAsyncTest('Flow 2.1: Active tenant user on Plan PRINCIPAL queries entitlements and receives correct limits & features', async () => {
       tenantBaseUser = await harness.createTenantWithUser({
-        plan: 'BASE',
+        plan: 'PRINCIPAL',
         email: 'admin@bellavista.com',
         businessName: 'Salón Bella Vista'
       });
@@ -251,15 +250,15 @@ async function runAll() {
       });
 
       assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.currentPlan, 'BASE');
-      assert.strictEqual(res.body.features.inventory, true, 'Base includes basic inventory');
-      assert.strictEqual(res.body.features.pos, true, 'Base includes POS');
-      assert.strictEqual(res.body.features.clients, true, 'Base includes CRM clients');
-      assert.strictEqual(res.body.features.marketing, false, 'Base excludes marketing');
-      assert.strictEqual(res.body.features.memberships, false, 'Base excludes B2C memberships');
-      assert.strictEqual(res.body.features.inventory_advanced, false, 'Base excludes advanced inventory');
-      assert.strictEqual(res.body.limits.branches, 1, 'Base allows 1 branch maximum');
-      assert.strictEqual(res.body.limits.users, 3, 'Base allows 3 users maximum');
+      assert.strictEqual(res.body.currentPlan, 'PRINCIPAL');
+      assert.strictEqual(res.body.features.inventory, true, 'PRINCIPAL includes basic inventory');
+      assert.strictEqual(res.body.features.pos, true, 'PRINCIPAL includes POS');
+      assert.strictEqual(res.body.features.clients, true, 'PRINCIPAL includes CRM clients');
+      assert.strictEqual(res.body.features.marketing, true, 'PRINCIPAL includes marketing');
+      assert.strictEqual(res.body.features.memberships, false, 'PRINCIPAL excludes B2C memberships without add-on');
+      assert.strictEqual(res.body.features.inventory_advanced, true, 'PRINCIPAL includes advanced inventory');
+      assert.strictEqual(res.body.limits.branches, 1, 'PRINCIPAL default allows 1 branch maximum');
+      assert.strictEqual(res.body.limits.users, 3, 'PRINCIPAL default allows 3 users maximum');
     });
 
     // =========================================================================
@@ -339,21 +338,17 @@ async function runAll() {
       assert.strictEqual(res.body.feature, 'memberships');
     });
 
-    await runAsyncTest('Flow 4.3: Base tenant is blocked with 403 on Advanced Inventory Transfers', async () => {
-      const res = await harness.request({
-        method: 'POST',
-        path: '/api/inventory/transfers',
-        headers: tenantBaseUser.headers,
-        body: {
-          originLocationId: 'loc-1',
-          destinationLocationId: 'loc-2',
-          items: []
-        }
-      });
-
-      assert.strictEqual(res.status, 403);
-      assert.strictEqual(res.body.code, 'FEATURE_NOT_INCLUDED');
-      assert.strictEqual(res.body.feature, 'inventory_advanced');
+    await runAsyncTest('Flow 4.3: Tenant without add-on is blocked with 403 on B2C Contracts & Payments', async () => {
+      for (const p of ['/api/contracts', '/api/payments']) {
+        const res = await harness.request({
+          method: 'GET',
+          path: p,
+          headers: tenantBaseUser.headers
+        });
+        assert.strictEqual(res.status, 403, p);
+        assert.strictEqual(res.body.code, 'FEATURE_NOT_INCLUDED', p);
+        assert.strictEqual(res.body.feature, 'memberships', p);
+      }
     });
 
     // =========================================================================
@@ -379,36 +374,34 @@ async function runAll() {
       assert.strictEqual(res.body.paymentMethod.last4, '4242');
     });
 
-    const upgradeIdempotencyKey = `upg-key-${Date.now()}`;
-    await runAsyncTest('Flow 5.2: Upgrade Base -> Pro with fake payment enables Pro features immediately', async () => {
-      const res = await harness.request({
+    await runAsyncTest('Flow 5.2: Request memberships add-on & SuperAdmin activation unlocks memberships', async () => {
+      const reqRes = await harness.request({
         method: 'POST',
-        path: '/api/saas/billing/subscription/upgrade',
-        headers: {
-          ...tenantBaseUser.headers,
-          'Idempotency-Key': upgradeIdempotencyKey
-        }
+        path: '/api/saas/billing/addons/memberships/request',
+        headers: tenantBaseUser.headers,
+        body: { note: 'Solicito activar add-on de membresías B2C' }
+      });
+      assert.strictEqual(reqRes.status, 200);
+      assert.strictEqual(reqRes.body.success, true);
+
+      await harness.entitlementsService.setAddonStatus(tenantBaseUser.tenantId, 'memberships', {
+        enabled: true,
+        actorId: 'superadmin-test',
+        reason: 'Activación comercial'
       });
 
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.success, true);
-      assert.strictEqual(res.body.newPlan, 'PRO');
-      assert.ok(res.body.invoice);
-      assert.strictEqual(res.body.payment.status, 'success');
-
-      // Verify entitlements are immediately active for PRO
       const entRes = await harness.request({
         method: 'GET',
         path: '/api/tenant/entitlements',
         headers: tenantBaseUser.headers
       });
       assert.strictEqual(entRes.status, 200);
-      assert.strictEqual(entRes.body.currentPlan, 'PRO');
+      assert.strictEqual(entRes.body.currentPlan, 'PRINCIPAL');
       assert.strictEqual(entRes.body.features.clients, true);
       assert.strictEqual(entRes.body.features.memberships, true);
+      assert.strictEqual(entRes.body.addons.memberships.active, true);
       assert.strictEqual(entRes.body.features.inventory_advanced, true);
 
-      // Verify Pro endpoints respond with 200 OK
       const clientsRes = await harness.request({ method: 'GET', path: '/api/clients', headers: tenantBaseUser.headers });
       assert.strictEqual(clientsRes.status, 200);
 
@@ -420,6 +413,17 @@ async function runAll() {
     // FLOW 6: REPETIR UPGRADE NO DUPLICA FACTURA NI COBRO
     // =========================================================================
     await runAsyncTest('Flow 6.1: Repeating upgrade with same Idempotency-Key does NOT duplicate invoice or payment', async () => {
+      await harness.saasRepo.upsertSubscription(tenantBaseUser.tenantId, { plan_code: 'BASE', status: 'active' });
+      const upgradeIdempotencyKey = `upg-key-${Date.now()}`;
+      const resFirst = await harness.request({
+        method: 'POST',
+        path: '/api/saas/billing/subscription/upgrade',
+        headers: {
+          ...tenantBaseUser.headers,
+          'Idempotency-Key': upgradeIdempotencyKey
+        }
+      });
+      assert.strictEqual(resFirst.status, 200);
       const initialInvoicesCount = harness.dbMock.tables.invoices.length;
 
       const resRepeat = await harness.request({
@@ -439,47 +443,36 @@ async function runAll() {
     // =========================================================================
     // FLOW 7: DOWNGRADE SE BLOQUEA SI EXCEDE USUARIOS O SUCURSALES
     // =========================================================================
-    await runAsyncTest('Flow 7.1: Downgrade is rejected with 409 RESOURCE_LIMIT_EXCEEDED when tenant exceeds Base limits', async () => {
-      // Add extra users to exceed Base limit of 3
+    await runAsyncTest('Flow 7.1: Resource limit check rejects exceeding branch user limits', async () => {
       harness.dbMock.tables.users.push(
         { id: 'usr-extra-1', tenant_id: tenantBaseUser.tenantId, email: 'u1@test.com', is_active: true },
         { id: 'usr-extra-2', tenant_id: tenantBaseUser.tenantId, email: 'u2@test.com', is_active: true },
         { id: 'usr-extra-3', tenant_id: tenantBaseUser.tenantId, email: 'u3@test.com', is_active: true }
       );
 
-      const res = await harness.request({
-        method: 'POST',
-        path: '/api/saas/billing/subscription/downgrade',
-        headers: tenantBaseUser.headers
-      });
-
-      assert.strictEqual(res.status, 409);
-      assert.strictEqual(res.body.code, 'RESOURCE_LIMIT_EXCEEDED');
-      assert.ok(res.body.details.currentUsers > res.body.details.maxUsersAllowed);
+      const limitCheck = await harness.entitlementsService.checkLimit(tenantBaseUser.tenantId, 'users');
+      assert.strictEqual(limitCheck.allowed, false);
+      assert.strictEqual(limitCheck.code, 'PLAN_LIMIT_REACHED');
+      assert.ok(limitCheck.current > limitCheck.maximum);
     });
 
-    await runAsyncTest('Flow 7.2: Downgrade is scheduled for period end once resource violations are removed', async () => {
-      // Remove extra users to satisfy Base limit (<= 3)
+    await runAsyncTest('Flow 7.2: Disabling memberships add-on blocks memberships while preserving PRINCIPAL access', async () => {
       harness.dbMock.tables.users = harness.dbMock.tables.users.filter(u => !u.id.startsWith('usr-extra-'));
-
-      const res = await harness.request({
-        method: 'POST',
-        path: '/api/saas/billing/subscription/downgrade',
-        headers: tenantBaseUser.headers
+      await harness.entitlementsService.setAddonStatus(tenantBaseUser.tenantId, 'memberships', {
+        enabled: false,
+        actorId: 'superadmin-test',
+        reason: 'Baja de add-on'
       });
 
-      assert.strictEqual(res.status, 200);
-      assert.strictEqual(res.body.scheduled, true);
-      assert.strictEqual(res.body.targetPlan, 'BASE');
-      assert.ok(res.body.effectiveAt);
-
-      // Verify that PRO remains active until effectiveAt
       const entRes = await harness.request({
         method: 'GET',
         path: '/api/tenant/entitlements',
         headers: tenantBaseUser.headers
       });
-      assert.strictEqual(entRes.body.currentPlan, 'PRO');
+      assert.strictEqual(entRes.status, 200);
+      assert.strictEqual(entRes.body.currentPlan, 'PRINCIPAL');
+      assert.strictEqual(entRes.body.features.memberships, false);
+      assert.strictEqual(entRes.body.features.clients, true);
     });
 
     // =========================================================================
@@ -518,7 +511,7 @@ async function runAll() {
       });
 
       assert.strictEqual(entRes.status, 200);
-      assert.strictEqual(entRes.body.currentPlan, 'PRO');
+      assert.strictEqual(entRes.body.currentPlan, 'PRINCIPAL');
       assert.strictEqual(entRes.body.subscriptionStatus, 'past_due');
       assert.strictEqual(entRes.body.isSuspended, false);
       assert.strictEqual(entRes.body.features.clients, true, 'Access remains active during grace period');

@@ -8,7 +8,7 @@
  * 5. Estados unificados con Fase 2A: active, past_due, suspended, cancelled, expired. (Sin trialing).
  */
 
-const { SAAS_PLANS, SUBSCRIPTION_STATUSES } = require('./saas_catalog.constants');
+const { SAAS_PLANS, LEGACY_PLAN_CODES, SUBSCRIPTION_STATUSES } = require('./saas_catalog.constants');
 
 const SAAS_CURRENCIES = Object.freeze({
   DOP: 'DOP',
@@ -27,7 +27,17 @@ const PRICE_BOOK_VERSION = 'v1_2026';
 const CANONICAL_PRICE_BOOK = Object.freeze({
   version: PRICE_BOOK_VERSION,
   prices: Object.freeze({
-    [SAAS_PLANS.BASE]: Object.freeze({
+    [SAAS_PLANS.PRINCIPAL]: Object.freeze({
+      [BILLING_CYCLES.MONTHLY]: Object.freeze({
+        [SAAS_CURRENCIES.DOP]: BigInt(Math.round(Number(process.env.SAAS_PRINCIPAL_PLAN_PRICE_DOP || 0) * 100)),
+        [SAAS_CURRENCIES.USD]: BigInt(Math.round(Number(process.env.SAAS_PRINCIPAL_PLAN_PRICE_USD || 0) * 100))
+      }),
+      [BILLING_CYCLES.ANNUAL]: Object.freeze({
+        [SAAS_CURRENCIES.DOP]: BigInt(Math.round(Number(process.env.SAAS_PRINCIPAL_PLAN_PRICE_DOP || 0) * 100 * 12)),
+        [SAAS_CURRENCIES.USD]: BigInt(Math.round(Number(process.env.SAAS_PRINCIPAL_PLAN_PRICE_USD || 0) * 100 * 12))
+      })
+    }),
+    [LEGACY_PLAN_CODES.BASE]: Object.freeze({
       [BILLING_CYCLES.MONTHLY]: Object.freeze({
         [SAAS_CURRENCIES.DOP]: 290000n,
         [SAAS_CURRENCIES.USD]: 4900n
@@ -37,7 +47,7 @@ const CANONICAL_PRICE_BOOK = Object.freeze({
         [SAAS_CURRENCIES.USD]: 49000n
       })
     }),
-    [SAAS_PLANS.PRO]: Object.freeze({
+    [LEGACY_PLAN_CODES.PRO]: Object.freeze({
       [BILLING_CYCLES.MONTHLY]: Object.freeze({
         [SAAS_CURRENCIES.DOP]: 590000n,
         [SAAS_CURRENCIES.USD]: 9900n

@@ -22,7 +22,7 @@ export default function FeatureForbiddenGate({
           </div>
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
             <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-            Exclusivo Plan {requiredPlan}
+            Add-on Requerido
           </span>
         </div>
 
@@ -32,7 +32,7 @@ export default function FeatureForbiddenGate({
             Acceso Restringido (403)
           </h1>
           <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base leading-relaxed">
-            {featureName} no está disponible en tu plan actual. Para acceder a este módulo y desbloquear todas sus capacidades operativas, actualiza tu suscripción a SalonPro {requiredPlan}.
+            {featureName} requiere el add-on de Suscripciones y Membresías B2C. Puedes solicitar su activación desde Mi suscripción sin afectar tu operación ni tus registros de clientes.
           </p>
         </div>
 
@@ -40,13 +40,12 @@ export default function FeatureForbiddenGate({
         <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-700/60 text-left text-xs sm:text-sm text-slate-700 dark:text-slate-300 space-y-2">
           <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-amber-500 shrink-0" aria-hidden="true" />
-            <span>Beneficios incluidos en Plan PRO:</span>
+            <span>Incluye el add-on Suscripciones y Membresías B2C:</span>
           </div>
           <ul className="space-y-1 pl-6 list-disc text-slate-600 dark:text-slate-400">
-            <li>Membresías recurrentes Plan Beauty RD con contratos digitales</li>
-            <li>Marketing, encuestas y Gift Cards</li>
-            <li>Transferencias de inventario entre sucursales</li>
-            <li>Hasta 5 sucursales y 15 usuarios colaboradores</li>
+            <li>Planes de membresía B2C y control de beneficios por ciclo</li>
+            <li>Contratos digitales firmados por tus clientas</li>
+            <li>Seguimiento de cobros recurrentes de membresías</li>
           </ul>
         </div>
 
@@ -57,7 +56,7 @@ export default function FeatureForbiddenGate({
             onClick={() => navigate('/facturacion-saas')}
             className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold shadow-lg shadow-amber-500/20 transition-all focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
           >
-            <span>Actualizar a Plan PRO</span>
+            <span>Ir a Mi suscripción</span>
             <ArrowUpRight className="w-4 h-4" aria-hidden="true" />
           </button>
           <button

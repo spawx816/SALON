@@ -34,7 +34,7 @@ class TenantSubscriptionRepository {
         return {
           id: `legacy-${tenantId}`,
           tenant_id: tenantId,
-          plan_code: tenantRows[0].plan_id === 2 ? SAAS_PLANS.PRO : SAAS_PLANS.BASE,
+          plan_code: SAAS_PLANS.PRINCIPAL,
           status: normalizedStatus,
           current_period_start: new Date(),
           current_period_end: null
@@ -67,15 +67,13 @@ class TenantSubscriptionRepository {
           updated_at = NOW()
       `, [tenantId, planCode, status, periodStart, periodEnd]);
 
-      // Sincronizar flag has_memberships y plan_id en tabla tenants
-      const planId = planCode === SAAS_PLANS.PRO ? 2 : 1;
+      // Sincronizar plan_id en tabla tenants sin sobreescribir has_memberships (gobernado por add-on)
       await this.pool.query(`
         UPDATE tenants
-        SET plan_id = ?,
-            has_memberships = ?,
+        SET plan_id = 1,
             updated_at = NOW()
         WHERE id = ?
-      `, [planId, planCode === SAAS_PLANS.PRO, tenantId]);
+      `, [tenantId]);
     }
 
     return {

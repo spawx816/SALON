@@ -25,25 +25,14 @@ import './LandingEtereas.css';
 const CANONICAL_FALLBACK_PLANS = [
   {
     id: 1,
-    code: 'base',
-    name: 'Plan Base',
-    price_monthly: 49,
-    extra_user_price: 15,
+    code: 'principal',
+    name: 'Plan Principal',
+    price_monthly: null,
+    extra_user_price: null,
     users_included: 3,
     branches_included: 1,
     description:
-      'Todo lo esencial para operar tu negocio: POS, cajas, inventario operativo, Clientes/CRM, asistencia, nómina y reportes DGII.'
-  },
-  {
-    id: 2,
-    code: 'pro',
-    name: 'Plan Pro',
-    price_monthly: 99,
-    extra_user_price: 15,
-    users_included: 3,
-    branches_included: 1,
-    description:
-      'Todo el Plan Base más Suscripciones y Membresías B2C, contratos digitales, automatizaciones de Marketing e Inventario Avanzado.'
+      'Operación integral para tu salón: POS, cajas, Clientes/CRM, inventario avanzado multisucursal, asistencia, nómina, comisiones, marketing y reportes DGII. Añade el módulo de Suscripciones/Membresías B2C cuando lo necesites.'
   }
 ];
 
@@ -58,7 +47,7 @@ const MODULES_LIST = [
   {
     kicker: '02 · RECURSOS HUMANOS Y CLIENTES',
     title: 'Organiza tu equipo y tu CRM.',
-    desc: 'Centraliza la información de tus empleados, horarios, novedades y el directorio CRM de clientes incluido en Base y Pro.',
+    desc: 'Centraliza la información de tus empleados, horarios, novedades y el directorio CRM de clientes incluido en el Plan Principal.',
     flow: 'Equipo y CRM → Información centralizada',
     Icon: Users
   },
@@ -86,7 +75,7 @@ const MODULES_LIST = [
   {
     kicker: '06 · INTELIGENCIA DE NEGOCIOS',
     title: 'Información para tomar decisiones.',
-    desc: 'Consulta reportes estratégicos de ventas, clientes y costos. En Plan Pro incorpora analítica de membresías y multisucursal.',
+    desc: 'Consulta reportes estratégicos de ventas, clientes y costos, además de analítica de membresías si activas el módulo adicional.',
     flow: 'Datos → Decisiones estratégicas',
     Icon: LineChart
   }
@@ -495,39 +484,34 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     }
   };
 
-  // Active plan metadata derived strictly from canonical catalog
+  // Active plan metadata derived strictly from canonical catalog (Plan Principal + Add-on opcional)
   const activePlan =
-    saasPlans.find((p) => p.code === selectedPlanCode) ||
-    CANONICAL_FALLBACK_PLANS.find((p) => p.code === selectedPlanCode) ||
+    saasPlans.find((p) => String(p.code).toLowerCase() === 'principal') ||
+    saasPlans[0] ||
     CANONICAL_FALLBACK_PLANS[0];
 
-  const unitPrice = Number(activePlan.price_monthly || (selectedPlanCode === 'pro' ? 99 : 49));
-  const extraUserPrice = Number(activePlan.extra_user_price || 15);
+  const unitPrice = activePlan.price_monthly !== null && activePlan.price_monthly !== undefined && Number(activePlan.price_monthly) > 0
+    ? Number(activePlan.price_monthly)
+    : null;
+  const extraUserPrice = activePlan.extra_user_price !== null && activePlan.extra_user_price !== undefined && Number(activePlan.extra_user_price) > 0
+    ? Number(activePlan.extra_user_price)
+    : null;
   const usersPerBranch = Number(activePlan.users_included || 3);
-  const monthlySubtotal = branchesCount * unitPrice + extraUsersCount * extraUserPrice;
+  const monthlySubtotal =
+    unitPrice !== null
+      ? branchesCount * unitPrice + extraUsersCount * (extraUserPrice || 0)
+      : null;
 
-  const planFeaturesList =
-    selectedPlanCode === 'pro'
-      ? [
-          { label: 'POS, ventas y cierres de caja', included: true },
-          { label: 'Directorio y fichas de Clientes (CRM)', included: true },
-          { label: 'Suscripciones y Membresías B2C + Contratos', included: true },
-          { label: 'Automatizaciones de Marketing y Gift Cards', included: true },
-          { label: 'Inventario Avanzado Multisucursal', included: true },
-          { label: 'Control de asistencia, comisiones y nómina', included: true },
-          { label: 'Comprobantes NCF y reportes DGII (606, 607, IT-1)', included: true },
-          { label: `${usersPerBranch} usuarios incluidos por sucursal`, included: true }
-        ]
-      : [
-          { label: 'POS, ventas y cierres de caja', included: true },
-          { label: 'Directorio y fichas de Clientes (CRM)', included: true },
-          { label: 'Inventario operativo de sucursal', included: true },
-          { label: 'Control de asistencia, comisiones y nómina', included: true },
-          { label: 'Comprobantes NCF y reportes DGII (606, 607, IT-1)', included: true },
-          { label: `${usersPerBranch} usuarios incluidos por sucursal`, included: true },
-          { label: 'Membresías B2C y Contratos (solo Plan Pro)', included: false },
-          { label: 'Marketing e Inventario Avanzado (solo Plan Pro)', included: false }
-        ];
+  const planFeaturesList = [
+    { label: 'POS, ventas y cierres de caja', included: true },
+    { label: 'Directorio y fichas de Clientes (CRM)', included: true },
+    { label: 'Inventario avanzado multisucursal, compras y proveedores', included: true },
+    { label: 'Automatizaciones de Marketing, Encuestas y Gift Cards', included: true },
+    { label: 'Control de asistencia, comisiones y nómina', included: true },
+    { label: 'Comprobantes NCF y reportes DGII (606, 607, IT-1)', included: true },
+    { label: `${usersPerBranch} usuarios incluidos por sucursal`, included: true },
+    { label: 'Suscripciones y Membresías B2C + Contratos (Add-on independiente)', included: false }
+  ];
 
   const activeChart = CHART_DATA[chartPeriod];
 
@@ -633,13 +617,13 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               </div>
 
               <div className="et-hero-offer">
-                <span className="et-offer-badge">BASE Y PRO</span>
+                <span className="et-offer-badge">PLAN PRINCIPAL</span>
                 <span>
-                  Desde <strong className="et-offer-price">US$49/mes</strong> (Base) ·{' '}
-                  <strong className="et-offer-price">US$99/mes</strong> (Pro) por sucursal
+                  Operación integral por sucursal ·{' '}
+                  <strong className="et-offer-price">Add-on opcional de Membresías B2C</strong>
                 </span>
                 <span className="et-hero-offer-sub">
-                  3 usuarios incluidos por sucursal · Clientes CRM en ambos planes
+                  3 usuarios incluidos por sucursal · Clientes CRM e inventario avanzado incluidos
                 </span>
               </div>
             </div>
@@ -810,7 +794,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               {extraModulesOpen && (
                 <div className="et-accordion-panel">
                   <span className="et-pill-item">Perfiles y CRM de clientes (Base y Pro)</span>
-                  <span className="et-pill-item">Membresías B2C y renovaciones (Plan Pro)</span>
+                  <span className="et-pill-item">Membresías B2C y renovaciones (Add-on opcional)</span>
                   <span className="et-pill-item">Gestión por sucursal</span>
                 </div>
               )}
@@ -912,49 +896,36 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
             <div className="et-pricing-head">
               <p className="et-eyebrow">ELIGE TU ALCANCE. CONECTA TU EMPRESA.</p>
               <h2 id="pricing-heading" className="et-section-h2">
-                Dos planes claros.
+                Un solo plan claro.
                 <br />
                 Toda tu operación.
               </h2>
               <p className="et-sub">
-                Elige Plan Base o Plan Pro, tus sucursales y usuarios. Tu mensualidad, clara desde el
-                inicio.
+                Comienza con el Plan Principal con todas las herramientas operativas y añade el módulo
+                de Suscripciones y Membresías B2C cuando tu salón lo requiera.
               </p>
             </div>
 
             <div className="et-pricing-card">
               <div className="et-pricing-left">
-                <div className="et-plan-tabs" role="tablist" aria-label="Seleccionar plan">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedPlanCode === 'base'}
-                    className={`et-plan-tab ${selectedPlanCode === 'base' ? 'active' : ''}`}
-                    onClick={() => setSelectedPlanCode('base')}
-                  >
-                    Plan Base · US$49
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedPlanCode === 'pro'}
-                    className={`et-plan-tab ${selectedPlanCode === 'pro' ? 'active' : ''}`}
-                    onClick={() => setSelectedPlanCode('pro')}
-                  >
-                    Plan Pro · US$99
-                  </button>
-                </div>
-
                 <p className="et-eyebrow" style={{ marginBottom: '6px' }}>
-                  {selectedPlanCode === 'pro' ? 'PLAN ETEREAS PRO' : 'PLAN ETEREAS BASE'}
+                  PLAN ETEREAS PRINCIPAL
                 </p>
                 <h3 className="et-plan-name">
-                  {selectedPlanCode === 'pro' ? 'ETEREAS PRO' : 'ETEREAS BASE'}
+                  PLAN PRINCIPAL
                 </h3>
 
                 <div className="et-price-row">
-                  <span className="et-price-big">US${unitPrice}</span>
-                  <span className="et-price-unit">/ mes por sucursal</span>
+                  {unitPrice !== null ? (
+                    <>
+                      <span className="et-price-big">US${unitPrice}</span>
+                      <span className="et-price-unit">/ mes por sucursal</span>
+                    </>
+                  ) : (
+                    <span className="et-price-big" style={{ fontSize: '26px' }}>
+                      Tarifa a consultar
+                    </span>
+                  )}
                 </div>
 
                 <p className="et-plan-desc">{activePlan.description}</p>
@@ -985,21 +956,22 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       transition: 'transform 0.15s ease'
                     }}
                   />
-                  Ver qué incluye el plan
+                  Ver qué incluye el plan y el add-on
                 </button>
 
                 {planDetailsOpen && (
                   <div className="et-details-box">
-                    {selectedPlanCode === 'pro'
-                      ? 'Incluye todo el Plan Base (POS, cajas, CRM de clientes, inventario operativo, asistencia facial, nómina, comisiones, contabilidad y reportes DGII 606/607/IT-1) más Suscripciones y Membresías B2C, contratos digitales, automatizaciones de Marketing e Inventario Avanzado.'
-                      : 'Incluye POS, cajas registradoras, directorio CRM de clientes, inventario operativo de sucursal, asistencia facial, nómina, comisiones, contabilidad básica y reportes DGII (606/607/IT-1). Membresías B2C, contratos y Marketing requieren Plan Pro.'}
+                    El Plan Principal incluye POS, cajas, Clientes/CRM, inventario avanzado multisucursal,
+                    asistencia facial, nómina, comisiones, marketing y reportes DGII (606, 607, IT-1).
+                    El módulo adicional de Suscripciones y Membresías B2C (planes de clientes, contratos digitales
+                    y cobros recurrentes) se contrata por separado.
                   </div>
                 )}
 
                 <p className="et-legal-note">
-                  Precios mensuales por sucursal en USD según catálogo vigente. Facturación
-                  electrónica e-CF y pasarela CardNet en proceso de certificación; equipo biométrico
-                  e impuestos locales según alcance de contratación.
+                  Condiciones comerciales según acuerdo vigente. Facturación electrónica e-CF y
+                  pasarela CardNet en proceso de certificación; equipo biométrico e impuestos locales
+                  según alcance de contratación.
                 </p>
               </div>
 
@@ -1062,26 +1034,30 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         +
                       </button>
                     </div>
-                    <div className="et-stepper-hint">
-                      US${extraUserPrice}/mes por cada usuario adicional
-                    </div>
+                    {extraUserPrice !== null && (
+                      <div className="et-stepper-hint">
+                        US${extraUserPrice}/mes por cada usuario adicional
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div>
                   <div className="et-subtotal-row">
                     <span className="et-subtotal-label">
-                      Subtotal mensual ({selectedPlanCode === 'pro' ? 'Pro' : 'Base'})
+                      Plan Principal ({branchesCount} {branchesCount === 1 ? 'sucursal' : 'sucursales'})
                     </span>
-                    <span className="et-subtotal-val">US${monthlySubtotal}</span>
+                    <span className="et-subtotal-val">
+                      {monthlySubtotal !== null ? `US$${monthlySubtotal}/mes` : 'A consultar'}
+                    </span>
                   </div>
 
                   <button
                     type="button"
                     className="et-btn-primary et-cta-full"
-                    onClick={(e) => openOnboardingModal(selectedPlanCode, e.currentTarget)}
+                    onClick={(e) => openOnboardingModal('principal', e.currentTarget)}
                   >
-                    Contratar {selectedPlanCode === 'pro' ? 'Plan Pro' : 'Plan Base'} →
+                    Solicitar alta Plan Principal →
                   </button>
                   <p className="et-cta-sub">Revisa tu selección antes de continuar.</p>
                 </div>
@@ -1235,11 +1211,10 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         <select
                           id="reg-plan"
                           className="et-input"
-                          value={selectedPlanCode}
-                          onChange={(e) => setSelectedPlanCode(e.target.value)}
+                          value="principal"
+                          disabled
                         >
-                          <option value="base">Plan Base (US$49/mes)</option>
-                          <option value="pro">Plan Pro (US$99/mes)</option>
+                          <option value="principal">Plan Principal</option>
                         </select>
                       </div>
                       <div className="et-field">
@@ -1289,14 +1264,12 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         <strong>Propietario:</strong> {ownerName} ({regEmail})
                       </div>
                       <div>
-                        <strong>Plan seleccionado:</strong>{' '}
-                        {selectedPlanCode === 'pro'
-                          ? 'Plan Pro (US$99/mes por sucursal)'
-                          : 'Plan Base (US$49/mes por sucursal)'}
+                        <strong>Plan inicial:</strong> Plan Principal (sin adicionales contratados)
                       </div>
                       <div>
-                        <strong>Configuración estimada:</strong> {branchesCount} sucursal(es),{' '}
-                        {extraUsersCount} usuario(s) extra — Subtotal US${monthlySubtotal}/mes
+                        <strong>Configuración solicitada:</strong> {branchesCount} sucursal(es),{' '}
+                        {extraUsersCount} usuario(s) extra
+                        {monthlySubtotal !== null ? ` — Subtotal US$${monthlySubtotal}/mes` : ''}
                       </div>
                     </div>
                     <label className="et-checkbox-row">

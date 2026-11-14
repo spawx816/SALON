@@ -471,7 +471,7 @@ export default function TenantCustomizationModule() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
               <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '800' }}>
-                PLAN: {profileData.plan_name || 'Plan Base'}
+                PLAN: {profileData.plan_name || 'Plan Principal'}
               </span>
               {profileData.has_memberships && (
                 <span style={{ background: '#fdf2f8', color: '#db2777', border: '1px solid #fbcfe8', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '800' }}>

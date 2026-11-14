@@ -15,7 +15,7 @@ class SaasPlanRepository {
   async getAllPlans(publicOnly = false) {
     if (this.pool) {
       const [rows] = await this.pool.query(
-        "SELECT * FROM saas_plans WHERE code IN ('BASE', 'PRO', 'base', 'pro') ORDER BY price ASC"
+        "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' ORDER BY price ASC"
       );
       if (rows && rows.length > 0) {
         return rows.map(r => ({

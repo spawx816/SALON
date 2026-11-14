@@ -70,72 +70,72 @@ async function runAllTests() {
   });
   const middleware = createEntitlementsMiddleware(service);
 
-  // TEST 1: New tenant receives BASE
-  await runAsyncTest('Test 1: New tenant receives BASE plan by default', async () => {
+  // TEST 1: New tenant receives PRINCIPAL
+  await runAsyncTest('Test 1: New tenant receives PRINCIPAL plan by default', async () => {
     const tenantId = 'tenant-test-1';
     const sub = await service.createInitialSubscription(tenantId, { actorId: 'admin-1' });
-    assert.strictEqual(sub.plan_code, SAAS_PLANS.BASE);
+    assert.strictEqual(sub.plan_code, SAAS_PLANS.PRINCIPAL);
     assert.strictEqual(sub.status, SUBSCRIPTION_STATUSES.ACTIVE);
   });
 
-  // TEST 2: Onboarding payload cannot force PRO
-  await runAsyncTest('Test 2: Onboarding payload cannot force PRO without authorization', async () => {
+  // TEST 2: Onboarding payload cannot force memberships add-on or PRO
+  await runAsyncTest('Test 2: Onboarding payload cannot force unauthorized plan or add-on', async () => {
     const tenantId = 'tenant-test-2';
-    // createInitialSubscription ignores any malicious requested_plan and enforces BASE
+    // createInitialSubscription ignores any malicious requested_plan and enforces PRINCIPAL without add-ons
     const sub = await service.createInitialSubscription(tenantId, { actorId: 'admin-2', requested_plan: 'PRO' });
-    assert.strictEqual(sub.plan_code, SAAS_PLANS.BASE);
+    assert.strictEqual(sub.plan_code, SAAS_PLANS.PRINCIPAL);
     const entitlements = await service.getTenantEntitlements(tenantId);
-    assert.strictEqual(entitlements.plan, SAAS_PLANS.BASE);
+    assert.strictEqual(entitlements.plan, SAAS_PLANS.PRINCIPAL);
+    assert.strictEqual(entitlements.addons.memberships.active, false);
   });
 
-  // TEST 3: Base allows included features (pos, cajas, dgii_ecf, etc.)
-  await runAsyncTest('Test 3: Base allows included features (pos, cajas, dgii_ecf, etc.)', async () => {
+  // TEST 3: PRINCIPAL allows all general features (pos, cajas, dgii_ecf, clients, marketing, inventory_advanced)
+  await runAsyncTest('Test 3: PRINCIPAL allows included general features', async () => {
     const tenantId = 'tenant-test-3';
     await service.createInitialSubscription(tenantId, { actorId: 'admin-3' });
-    const baseFeatureKeys = Object.keys(CANONICAL_PLAN_FEATURES.BASE).filter(k => CANONICAL_PLAN_FEATURES.BASE[k] === true);
-    for (const feat of baseFeatureKeys) {
+    const principalFeatureKeys = Object.keys(CANONICAL_PLAN_FEATURES.PRINCIPAL).filter(k => CANONICAL_PLAN_FEATURES.PRINCIPAL[k] === true);
+    for (const feat of principalFeatureKeys) {
       const check = await service.hasFeature(tenantId, feat);
-      assert.strictEqual(check.allowed, true, `Feature ${feat} should be allowed in BASE`);
+      assert.strictEqual(check.allowed, true, `Feature ${feat} should be allowed in PRINCIPAL`);
     }
   });
 
-  // TEST 4: Base includes Clients/CRM but blocks Pro-only features (memberships, marketing, inventory_advanced)
-  await runAsyncTest('Test 4: Base includes clients (CRM) and blocks memberships, marketing and inventory_advanced', async () => {
+  // TEST 4: PRINCIPAL includes Clients/CRM, marketing and inventory_advanced, and blocks memberships without add-on
+  await runAsyncTest('Test 4: PRINCIPAL includes clients/marketing/inventory_advanced and blocks memberships without add-on', async () => {
     const tenantId = 'tenant-test-4';
     await service.createInitialSubscription(tenantId, { actorId: 'admin-4' });
     const checkClients = await service.hasFeature(tenantId, SAAS_FEATURES.CLIENTS);
     const checkMemberships = await service.hasFeature(tenantId, SAAS_FEATURES.MEMBERSHIPS);
     const checkMarketing = await service.hasFeature(tenantId, SAAS_FEATURES.MARKETING);
     const checkAdvInv = await service.hasFeature(tenantId, SAAS_FEATURES.INVENTORY_ADVANCED);
-    assert.strictEqual(checkClients.allowed, true, 'Base must include clients feature (CRM)');
-    assert.strictEqual(checkMemberships.allowed, false, 'Base must block memberships feature');
+    assert.strictEqual(checkClients.allowed, true, 'PRINCIPAL must include clients feature (CRM)');
+    assert.strictEqual(checkMemberships.allowed, false, 'PRINCIPAL must block memberships feature without add-on');
     assert.strictEqual(checkMemberships.code, 'FEATURE_NOT_INCLUDED');
-    assert.strictEqual(checkMarketing.allowed, false, 'Base must block marketing feature');
-    assert.strictEqual(checkMarketing.code, 'FEATURE_NOT_INCLUDED');
-    assert.strictEqual(checkAdvInv.allowed, false, 'Base must block advanced inventory');
+    assert.strictEqual(checkMarketing.allowed, true, 'PRINCIPAL must include marketing feature');
+    assert.strictEqual(checkAdvInv.allowed, true, 'PRINCIPAL must include advanced inventory');
   });
 
-  // TEST 5: Pro allows Base features
-  await runAsyncTest('Test 5: Pro allows all Base features', async () => {
+  // TEST 5: Enabling memberships add-on preserves all PRINCIPAL features
+  await runAsyncTest('Test 5: Enabling memberships add-on preserves all PRINCIPAL features', async () => {
     const tenantId = 'tenant-test-5';
     await service.createInitialSubscription(tenantId, { actorId: 'admin-5' });
-    await service.changeTenantPlan(tenantId, SAAS_PLANS.PRO, { actorId: 'superadmin-1', reason: 'Upgrade to Pro' });
-    const baseFeatureKeys = Object.keys(CANONICAL_PLAN_FEATURES.BASE).filter(k => CANONICAL_PLAN_FEATURES.BASE[k] === true);
-    for (const feat of baseFeatureKeys) {
+    await service.setAddonStatus(tenantId, 'memberships', { enabled: true, actorId: 'superadmin-1', reason: 'Add-on enabled' });
+    const principalFeatureKeys = Object.keys(CANONICAL_PLAN_FEATURES.PRINCIPAL).filter(k => CANONICAL_PLAN_FEATURES.PRINCIPAL[k] === true);
+    for (const feat of principalFeatureKeys) {
       const check = await service.hasFeature(tenantId, feat);
-      assert.strictEqual(check.allowed, true, `Base feature ${feat} should be allowed in PRO`);
+      assert.strictEqual(check.allowed, true, `PRINCIPAL feature ${feat} should remain allowed with add-on`);
     }
   });
 
-  // TEST 6: Pro allows additional Pro features
-  await runAsyncTest('Test 6: Pro allows additional Pro features (clients, memberships)', async () => {
+  // TEST 6: Memberships add-on unlocks memberships feature
+  await runAsyncTest('Test 6: Memberships add-on unlocks memberships feature alongside clients', async () => {
     const tenantId = 'tenant-test-6';
     await service.createInitialSubscription(tenantId, { actorId: 'admin-6' });
-    await service.changeTenantPlan(tenantId, SAAS_PLANS.PRO, { actorId: 'superadmin-1', reason: 'Upgrade to Pro' });
+    await service.setAddonStatus(tenantId, 'memberships', { enabled: true, actorId: 'superadmin-1', reason: 'Add-on enabled' });
     const checkClients = await service.hasFeature(tenantId, SAAS_FEATURES.CLIENTS);
     const checkMemberships = await service.hasFeature(tenantId, SAAS_FEATURES.MEMBERSHIPS);
-    assert.strictEqual(checkClients.allowed, true, 'Pro must allow clients feature');
-    assert.strictEqual(checkMemberships.allowed, true, 'Pro must allow memberships feature');
+    assert.strictEqual(checkClients.allowed, true, 'Must allow clients feature');
+    assert.strictEqual(checkMemberships.allowed, true, 'Must allow memberships feature when add-on is active');
   });
 
   // TEST 7: No Enterprise plan exists in catalog or constants
@@ -150,12 +150,11 @@ async function runAllTests() {
     assert.strictEqual(normalizePlanCode('ENTERPRISE'), null);
   });
 
-  // TEST 8: Catalog returns exactly 2 plans (BASE, PRO)
-  runTest('Test 8: Catalog returns exactly 2 plans (BASE, PRO)', () => {
+  // TEST 8: Catalog returns single PRINCIPAL plan
+  runTest('Test 8: Catalog returns single PRINCIPAL plan', () => {
     const plans = CANONICAL_PLANS_CATALOG;
-    assert.strictEqual(plans.length, 2, 'Catalog must contain exactly 2 plans');
-    const codes = plans.map(p => p.code).sort();
-    assert.deepStrictEqual(codes, ['BASE', 'PRO']);
+    assert.strictEqual(plans.length, 1, 'Catalog must contain 1 principal plan');
+    assert.strictEqual(plans[0].code, 'PRINCIPAL');
   });
 
   // TEST 9: Unknown plan fails closed
@@ -238,10 +237,9 @@ async function runAllTests() {
   });
 
   // TEST 14: Revocation override (is_enabled: false) blocks a feature
-  await runAsyncTest('Test 14: Revocation override (is_enabled: false) blocks feature even in PRO', async () => {
+  await runAsyncTest('Test 14: Revocation override (is_enabled: false) blocks feature even in PRINCIPAL', async () => {
     const tenantId = 'tenant-test-14';
     await service.createInitialSubscription(tenantId, { actorId: 'admin-14' });
-    await service.changeTenantPlan(tenantId, SAAS_PLANS.PRO, { actorId: 'superadmin-1', reason: 'Upgrade' });
     const checkBefore = await service.hasFeature(tenantId, SAAS_FEATURES.CLIENTS);
     assert.strictEqual(checkBefore.allowed, true);
 
@@ -280,7 +278,7 @@ async function runAllTests() {
     const tenantB = 'tenant-B';
     await service.createInitialSubscription(tenantA, { actorId: 'admin-A' });
     await service.createInitialSubscription(tenantB, { actorId: 'admin-B' });
-    await service.changeTenantPlan(tenantB, SAAS_PLANS.PRO, { actorId: 'superadmin-1', reason: 'Upgrade B' });
+    await service.setAddonStatus(tenantB, 'memberships', { enabled: true, actorId: 'superadmin-1', reason: 'Add-on B' });
 
     // Simulate endpoint protected by requirePlanFeature
     const reqPlanFeature = middleware.requirePlanFeature(SAAS_FEATURES.MEMBERSHIPS);
@@ -443,37 +441,33 @@ async function runAllTests() {
     assert.strictEqual(isSuperAdmin('superadmin'), true);
   });
 
-  // TEST 24: SuperAdmin can change Base <-> Pro
-  await runAsyncTest('Test 24: SuperAdmin can change Base <-> Pro both ways', async () => {
+  // TEST 24: SuperAdmin can toggle memberships add-on both ways
+  await runAsyncTest('Test 24: SuperAdmin can enable and disable memberships add-on', async () => {
     const tenantId = 'tenant-change-24';
     await service.createInitialSubscription(tenantId, { actorId: 'superadmin-1' });
 
-    // Upgrade BASE -> PRO
-    const upRes = await service.changeTenantPlan(tenantId, SAAS_PLANS.PRO, { actorId: 'superadmin-1', reason: 'Upgrade to PRO' });
-    assert.strictEqual(upRes.new_plan, SAAS_PLANS.PRO);
+    const onRes = await service.setAddonStatus(tenantId, 'memberships', { enabled: true, actorId: 'superadmin-1', reason: 'Enable add-on' });
+    assert.strictEqual(onRes.is_enabled, true);
     let ent = await service.getTenantEntitlements(tenantId);
-    assert.strictEqual(ent.plan, SAAS_PLANS.PRO);
+    assert.strictEqual(ent.plan, SAAS_PLANS.PRINCIPAL);
+    assert.strictEqual(ent.addons.memberships.active, true);
 
-    // Downgrade PRO -> BASE
-    const downRes = await service.changeTenantPlan(tenantId, SAAS_PLANS.BASE, { actorId: 'superadmin-1', reason: 'Downgrade to BASE' });
-    assert.strictEqual(downRes.new_plan, SAAS_PLANS.BASE);
+    const offRes = await service.setAddonStatus(tenantId, 'memberships', { enabled: false, actorId: 'superadmin-1', reason: 'Disable add-on' });
+    assert.strictEqual(offRes.is_enabled, false);
     ent = await service.getTenantEntitlements(tenantId);
-    assert.strictEqual(ent.plan, SAAS_PLANS.BASE);
+    assert.strictEqual(ent.addons.memberships.active, false);
   });
 
-  // TEST 25: Plan transitions generate immutable audit event
-  await runAsyncTest('Test 25: Plan transitions generate immutable audit event', async () => {
+  // TEST 25: Plan creation generates immutable audit event
+  await runAsyncTest('Test 25: Subscription creation generates immutable audit event', async () => {
     const tenantId = 'tenant-audit-25';
     await service.createInitialSubscription(tenantId, { actorId: 'superadmin-1' });
-    await service.changeTenantPlan(tenantId, SAAS_PLANS.PRO, { actorId: 'superadmin-1', reason: 'Promotion to Pro' });
 
     const history = await fakeRepo.getHistoryByTenantId(tenantId);
-    assert(history.length >= 2, 'Must have at least initial creation and upgrade event');
+    assert(history.length >= 1, 'Must have at least initial creation event');
     const lastEvent = history[0];
-    assert.strictEqual(lastEvent.previous_plan, SAAS_PLANS.BASE);
-    assert.strictEqual(lastEvent.new_plan, SAAS_PLANS.PRO);
+    assert.strictEqual(lastEvent.new_plan, SAAS_PLANS.PRINCIPAL);
     assert.strictEqual(lastEvent.actor_id, 'superadmin-1');
-    assert.strictEqual(lastEvent.reason, 'Promotion to Pro');
   });
 
   // TEST 26: Frontend is not sole barrier (middleware rejects direct API calls)

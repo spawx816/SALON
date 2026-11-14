@@ -39,15 +39,14 @@ const Legal = ({ page }) => {
                   opcional suministrado durante el registro o solicitud de acceso.
                 </li>
                 <li>
-                  <strong>Datos operativos del tenant:</strong> catálogo de servicios e inventario,
-                  registro de ventas y comprobantes fiscales, control de asistencia y nómina, y
-                  directorio CRM de clientes (disponible en Plan Base y Plan Pro).
+                  <strong>Datos operativos del tenant:</strong> catálogo de servicios e inventario
+                  avanzado, registro de ventas y comprobantes fiscales, control de asistencia y
+                  nómina, marketing y directorio CRM de clientes (incluidos en el Plan Principal).
                 </li>
                 <li>
-                  <strong>Módulos exclusivos de Plan Pro:</strong> cuando el tenant contrata el Plan
-                  Pro, también puede administrar suscripciones o membresías B2C de sus clientas
-                  finales, contratos digitales asociados al salón correspondiente y campañas de
-                  marketing.
+                  <strong>Módulo adicional de Suscripciones y Membresías B2C:</strong> cuando el
+                  tenant contrata este add-on independiente, también puede administrar suscripciones
+                  o membresías B2C de sus clientes finales y contratos digitales asociados.
                 </li>
               </ul>
 
@@ -74,37 +73,36 @@ const Legal = ({ page }) => {
         return {
           title: 'Política de Cancelación y Reembolsos | ETEREAS',
           description:
-            'Borrador de Política de Cancelación y Reembolsos aplicable a suscripciones SaaS Base y Pro de Etereas.',
+            'Borrador de Política de Cancelación y Reembolsos aplicable a la suscripción SaaS de Etereas.',
           canonical: `${baseOrigin}/cancelacion-y-reembolsos`,
           eyebrow: 'DOCUMENTO LEGAL SAAS · BORRADOR',
           h1: 'Política de Cancelación y Reembolsos',
-          subtitle: 'Condiciones preliminares de suscripción y cancelación para planes SaaS Etereas.',
+          subtitle: 'Condiciones preliminares de suscripción y cancelación para Etereas SaaS.',
           content: (
             <>
-              <h3>1. Planes SaaS disponibles</h3>
+              <h3>1. Estructura comercial vigente</h3>
               <p>
-                Etereas ofrece únicamente dos planes comerciales de suscripción mensual por sucursal:
+                Etereas ofrece un único Plan Principal mensual por sucursal y un módulo adicional
+                independiente de Suscripciones y Membresías B2C:
               </p>
               <ul>
                 <li>
-                  <strong>Plan Base (US$49/mes por sucursal):</strong> incluye POS, cajas,
-                  inventario operativo, Clientes/CRM, asistencia, nómina y reportes DGII (606, 607,
-                  IT-1), con 3 usuarios incluidos por sucursal y US$15/mes por usuario adicional.
+                  <strong>Plan Principal:</strong> incluye POS, cajas, inventario avanzado
+                  multisucursal, Clientes/CRM, asistencia, nómina, comisiones, marketing y reportes
+                  DGII (606, 607, IT-1), con tarifa según configuración comercial vigente.
                 </li>
                 <li>
-                  <strong>Plan Pro (US$99/mes por sucursal):</strong> incluye todo el Plan Base más
-                  Membresías B2C, contratos digitales, automatizaciones de Marketing e Inventario
-                  Avanzado Multisucursal, con 3 usuarios incluidos por sucursal y US$15/mes por
-                  usuario adicional.
+                  <strong>Add-on Suscripciones y Membresías B2C:</strong> módulo opcional e
+                  independiente para planes de clientes, contratos digitales y cobros recurrentes B2C.
                 </li>
               </ul>
 
               <h3>2. Cambio de plan y conservación de datos</h3>
               <p>
-                En caso de cambio de Plan Pro a Plan Base, los registros de clientes, ventas,
-                visitas e historial operativo se conservan intactos; los módulos exclusivos de Plan
-                Pro (membresías B2C, contratos y marketing) quedan restringidos sin eliminar datos
-                históricos existentes.
+                Si un salón desactiva el add-on de Suscripciones/Membresías B2C, los registros de
+                clientes, ventas, visitas e historial operativo se conservan intactos; únicamente el
+                módulo de membresías B2C y sus contratos y cobros recurrentes quedan restringidos sin
+                eliminar datos históricos existentes.
               </p>
 
               <h3>3. Cancelación y reembolsos</h3>
@@ -117,9 +115,9 @@ const Legal = ({ page }) => {
 
               <h3>4. Membresías B2C de cada salón</h3>
               <p>
-                Las políticas de cancelación o reembolso de membresías B2C que un salón en Plan Pro
-                ofrezca a sus clientas finales son definidas y administradas de forma independiente
-                por cada salón contratante.
+                Las políticas de cancelación o reembolso de membresías B2C que un salón con el
+                add-on contratado ofrezca a sus clientas finales son definidas y administradas de
+                forma independiente por cada salón contratante.
               </p>
             </>
           )
@@ -130,7 +128,7 @@ const Legal = ({ page }) => {
         return {
           title: 'Términos y Condiciones | ETEREAS',
           description:
-            'Borrador de Términos y Condiciones de uso del software SaaS empresarial Etereas (Plan Base y Plan Pro).',
+            'Borrador de Términos y Condiciones de uso del software SaaS empresarial Etereas (Plan Principal y Add-on de Suscripciones/Membresías B2C).',
           canonical: `${baseOrigin}/terminos-y-condiciones`,
           eyebrow: 'DOCUMENTO LEGAL SAAS · BORRADOR',
           h1: 'Términos y Condiciones del Servicio',
@@ -144,31 +142,31 @@ const Legal = ({ page }) => {
                 control de asistencia, nómina, contabilidad operativa y CRM de clientes.
               </p>
 
-              <h3>2. Estructura de planes comerciales</h3>
+              <h3>2. Estructura comercial: Plan Principal y Add-on</h3>
               <ul>
                 <li>
-                  <strong>Plan Base (US$49/mes por sucursal):</strong> incluye POS, cajas
-                  registradoras, inventario operativo, <strong>Clientes/CRM</strong>, control de
-                  asistencia, comisiones, nómina y reportes fiscales NCF/DGII (606, 607, IT-1).
+                  <strong>Plan Principal:</strong> incluye POS, cajas registradoras, inventario
+                  avanzado, <strong>Clientes/CRM</strong>, control de asistencia, comisiones,
+                  nómina, marketing operativo y reportes fiscales NCF/DGII (606, 607, IT-1).
                 </li>
                 <li>
-                  <strong>Plan Pro (US$99/mes por sucursal):</strong> incluye todo el Plan Base más{' '}
-                  <strong>Membresías y suscripciones B2C</strong>, contratos digitales,{' '}
-                  <strong>Marketing</strong> e Inventario Avanzado Multisucursal.
+                  <strong>Add-on Suscripciones/Membresías B2C (opcional):</strong> módulo adicional
+                  para crear planes de membresía B2C, administrar contratos digitales y gestionar
+                  cobros recurrentes a clientas finales.
                 </li>
                 <li>
-                  <strong>Límites por sucursal:</strong> ambos planes incluyen 3 usuarios por
-                  sucursal contratada y permiten agregar usuarios adicionales por US$15/mes cada
-                  uno.
+                  <strong>Límites y tarifas comerciales:</strong> cada sucursal contratada incluye 3
+                  usuarios base; los valores vigentes de tarifa mensual, usuarios adicionales y
+                  add-on están sujetos a la configuración comercial publicada por el operador.
                 </li>
               </ul>
 
               <h3>3. Separación de membresías B2C por salón</h3>
               <p>
-                La funcionalidad de membresías y suscripciones B2C está disponible exclusivamente en
-                el <strong>Plan Pro</strong>. Cada salón contratante en Plan Pro es responsable de
-                los precios, ciclos, beneficios y condiciones comerciales que establezca frente a sus
-                clientas finales mediante sus propios contratos digitales.
+                La funcionalidad de membresías y suscripciones B2C está disponible como add-on
+                opcional del servicio. Cada salón contratante que habilite este módulo es
+                responsable de los precios, ciclos, beneficios y condiciones comerciales que
+                establezca frente a sus clientas finales mediante sus propios contratos digitales.
               </p>
 
               <h3>4. Estado de integraciones fiscales y de pago</h3>
@@ -213,9 +211,10 @@ const Legal = ({ page }) => {
         <div className="et-subpage-card">
           <div className="et-draft-banner" role="note">
             <strong>Borrador para revisión del operador:</strong> Este texto refleja el alcance
-            técnico y comercial vigente de la plataforma SaaS Etereas (planes Base y Pro). La razón
-            social, RNC, domicilio legal, plazos de reembolso y cláusulas jurídicas definitivas están
-            pendientes de aprobación formal antes de su publicación productiva.
+            técnico y comercial vigente de la plataforma SaaS Etereas (Plan Principal y Add-on de
+            Suscripciones/Membresías B2C). La razón social, RNC, domicilio legal, plazos de
+            reembolso y cláusulas jurídicas definitivas están pendientes de aprobación formal antes
+            de su publicación productiva.
           </div>
 
           <div className="et-legal-prose">{data.content}</div>

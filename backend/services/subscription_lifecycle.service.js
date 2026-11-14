@@ -9,7 +9,7 @@ const {
   SUBSCRIPTION_STATUSES,
   DUNNING_POLICY
 } = require('./saas_billing.constants');
-const { DEFAULT_PLAN_LIMITS } = require('./saas_catalog.constants');
+const { DEFAULT_PLAN_LIMITS, LEGACY_PLAN_CODES } = require('./saas_catalog.constants');
 
 class SubscriptionLifecycleService {
   constructor({
@@ -169,20 +169,20 @@ class SubscriptionLifecycleService {
     return sub;
   }
 
-  async requestDowngrade(tenantId, { newPlan = SAAS_PLANS.BASE, actorId }) {
-    if (newPlan !== SAAS_PLANS.BASE) {
+  async requestDowngrade(tenantId, { newPlan = LEGACY_PLAN_CODES.BASE, actorId }) {
+    if (newPlan !== LEGACY_PLAN_CODES.BASE) {
       throw new Error('Solo se permite downgrade hacia Plan BASE');
     }
 
     const sub = await this.subscriptionRepo.findByTenantId(tenantId);
     if (!sub) throw new Error('Suscripción no encontrada');
 
-    if (sub.plan_code === SAAS_PLANS.BASE) {
-      throw new Error('El salón ya se encuentra en Plan BASE');
+    if (sub.plan_code === LEGACY_PLAN_CODES.BASE || sub.plan_code === SAAS_PLANS.PRINCIPAL) {
+      throw new Error('El salón ya se encuentra en el plan base/principal');
     }
 
     // VALIDACIÓN ESTRICTA DE LÍMITES DE RECURSOS PARA DOWNGRADE:
-    // Base permite máx 1 sucursal y 3 usuarios
+    // Base/Principal permite máx 1 sucursal y 3 usuarios por defecto
     const branchCount = this.entitlementsRepo
       ? await this.entitlementsRepo.countResourceUsage(tenantId, 'branches')
       : 1;
@@ -190,11 +190,11 @@ class SubscriptionLifecycleService {
       ? await this.entitlementsRepo.countResourceUsage(tenantId, 'users')
       : 1;
 
-    const baseLimits = DEFAULT_PLAN_LIMITS[SAAS_PLANS.BASE] || { branches: 1, users: 3 };
+    const baseLimits = DEFAULT_PLAN_LIMITS[SAAS_PLANS.PRINCIPAL] || { branches: 1, users: 3 };
 
     if (branchCount > baseLimits.branches || userCount > baseLimits.users) {
       const err = new Error(
-        `No se puede realizar downgrade a Plan BASE: recursos actuales exceden los límites permitidos. ` +
+        `No se puede realizar downgrade: recursos actuales exceden los límites permitidos. ` +
         `Sucursales: ${branchCount}/${baseLimits.branches}, Usuarios: ${userCount}/${baseLimits.users}. ` +
         `Desactive los recursos excedentes antes de proceder.`
       );
@@ -208,10 +208,10 @@ class SubscriptionLifecycleService {
       throw err;
     }
 
-    // El downgrade a Base se programa para ser efectivo al finalizar el período actual
+    // El downgrade se programa para ser efectivo al finalizar el período actual
     const updated = {
       ...sub,
-      scheduled_downgrade_plan: SAAS_PLANS.BASE,
+      scheduled_downgrade_plan: LEGACY_PLAN_CODES.BASE,
       updated_at: new Date().toISOString()
     };
 
@@ -227,7 +227,7 @@ class SubscriptionLifecycleService {
       await this.billingRepo.recordBillingEvent({
         tenant_id: tenantId,
         event_type: 'DOWNGRADE_SCHEDULED',
-        payload: { scheduledPlan: SAAS_PLANS.BASE, effectiveAt: sub.current_period_end, actorId },
+        payload: { scheduledPlan: LEGACY_PLAN_CODES.BASE, effectiveAt: sub.current_period_end, actorId },
         idempotency_key: `evt_downgrade_sched_${tenantId}_${Date.now()}`
       });
     }
@@ -235,7 +235,7 @@ class SubscriptionLifecycleService {
     return {
       scheduled: true,
       effectiveAt: sub.current_period_end,
-      targetPlan: SAAS_PLANS.BASE
+      targetPlan: LEGACY_PLAN_CODES.BASE
     };
   }
 

@@ -307,7 +307,7 @@ export default function InventoryModule() {
           Ledger de Movimientos (Base)
         </button>
         <button
-          onClick={() => hasAdvanced ? setActiveTab('transfers') : showNotification('Transferencias multisucursal es exclusivo del Plan PRO', true)}
+          onClick={() => hasAdvanced ? setActiveTab('transfers') : showNotification('Transferencias multisucursal requiere habilitar inventario avanzado', true)}
           style={{
             background: 'none', border: 'none', padding: '0.6rem 1rem',
             borderBottom: activeTab === 'transfers' ? '3px solid #7c3aed' : '3px solid transparent',
@@ -315,10 +315,10 @@ export default function InventoryModule() {
             opacity: hasAdvanced ? 1 : 0.6
           }}
         >
-          Transferencias {!hasAdvanced && '🔒 (PRO)'}
+          Transferencias {!hasAdvanced && '🔒'}
         </button>
         <button
-          onClick={() => hasAdvanced ? setActiveTab('suppliers') : showNotification('Gestión de proveedores es exclusivo del Plan PRO', true)}
+          onClick={() => hasAdvanced ? setActiveTab('suppliers') : showNotification('Gestión de proveedores requiere habilitar inventario avanzado', true)}
           style={{
             background: 'none', border: 'none', padding: '0.6rem 1rem',
             borderBottom: activeTab === 'suppliers' ? '3px solid #7c3aed' : '3px solid transparent',
@@ -326,10 +326,10 @@ export default function InventoryModule() {
             opacity: hasAdvanced ? 1 : 0.6
           }}
         >
-          Proveedores {!hasAdvanced && '🔒 (PRO)'}
+          Proveedores {!hasAdvanced && '🔒'}
         </button>
         <button
-          onClick={() => hasAdvanced ? setActiveTab('orders') : showNotification('Órdenes de compra es exclusivo del Plan PRO', true)}
+          onClick={() => hasAdvanced ? setActiveTab('orders') : showNotification('Órdenes de compra requiere habilitar inventario avanzado', true)}
           style={{
             background: 'none', border: 'none', padding: '0.6rem 1rem',
             borderBottom: activeTab === 'orders' ? '3px solid #7c3aed' : '3px solid transparent',
@@ -337,10 +337,10 @@ export default function InventoryModule() {
             opacity: hasAdvanced ? 1 : 0.6
           }}
         >
-          Órdenes de Compra {!hasAdvanced && '🔒 (PRO)'}
+          Órdenes de Compra {!hasAdvanced && '🔒'}
         </button>
         <button
-          onClick={() => hasAdvanced ? setActiveTab('valuation') : showNotification('Valorización avanzada es exclusivo del Plan PRO', true)}
+          onClick={() => hasAdvanced ? setActiveTab('valuation') : showNotification('Valorización avanzada requiere habilitar inventario avanzado', true)}
           style={{
             background: 'none', border: 'none', padding: '0.6rem 1rem',
             borderBottom: activeTab === 'valuation' ? '3px solid #7c3aed' : '3px solid transparent',
@@ -348,7 +348,7 @@ export default function InventoryModule() {
             opacity: hasAdvanced ? 1 : 0.6
           }}
         >
-          Valorización {!hasAdvanced && '🔒 (PRO)'}
+          Valorización {!hasAdvanced && '🔒'}
         </button>
       </div>
 

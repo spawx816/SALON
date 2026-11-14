@@ -363,7 +363,7 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
-  // GET /api/saas/plans - Obtener planes SaaS (Exclusivamente BASE y PRO)
+  // GET /api/saas/plans - Obtener catálogo SaaS vigente (Plan Principal único)
   router.get('/plans', async (req, res) => {
     try {
       const publicOnly = req.query.public_only === 'true';
@@ -378,7 +378,7 @@ function createSaasRouter(pool, options = {}) {
       }
 
       if (pool) {
-        const query = "SELECT * FROM saas_plans WHERE UPPER(code) IN ('BASE', 'PRO') ORDER BY price ASC";
+        const query = "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' ORDER BY id ASC";
         const [plans] = await pool.query(query);
         if (plans && plans.length > 0) {
           return res.json(plans.map(p => ({
@@ -388,10 +388,29 @@ function createSaasRouter(pool, options = {}) {
         }
       }
 
-      // Catálogo canónico oficial (2 planes: BASE y PRO)
       res.json(CANONICAL_PLANS_CATALOG);
     } catch (error) {
       res.status(500).json({ error: 'Error obteniendo planes SaaS' });
+    }
+  });
+
+  // PUT /api/saas/tenants/:tenantId/addons/:addonCode - Activar/desactivar add-on independiente (PROTEGIDO SUPERADMIN)
+  router.put('/tenants/:tenantId/addons/:addonCode', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { tenantId, addonCode } = req.params;
+      const { enabled, reason, source } = req.body || {};
+      const result = await entitlementsService.setAddonStatus(tenantId, addonCode, {
+        enabled: Boolean(enabled),
+        source: source === 'legacy_pro_transition' ? 'legacy_pro_transition' : 'commercial_addon',
+        reason,
+        actorId: req.user?.id || 'superadmin',
+      });
+      res.json({ success: true, addon: result });
+    } catch (err) {
+      if (err.code === 'INVALID_ADDON_CODE') {
+        return res.status(400).json({ error: err.message, code: err.code });
+      }
+      res.status(500).json({ error: 'Error actualizando add-on del salón' });
     }
   });
 

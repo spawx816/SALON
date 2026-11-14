@@ -1001,10 +1001,10 @@ async function main() {
     assert(content.includes('REFERENCES tenants(id) ON DELETE CASCADE'));
   });
 
-  // TEST 34: Commercial model strictly preserves BASE and PRO (no third plan)
-  runTest('Test 34: Modelo comercial inalterable: estrictamente BASE y PRO', () => {
+  // TEST 34: Commercial model has PRINCIPAL (+ legacy BASE/PRO in price book for historical invoices, no 3rd commercial tier)
+  runTest('Test 34: Modelo comercial con PRINCIPAL y compatibilidad histórica BASE/PRO', () => {
     const plansInBook = Object.keys(CANONICAL_PRICE_BOOK.prices);
-    assert.deepStrictEqual(plansInBook.sort(), ['BASE', 'PRO'], 'Only BASE and PRO are authorized');
+    assert.deepStrictEqual(plansInBook.sort(), ['BASE', 'PRINCIPAL', 'PRO'], 'Only PRINCIPAL and legacy BASE/PRO are in price book');
     assert.strictEqual(CANONICAL_PRICE_BOOK.prices.ENTERPRISE, undefined);
     assert.strictEqual(CANONICAL_PRICE_BOOK.prices.PREMIUM, undefined);
   });

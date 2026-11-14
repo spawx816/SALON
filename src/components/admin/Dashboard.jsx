@@ -7,6 +7,7 @@ import {
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { useEntitlements } from '../../context/EntitlementsContext';
 
 const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, onRefresh }) => {
   const [viewType, setViewType] = useState('bars'); // 'bars' | 'line'
@@ -836,16 +837,10 @@ const Dashboard = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
+  const { hasMembershipsAddon, hasFeature } = useEntitlements();
 
-  // Determinación de Plan SaaS: `hasProPlan` = capacidades PRO (Membresías). Clientes/CRM está incluido en BASE y PRO.
-  const isSuperAdmin = currentUser?.role?.toLowerCase() === 'superadmin';
-  const hasProPlan = Boolean(
-    isSuperAdmin ||
-    (!currentUser?.tenant && !currentUser?.tenant_id) ||
-    currentUser?.tenant?.plan_code === 'pro' ||
-    currentUser?.tenant?.has_memberships === true ||
-    currentUser?.tenant?.included_features?.memberships === true
-  ) && currentUser?.tenant?.plan_code !== 'base';
+  // Add-on Suscripciones/Membresías B2C resuelto desde la fuente canónica de entitlements
+  const hasProPlan = Boolean(hasMembershipsAddon || hasFeature('memberships'));
 
   const [stats, setStats] = useState({ visits: 0, clients: 0, revenue: 0, dailySales: 0 });
   const [breakdowns, setBreakdowns] = useState({ salons: [], visits: [], memberships: [], dailySales: [] });

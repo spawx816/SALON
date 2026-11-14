@@ -73,28 +73,26 @@ async function main() {
   }
 
   try {
-    const baseA = await h.createTenantWithUser({ plan: 'BASE', email: 'owner.base.a@test.invalid', businessName: 'Base Alfa' });
-    const baseB = await h.createTenantWithUser({ plan: 'BASE', email: 'owner.base.b@test.invalid', businessName: 'Base Beta' });
-    const proC = await h.createTenantWithUser({ plan: 'PRO', email: 'owner.pro.c@test.invalid', businessName: 'Pro Gamma' });
+    const baseA = await h.createTenantWithUser({ plan: 'PRINCIPAL', email: 'owner.base.a@test.invalid', businessName: 'Base Alfa' });
+    const baseB = await h.createTenantWithUser({ plan: 'PRINCIPAL', email: 'owner.base.b@test.invalid', businessName: 'Base Beta' });
+    const proC = await h.createTenantWithUser({ plan: 'PRINCIPAL', email: 'owner.pro.c@test.invalid', businessName: 'Pro Gamma' });
+    await h.entitlementsService.setAddonStatus(proC.tenantId, 'memberships', { enabled: true, actorId: 'superadmin-test', reason: 'Add-on test' });
 
     // ------------------------------------------------------------------ catálogo canónico
-    await test('Catálogo canónico: BASE incluye clients; memberships y marketing siguen excluidos', () => {
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.BASE][SAAS_FEATURES.CLIENTS], true);
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.BASE][SAAS_FEATURES.MEMBERSHIPS], false);
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.BASE][SAAS_FEATURES.MARKETING], false);
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.BASE][SAAS_FEATURES.INVENTORY_ADVANCED], false);
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.BASE].contracts, undefined, 'No debe existir feature contracts en BASE');
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRO][SAAS_FEATURES.CLIENTS], true);
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRO][SAAS_FEATURES.MEMBERSHIPS], true);
-      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRO][SAAS_FEATURES.MARKETING], true);
+    await test('Catálogo canónico: PRINCIPAL incluye clients, marketing e inventory_advanced; memberships es add-on', () => {
+      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL][SAAS_FEATURES.CLIENTS], true);
+      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL][SAAS_FEATURES.MEMBERSHIPS], false);
+      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL][SAAS_FEATURES.MARKETING], true);
+      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL][SAAS_FEATURES.INVENTORY_ADVANCED], true);
+      assert.strictEqual(CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL].contracts, undefined, 'No debe existir feature contracts en PRINCIPAL');
     });
 
-    await test('Tenant BASE existente recibe clients vía catálogo (sin overrides por tenant)', async () => {
+    await test('Tenant PRINCIPAL sin add-on recibe clients vía catálogo (sin overrides por tenant)', async () => {
       const res = await h.request({ path: '/api/tenant/entitlements', headers: baseA.headers });
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.body.features.clients, true);
       assert.strictEqual(res.body.features.memberships, false);
-      assert.strictEqual(res.body.features.marketing, false);
+      assert.strictEqual(res.body.features.marketing, true);
       assert.deepStrictEqual(res.body.overrides || {}, {}, 'No deben existir overrides manuales');
     });
 
@@ -175,16 +173,11 @@ async function main() {
       assert.strictEqual(res.body.feature, 'memberships');
     });
 
-    await test('7. BASE recibe 403 FEATURE_NOT_INCLUDED en Marketing PRO (/api/marketing/*)', async () => {
+    await test('7. PRINCIPAL permite Marketing general (/api/marketing/*)', async () => {
       for (const p of ['/api/marketing/settings', '/api/marketing/stats', '/api/marketing/recipient-count']) {
         const res = await h.request({ path: p, headers: baseA.headers });
-        assert.strictEqual(res.status, 403, p);
-        assert.strictEqual(res.body.code, 'FEATURE_NOT_INCLUDED', p);
-        assert.strictEqual(res.body.feature, 'marketing', p);
+        assert.notStrictEqual(res.status, 403, p);
       }
-      const post = await h.request({ method: 'POST', path: '/api/marketing/send-mass', headers: baseA.headers, body: {} });
-      assert.strictEqual(post.status, 403);
-      assert.strictEqual(post.body.feature, 'marketing');
     });
 
     await test('7b. BASE no puede suscribir clientes a membresías vía POST/PUT /api/clients (plan_id)', async () => {
@@ -278,40 +271,38 @@ async function main() {
       assert.notStrictEqual(contractsApi.status, 403, 'PRO accede a contratos');
     });
 
-    // ------------------------------------------------------------------ 9,10 downgrade
-    await test('9/10. Downgrade PRO→BASE conserva clientes, acceso a Clientes y contratos; bloquea membresías', async () => {
+    // ------------------------------------------------------------------ 9,10 desactivación de add-on
+    await test('9/10. Desactivar add-on de membresías conserva clientes, acceso a Clientes y contratos; bloquea membresías', async () => {
       const clientsBefore = h.dbMock.tables.clients.filter(c => c.tenant_id === proC.tenantId).length;
       const contractsBefore = h.dbMock.tables.contracts.filter(c => c.tenant_id === proC.tenantId).map(c => ({ ...c }));
       assert.ok(clientsBefore >= 1 && contractsBefore.length >= 1);
 
-      await h.entitlementsService.changeTenantPlan(proC.tenantId, SAAS_PLANS.BASE, { actorId: 'superadmin-test', reason: 'Downgrade PRO→BASE' });
+      await h.entitlementsService.setAddonStatus(proC.tenantId, 'memberships', { enabled: false, actorId: 'superadmin-test', reason: 'Disable add-on' });
 
       const ent = await h.request({ path: '/api/tenant/entitlements', headers: proC.headers });
       assert.strictEqual(ent.status, 200);
-      assert.strictEqual(ent.body.currentPlan, 'BASE');
-      assert.strictEqual(ent.body.features.clients, true, 'Clientes sigue accesible tras downgrade');
+      assert.strictEqual(ent.body.currentPlan, 'PRINCIPAL');
+      assert.strictEqual(ent.body.features.clients, true, 'Clientes sigue accesible sin add-on');
       assert.strictEqual(ent.body.features.memberships, false);
-      assert.strictEqual(ent.body.features.marketing, false);
+      assert.strictEqual(ent.body.features.marketing, true);
 
       const list = await h.request({ path: '/api/clients', headers: proC.headers });
       assert.strictEqual(list.status, 200);
       const row = list.body.find(c => c.id === proClientId);
-      assert.ok(row, 'cliente conservado y visible tras downgrade');
-      for (const f of MEMBERSHIP_FIELDS) assert.strictEqual(row[f], undefined, `post-downgrade oculta ${f}`);
+      assert.ok(row, 'cliente conservado y visible tras desactivar add-on');
+      for (const f of MEMBERSHIP_FIELDS) assert.strictEqual(row[f], undefined, `post-desactivación oculta ${f}`);
 
-      for (const p of ['/api/plans', '/api/contracts']) {
+      for (const p of ['/api/plans', '/api/contracts', '/api/payments']) {
         const res = await h.request({ path: p, headers: proC.headers });
         assert.strictEqual(res.status, 403, p);
         assert.strictEqual(res.body.feature, 'memberships', p);
       }
-      const mk = await h.request({ path: '/api/marketing/settings', headers: proC.headers });
-      assert.strictEqual(mk.status, 403);
 
-      // Datos PRO conservados byte a byte (no se borran ni modifican)
+      // Datos conservados byte a byte (no se borran ni modifican)
       const clientsAfter = h.dbMock.tables.clients.filter(c => c.tenant_id === proC.tenantId).length;
       const contractsAfter = h.dbMock.tables.contracts.filter(c => c.tenant_id === proC.tenantId);
       assert.strictEqual(clientsAfter, clientsBefore);
-      assert.deepStrictEqual(contractsAfter, contractsBefore, 'contratos intactos tras downgrade');
+      assert.deepStrictEqual(contractsAfter, contractsBefore, 'contratos intactos tras desactivar add-on');
     });
 
     await test('10b. BASE post-downgrade NO puede borrar clientes con contratos conservados (409) ni mutar contratos', async () => {
@@ -333,8 +324,8 @@ async function main() {
       assert.strictEqual(put.status, 200, JSON.stringify(put.body));
     });
 
-    await test('10d. Re-upgrade a PRO restaura membresías con los datos conservados', async () => {
-      await h.entitlementsService.changeTenantPlan(proC.tenantId, SAAS_PLANS.PRO, { actorId: 'superadmin-test', reason: 'Re-upgrade' });
+    await test('10d. Re-activar add-on restaura membresías con los datos conservados', async () => {
+      await h.entitlementsService.setAddonStatus(proC.tenantId, 'memberships', { enabled: true, actorId: 'superadmin-test', reason: 'Re-enable add-on' });
       const get = await h.request({ path: `/api/clients/${proClientId}`, headers: proC.headers });
       assert.strictEqual(get.status, 200);
       assert.strictEqual(h.dbMock.tables.contracts.filter(c => c.client_id === proClientId).length, 1, 'contrato conservado');
@@ -360,29 +351,26 @@ async function main() {
         assert.ok(line && line.includes('!hasProPlan') && line.includes('FeatureForbiddenGate'), `ruta ${route} sigue bloqueada en BASE`);
       }
       const gate = read('src/components/common/FeatureForbiddenGate.jsx');
-      assert.ok(gate.includes('Actualizar a Plan {requiredPlan}') || gate.includes('Actualizar a Plan PRO'));
-      assert.ok(!/Directorio CRM de clientas/.test(gate), 'Gate no presenta Clientes como beneficio PRO');
+      assert.ok(gate.includes('Ir a Mi suscripción'));
+      assert.ok(!/Directorio CRM de clientas/.test(gate), 'Gate no presenta Clientes como exclusivo');
       const profile = read('src/components/clients/ClientProfile.jsx');
       assert.ok(profile.includes("hasFeature('memberships')") && profile.includes('showMemberships'));
       const ctx = read('src/context/EntitlementsContext.jsx');
-      assert.ok(/clients:\s*true/.test(ctx), 'EntitlementsContext default BASE incluye clients');
+      assert.ok(/clients:\s*true/.test(ctx), 'EntitlementsContext default PRINCIPAL incluye clients');
     });
 
-    await test('12. Comparador/descripciones: Clientes incluido en BASE y PRO; no exclusivo PRO', () => {
-      const base = CANONICAL_PLANS_CATALOG.find(p => p.code === SAAS_PLANS.BASE);
-      const pro = CANONICAL_PLANS_CATALOG.find(p => p.code === SAAS_PLANS.PRO);
-      assert.strictEqual(base.features.clients, true);
-      assert.strictEqual(pro.features.clients, true);
-      assert.ok(/CRM de Clientes/i.test(base.description), 'descripción BASE menciona Clientes/CRM');
-      assert.ok(!/CRM de Clientas/i.test(pro.description), 'descripción PRO ya no vende CRM como exclusivo');
+    await test('12. Comparador/descripciones: Plan Principal incluye Clientes; membresías es add-on', () => {
+      const principal = CANONICAL_PLANS_CATALOG.find(p => p.code === SAAS_PLANS.PRINCIPAL);
+      assert.ok(principal, 'Plan PRINCIPAL existe en catálogo');
+      assert.strictEqual(principal.features.clients, true);
+      assert.strictEqual(principal.features.memberships, false);
+      assert.ok(/Clientes\/CRM/i.test(principal.description), 'descripción PRINCIPAL menciona Clientes/CRM');
       const landing = read('src/pages/Landing.jsx');
-      assert.ok(!landing.includes('No incluye registro ni directorio CRM de clientes'), 'Landing BASE ya no excluye CRM');
-      assert.ok(/Directorio CRM de Clientes:<\/strong>/.test(landing), 'Landing BASE lista CRM como incluido');
+      assert.ok(!landing.includes('No incluye registro ni directorio CRM de clientes'), 'Landing ya no excluye CRM');
+      assert.ok(/Clientes CRM/i.test(landing), 'Landing lista Clientes CRM como incluido');
       assert.ok(!landing.includes('Membresías y Clientes (Exclusivo Plan Pro)'));
       const billing = read('src/components/saas/SaasBillingModule.jsx');
-      assert.ok(/Plan Base incluye[^']*Clientes\/CRM/.test(billing));
-      const upgrade = read('src/components/saas/SaasUpgradeModal.jsx');
-      assert.ok(!/Desbloquea CRM de clientes/.test(upgrade));
+      assert.ok(/Clientes\/CRM/i.test(billing));
     });
 
     await test('Migración idempotente: solo catálogo global, sin tocar datos de tenants', () => {

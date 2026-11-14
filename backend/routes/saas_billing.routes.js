@@ -4,6 +4,7 @@
  */
 
 const express = require('express');
+const { getConfiguredPricing, SAAS_ADDONS } = require('../services/saas_catalog.constants');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
 
 // Safe BigInt JSON serialization
@@ -51,11 +52,50 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       }
 
       res.json({
-        subscription: sub
+        subscription: sub,
+        pricing: getConfiguredPricing()
       });
     } catch (err) {
       console.error('[SAAS BILLING ERROR] Error al consultar suscripción:', err);
       res.status(500).json({ error: err.message, code: 'INTERNAL_ERROR' });
+    }
+  });
+
+  // 1b. Solicitar contratación o información del add-on Suscripciones/Membresías B2C (sin cargos automáticos)
+  router.post('/addons/:addonCode/request', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      }
+      const { addonCode } = req.params;
+      if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
+        return res.status(400).json({ error: 'Add-on no reconocido', code: 'INVALID_ADDON_CODE' });
+      }
+      const sub = await lifecycleService.getSubscription(tenantId);
+      const actorId = req.user?.id || 'owner';
+      const note = req.body?.note ? String(req.body.note).slice(0, 300) : 'Solicitud de contratación de add-on Suscripciones/Membresías B2C';
+      await pool.query(
+        `INSERT INTO tenant_subscription_events (
+          tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          tenantId,
+          sub?.plan_code || 'PRINCIPAL',
+          sub?.plan_code || 'PRINCIPAL',
+          sub?.status || 'active',
+          sub?.status || 'active',
+          `addon_request:${addonCode}: ${note}`,
+          actorId,
+        ]
+      );
+      res.json({
+        success: true,
+        message: 'Solicitud registrada. Nuestro equipo comercial te contactará para coordinar la activación del módulo adicional.'
+      });
+    } catch (err) {
+      console.error('[SAAS ADDON REQUEST ERROR]:', err);
+      res.status(500).json({ error: 'No se pudo registrar la solicitud del módulo adicional.' });
     }
   });
 

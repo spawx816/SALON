@@ -134,36 +134,13 @@ const AppContent = () => {
   const isAccountant = user?.role?.toLowerCase() === 'contador' || user?.role_name?.toLowerCase() === 'contador';
 
   // Dynamic Entitlements State from SaaS Engine
-  const { isPro, isSuspended, hasFeature } = useEntitlements();
+  const { hasMembershipsAddon, isSuspended, hasFeature } = useEntitlements();
 
-  // Control de Planes SaaS (2 niveles: Plan Base vs Plan Pro)
-  // Plan Base: POS, Facturación, Catálogo, Cajas, Usuarios y Directorio CRM de Clientes (SIN suscripciones/membresías).
-  // Plan Pro: Todo Base + ecosistema de Suscripciones (Plan Beauty), Contratos y Marketing.
-  // `hasProPlan` representa EXCLUSIVAMENTE las capacidades PRO (membresías); Clientes se evalúa aparte con `hasClients`.
-  const hasProPlan = Boolean(
-    !isSuperAdmin && (
-      isPro ||
-      (!user?.tenant && !user?.tenant_id) ||
-      (
-        user?.tenant?.plan_code !== 'base' &&
-        (
-          user?.tenant?.plan_code === 'pro' ||
-          user?.tenant?.has_memberships === true ||
-          user?.tenant?.included_features?.memberships === true
-        )
-      )
-    )
-  );
+  // Plan Principal único + Add-on independiente Suscripciones/Membresías B2C
+  const hasProPlan = Boolean(!isSuperAdmin && !isSuspended && (hasMembershipsAddon || hasFeature('memberships')));
 
-  // Clientes/CRM está incluido en BASE y PRO (matriz canónica `clients`). Se bloquea solo si la suscripción está suspendida.
-  const hasClients = Boolean(
-    !isSuperAdmin && !isSuspended && (
-      hasFeature('clients') ||
-      hasProPlan ||
-      user?.tenant?.included_features?.clients === true ||
-      user?.tenant?.has_clients === true
-    )
-  );
+  // Clientes/CRM está incluido en el Plan Principal (feature canónico `clients`). Se bloquea solo si la suscripción está suspendida.
+  const hasClients = Boolean(!isSuperAdmin && !isSuspended && (hasFeature('clients') || hasProPlan));
   const isReceptionProfile = Boolean(
     !isAdmin &&
     !isClient &&
@@ -404,7 +381,7 @@ const AppContent = () => {
                 color: isSuperAdmin ? '#60a5fa' : (hasProPlan ? '#fbbf24' : '#cbd5e1'),
                 border: `1px solid ${isSuperAdmin ? 'rgba(59,130,246,0.4)' : (hasProPlan ? 'rgba(212,175,55,0.4)' : 'rgba(148,163,184,0.3)')}`
               }}>
-                {isSuperAdmin ? 'CONTROL PLANE SAAS' : (hasProPlan ? 'PLAN PRO' : 'PLAN BASE')}
+                {isSuperAdmin ? 'CONTROL PLANE SAAS' : (hasProPlan ? 'PLAN PRINCIPAL + MEMBRESÍAS' : 'PLAN PRINCIPAL')}
               </span>
             )}
           </div>
@@ -1071,8 +1048,8 @@ const AppContent = () => {
                   <Route path="/billing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isOwner ? <SaasBillingModule /> : <Navigate to="/" replace />)} />
                   <Route path="/facturacion-saas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isOwner ? <SaasBillingModule /> : <Navigate to="/" replace />)} />
                   <Route path="/comisiones" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <CommissionManagement />)} />
-                  <Route path="/encuesta" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El sistema de Encuestas de Satisfacción" /> : ((isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />))} />
-                  <Route path="/regalos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El módulo de Gift Cards y Certificados" /> : (isAdmin ? <AdminGiftCards /> : <GiftCertificates />))} />
+                  <Route path="/encuesta" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />)} />
+                  <Route path="/regalos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <AdminGiftCards /> : <GiftCertificates />)} />
                   <Route path="/regalar" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <GiftCertificates />} />
                   <Route path="/mis-servicios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <ClientServices />} />
                   <Route path="/activar" element={<ActivateAccount />} />
@@ -1082,9 +1059,9 @@ const AppContent = () => {
                   <Route path="/nomina/regalias" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <PayrollModule initialTab="regalias" /> : <Navigate to="/" />)} />
                   <Route path="/seguridad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <SecurityModule /> : <Navigate to="/" />))} />
                   <Route path="/sucursales" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <SalonsModule /> : <Navigate to="/" />)} />
-                  <Route path="/membresias" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El catálogo de Membresías Plan Beauty" /> : <PlansModule />))} />
-                  <Route path="/planes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El catálogo de Membresías Plan Beauty" /> : <PlansModule />))} />
-                  <Route path="/pagos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El módulo de Pagos Recurrentes de Membresías" /> : <Payments />))} />
+                  <Route path="/membresias" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Suscripciones y Membresías B2C" /> : <PlansModule />))} />
+                  <Route path="/planes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Suscripciones y Membresías B2C" /> : <PlansModule />))} />
+                  <Route path="/pagos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Cobros Recurrentes de Membresías" /> : <Payments />))} />
                   <Route path="/marketing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <MarketingModule /> : <Navigate to="/" />)} />
                   <Route path="/analitica" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <ServiceAnalytics /> : <Navigate to="/" />)} />
                   <Route path="/bi" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />)} />
@@ -1102,7 +1079,7 @@ const AppContent = () => {
                   <Route path="/contabilidad/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />)} />
                   <Route path="/egresos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <ExpensesModule /> : <Navigate to="/" />)} />
                   <Route path="/configuracion" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <SettingsModule /> : <Navigate to="/" />)} />
-                  <Route path="/contratos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El registro de Contratos Digitales" /> : <DigitalContract />))} />
+                  <Route path="/contratos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Contratos Digitales de Membresías" /> : <DigitalContract />))} />
                   <Route path="/admin/asistencia" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_attendance || user?.role?.toLowerCase() === 'recepcion' || user?.role?.toLowerCase() === 'recepcionista' || user?.role_name?.toLowerCase()?.includes('recep')) ? <AttendanceLogs /> : <Navigate to="/" />)} />
                   <Route path="/test-cardnet" element={<CardNetTest />} />
                   {/* Public marketing pages inside logged-in dashboard wrapper */}

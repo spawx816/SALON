@@ -1,12 +1,15 @@
 /**
  * Servicio Central de Entitlements y Gobernanza de Planes SaaS
- * Aplica reglas de autorización, matriz Base/Pro, resolución de overrides y control de límites.
+ * Modelo: Plan Principal único + Add-on independiente de Suscripciones/Membresías B2C.
  */
 const {
   SAAS_PLANS,
+  SAAS_ADDONS,
+  SAAS_FEATURES,
   SUBSCRIPTION_STATUSES,
   CANONICAL_PLAN_FEATURES,
   DEFAULT_PLAN_LIMITS,
+  getConfiguredPricing,
   normalizePlanCode,
   isTransitionAllowed
 } = require('./saas_catalog.constants');
@@ -104,6 +107,21 @@ class EntitlementsService {
         ? { ...DEFAULT_PLAN_LIMITS[planCode] }
         : { users: 0, branches: 0 };
 
+      // Add-on Suscripciones/Membresías B2C (separado del plan principal y con procedencia auditable)
+      const membershipsOv = appliedOverrides[SAAS_FEATURES.MEMBERSHIPS];
+      const membershipsActive = Boolean(isSubscriptionActive && baseFeatures[SAAS_FEATURES.MEMBERSHIPS]);
+      let membershipsSource = 'none';
+      if (membershipsOv && membershipsOv.is_enabled) {
+        const r = String(membershipsOv.reason || '');
+        if (r.startsWith('legacy_pro_transition')) {
+          membershipsSource = 'legacy_pro_transition';
+        } else if (r.startsWith('commercial_addon')) {
+          membershipsSource = 'commercial_addon';
+        } else {
+          membershipsSource = 'override';
+        }
+      }
+
       // Conteo actual de recursos
       const usersUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'users');
       const branchesUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'branches');
@@ -113,6 +131,7 @@ class EntitlementsService {
         tenantId,
         plan: planCode,
         currentPlan: planCode,
+        rawPlanCode: sub.plan_code,
         status: effectiveStatus,
         subscriptionStatus: effectiveStatus,
         isActive: isSubscriptionActive,
@@ -120,8 +139,17 @@ class EntitlementsService {
         currentPeriodStart: sub.current_period_start,
         currentPeriodEnd: sub.current_period_end,
         features: baseFeatures,
+        addons: {
+          [SAAS_ADDONS.MEMBERSHIPS]: {
+            active: membershipsActive,
+            source: membershipsActive ? membershipsSource : 'none',
+            reason: membershipsOv?.reason || null,
+            expiresAt: membershipsOv?.expires_at || null,
+          }
+        },
         overrides: appliedOverrides,
         limits: planLimits,
+        pricing: getConfiguredPricing(),
         usage: {
           users: usersUsage,
           branches: branchesUsage
@@ -240,7 +268,7 @@ class EntitlementsService {
 
     const normalizedNew = normalizePlanCode(newPlanCode);
     if (!normalizedNew) {
-      const err = new Error(`Código de plan inválido: ${newPlanCode}. Solo se permite BASE o PRO.`);
+      const err = new Error(`Código de plan inválido: ${newPlanCode}.`);
       err.code = 'INVALID_PLAN_CODE';
       throw err;
     }
@@ -282,8 +310,8 @@ class EntitlementsService {
     const actorId = typeof options === 'string' ? options : (options.actorId || 'system');
     const status = (typeof options === 'object' && options.status) ? options.status : SUBSCRIPTION_STATUSES.ACTIVE;
 
-    // Regla innegociable: Todo nuevo tenant inicia en BASE
-    const forcedPlan = SAAS_PLANS.BASE;
+    // Regla innegociable: Todo nuevo tenant inicia en Plan PRINCIPAL sin add-ons contratados
+    const forcedPlan = SAAS_PLANS.PRINCIPAL;
 
     const sub = await this.subscriptionRepo.upsertSubscription(tenantId, {
       plan_code: forcedPlan,
@@ -296,11 +324,46 @@ class EntitlementsService {
       new_plan: forcedPlan,
       previous_status: null,
       new_status: status,
-      reason: 'Suscripción inicial de onboarding (Plan Base)',
+      reason: 'Suscripción inicial de onboarding (Plan Principal)',
       actor_id: actorId
     });
 
     return sub;
+  }
+
+  async setAddonStatus(tenantId, addonCode, { enabled, source = 'commercial_addon', reason, actorId = 'superadmin', expiresAt = null } = {}) {
+    if (!tenantId) throw new Error('tenantId es obligatorio');
+    if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
+      const err = new Error(`Add-on inválido: ${addonCode}`);
+      err.code = 'INVALID_ADDON_CODE';
+      throw err;
+    }
+
+    const prefix = source === 'legacy_pro_transition' ? 'legacy_pro_transition' : 'commercial_addon';
+    const fullReason = reason && String(reason).startsWith(prefix)
+      ? reason
+      : `${prefix}: ${reason || (enabled ? 'Add-on Suscripciones/Membresías B2C habilitado' : 'Add-on Suscripciones/Membresías B2C desactivado')}`;
+
+    const override = await this.entitlementsRepo.upsertOverride(tenantId, {
+      feature_key: SAAS_FEATURES.MEMBERSHIPS,
+      is_enabled: Boolean(enabled),
+      reason: fullReason,
+      actor_id: actorId,
+      expires_at: expiresAt
+    });
+
+    const currentSub = await this.subscriptionRepo.findByTenantId(tenantId);
+    await this.auditRepo.recordEvent({
+      tenant_id: tenantId,
+      previous_plan: currentSub?.plan_code || SAAS_PLANS.PRINCIPAL,
+      new_plan: currentSub?.plan_code || SAAS_PLANS.PRINCIPAL,
+      previous_status: currentSub?.status || 'active',
+      new_status: currentSub?.status || 'active',
+      reason: fullReason,
+      actor_id: actorId
+    });
+
+    return override;
   }
 }
 

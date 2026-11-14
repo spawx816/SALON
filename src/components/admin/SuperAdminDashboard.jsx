@@ -114,6 +114,13 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const handleToggleModule = async (tenantId, currentModules, moduleName) => {
     try {
       const updatedValue = !currentModules[moduleName];
+      if (moduleName === 'has_memberships') {
+        await dataService.setTenantAddon(tenantId, 'memberships', {
+          enabled: updatedValue,
+          reason: updatedValue ? 'Activación desde panel SuperAdmin' : 'Desactivación desde panel SuperAdmin',
+          source: 'commercial_addon'
+        });
+      }
       await dataService.updateTenantModules(tenantId, { [moduleName]: updatedValue });
       showNotification(`Módulo "${moduleName}" actualizado.`);
       setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, [moduleName]: updatedValue } : t));
@@ -393,7 +400,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             Control Central SaaS, Planes & Licencias
           </h1>
           <p style={{ margin: '0.4rem 0 0', color: '#cbd5e1', fontSize: '0.9rem', maxWidth: '750px', lineHeight: '1.5' }}>
-            Modelo comercial de 2 niveles: <strong>Plan Base</strong> (POS, Facturación, Catálogo, Empleados y Clientes/CRM) y <strong>Plan Pro</strong> (Suscripciones Plan Beauty, Contratos, Cobros recurrentes y Marketing).
+            Modelo comercial único: <strong>Plan Principal</strong> (POS, Facturación, Inventario Avanzado, Empleados, Nómina, Marketing y Clientes/CRM) + <strong>Add-on opcional de Suscripciones/Membresías B2C</strong> (Contratos digitales y Cobros recurrentes).
           </p>
         </div>
 
@@ -643,7 +650,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Sedes Licenciadas</th>
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Asientos de Usuarios</th>
                   <th style={{ padding: '1rem 1rem', textAlign: 'center', fontWeight: '800' }}>
-                    <span title="Clientes registrados y ecosistema de Suscripciones Plan Beauty (Plan Pro)">💎 Clientes & Suscripciones</span>
+                    <span title="Add-on de Suscripciones y Membresías B2C">💎 Add-on Membresías B2C</span>
                   </th>
                   <th style={{ padding: '1rem 1rem', textAlign: 'center', fontWeight: '800' }}>
                     <span title="Facturación electrónica DGII República Dominicana">🧾 DGII e-CF</span>
@@ -797,7 +804,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                         <td style={{ padding: '1.15rem 1rem', textAlign: 'center' }}>
                           <button
                             onClick={() => handleToggleModule(t.id, t, 'has_memberships')}
-                            title={t.has_memberships ? 'Desactivar Add-on de Membresías' : 'Activar Add-on de Membresías ($29/mes)'}
+                            title={t.has_memberships ? 'Desactivar Add-on de Membresías B2C' : 'Activar Add-on de Membresías B2C'}
                             style={{
                               background: t.has_memberships ? '#ecfdf5' : '#f8fafc',
                               border: `1.5px solid ${t.has_memberships ? '#10b981' : '#cbd5e1'}`,
@@ -1520,7 +1527,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                       onChange={(e) => setTenantFormData({ ...tenantFormData, has_memberships: e.target.checked })}
                       style={{ accentColor: '#10b981', width: '16px', height: '16px' }}
                     />
-                    <span>🎟️ Activar Add-on Membresías (Plan Beauty RD - $29/mes)</span>
+                    <span>🎟️ Activar Add-on Suscripciones/Membresías B2C</span>
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.825rem', color: '#334155' }}>
                     <input 

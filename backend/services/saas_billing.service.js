@@ -14,6 +14,7 @@ const {
   isValidCurrency,
   isValidCycle
 } = require('./saas_billing.constants');
+const { LEGACY_PLAN_CODES } = require('./saas_catalog.constants');
 const { ProrationEngine } = require('./proration_engine');
 const { ZeroTaxPolicy } = require('./tax_policy');
 
@@ -175,10 +176,10 @@ class SaasBillingService {
     }
   }
 
-  async processUpgrade({ tenantId, newPlan = SAAS_PLANS.PRO, actorId, idempotencyKey }) {
+  async processUpgrade({ tenantId, newPlan = LEGACY_PLAN_CODES.PRO, actorId, idempotencyKey }) {
     if (!tenantId) throw new Error('tenantId es obligatorio');
-    if (newPlan !== SAAS_PLANS.PRO) {
-      throw new Error('Solo se permite upgrade hacia Plan PRO');
+    if (newPlan !== LEGACY_PLAN_CODES.PRO && newPlan !== SAAS_PLANS.PRINCIPAL) {
+      throw new Error('Plan de destino no soportado para upgrade');
     }
 
     // Verificación de idempotencia
@@ -191,7 +192,7 @@ class SaasBillingService {
         return {
           success: true,
           isIdempotentReplay: true,
-          newPlan: SAAS_PLANS.PRO,
+          newPlan,
           invoice: inv,
           payment: { status: 'success' }
         };
@@ -201,8 +202,8 @@ class SaasBillingService {
     const sub = await this.subscriptionRepo.findByTenantId(tenantId);
     if (!sub) throw new Error('Suscripción no encontrada');
 
-    if (sub.plan_code === SAAS_PLANS.PRO) {
-      throw new Error('El salón ya se encuentra en Plan PRO');
+    if (sub.plan_code === newPlan) {
+      throw new Error(`El salón ya se encuentra en Plan ${newPlan}`);
     }
 
     const currency = sub.currency || 'DOP';
@@ -213,7 +214,7 @@ class SaasBillingService {
 
     const proration = ProrationEngine.calculateProration({
       currentPlan: sub.plan_code,
-      newPlan: SAAS_PLANS.PRO,
+      newPlan,
       billingCycle: cycle,
       currency,
       periodStart,
@@ -227,7 +228,7 @@ class SaasBillingService {
     if (proration.netDueMinor > 0n) {
       const lineItems = [
         {
-          description: `Upgrade a Plan PRO prorrateado (${proration.remainingMs} ms restantes)`,
+          description: `Upgrade a Plan ${newPlan} prorrateado (${proration.remainingMs} ms restantes)`,
           item_type: 'PRORATION_CHARGE',
           amount_minor: proration.newPlanChargeMinor
         },
@@ -241,7 +242,7 @@ class SaasBillingService {
       invoice = await this.billingRepo.createInvoice({
         tenant_id: tenantId,
         subscription_id: sub.id,
-        plan_code: SAAS_PLANS.PRO,
+        plan_code: newPlan,
         billing_cycle: cycle,
         price_book_version: PRICE_BOOK_VERSION,
         period_start: now.toISOString(),
@@ -269,7 +270,7 @@ class SaasBillingService {
     // Actualizar suscripción en repositorio de Fase 2A
     const updatedSub = {
       ...sub,
-      plan_code: SAAS_PLANS.PRO,
+      plan_code: newPlan,
       updated_at: now.toISOString()
     };
 
@@ -287,7 +288,7 @@ class SaasBillingService {
       event_type: 'PLAN_UPGRADE_EXECUTED',
       payload: {
         fromPlan: sub.plan_code,
-        toPlan: SAAS_PLANS.PRO,
+        toPlan: newPlan,
         netDueMinor: String(proration.netDueMinor),
         invoiceId: invoice?.id || null,
         actorId
@@ -297,7 +298,7 @@ class SaasBillingService {
 
     return {
       success: true,
-      newPlan: SAAS_PLANS.PRO,
+      newPlan,
       proration,
       invoice,
       payment

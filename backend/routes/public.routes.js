@@ -59,19 +59,26 @@ function createPublicRouter(pool, options = {}) {
     try {
       await conn.beginTransaction();
 
-      // 1. Obtener límites oficiales del Plan Base en BD
-      const [plans] = await conn.query('SELECT * FROM saas_plans WHERE id = 1 OR code = \'base\' LIMIT 1');
-      const basePlan = plans[0] || { max_users: 5, max_branches: 1 };
-      const baseModules = {
+      // 1. Obtener límites oficiales del Plan Principal en BD
+      const [plans] = await conn.query(
+        "SELECT * FROM saas_plans WHERE UPPER(code) IN ('PRINCIPAL', 'BASE') OR id = 1 ORDER BY CASE WHEN UPPER(code) = 'PRINCIPAL' THEN 0 ELSE 1 END LIMIT 1"
+      );
+      const basePlan = plans[0] || { max_users: 3, max_branches: 1 };
+      const principalModules = {
         pos: true,
-        cajas: true,
+        cash_registers: true,
         services_catalog: true,
         inventory: true,
+        inventory_advanced: true,
+        commissions: true,
         payroll: true,
         attendance: true,
+        expenses: true,
         dgii_ecf: true,
         reports: true,
-        clients: false,
+        security: true,
+        clients: true,
+        marketing: true,
         memberships: false
       };
 
@@ -97,9 +104,9 @@ function createPublicRouter(pool, options = {}) {
         tenantId, business_name, cleanSlug, owner_email.trim(), owner_phone || '',
         owner_name || 'Propietario', owner_email.trim(), owner_phone || '',
         rnc || '', address || '',
-        parseInt(basePlan.max_users) || 5,
+        parseInt(basePlan.max_users) || 3,
         parseInt(basePlan.max_branches) || 1,
-        JSON.stringify(basePlan.included_features || baseModules)
+        JSON.stringify(principalModules)
       ]);
 
       // Inserción de Sucursal Principal
@@ -134,19 +141,19 @@ function createPublicRouter(pool, options = {}) {
         `, [tenantId, pId, pName, pName, pPrice, pDesc, pFeatures]);
       }
 
-      // Inserción atómica de Suscripción Inicial (REGLA INNEGOCIABLE: Siempre Plan BASE)
+      // Inserción atómica de Suscripción Inicial (Plan Principal único, sin add-ons contratados)
       await conn.query(`
         INSERT INTO tenant_subscriptions (
           tenant_id, plan_code, status, current_period_start, current_period_end, updated_at
-        ) VALUES (?, 'BASE', 'active', NOW(), NOW() + INTERVAL '30 days', NOW())
-        ON CONFLICT (tenant_id) DO UPDATE SET plan_code = 'BASE', status = 'active', updated_at = NOW()
+        ) VALUES (?, 'PRINCIPAL', 'active', NOW(), NOW() + INTERVAL '30 days', NOW())
+        ON CONFLICT (tenant_id) DO UPDATE SET plan_code = 'PRINCIPAL', status = 'active', updated_at = NOW()
       `, [tenantId]);
 
       // Registro de Auditoría de Creación de Suscripción Inicial
       await conn.query(`
         INSERT INTO tenant_subscription_events (
           tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id, created_at
-        ) VALUES (?, NULL, 'BASE', NULL, 'active', 'Suscripción inicial de onboarding (Plan Base)', 'onboarding', NOW())
+        ) VALUES (?, NULL, 'PRINCIPAL', NULL, 'active', 'Suscripción inicial de onboarding (Plan Principal)', 'onboarding', NOW())
       `, [tenantId]);
 
       // Inyección de fallo controlada EXCLUSIVAMENTE para pruebas automáticas (NODE_ENV=test con header explícito)

@@ -10,6 +10,7 @@ import {
 import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { useEntitlements } from '../../context/EntitlementsContext';
 import DigitalContract from '../contracts/DigitalContract';
 import ReceptionMotivationalModal from '../common/ReceptionMotivationalModal';
 import ElectronicInvoicePrintModal from '../common/ElectronicInvoicePrintModal';
@@ -134,16 +135,15 @@ const VisitRecorder = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
+  const { hasMembershipsAddon, hasFeature } = useEntitlements();
 
-  // Determinación de Plan SaaS: `hasProPlan` = capacidades PRO (membresías Plan Beauty). Clientes/CRM está incluido en BASE y PRO.
+  // `hasProPlan` = add-on de Suscripciones/Membresías B2C activo. Clientes/CRM está incluido en Plan Principal.
   const isSuperAdmin = currentUser?.role?.toLowerCase() === 'superadmin';
   const hasProPlan = Boolean(
     isSuperAdmin ||
-    (!currentUser?.tenant && !currentUser?.tenant_id) ||
-    currentUser?.tenant?.plan_code === 'pro' ||
-    currentUser?.tenant?.has_memberships === true ||
-    currentUser?.tenant?.included_features?.memberships === true
-  ) && currentUser?.tenant?.plan_code !== 'base';
+    hasMembershipsAddon ||
+    hasFeature('memberships')
+  );
 
   const [salonId, setSalonId] = useState(currentUser?.salon_id || 1);
   const [salonsList, setSalonsList] = useState([]);

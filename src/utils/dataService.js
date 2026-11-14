@@ -3707,6 +3707,34 @@ export const dataService = {
     return resData;
   },
 
+  requestSaasAddon: async (addonCode, note = '') => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
+    const user = userStr ? JSON.parse(userStr) : null;
+    const res = await fetch(`${API_URL}/saas/billing/addons/${encodeURIComponent(addonCode)}/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
+        'x-user-role': user?.role || ''
+      },
+      body: JSON.stringify({ note })
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al solicitar contratación del módulo');
+    return resData;
+  },
+
+  setTenantAddon: async (tenantId, addonCode, { enabled, reason, source = 'commercial_addon' }) => {
+    const res = await fetch(`${API_URL}/saas/tenants/${encodeURIComponent(tenantId)}/addons/${encodeURIComponent(addonCode)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled, reason, source })
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Error al actualizar add-on del salón');
+    return resData;
+  },
+
   getSaasInvoices: async () => {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
     const user = userStr ? JSON.parse(userStr) : null;
