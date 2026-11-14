@@ -4,7 +4,7 @@ import {
   Building2, Users, Layers, ShieldCheck, Plus, CheckCircle2,
   XCircle, ToggleLeft, ToggleRight, Search, RefreshCw, Sparkles,
   Store, AlertCircle, FileText, Database, ArrowUpRight, DollarSign,
-  Package, Crown, Check, X, Edit3, Settings, ShieldAlert, ChevronRight
+  Package, Crown, Check, X, Edit3, Settings, ShieldAlert, ChevronRight, CreditCard
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
