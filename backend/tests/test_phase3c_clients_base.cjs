@@ -336,7 +336,7 @@ async function main() {
     // ------------------------------------------------------------------ 11,12 UI (código fuente)
     await test('11. Menú BASE: Clientes visible por hasClients (no por hasProPlan); Membresías/Contratos solo PRO', () => {
       const app = read('src/App.jsx');
-      assert.ok(/hasClients\s*&&\s*!isAccountant[\s\S]{0,200}to="\/clientes"/.test(app), 'link Clientes gobernado por hasClients');
+      assert.ok(/\{hasClients\s*&&\s*\(isAdmin[\s\S]{0,200}to="\/clientes"/.test(app), 'link Clientes gobernado por hasClients');
       assert.ok(/const hasClients = Boolean\(/.test(app));
       // El dropdown Suscripciones (membresías/contratos) sigue gobernado por hasProPlan
       assert.ok(/\{hasProPlan && !isAccountant && \(isAdmin \|\| \(user\?\.permissions && \(/.test(app));

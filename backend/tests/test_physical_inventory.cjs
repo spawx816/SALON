@@ -44,10 +44,10 @@ async function runPhysicalInventoryTests() {
     `, [locId1, tenantA]);
 
     await conn.query(`
-      INSERT INTO inventory_products (id, tenant_id, sku, name, cost, is_active)
+      INSERT INTO services (id, tenant_id, sku, nombre, name, item_type, tipo_item, categoria, costo, cost, precio, price, is_active, activo)
       VALUES
-        ($1, $2, 'SH-001', 'Shampoo Keratina 500ml', 500.00, true),
-        ($3, $2, 'AC-001', 'Acondicionador Argan 500ml', 600.00, true)
+        ($1, $2, 'SH-001', 'Shampoo Keratina 500ml', 'Shampoo Keratina 500ml', 'PRODUCTO', 'Producto', 'Productos', 500.00, 500.00, 900.00, 900.00, true, 1),
+        ($3, $2, 'AC-001', 'Acondicionador Argan 500ml', 'Acondicionador Argan 500ml', 'PRODUCTO', 'Producto', 'Productos', 600.00, 600.00, 1100.00, 1100.00, true, 1)
       ON CONFLICT (id) DO NOTHING;
     `, [prodId1, tenantA, prodId2]);
 

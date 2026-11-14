@@ -61,11 +61,11 @@ class InventoryTransferRepository {
       if (!transferRows || transferRows.length === 0) return null;
 
       const [itemRows] = await this.pool.query(`
-        SELECT ti.*, p.name as product_name, p.sku
+        SELECT ti.*, COALESCE(p.nombre, p.name) as product_name, p.sku
         FROM inventory_transfer_items ti
-        INNER JOIN inventory_products p ON ti.product_id = p.id AND ti.tenant_id = p.tenant_id
+        INNER JOIN services p ON ti.product_id = p.id AND ti.tenant_id = p.tenant_id
         WHERE ti.transfer_id = ? AND ti.tenant_id = ?
-        ORDER BY p.name ASC
+        ORDER BY COALESCE(p.nombre, p.name) ASC
       `, [transferId, tenantId]);
 
       return { ...transferRows[0], items: itemRows || [] };

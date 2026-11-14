@@ -118,8 +118,8 @@ const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isSalesActive = location.pathname.startsWith('/visitas') || location.pathname.startsWith('/cajas') || location.pathname.startsWith('/facturas') || location.pathname.startsWith('/servicios') || location.pathname.startsWith('/marketing');
   const isClientsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/clientes');
+  const isSalesActive = location.pathname.startsWith('/visitas') || location.pathname.startsWith('/cajas') || location.pathname.startsWith('/facturas') || location.pathname.startsWith('/servicios') || location.pathname.startsWith('/marketing') || location.pathname.startsWith('/inventario') || location.pathname.startsWith('/inventory') || isClientsActive;
   const isSubscriptionsActive = location.pathname.startsWith('/contratos') || location.pathname.startsWith('/pagos') || location.pathname.startsWith('/encuesta') || location.pathname.startsWith('/planes') || location.pathname.startsWith('/regalos');
   const isTeamActive = location.pathname.startsWith('/equipo') || location.pathname.startsWith('/admin/asistencia');
   const isAdministrationActive = location.pathname.startsWith('/seguridad') || location.pathname.startsWith('/configuracion') || location.pathname.startsWith('/sucursales') || location.pathname.startsWith('/personalizacion');
@@ -472,12 +472,11 @@ const AppContent = () => {
                 <>
                   <p className="nav-group-title">{t('menu.principal')}</p>
                   <SidebarLink to="/" icon={LayoutDashboard} label={t('menu.dashboard')} active={location.pathname === '/'} onClick={closeMobileMenu} />
-                  <SidebarLink to="/inventario" icon={Package} label="Inventario" active={location.pathname === '/inventario' || location.pathname === '/inventory'} onClick={closeMobileMenu} />
                 </>
               )}
               
               {/* Menú Desplegable Ventas */}
-              {!isAccountant && (isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits || user.permissions.manage_salons || user.permissions.manage_services))) && (
+              {!isAccountant && (isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits || user.permissions.manage_salons || user.permissions.manage_services || user.permissions.manage_clients || user.permissions.manage_inventory)) || hasFeature('inventory')) && (
                 <div style={{ margin: '0.2rem 0' }}>
                   <button
                     type="button"
@@ -539,6 +538,22 @@ const AppContent = () => {
                           onClick={closeMobileMenu} 
                         />
                       )}
+                      {hasClients && (isAdmin || user?.permissions?.manage_clients) && (
+                        <SidebarLink
+                          to="/clientes"
+                          icon={Users}
+                          label="Clientes"
+                          active={isClientsActive}
+                          onClick={closeMobileMenu}
+                        />
+                      )}
+                      <SidebarLink
+                        to="/inventario"
+                        icon={Package}
+                        label="Inventario"
+                        active={location.pathname === '/inventario' || location.pathname === '/inventory'}
+                        onClick={closeMobileMenu}
+                      />
                       {(isAdmin || user?.permissions?.manage_marketing) && (
                         <SidebarLink 
                           to="/marketing" 
@@ -550,26 +565,6 @@ const AppContent = () => {
                       )}
                     </div>
                   )}
-                </div>
-              )}
-
-              {/* Clientes / CRM: incluido en Plan Base y Plan Pro (feature canónico `clients`) */}
-              {hasClients && !isAccountant && (isAdmin || user?.permissions?.manage_clients) && (
-                <div style={{ margin: '0.2rem 0' }}>
-                  <SidebarLink
-                    to="/clientes"
-                    icon={Users}
-                    label="Clientes"
-                    active={isClientsActive && location.pathname !== '/registro-cliente'}
-                    onClick={closeMobileMenu}
-                  />
-                  <SidebarLink
-                    to="/registro-cliente"
-                    icon={UserPlus}
-                    label="Registrar Clientes"
-                    active={location.pathname === '/registro-cliente'}
-                    onClick={closeMobileMenu}
-                  />
                 </div>
               )}
 

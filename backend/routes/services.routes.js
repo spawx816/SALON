@@ -6,27 +6,56 @@ const express = require('express');
 function createServicesRouter(pool) {
   const router = express.Router();
 
-  // Obtener lista de servicios del tenant autenticado
+  const normalizeCatalogRow = (r) => {
+    const rawType = String(r.item_type || r.tipo_item || '').trim().toUpperCase();
+    const isProduct = rawType === 'PRODUCTO' || rawType === 'PRODUCT';
+    return {
+      ...r,
+      nombre: r.nombre || r.name || 'Servicio',
+      categoria: r.categoria || r.category || 'General',
+      precio: parseFloat(r.precio ?? r.price ?? 0),
+      costo: parseFloat(r.costo ?? 0),
+      duracion: parseInt(r.duracion ?? r.duration_minutes ?? 30),
+      activo: r.activo !== undefined && r.activo !== null ? r.activo : (r.is_active ? 1 : 0),
+      item_type: isProduct ? 'PRODUCTO' : 'SERVICIO',
+      tipo_item: isProduct ? 'Producto' : 'Servicio',
+      sku: r.sku || null,
+      barcode: r.barcode || null,
+      unit_of_measure: r.unit_of_measure || 'unit',
+      tax_rate: r.tax_rate !== undefined && r.tax_rate !== null ? parseFloat(r.tax_rate) : 0.18,
+      min_stock: r.min_stock !== undefined && r.min_stock !== null ? parseFloat(r.min_stock) : 0,
+      track_stock: r.track_stock !== undefined && r.track_stock !== null ? Boolean(r.track_stock) : isProduct,
+      current_stock: r.current_stock !== undefined && r.current_stock !== null ? parseFloat(r.current_stock) : 0,
+    };
+  };
+
+  // Obtener lista de servicios y productos del catálogo canónico del tenant autenticado
   router.get('/', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { active_only } = req.query;
-      let query = 'SELECT * FROM services WHERE tenant_id = ?';
+      const { active_only, item_type } = req.query;
+      let query = `
+        SELECT s.*,
+               COALESCE((
+                 SELECT SUM(st.quantity)
+                 FROM inventory_stock st
+                 WHERE st.product_id = s.id AND st.tenant_id = s.tenant_id
+               ), 0) AS current_stock
+        FROM services s
+        WHERE s.tenant_id = ?
+      `;
       const params = [tenantId];
       if (active_only === '1' || active_only === 'true') {
-        query += ' AND COALESCE(activo, 1) = 1';
+        query += ' AND COALESCE(s.activo, 1) = 1 AND COALESCE(s.is_active, TRUE) = TRUE';
       }
-      query += ' ORDER BY COALESCE(categoria, category, \'General\') ASC, COALESCE(nombre, name, \'\') ASC';
+      if (item_type) {
+        const normType = String(item_type).trim().toUpperCase() === 'PRODUCTO' ? 'PRODUCTO' : 'SERVICIO';
+        query += " AND COALESCE(s.item_type, 'SERVICIO') = ?";
+        params.push(normType);
+      }
+      query += ' ORDER BY COALESCE(s.categoria, s.category, \'General\') ASC, COALESCE(s.nombre, s.name, \'\') ASC';
       const [rows] = await pool.query(query, params);
-      const normalized = rows.map(r => ({
-        ...r,
-        nombre: r.nombre || r.name || 'Servicio',
-        categoria: r.categoria || r.category || 'General',
-        precio: parseFloat(r.precio ?? r.price ?? 0),
-        duracion: parseInt(r.duracion ?? r.duration_minutes ?? 30),
-        activo: r.activo !== undefined && r.activo !== null ? r.activo : (r.is_active ? 1 : 0)
-      }));
-      res.json(normalized);
+      res.json(rows.map(normalizeCatalogRow));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -37,19 +66,21 @@ function createServicesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const [rows] = await pool.query('SELECT * FROM services WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      const [rows] = await pool.query(
+        `SELECT s.*,
+                COALESCE((
+                  SELECT SUM(st.quantity)
+                  FROM inventory_stock st
+                  WHERE st.product_id = s.id AND st.tenant_id = s.tenant_id
+                ), 0) AS current_stock
+         FROM services s
+         WHERE s.id = ? AND s.tenant_id = ?`,
+        [id, tenantId]
+      );
       if (!rows || rows.length === 0) {
         return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
       }
-      const r = rows[0];
-      res.json({
-        ...r,
-        nombre: r.nombre || r.name || 'Servicio',
-        categoria: r.categoria || r.category || 'General',
-        precio: parseFloat(r.precio ?? r.price ?? 0),
-        duracion: parseInt(r.duracion ?? r.duration_minutes ?? 30),
-        activo: r.activo !== undefined && r.activo !== null ? r.activo : (r.is_active ? 1 : 0)
-      });
+      res.json(normalizeCatalogRow(rows[0]));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -208,80 +239,207 @@ function createServicesRouter(pool) {
     }
   });
 
-  // Crear nuevo servicio en el tenant autenticado
+  // Crear nuevo producto o servicio en el Catálogo canónico del tenant autenticado
   router.post('/', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { nombre, name, categoria, subcategoria, precio, price, costo, duracion, duration, activo, tipo_comision, comision_valor } = req.body;
+      const {
+        nombre, name, categoria, category, subcategoria, precio, price, costo, cost,
+        duracion, duration, activo, tipo_comision, comision_valor,
+        item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
+      } = req.body;
       const finalName = (nombre || name || '').trim();
       const rawPrice = precio !== undefined ? precio : price;
       if (!finalName || rawPrice === undefined) {
         return res.status(400).json({ error: 'Nombre y precio son obligatorios' });
       }
+
+      const rawType = String(item_type || tipo_item || 'SERVICIO').trim().toUpperCase();
+      const canonicalType = rawType === 'PRODUCTO' || rawType === 'PRODUCT' ? 'PRODUCTO' : 'SERVICIO';
       const parsedPrice = parseFloat(rawPrice) || 0;
-      const parsedDuration = parseInt(duracion !== undefined ? duracion : duration) || 30;
+      const parsedCost = parseFloat(costo !== undefined ? costo : cost) || 0;
+      const parsedDuration = canonicalType === 'PRODUCTO'
+        ? 0
+        : (parseInt(duracion !== undefined ? duracion : duration) || 30);
       const isActive = activo !== undefined ? (activo ? 1 : 0) : 1;
+      const cleanSku = sku ? String(sku).trim() : null;
+      const cleanBarcode = barcode ? String(barcode).trim() : null;
+      const cleanCategory = categoria || category || (canonicalType === 'PRODUCTO' ? 'Productos' : 'Peluquería');
+
+      if (cleanSku) {
+        const [dupSku] = await pool.query(
+          'SELECT id FROM services WHERE tenant_id = ? AND sku = ? LIMIT 1',
+          [tenantId, cleanSku]
+        );
+        if (dupSku.length > 0) {
+          return res.status(400).json({ error: 'Ya existe un ítem con ese SKU en tu catálogo.', code: 'UNIQUE_SKU_VIOLATION' });
+        }
+      }
+      if (cleanBarcode) {
+        const [dupBc] = await pool.query(
+          'SELECT id FROM services WHERE tenant_id = ? AND barcode = ? LIMIT 1',
+          [tenantId, cleanBarcode]
+        );
+        if (dupBc.length > 0) {
+          return res.status(400).json({ error: 'Ya existe un ítem con ese código de barras en tu catálogo.', code: 'UNIQUE_BARCODE_VIOLATION' });
+        }
+      }
 
       const [result] = await pool.query(
-        'INSERT INTO services (tenant_id, name, nombre, categoria, subcategoria, precio, price, costo, duracion, duration_minutes, activo, is_active, tipo_comision, comision_valor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        `INSERT INTO services (
+          tenant_id, name, nombre, categoria, category, subcategoria,
+          precio, price, costo, duracion, duration_minutes,
+          activo, is_active, tipo_comision, comision_valor,
+          item_type, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
         [
           tenantId,
           finalName,
           finalName,
-          categoria || 'Peluquería',
+          cleanCategory,
+          cleanCategory,
           subcategoria || 'General',
           parsedPrice,
           parsedPrice,
-          parseFloat(costo) || 0,
-          parsedDuration,
-          parsedDuration,
-          isActive,
-          Boolean(isActive),
-          tipo_comision || 'Porcentaje',
-          parseFloat(comision_valor) || 0
-        ]
-      );
-      res.json({ id: result.insertId || result[0]?.id, success: true, message: 'Servicio creado exitosamente' });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Actualizar servicio existente del tenant autenticado
-  router.put('/:id', async (req, res) => {
-    try {
-      const tenantId = req.tenantId;
-      const { id } = req.params;
-      const { nombre, name, categoria, subcategoria, precio, costo, duracion, activo, tipo_comision, comision_valor } = req.body;
-      const finalName = (nombre || name || '').trim();
-      const parsedPrice = parseFloat(precio) || 0;
-      const parsedDuration = parseInt(duracion) || 30;
-      const isActive = activo ? 1 : 0;
-
-      const [result] = await pool.query(
-        'UPDATE services SET name=?, nombre=?, categoria=?, subcategoria=?, precio=?, price=?, costo=?, duracion=?, duration_minutes=?, activo=?, is_active=?, tipo_comision=?, comision_valor=? WHERE id=? AND tenant_id=?',
-        [
-          finalName,
-          finalName,
-          categoria,
-          subcategoria || 'General',
-          parsedPrice,
-          parsedPrice,
-          parseFloat(costo) || 0,
+          parsedCost,
           parsedDuration,
           parsedDuration,
           isActive,
           Boolean(isActive),
           tipo_comision || 'Porcentaje',
           parseFloat(comision_valor) || 0,
+          canonicalType,
+          cleanSku,
+          cleanBarcode,
+          unit_of_measure || 'unit',
+          tax_rate !== undefined ? parseFloat(tax_rate) : 0.18,
+          min_stock !== undefined ? parseFloat(min_stock) || 0 : 0,
+          canonicalType === 'PRODUCTO' ? (track_stock !== false) : false
+        ]
+      );
+      const created = result[0] || {};
+      res.status(201).json({
+        ...normalizeCatalogRow(created),
+        id: created.id || result.insertId,
+        success: true,
+        message: canonicalType === 'PRODUCTO' ? 'Producto creado en el catálogo' : 'Servicio creado exitosamente'
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Actualizar producto o servicio del Catálogo canónico del tenant autenticado
+  router.put('/:id', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { id } = req.params;
+      const {
+        nombre, name, categoria, category, subcategoria, precio, price, costo, cost,
+        duracion, duration, activo, tipo_comision, comision_valor,
+        item_type, tipo_item, sku, barcode, unit_of_measure, tax_rate, min_stock, track_stock
+      } = req.body;
+
+      const [existingRows] = await pool.query(
+        'SELECT * FROM services WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!existingRows || existingRows.length === 0) {
+        return res.status(404).json({ error: 'Ítem no encontrado en el catálogo' });
+      }
+      const existing = existingRows[0];
+      const currentType = String(existing.item_type || 'SERVICIO').toUpperCase();
+      const rawNextType = item_type !== undefined || tipo_item !== undefined
+        ? String(item_type || tipo_item).trim().toUpperCase()
+        : currentType;
+      const nextType = rawNextType === 'PRODUCTO' || rawNextType === 'PRODUCT' ? 'PRODUCTO' : 'SERVICIO';
+
+      // Impedir conversión de PRODUCTO a SERVICIO si tiene stock o movimientos históricos
+      if (currentType === 'PRODUCTO' && nextType === 'SERVICIO') {
+        const [stockHits] = await pool.query(
+          'SELECT 1 FROM inventory_stock WHERE product_id = ? AND tenant_id = ? AND quantity <> 0 LIMIT 1',
+          [id, tenantId]
+        );
+        const [movHits] = await pool.query(
+          'SELECT 1 FROM inventory_movements WHERE product_id = ? AND tenant_id = ? LIMIT 1',
+          [id, tenantId]
+        );
+        if ((stockHits && stockHits.length > 0) || (movHits && movHits.length > 0)) {
+          return res.status(409).json({
+            error: 'No puedes cambiar un producto a servicio porque tiene existencias o movimientos históricos en inventario.',
+            code: 'CANNOT_CONVERT_PRODUCT_WITH_HISTORY'
+          });
+        }
+      }
+
+      const finalName = (nombre || name || existing.nombre || existing.name || '').trim();
+      const parsedPrice = parseFloat(precio !== undefined ? precio : (price !== undefined ? price : existing.precio)) || 0;
+      const parsedCost = parseFloat(costo !== undefined ? costo : (cost !== undefined ? cost : existing.costo)) || 0;
+      const parsedDuration = nextType === 'PRODUCTO'
+        ? 0
+        : (parseInt(duracion !== undefined ? duracion : (duration !== undefined ? duration : existing.duracion)) || 30);
+      const isActive = activo !== undefined ? (activo ? 1 : 0) : (existing.activo ?? 1);
+      const cleanCategory = categoria || category || existing.categoria || existing.category || 'General';
+      const cleanSku = sku !== undefined ? (sku ? String(sku).trim() : null) : existing.sku;
+      const cleanBarcode = barcode !== undefined ? (barcode ? String(barcode).trim() : null) : existing.barcode;
+
+      if (cleanSku && cleanSku !== existing.sku) {
+        const [dupSku] = await pool.query(
+          'SELECT id FROM services WHERE tenant_id = ? AND sku = ? AND id <> ? LIMIT 1',
+          [tenantId, cleanSku, id]
+        );
+        if (dupSku.length > 0) {
+          return res.status(400).json({ error: 'Ya existe otro ítem con ese SKU.', code: 'UNIQUE_SKU_VIOLATION' });
+        }
+      }
+      if (cleanBarcode && cleanBarcode !== existing.barcode) {
+        const [dupBc] = await pool.query(
+          'SELECT id FROM services WHERE tenant_id = ? AND barcode = ? AND id <> ? LIMIT 1',
+          [tenantId, cleanBarcode, id]
+        );
+        if (dupBc.length > 0) {
+          return res.status(400).json({ error: 'Ya existe otro ítem con ese código de barras.', code: 'UNIQUE_BARCODE_VIOLATION' });
+        }
+      }
+
+      const [result] = await pool.query(
+        `UPDATE services SET
+          name=?, nombre=?, categoria=?, category=?, subcategoria=?,
+          precio=?, price=?, costo=?, duracion=?, duration_minutes=?,
+          activo=?, is_active=?, tipo_comision=?, comision_valor=?,
+          item_type=?, sku=?, barcode=?, unit_of_measure=?, tax_rate=?, min_stock=?, track_stock=?,
+          updated_at=NOW()
+         WHERE id=? AND tenant_id=?`,
+        [
+          finalName,
+          finalName,
+          cleanCategory,
+          cleanCategory,
+          subcategoria || existing.subcategoria || 'General',
+          parsedPrice,
+          parsedPrice,
+          parsedCost,
+          parsedDuration,
+          parsedDuration,
+          isActive,
+          Boolean(isActive),
+          tipo_comision || existing.tipo_comision || 'Porcentaje',
+          parseFloat(comision_valor !== undefined ? comision_valor : existing.comision_valor) || 0,
+          nextType,
+          cleanSku,
+          cleanBarcode,
+          unit_of_measure || existing.unit_of_measure || 'unit',
+          tax_rate !== undefined ? parseFloat(tax_rate) : (existing.tax_rate ?? 0.18),
+          min_stock !== undefined ? parseFloat(min_stock) || 0 : (existing.min_stock ?? 0),
+          nextType === 'PRODUCTO' ? (track_stock !== undefined ? Boolean(track_stock) : (existing.track_stock ?? true)) : false,
           id,
           tenantId
         ]
       );
       if (result.rowCount === 0) {
-        return res.status(404).json({ error: 'Servicio no encontrado' });
+        return res.status(404).json({ error: 'Ítem no encontrado' });
       }
-      res.json({ success: true, message: 'Servicio actualizado exitosamente' });
+      res.json({ success: true, message: 'Catálogo actualizado exitosamente' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -293,7 +451,7 @@ function createServicesRouter(pool) {
       const tenantId = req.tenantId;
       const { id } = req.params;
       await pool.query(
-        'UPDATE services SET activo = CASE WHEN COALESCE(activo, 1) = 1 THEN 0 ELSE 1 END, is_active = NOT COALESCE(is_active, true) WHERE id = ? AND tenant_id = ?',
+        'UPDATE services SET activo = CASE WHEN COALESCE(activo, 1) = 1 THEN 0 ELSE 1 END, is_active = NOT COALESCE(is_active, true), updated_at = NOW() WHERE id = ? AND tenant_id = ?',
         [id, tenantId]
       );
       res.json({ success: true, message: 'Estado del servicio actualizado' });
@@ -302,17 +460,51 @@ function createServicesRouter(pool) {
     }
   });
 
-  // Eliminar servicio del tenant autenticado
+  // Eliminar o archivar ítem del Catálogo (archiva automáticamente si tiene historial/stock/movimientos)
   router.delete('/:id', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+
+      const [stockHits] = await pool.query(
+        'SELECT 1 FROM inventory_stock WHERE product_id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      const [movHits] = await pool.query(
+        'SELECT 1 FROM inventory_movements WHERE product_id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      const [invItemHits] = await pool.query(
+        'SELECT 1 FROM invoice_items WHERE service_id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+
+      if (
+        (stockHits && stockHits.length > 0) ||
+        (movHits && movHits.length > 0) ||
+        (invItemHits && invItemHits.length > 0)
+      ) {
+        const [arch] = await pool.query(
+          'UPDATE services SET is_active = FALSE, activo = 0, updated_at = NOW() WHERE id = ? AND tenant_id = ?',
+          [id, tenantId]
+        );
+        const affected = arch?.rowCount ?? arch?.affectedRows ?? 0;
+        if (affected === 0) {
+          return res.status(404).json({ error: 'Ítem no encontrado en este salón.' });
+        }
+        return res.json({
+          success: true,
+          archived: true,
+          message: 'El ítem tiene historial de stock o ventas; fue archivado en lugar de eliminarse.'
+        });
+      }
+
       const [result] = await pool.query('DELETE FROM services WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       const affected = result?.rowCount ?? result?.affectedRows ?? 0;
       if (affected === 0) {
         return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
       }
-      res.json({ success: true, message: 'Servicio eliminado exitosamente' });
+      res.json({ success: true, archived: false, message: 'Servicio eliminado exitosamente' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

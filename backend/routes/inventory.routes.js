@@ -43,39 +43,12 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
     }
   });
 
-  // 2. POST /api/inventory/products - Crear producto
-  router.post('/products', async (req, res) => {
-    try {
-      const tenantId = req.tenantId;
-      // Descartar cualquier tenant_id enviado en body (Anti-spoofing)
-      const { tenant_id: _ignored, ...productData } = req.body;
-
-      if (!productData.sku || !productData.name) {
-        return res.status(400).json({ error: 'SKU y Nombre de producto son obligatorios.', code: 'VALIDATION_ERROR' });
-      }
-
-      const product = await inventoryService.createProduct(tenantId, productData);
-
-      // Si se envía initial_stock > 0, inicializar existencias
-      if (Number(req.body.initial_stock) > 0) {
-        await inventoryService.receiveInitialStock(tenantId, {
-          productId: product.id,
-          locationId: req.body.location_id || null,
-          quantity: Number(req.body.initial_stock),
-          unitCost: Number(product.cost) || 0,
-          userId: req.user?.id || null,
-          userName: req.user?.name || 'Recepción'
-        });
-      }
-
-      res.status(201).json(product);
-    } catch (err) {
-      if (err.code === 'UNIQUE_SKU_VIOLATION' || err.code === 'UNIQUE_BARCODE_VIOLATION' || err.code === 'CHECK_VIOLATION') {
-        return res.status(400).json({ error: err.message, code: err.code });
-      }
-      console.error('[INVENTORY ERROR] createProduct:', err);
-      res.status(500).json({ error: err.message, code: 'INVENTORY_ERROR' });
-    }
+  // 2. POST /api/inventory/products - Bloqueado: Catálogo es la fuente única
+  router.post('/products', async (_req, res) => {
+    return res.status(403).json({
+      error: 'Los productos se crean y administran únicamente desde el Catálogo.',
+      code: 'CATALOG_SINGLE_SOURCE',
+    });
   });
 
   // 3. GET /api/inventory/products/:id - Obtener producto
@@ -92,20 +65,12 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
     }
   });
 
-  // 4. PUT /api/inventory/products/:id - Actualizar producto
-  router.put('/products/:id', async (req, res) => {
-    try {
-      const tenantId = req.tenantId;
-      const { tenant_id: _ignored, id: _ignoredId, ...updateData } = req.body;
-      const updated = await inventoryService.updateProduct(tenantId, req.params.id, updateData);
-      if (!updated) {
-        return res.status(404).json({ error: 'Producto no encontrado.', code: 'NOT_FOUND' });
-      }
-      res.json(updated);
-    } catch (err) {
-      if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message, code: 'NOT_FOUND' });
-      res.status(500).json({ error: err.message, code: 'INVENTORY_ERROR' });
-    }
+  // 4. PUT /api/inventory/products/:id - Bloqueado: Catálogo es la fuente única
+  router.put('/products/:id', async (_req, res) => {
+    return res.status(403).json({
+      error: 'La información comercial de productos se edita únicamente desde el Catálogo.',
+      code: 'CATALOG_SINGLE_SOURCE',
+    });
   });
 
   // 5. GET /api/inventory/stock - Listar existencias actuales
@@ -181,8 +146,8 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
       if (err.code === 'UNAUTHORIZED_ROLE') {
         return res.status(403).json({ error: err.message, code: 'UNAUTHORIZED_ROLE' });
       }
-      if (err.code === 'INSUFFICIENT_STOCK') {
-        return res.status(400).json({ error: err.message, code: 'INSUFFICIENT_STOCK' });
+      if (err.code === 'INSUFFICIENT_STOCK' || err.code === 'INVALID_ITEM_TYPE') {
+        return res.status(400).json({ error: err.message, code: err.code });
       }
       if (err.code === 'NOT_FOUND') {
         return res.status(404).json({ error: err.message, code: 'NOT_FOUND' });
@@ -454,8 +419,8 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
       });
       res.json(result);
     } catch (err) {
-      if (err.code === 'INSUFFICIENT_STOCK') {
-        return res.status(400).json({ error: err.message, code: 'INSUFFICIENT_STOCK' });
+      if (err.code === 'INSUFFICIENT_STOCK' || err.code === 'INVALID_ITEM_TYPE') {
+        return res.status(400).json({ error: err.message, code: err.code });
       }
       if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message, code: 'NOT_FOUND' });
       res.status(400).json({ error: err.message, code: 'OPERATION_ERROR' });

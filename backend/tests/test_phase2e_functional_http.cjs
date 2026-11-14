@@ -265,8 +265,8 @@ async function runAll() {
     // FLOW 3: BASE UTILIZA INVENTARIO BÁSICO
     // =========================================================================
     let shampooProduct = null;
-    await runAsyncTest('Flow 3.1: Base tenant creates product in inventory with stock tracking', async () => {
-      const res = await harness.request({
+    await runAsyncTest('Flow 3.1: Inventory blocks product creation (403) and Catalog product is available for stock', async () => {
+      const blockedRes = await harness.request({
         method: 'POST',
         path: '/api/inventory/products',
         headers: tenantBaseUser.headers,
@@ -280,10 +280,18 @@ async function runAll() {
         }
       });
 
-      assert.strictEqual(res.status, 201);
-      assert.strictEqual(res.body.sku, 'SHAMP-BASE-01');
-      assert.strictEqual(res.body.name, 'Shampoo Profesional Hidratante');
-      shampooProduct = res.body;
+      assert.strictEqual(blockedRes.status, 403);
+      assert.strictEqual(blockedRes.body.code, 'CATALOG_SINGLE_SOURCE');
+
+      shampooProduct = await harness.inventoryRepo.createProduct(tenantBaseUser.tenantId, {
+        sku: 'SHAMP-BASE-01',
+        name: 'Shampoo Profesional Hidratante',
+        sale_price: 850,
+        cost: 400,
+        track_stock: true
+      });
+      assert.strictEqual(shampooProduct.sku, 'SHAMP-BASE-01');
+      assert.strictEqual(shampooProduct.name, 'Shampoo Profesional Hidratante');
     });
 
     await runAsyncTest('Flow 3.2: Base tenant registers stock receipt and queries balance', async () => {
@@ -789,7 +797,7 @@ async function runAll() {
       assert.strictEqual(res.status, 404, 'IDOR request must fail with 404');
     });
 
-    await runAsyncTest('Flow 15.2: Tenant A cannot modify Tenant B inventory product (returns 404)', async () => {
+    await runAsyncTest('Flow 15.2: Tenant A cannot adjust Tenant B inventory product (returns 404)', async () => {
       // Create product for Tenant B
       const prodB = await harness.inventoryRepo.createProduct(tenantBUser.tenantId, {
         sku: 'PROD-B-SEC',
@@ -797,17 +805,20 @@ async function runAll() {
         sale_price: 1000
       });
 
-      // Tenant A attempts to update Tenant B product
+      // Tenant A attempts to adjust Tenant B product
       const res = await harness.request({
-        method: 'PUT',
-        path: `/api/inventory/products/${prodB.id}`,
+        method: 'POST',
+        path: '/api/inventory/adjustments',
         headers: tenantAUser.headers,
         body: {
-          name: 'Producto Manipulado'
+          productId: prodB.id,
+          quantity: 5,
+          adjustmentType: 'ADJUSTMENT_IN',
+          reason: 'Cross-tenant test'
         }
       });
 
-      assert.strictEqual(res.status, 404, 'Updating another tenant product must return 404');
+      assert.strictEqual(res.status, 404, 'Adjusting another tenant product must return 404');
     });
 
     await runAsyncTest('Flow 15.3: Spoofing x-tenant-id header is actively rejected with 403', async () => {

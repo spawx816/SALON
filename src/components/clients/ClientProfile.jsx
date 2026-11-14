@@ -1020,7 +1020,28 @@ const ClientProfile = () => {
           <h2 className="page-title">{t('profile.title')}</h2>
           <p className="page-subtitle">{t('profile.subtitle')} </p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => navigate('/registro-cliente')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: '#0f172a',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '12px',
+              padding: '0.75rem 1.25rem',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(15, 23, 42, 0.15)'
+            }}
+          >
+            <Plus size={18} />
+            <span>Registrar Cliente</span>
+          </button>
           <div className="surface-card" style={{ padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem', background: 'white', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)', borderRadius: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

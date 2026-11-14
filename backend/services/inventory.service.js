@@ -114,6 +114,11 @@ class InventoryService {
       err.code = 'NOT_FOUND';
       throw err;
     }
+    if (product.item_type && String(product.item_type).toUpperCase() !== 'PRODUCTO') {
+      const err = new Error('Solo se puede ajustar stock de ítems tipo PRODUCTO del Catálogo');
+      err.code = 'INVALID_ITEM_TYPE';
+      throw err;
+    }
 
     let locId = locationId;
     if (!locId) {
@@ -241,11 +246,29 @@ class InventoryService {
       err.code = 'NOT_FOUND';
       throw err;
     }
+    if (product.item_type && String(product.item_type).toUpperCase() !== 'PRODUCTO') {
+      const err = new Error('Solo se puede ajustar stock de ítems tipo PRODUCTO del Catálogo');
+      err.code = 'INVALID_ITEM_TYPE';
+      throw err;
+    }
 
     let locId = locationId;
     if (!locId) {
       const defLoc = await this.getDefaultLocation(tenantId);
       locId = defLoc.id;
+    }
+
+    if (this.repo.pool && typeof this.repo.executeAtomicAdjustment === 'function') {
+      return this.repo.executeAtomicAdjustment(tenantId, {
+        productId,
+        locationId: locId,
+        quantity: qty,
+        adjustmentType,
+        reason,
+        userId,
+        userName,
+        productCost: Number(product.cost ?? product.costo ?? 0) || 0
+      });
     }
 
     const currentStock = await this.repo.getStock(tenantId, productId, locId);

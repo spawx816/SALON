@@ -441,7 +441,7 @@ class InMemoryInventoryRepository {
     const movement = await this.recordMovement(tenantId, {
       product_id: productId,
       location_id: locationId,
-      movement_type: 'VOID_SALE',
+      movement_type: 'SALE_VOID',
       quantity: qty,
       unit_cost: avgCost,
       total_cost: qty * avgCost,

@@ -55,18 +55,18 @@ async function runInventoryConcurrencySuite() {
     `, [locationB, tenantB]);
 
     await conn.query(`
-      INSERT INTO inventory_products (id, tenant_id, name, sku, track_stock, min_stock, sale_price)
-      VALUES ($1, $2, 'Shampoo Hidratante 500ml', 'SKU-SHP-01', true, 2, 850.00)
+      INSERT INTO services (id, tenant_id, nombre, name, item_type, tipo_item, categoria, sku, track_stock, min_stock, precio, price, is_active, activo)
+      VALUES ($1, $2, 'Shampoo Hidratante 500ml', 'Shampoo Hidratante 500ml', 'PRODUCTO', 'Producto', 'Productos', 'SKU-SHP-01', true, 2, 850.00, 850.00, true, 1)
     `, [productA1, tenantA]);
 
     await conn.query(`
-      INSERT INTO inventory_products (id, tenant_id, name, sku, track_stock, min_stock, sale_price)
-      VALUES ($1, $2, 'Tratamiento Argán 250ml', 'SKU-ARG-02', true, 2, 1200.00)
+      INSERT INTO services (id, tenant_id, nombre, name, item_type, tipo_item, categoria, sku, track_stock, min_stock, precio, price, is_active, activo)
+      VALUES ($1, $2, 'Tratamiento Argán 250ml', 'Tratamiento Argán 250ml', 'PRODUCTO', 'Producto', 'Productos', 'SKU-ARG-02', true, 2, 1200.00, 1200.00, true, 1)
     `, [productA2, tenantA]);
 
     await conn.query(`
-      INSERT INTO inventory_products (id, tenant_id, name, sku, track_stock, min_stock, sale_price)
-      VALUES ($1, $2, 'Tinte Profesional 60g', 'SKU-TNT-B1', true, 2, 450.00)
+      INSERT INTO services (id, tenant_id, nombre, name, item_type, tipo_item, categoria, sku, track_stock, min_stock, precio, price, is_active, activo)
+      VALUES ($1, $2, 'Tinte Profesional 60g', 'Tinte Profesional 60g', 'PRODUCTO', 'Producto', 'Productos', 'SKU-TNT-B1', true, 2, 450.00, 450.00, true, 1)
     `, [productB1, tenantB]);
 
     // Initial stock setup: productA1 = 10 units, productA2 = 5 units
@@ -223,7 +223,7 @@ async function runInventoryConcurrencySuite() {
     try {
       await conn.query(`DELETE FROM inventory_movements WHERE tenant_id IN ($1, $2)`, [tenantA, tenantB]);
       await conn.query(`DELETE FROM inventory_stock WHERE tenant_id IN ($1, $2)`, [tenantA, tenantB]);
-      await conn.query(`DELETE FROM inventory_products WHERE tenant_id IN ($1, $2)`, [tenantA, tenantB]);
+      await conn.query(`DELETE FROM services WHERE tenant_id IN ($1, $2)`, [tenantA, tenantB]);
       await conn.query(`DELETE FROM inventory_locations WHERE tenant_id IN ($1, $2)`, [tenantA, tenantB]);
       await conn.query(`DELETE FROM tenants WHERE id IN ($1, $2)`, [tenantA, tenantB]);
     } catch (_) {}

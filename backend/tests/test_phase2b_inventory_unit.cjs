@@ -120,14 +120,13 @@ async function runAllTests() {
     assert.strictEqual(prod.sku, 'SHAMP-001');
   });
 
-  // TEST 2: No aceptar tenant del body (Anti-spoofing)
-  await runAsyncTest('Test 2: Rechazar o ignorar tenant enviado en body del request', async () => {
-    // Simulate POST /api/inventory/products with spoofed tenant_id
-    let capturedProduct = null;
+  // TEST 2: Endpoints de creación/edición de productos en Inventario bloqueados (Catálogo es fuente única)
+  await runAsyncTest('Test 2: Inventario rechaza POST/PUT /products con 403 CATALOG_SINGLE_SOURCE', async () => {
+    let capturedResponse = null;
     let statusCode = null;
 
     const req = {
-      tenantId: TENANT_A, // Autenticado
+      tenantId: TENANT_A,
       body: {
         tenant_id: 'malicious-rogue-tenant',
         sku: 'CREAM-002',
@@ -137,16 +136,26 @@ async function runAllTests() {
     };
     const res = {
       status(s) { statusCode = s; return this; },
-      json(data) { capturedProduct = data; return this; }
+      json(data) { capturedResponse = data; return this; }
     };
 
-    // Find the POST /products route handler
     const postRoute = inventoryRouter.stack.find(s => s.route && s.route.path === '/products' && s.route.methods.post);
     assert(postRoute, 'Ruta POST /products debe existir');
     await postRoute.route.stack[0].handle(req, res, () => {});
 
-    assert.strictEqual(statusCode, 201);
-    assert.strictEqual(capturedProduct.tenant_id, TENANT_A, 'El tenant del producto debe ser el de req.tenantId, NO el del body');
+    assert.strictEqual(statusCode, 403);
+    assert.strictEqual(capturedResponse.code, 'CATALOG_SINGLE_SOURCE');
+
+    let putStatus = null;
+    let putData = null;
+    const putRoute = inventoryRouter.stack.find(s => s.route && s.route.path === '/products/:id' && s.route.methods.put);
+    assert(putRoute, 'Ruta PUT /products/:id debe existir');
+    await putRoute.route.stack[0].handle({ tenantId: TENANT_A, params: { id: 'any' }, body: {} }, {
+      status(s) { putStatus = s; return this; },
+      json(d) { putData = d; return this; }
+    }, () => {});
+    assert.strictEqual(putStatus, 403);
+    assert.strictEqual(putData.code, 'CATALOG_SINGLE_SOURCE');
   });
 
   // TEST 3: SKU único por tenant

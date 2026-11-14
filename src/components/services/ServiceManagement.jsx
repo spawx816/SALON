@@ -27,6 +27,12 @@ const ServiceManagement = () => {
     categoria: 'Peluquería',
     precio: '',
     tipo_item: 'Servicio',
+    sku: '',
+    barcode: '',
+    unit_of_measure: 'Unidad',
+    costo: '',
+    min_stock: '5',
+    track_stock: true,
     activo: 1,
     genera_comision: 1,
     tipo_comision: 'Porcentaje',
@@ -83,6 +89,12 @@ const ServiceManagement = () => {
       categoria: categoriesList[0] || 'Peluquería',
       precio: '',
       tipo_item: 'Servicio',
+      sku: '',
+      barcode: '',
+      unit_of_measure: 'Unidad',
+      costo: '',
+      min_stock: '5',
+      track_stock: true,
       activo: 1,
       aplica_itbis: 0,
       orden_visualizacion: '0',
@@ -93,12 +105,19 @@ const ServiceManagement = () => {
 
   const handleOpenEditModal = (service) => {
     setEditingService(service);
+    const isProduct = service.item_type === 'PRODUCTO' || service.tipo_item === 'Producto' || service.categoria === 'Productos';
     setFormData({
       nombre: service.nombre || '',
       descripcion: service.descripcion || '',
       categoria: service.categoria || 'Peluquería',
       precio: service.precio || '',
-      tipo_item: service.tipo_item || (service.categoria === 'Productos' ? 'Producto' : 'Servicio'),
+      tipo_item: isProduct ? 'Producto' : 'Servicio',
+      sku: service.sku || '',
+      barcode: service.barcode || '',
+      unit_of_measure: service.unit_of_measure || 'Unidad',
+      costo: service.costo !== undefined && service.costo !== null ? String(service.costo) : (service.cost !== undefined && service.cost !== null ? String(service.cost) : ''),
+      min_stock: service.min_stock !== undefined && service.min_stock !== null ? String(service.min_stock) : '5',
+      track_stock: service.track_stock !== undefined ? Boolean(service.track_stock) : true,
       activo: service.activo !== undefined ? service.activo : 1,
       genera_comision: service.genera_comision !== undefined ? service.genera_comision : 1,
       tipo_comision: service.tipo_comision || 'Porcentaje',
@@ -135,12 +154,20 @@ const ServiceManagement = () => {
 
     setLoading(true);
     try {
+      const payload = {
+        ...formData,
+        nombre: cleanName,
+        item_type: formData.tipo_item === 'Producto' ? 'PRODUCTO' : 'SERVICIO',
+        costo: formData.tipo_item === 'Producto' && formData.costo !== '' ? parseFloat(formData.costo) || 0 : 0,
+        min_stock: formData.tipo_item === 'Producto' ? (parseInt(formData.min_stock, 10) || 0) : 0,
+        track_stock: formData.tipo_item === 'Producto' ? Boolean(formData.track_stock) : false
+      };
       if (editingService) {
-        await dataService.updateService(editingService.id, { ...formData, nombre: cleanName });
-        alert('✅ Servicio actualizado exitosamente.');
+        await dataService.updateService(editingService.id, payload);
+        alert('✅ Ítem actualizado exitosamente.');
       } else {
-        await dataService.createService({ ...formData, nombre: cleanName });
-        alert('✅ Nuevo servicio registrado exitosamente.');
+        await dataService.createService(payload);
+        alert('✅ Nuevo ítem registrado exitosamente.');
       }
       setShowModal(false);
       await loadServices();
@@ -452,7 +479,23 @@ Depilación Facial Completa,Estética,600,20,0`;
                   
                   {/* Service Info */}
                   <td style={{ padding: '0.875rem 1rem' }}>
-                    <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem' }}>{s.nombre}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem' }}>{s.nombre}</span>
+                      {(s.item_type === 'PRODUCTO' || s.tipo_item === 'Producto') && (
+                        <span style={{ background: '#f3e8ff', color: '#7e22ce', padding: '1px 7px', borderRadius: '999px', fontSize: '0.68rem', fontWeight: 800 }}>
+                          PRODUCTO
+                        </span>
+                      )}
+                    </div>
+                    {(s.sku || s.barcode || s.item_type === 'PRODUCTO' || s.tipo_item === 'Producto') && (
+                      <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '0.15rem', display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+                        {s.sku && <span>SKU: <strong>{s.sku}</strong></span>}
+                        {s.barcode && <span>Cód: <strong>{s.barcode}</strong></span>}
+                        {(s.item_type === 'PRODUCTO' || s.tipo_item === 'Producto') && (
+                          <span>Stock: <strong style={{ color: Number(s.current_stock || 0) <= Number(s.min_stock || 0) ? '#dc2626' : '#0f172a' }}>{Number(s.current_stock || 0)}</strong></span>
+                        )}
+                      </div>
+                    )}
                     {s.descripcion && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.15rem' }}>{s.descripcion}</div>}
                   </td>
 
@@ -884,6 +927,99 @@ Depilación Facial Completa,Estética,600,20,0`;
 
                 </div>
               </div>
+
+              {/* CAMPOS COMERCIALES Y DE INVENTARIO (SOLO PRODUCTO) */}
+              {formData.tipo_item === 'Producto' && (
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '16px',
+                  padding: '1rem 1.15rem',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.75rem' }}>
+                    Ficha de Producto (Fuente única para Inventario)
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                        SKU
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: SHAMP-001"
+                        value={formData.sku}
+                        onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+                        style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.84rem', background: '#fff' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                        Código de Barras
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: 7461234567890"
+                        value={formData.barcode}
+                        onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                        style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.84rem', background: '#fff' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                        Unidad
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Unidad / ml"
+                        value={formData.unit_of_measure}
+                        onChange={(e) => setFormData({ ...formData, unit_of_measure: e.target.value })}
+                        style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.84rem', background: '#fff' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                        Costo (RD$)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={formData.costo}
+                        onChange={(e) => setFormData({ ...formData, costo: e.target.value })}
+                        style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.84rem', background: '#fff' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#334155', marginBottom: '0.25rem' }}>
+                        Stock Mínimo
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.min_stock}
+                        onChange={(e) => setFormData({ ...formData, min_stock: e.target.value })}
+                        style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.84rem', background: '#fff' }}
+                      />
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(formData.track_stock)}
+                      onChange={(e) => setFormData({ ...formData, track_stock: e.target.checked })}
+                      style={{ width: '16px', height: '16px', accentColor: '#9333ea' }}
+                    />
+                    Controlar existencias en Inventario
+                  </label>
+                </div>
+              )}
 
               {/* ITBIS (18%) CARD SECTION */}
               <div style={{

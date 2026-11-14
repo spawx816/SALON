@@ -88,11 +88,11 @@ class InventoryPhysicalSessionService {
       // 3. Take initial system stock snapshot
       const [products] = await conn.query(`
         SELECT p.id,
-               CAST(ROUND(COALESCE(p.cost, 0) * 100) AS INTEGER) as cost_cents,
+               CAST(ROUND(COALESCE(p.costo, p.cost, 0) * 100) AS INTEGER) as cost_cents,
                COALESCE(s.quantity, 0) as current_qty
-        FROM inventory_products p
+        FROM services p
         LEFT JOIN inventory_stock s ON s.product_id = p.id AND s.tenant_id = p.tenant_id
-        WHERE p.tenant_id = ?
+        WHERE p.tenant_id = ? AND p.item_type = 'PRODUCTO' AND COALESCE(p.is_active, TRUE) = TRUE
       `, [tenantId]);
 
       for (const prod of products) {
@@ -150,13 +150,13 @@ class InventoryPhysicalSessionService {
 
     const [items] = await this.pool.query(`
       SELECT i.*,
-             p.name as product_name,
+             COALESCE(p.nombre, p.name) as product_name,
              p.sku as product_code,
-             p.category as category
+             COALESCE(p.categoria, p.category) as category
       FROM inventory_physical_session_items i
-      INNER JOIN inventory_products p ON p.id = i.product_id
+      INNER JOIN services p ON p.id = i.product_id AND p.tenant_id = i.tenant_id
       WHERE i.session_id = ? AND i.tenant_id = ?
-      ORDER BY p.name ASC
+      ORDER BY COALESCE(p.nombre, p.name) ASC
     `, [sessionId, tenantId]);
 
     return {

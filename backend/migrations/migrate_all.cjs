@@ -29,6 +29,7 @@ const { up: upJobNoncesAndStrictIdempotency } = require('./20261110_job_nonces_a
 const { up: upStorageAndPortability } = require('./20261110_phase3b_storage_and_portability.cjs');
 const { up: upP2P3Extensions } = require('./20261110_phase3b_p2p3_extensions.cjs');
 const { up: upClientsInBasePlan } = require('./20261111_phase3c_clients_in_base_plan.cjs');
+const { up: upUnifyCatalogInventory } = require('./20261114_unify_catalog_inventory.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -205,6 +206,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Incluye Clientes/CRM (clients) en Plan BASE conservándolo en PRO; membresías, contratos y marketing siguen exclusivos de PRO',
     execute: async (targetPool, targetSchema) => {
       return upClientsInBasePlan(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261114_unify_catalog_inventory',
+    description: 'Unifica Catálogo (services) como fuente única de productos y servicios y reapunta FKs de inventario hacia services(id)',
+    execute: async (targetPool, targetSchema) => {
+      return upUnifyCatalogInventory(targetPool, targetSchema);
     }
   }
 ];

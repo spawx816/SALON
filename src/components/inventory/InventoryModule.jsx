@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Package, Layers, ArrowLeftRight, ShoppingCart, Truck, AlertTriangle,
   Plus, Search, Filter, RefreshCw, CheckCircle2, XCircle, DollarSign,
@@ -32,22 +33,8 @@ export default function InventoryModule() {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modals & Forms
-  const [showProductModal, setShowProductModal] = useState(false);
-  const [submittingProduct, setSubmittingProduct] = useState(false);
-  const [productForm, setProductForm] = useState({
-    sku: '',
-    barcode: '',
-    name: '',
-    category: 'General',
-    unit_of_measure: 'unit',
-    sale_price: '',
-    cost: '',
-    tax_rate: '0.18',
-    min_stock: '5',
-    track_stock: true,
-    initial_stock: '0'
-  });
-
+  const [catalogProducts, setCatalogProducts] = useState([]);
+  const [adjSearch, setAdjSearch] = useState('');
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
   const [submittingAdj, setSubmittingAdj] = useState(false);
   const [adjForm, setAdjForm] = useState({
@@ -126,32 +113,23 @@ export default function InventoryModule() {
     }
   };
 
-  const handleCreateProduct = async (e) => {
-    e.preventDefault();
-    if (submittingProduct) return;
-    setSubmittingProduct(true);
+  const openAdjustmentModal = async (preselectedProductId = '') => {
+    setAdjSearch('');
+    setAdjForm({
+      productId: preselectedProductId ? String(preselectedProductId) : '',
+      quantity: '1',
+      adjustmentType: 'ADJUSTMENT_IN',
+      reason: ''
+    });
+    setShowAdjustmentModal(true);
     try {
-      await dataService.createInventoryProduct(productForm);
-      showNotification('Producto creado exitosamente en el catálogo');
-      setShowProductModal(false);
-      setProductForm({
-        sku: '',
-        barcode: '',
-        name: '',
-        category: 'General',
-        unit_of_measure: 'unit',
-        sale_price: '',
-        cost: '',
-        tax_rate: '0.18',
-        min_stock: '5',
-        track_stock: true,
-        initial_stock: '0'
-      });
-      loadTabData();
+      const activeProds = await dataService.getInventoryProducts({ activeOnly: true });
+      const onlyProducts = (activeProds || []).filter(
+        p => (!p.item_type || String(p.item_type).toUpperCase() === 'PRODUCTO') && p.is_active !== false && p.activo !== 0
+      );
+      setCatalogProducts(onlyProducts);
     } catch (err) {
       showNotification(err.message, true);
-    } finally {
-      setSubmittingProduct(false);
     }
   };
 
@@ -228,21 +206,11 @@ export default function InventoryModule() {
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
-            onClick={() => setShowProductModal(true)}
+            onClick={() => openAdjustmentModal()}
             style={{
               display: 'flex', alignItems: 'center', gap: '0.4rem',
               background: '#2563eb', color: '#fff', border: 'none',
               padding: '0.6rem 1.1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600
-            }}
-          >
-            <Plus size={18} /> Nuevo Producto
-          </button>
-          <button
-            onClick={() => setShowAdjustmentModal(true)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.4rem',
-              background: '#f8fafc', color: '#334155', border: '1px solid #cbd5e1',
-              padding: '0.6rem 1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600
             }}
           >
             Ajustar Stock
@@ -396,12 +364,13 @@ export default function InventoryModule() {
                       <th style={{ padding: '0.75rem 1rem' }}>Costo</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Stock Mínimo</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Control Stock</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
                     {products.map(p => (
                       <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#334155' }}>{p.sku}</td>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#334155' }}>{p.sku || '—'}</td>
                         <td style={{ padding: '0.75rem 1rem' }}>
                           <div style={{ fontWeight: 600, color: '#0f172a' }}>{p.name}</div>
                           {p.barcode && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>EAN: {p.barcode}</span>}
@@ -417,6 +386,18 @@ export default function InventoryModule() {
                           }}>
                             {p.track_stock ? 'Controlado' : 'Sin Stock'}
                           </span>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => openAdjustmentModal(p.id)}
+                            style={{
+                              background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe',
+                              padding: '0.3rem 0.7rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600
+                            }}
+                          >
+                            Ajustar
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -457,6 +438,7 @@ export default function InventoryModule() {
                       <th style={{ padding: '0.75rem 1rem' }}>Cantidad Disponible</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Costo Promedio</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Estado</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Acción</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -464,7 +446,7 @@ export default function InventoryModule() {
                       const isLow = s.quantity <= s.min_stock;
                       return (
                         <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{s.sku}</td>
+                          <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{s.sku || '—'}</td>
                           <td style={{ padding: '0.75rem 1rem', fontWeight: 600, color: '#0f172a' }}>{s.product_name}</td>
                           <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{s.location_name}</td>
                           <td style={{ padding: '0.75rem 1rem', fontWeight: 700, fontSize: '1rem', color: isLow ? '#dc2626' : '#0f172a' }}>
@@ -478,6 +460,18 @@ export default function InventoryModule() {
                             }}>
                               {isLow ? 'Stock Bajo' : 'Normal'}
                             </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              onClick={() => openAdjustmentModal(s.product_id)}
+                              style={{
+                                background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe',
+                                padding: '0.3rem 0.7rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600
+                              }}
+                            >
+                              Ajustar
+                            </button>
                           </td>
                         </tr>
                       );
@@ -637,137 +631,47 @@ export default function InventoryModule() {
         </>
       )}
 
-      {/* MODAL CREAR PRODUCTO */}
-      {showProductModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', width: '550px', padding: '1.5rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ margin: '0 0 1rem', fontSize: '1.25rem', color: '#0f172a' }}>Nuevo Producto de Inventario</h2>
-            <form onSubmit={handleCreateProduct}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '0.8rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>SKU *</label>
-                  <input
-                    required
-                    type="text"
-                    value={productForm.sku}
-                    onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                    placeholder="Ej: SHAMP-001"
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Código de Barras</label>
-                  <input
-                    type="text"
-                    value={productForm.barcode}
-                    onChange={(e) => setProductForm({ ...productForm, barcode: e.target.value })}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                    placeholder="Ej: 7461234567890"
-                  />
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '0.8rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Nombre del Producto *</label>
-                <input
-                  required
-                  type="text"
-                  value={productForm.name}
-                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                  placeholder="Ej: Shampoo Keratina 500ml"
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '0.8rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Precio de Venta (RD$) *</label>
-                  <input
-                    required
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={productForm.sale_price}
-                    onChange={(e) => setProductForm({ ...productForm, sale_price: e.target.value })}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Costo Unitario (RD$)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={productForm.cost}
-                    onChange={(e) => setProductForm({ ...productForm, cost: e.target.value })}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '0.8rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Stock Mínimo (Alerta)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={productForm.min_stock}
-                    onChange={(e) => setProductForm({ ...productForm, min_stock: e.target.value })}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Stock Inicial</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={productForm.initial_stock}
-                    onChange={(e) => setProductForm({ ...productForm, initial_stock: e.target.value })}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '1rem 0' }}>
-                <input
-                  type="checkbox"
-                  id="chkTrackStock"
-                  checked={productForm.track_stock}
-                  onChange={(e) => setProductForm({ ...productForm, track_stock: e.target.checked })}
-                />
-                <label htmlFor="chkTrackStock" style={{ fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
-                  Activar control de existencias para este producto físico
-                </label>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.2rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowProductModal(false)}
-                  style={{ background: '#f1f5f9', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', cursor: 'pointer' }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingProduct}
-                  style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-                >
-                  {submittingProduct ? 'Guardando...' : 'Crear Producto'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* MODAL AJUSTE MANUAL */}
       {showAdjustmentModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#fff', borderRadius: '12px', width: '480px', padding: '1.5rem' }}>
+          <div style={{ background: '#fff', borderRadius: '12px', width: '480px', maxWidth: '94vw', padding: '1.5rem' }}>
             <h2 style={{ margin: '0 0 1rem', fontSize: '1.25rem', color: '#0f172a' }}>Ajuste Manual de Existencias</h2>
+            {catalogProducts.length === 0 ? (
+              <div style={{ padding: '1rem 0' }}>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem', color: '#334155', marginBottom: '1rem' }}>
+                  <p style={{ margin: '0 0 0.75rem', fontWeight: 600 }}>Crea primero un producto en el Catálogo</p>
+                  <Link
+                    to="/servicios"
+                    onClick={() => setShowAdjustmentModal(false)}
+                    style={{
+                      display: 'inline-block', background: '#2563eb', color: '#fff',
+                      padding: '0.5rem 1rem', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '0.88rem'
+                    }}
+                  >
+                    Ir al Catálogo
+                  </Link>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdjustmentModal(false)}
+                    style={{ background: '#f1f5f9', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', cursor: 'pointer' }}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleAdjustment}>
               <div style={{ marginBottom: '0.8rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Buscar por nombre, SKU o código de barras</label>
+                <input
+                  type="text"
+                  placeholder="Filtrar productos del Catálogo..."
+                  value={adjSearch}
+                  onChange={(e) => setAdjSearch(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', marginBottom: '0.5rem' }}
+                />
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Producto *</label>
                 <select
                   required
@@ -776,9 +680,21 @@ export default function InventoryModule() {
                   style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
                 >
                   <option value="">Selecciona un producto...</option>
-                  {products.filter(p => p.track_stock).map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
-                  ))}
+                  {catalogProducts
+                    .filter(p => {
+                      const q = adjSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return (
+                        (p.name && p.name.toLowerCase().includes(q)) ||
+                        (p.sku && p.sku.toLowerCase().includes(q)) ||
+                        (p.barcode && p.barcode.toLowerCase().includes(q))
+                      );
+                    })
+                    .map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}{p.sku ? ` (${p.sku})` : ''}{p.barcode ? ` [${p.barcode}]` : ''}
+                      </option>
+                    ))}
                 </select>
               </div>
 
@@ -836,6 +752,7 @@ export default function InventoryModule() {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}

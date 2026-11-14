@@ -71,14 +71,38 @@ class InventoryRepository {
     return null;
   }
 
+  _mapServiceToProduct(row) {
+    if (!row) return null;
+    const isActive =
+      row.is_active !== undefined && row.is_active !== null
+        ? Boolean(row.is_active)
+        : Number(row.activo ?? 1) === 1;
+    return {
+      ...row,
+      name: row.nombre || row.name || 'Producto',
+      description: row.descripcion || row.description || null,
+      category: row.categoria || row.category || 'Productos',
+      sale_price: Number(row.precio ?? row.price ?? row.sale_price ?? 0),
+      cost: Number(row.costo ?? row.cost ?? 0),
+      unit_of_measure: row.unit_of_measure || 'unit',
+      tax_rate: row.tax_rate !== undefined && row.tax_rate !== null ? Number(row.tax_rate) : 0.18,
+      min_stock: Number(row.min_stock ?? 0),
+      track_stock: row.track_stock !== undefined && row.track_stock !== null ? Boolean(row.track_stock) : true,
+      is_active: isActive,
+      item_type: row.item_type || 'PRODUCTO',
+      sku: row.sku || null,
+      barcode: row.barcode || null,
+    };
+  }
+
   async getProductById(tenantId, productId) {
     if (!tenantId || !productId) throw new Error('tenant_id y productId son requeridos');
     if (this.pool) {
       const [rows] = await this.pool.query(
-        'SELECT * FROM inventory_products WHERE id = ? AND tenant_id = ? LIMIT 1',
+        "SELECT * FROM services WHERE id = ? AND tenant_id = ? AND item_type = 'PRODUCTO' LIMIT 1",
         [productId, tenantId]
       );
-      return rows[0] || null;
+      return this._mapServiceToProduct(rows[0] || null);
     }
     return null;
   }
@@ -87,10 +111,10 @@ class InventoryRepository {
     if (!tenantId || !sku) throw new Error('tenant_id y sku son requeridos');
     if (this.pool) {
       const [rows] = await this.pool.query(
-        'SELECT * FROM inventory_products WHERE sku = ? AND tenant_id = ? LIMIT 1',
+        "SELECT * FROM services WHERE sku = ? AND tenant_id = ? AND item_type = 'PRODUCTO' LIMIT 1",
         [sku.trim(), tenantId]
       );
-      return rows[0] || null;
+      return this._mapServiceToProduct(rows[0] || null);
     }
     return null;
   }
@@ -99,10 +123,10 @@ class InventoryRepository {
     if (!tenantId || !barcode) throw new Error('tenant_id y barcode son requeridos');
     if (this.pool) {
       const [rows] = await this.pool.query(
-        'SELECT * FROM inventory_products WHERE barcode = ? AND tenant_id = ? LIMIT 1',
+        "SELECT * FROM services WHERE barcode = ? AND tenant_id = ? AND item_type = 'PRODUCTO' LIMIT 1",
         [barcode.trim(), tenantId]
       );
-      return rows[0] || null;
+      return this._mapServiceToProduct(rows[0] || null);
     }
     return null;
   }
@@ -110,27 +134,27 @@ class InventoryRepository {
   async listProducts(tenantId, { search, category, activeOnly, limit = 50, offset = 0 } = {}) {
     if (!tenantId) throw new Error('tenant_id es requerido');
     if (this.pool) {
-      let sql = 'SELECT * FROM inventory_products WHERE tenant_id = ?';
+      let sql = "SELECT * FROM services WHERE tenant_id = ? AND item_type = 'PRODUCTO'";
       const params = [tenantId];
 
       if (activeOnly) {
-        sql += ' AND is_active = TRUE';
+        sql += ' AND COALESCE(is_active, TRUE) = TRUE AND COALESCE(activo, 1) = 1';
       }
       if (category && category !== 'Todas') {
-        sql += ' AND category = ?';
+        sql += ' AND COALESCE(categoria, category) = ?';
         params.push(category);
       }
       if (search) {
-        sql += ' AND (name ILIKE ? OR sku ILIKE ? OR barcode ILIKE ?)';
+        sql += " AND (COALESCE(nombre, name, '') ILIKE ? OR COALESCE(sku, '') ILIKE ? OR COALESCE(barcode, '') ILIKE ?)";
         const term = `%${search}%`;
         params.push(term, term, term);
       }
 
-      sql += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+      sql += " ORDER BY COALESCE(nombre, name, '') ASC LIMIT ? OFFSET ?";
       params.push(Number(limit), Number(offset));
 
       const [rows] = await this.pool.query(sql, params);
-      return rows || [];
+      return (rows || []).map((r) => this._mapServiceToProduct(r));
     }
     return [];
   }
@@ -218,9 +242,12 @@ class InventoryRepository {
     if (!tenantId) throw new Error('tenant_id es requerido');
     if (this.pool) {
       let sql = `
-        SELECT s.*, p.sku, p.name as product_name, p.category, p.unit_of_measure, p.min_stock, p.sale_price, l.name as location_name
+        SELECT s.*, p.sku, COALESCE(p.nombre, p.name) as product_name,
+               COALESCE(p.categoria, p.category, 'Productos') as category,
+               p.unit_of_measure, p.min_stock, COALESCE(p.precio, p.price, 0) as sale_price,
+               l.name as location_name
         FROM inventory_stock s
-        INNER JOIN inventory_products p ON s.product_id = p.id AND s.tenant_id = p.tenant_id
+        INNER JOIN services p ON s.product_id = p.id AND s.tenant_id = p.tenant_id AND p.item_type = 'PRODUCTO'
         INNER JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
         WHERE s.tenant_id = ?
       `;
@@ -232,7 +259,7 @@ class InventoryRepository {
       if (lowStockOnly) {
         sql += ' AND s.quantity <= p.min_stock';
       }
-      sql += ' ORDER BY p.name ASC LIMIT ? OFFSET ?';
+      sql += " ORDER BY COALESCE(p.nombre, p.name) ASC LIMIT ? OFFSET ?";
       params.push(Number(limit), Number(offset));
 
       const [rows] = await this.pool.query(sql, params);
@@ -515,9 +542,9 @@ class InventoryRepository {
     if (!tenantId) throw new Error('tenant_id es requerido');
     if (this.pool) {
       let sql = `
-        SELECT m.*, p.name as product_name, p.sku, l.name as location_name
+        SELECT m.*, COALESCE(p.nombre, p.name) as product_name, p.sku, l.name as location_name
         FROM inventory_movements m
-        INNER JOIN inventory_products p ON m.product_id = p.id AND m.tenant_id = p.tenant_id
+        INNER JOIN services p ON m.product_id = p.id AND m.tenant_id = p.tenant_id AND p.item_type = 'PRODUCTO'
         INNER JOIN inventory_locations l ON m.location_id = l.id AND m.tenant_id = l.tenant_id
         WHERE m.tenant_id = ?
       `;
@@ -547,13 +574,15 @@ class InventoryRepository {
     if (!tenantId) throw new Error('tenant_id es requerido');
     if (this.pool) {
       let sql = `
-        SELECT p.id as product_id, p.sku, p.name as product_name, p.category, p.min_stock,
+        SELECT p.id as product_id, p.sku, COALESCE(p.nombre, p.name) as product_name,
+               COALESCE(p.categoria, p.category, 'Productos') as category, p.min_stock,
                COALESCE(SUM(s.quantity), 0) as current_stock,
                l.name as location_name, l.id as location_id
-        FROM inventory_products p
+        FROM services p
         LEFT JOIN inventory_stock s ON p.id = s.product_id AND p.tenant_id = s.tenant_id
         LEFT JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
-        WHERE p.tenant_id = ? AND p.track_stock = TRUE AND p.is_active = TRUE
+        WHERE p.tenant_id = ? AND p.item_type = 'PRODUCTO' AND p.track_stock = TRUE
+          AND COALESCE(p.is_active, TRUE) = TRUE AND COALESCE(p.activo, 1) = 1
       `;
       const params = [tenantId];
       if (locationId) {
@@ -561,7 +590,7 @@ class InventoryRepository {
         params.push(locationId);
       }
       sql += `
-        GROUP BY p.id, p.sku, p.name, p.category, p.min_stock, l.name, l.id
+        GROUP BY p.id, p.sku, p.nombre, p.name, p.categoria, p.category, p.min_stock, l.name, l.id
         HAVING COALESCE(SUM(s.quantity), 0) <= p.min_stock
         ORDER BY (COALESCE(SUM(s.quantity), 0) - p.min_stock) ASC
       `;
@@ -576,14 +605,15 @@ class InventoryRepository {
     if (this.pool) {
       const [rows] = await this.pool.query(`
         SELECT 
-          p.id as product_id, p.sku, p.name as product_name, p.category,
+          p.id as product_id, p.sku, COALESCE(p.nombre, p.name) as product_name,
+          COALESCE(p.categoria, p.category, 'Productos') as category,
           s.location_id, l.name as location_name,
           s.quantity, s.average_cost,
           (s.quantity * s.average_cost) as total_valuation,
-          p.sale_price,
-          (s.quantity * p.sale_price) as total_potential_revenue
+          COALESCE(p.precio, p.price, 0) as sale_price,
+          (s.quantity * COALESCE(p.precio, p.price, 0)) as total_potential_revenue
         FROM inventory_stock s
-        INNER JOIN inventory_products p ON s.product_id = p.id AND s.tenant_id = p.tenant_id
+        INNER JOIN services p ON s.product_id = p.id AND s.tenant_id = p.tenant_id AND p.item_type = 'PRODUCTO'
         INNER JOIN inventory_locations l ON s.location_id = l.id AND s.tenant_id = l.tenant_id
         WHERE s.tenant_id = ? AND s.quantity > 0
         ORDER BY total_valuation DESC
@@ -591,6 +621,130 @@ class InventoryRepository {
       return rows || [];
     }
     return [];
+  }
+
+  /**
+   * Atomic manual stock adjustment (creates inventory_stock balance if missing, inside the same transaction).
+   */
+  async executeAtomicAdjustment(tenantId, {
+    productId,
+    locationId,
+    quantity,
+    adjustmentType,
+    reason,
+    userId = null,
+    userName = null,
+    productCost = 0
+  }) {
+    if (!tenantId || !productId || !locationId) {
+      throw new Error('tenantId, productId y locationId son requeridos');
+    }
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error('La cantidad de ajuste debe ser mayor a cero');
+    }
+
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const conn = await this.pool.getConnection();
+      try {
+        await conn.query('BEGIN');
+        await conn.query("SET LOCAL lock_timeout = '5s'");
+
+        // 1. Validate canonical product in services
+        const [prodRows] = await conn.query(
+          'SELECT id, item_type, costo, cost FROM services WHERE tenant_id = ? AND id = ? LIMIT 1',
+          [tenantId, productId]
+        );
+        if (!prodRows || prodRows.length === 0) {
+          const err = new Error('Producto no encontrado');
+          err.code = 'NOT_FOUND';
+          throw err;
+        }
+        if (String(prodRows[0].item_type || '').toUpperCase() !== 'PRODUCTO') {
+          const err = new Error('Solo se puede ajustar stock de ítems tipo PRODUCTO del Catálogo');
+          err.code = 'INVALID_ITEM_TYPE';
+          throw err;
+        }
+
+        // 2. Lock stock row FOR UPDATE (may be empty if first movement)
+        const [stockRows] = await conn.query(
+          'SELECT * FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ? LIMIT 1 FOR UPDATE',
+          [tenantId, productId, locationId]
+        );
+
+        const currentStock = stockRows && stockRows.length > 0
+          ? stockRows[0]
+          : { quantity: 0, average_cost: Number(prodRows[0].costo ?? prodRows[0].cost ?? productCost) || 0 };
+
+        const curQty = Number(currentStock.quantity) || 0;
+        const avgCost = Number(currentStock.average_cost) || Number(productCost) || 0;
+        let signedQty = 0;
+        let newQty = 0;
+
+        if (adjustmentType === 'ADJUSTMENT_IN') {
+          signedQty = qty;
+          newQty = curQty + qty;
+        } else if (adjustmentType === 'ADJUSTMENT_OUT') {
+          if (curQty < qty) {
+            const err = new Error(`Stock insuficiente para ajuste de salida. Actual: ${curQty}, Solicitado: ${qty}`);
+            err.code = 'INSUFFICIENT_STOCK';
+            throw err;
+          }
+          signedQty = -qty;
+          newQty = curQty - qty;
+        } else {
+          throw new Error(`Tipo de ajuste inválido: ${adjustmentType}. Use ADJUSTMENT_IN o ADJUSTMENT_OUT.`);
+        }
+
+        const idempotencyKey = `adj:${productId}:${locationId}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`;
+
+        // 3. Record movement
+        const [movementResult] = await conn.query(`
+          INSERT INTO inventory_movements (
+            tenant_id, product_id, location_id, movement_type, quantity, unit_cost, total_cost,
+            balance_after, reference_type, reference_id, idempotency_key, reason, user_id, user_name, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL_ADJUSTMENT', NULL, ?, ?, ?, ?, NOW())
+          RETURNING *
+        `, [
+          tenantId, productId, locationId, adjustmentType, signedQty,
+          avgCost, qty * avgCost, newQty,
+          idempotencyKey, reason || 'Ajuste manual de inventario',
+          userId || null, userName || null
+        ]);
+
+        // 4. Create or update inventory_stock balance atomically
+        await conn.query(`
+          INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity, average_cost, last_movement_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+          ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET
+            quantity = EXCLUDED.quantity,
+            average_cost = EXCLUDED.average_cost,
+            last_movement_at = NOW(),
+            updated_at = NOW()
+        `, [tenantId, productId, locationId, newQty, avgCost]);
+
+        await conn.query('COMMIT');
+
+        return {
+          success: true,
+          movement: movementResult[0],
+          previous_stock: curQty,
+          new_stock: newQty
+        };
+      } catch (err) {
+        try { await conn.query('ROLLBACK'); } catch (_) {}
+        const isRetryable = err.code === '40001' || err.code === '40P01' || err.code === '55P03';
+        if (isRetryable && attempt < maxRetries) {
+          const jitter = Math.floor(Math.random() * 50) + attempt * 25;
+          await new Promise(r => setTimeout(r, jitter));
+          continue;
+        }
+        throw err;
+      } finally {
+        conn.release();
+      }
+    }
   }
 }
 

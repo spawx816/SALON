@@ -109,11 +109,11 @@ class InventoryPurchaseRepository {
       if (!orderRows || orderRows.length === 0) return null;
 
       const [itemRows] = await this.pool.query(`
-        SELECT poi.*, p.name as product_name, p.sku
+        SELECT poi.*, COALESCE(p.nombre, p.name) as product_name, p.sku
         FROM inventory_purchase_order_items poi
-        INNER JOIN inventory_products p ON poi.product_id = p.id AND poi.tenant_id = p.tenant_id
+        INNER JOIN services p ON poi.product_id = p.id AND poi.tenant_id = p.tenant_id
         WHERE poi.purchase_order_id = ? AND poi.tenant_id = ?
-        ORDER BY p.name ASC
+        ORDER BY COALESCE(p.nombre, p.name) ASC
       `, [orderId, tenantId]);
 
       return { ...orderRows[0], items: itemRows || [] };
