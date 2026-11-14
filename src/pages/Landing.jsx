@@ -247,42 +247,27 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
             return {
               ...p,
               code: String(p.code).toLowerCase(),
-              price_monthly: Number(p.price_monthly || (String(p.code).toLowerCase() === 'pro' ? 99 : 49)),
-              extra_user_price: Number(p.extra_user_price || 15),
-              users_included: Number(p.users_included || 3),
-              branches_included: Number(p.branches_included || 1)
-            }));
-  if (normalized.length > 0) {
-    setSaasPlans(normalized);
-  }
-  price_monthly: parseNullablePrice(rawPrice),
-    extra_user_price: parseNullablePrice(p.extra_user_price),
-      users_included: Number(p.users_per_branch ?? p.users_included ?? 3),
-        branches_included: Number(p.branches_included ?? p.max_branches ?? 1),
-          addon_memberships_price: parseNullablePrice(membershipsAddon?.price_per_branch) ?? 99
-};
-      });
-if (normalized.length > 0) {
-  setSaasPlans(normalized);
-}
-} catch {
-  // Keep canonical fallback
-}
-    };
-loadPlans();
-return () => {
-  mounted = false;
-};
+              price_monthly: parseNullablePrice(rawPrice),
+              extra_user_price: parseNullablePrice(p.extra_user_price),
+              users_included: Number(p.users_per_branch ?? p.users_included ?? 3),
+              branches_included: Number(p.branches_included ?? p.max_branches ?? 1),
+              addon_memberships_price: parseNullablePrice(membershipsAddon?.price_per_branch) ?? 99
+            };
+          });
+        if (normalized.length > 0) {
+          setSaasPlans(normalized);
+        }
+      }
     } catch {
-  setPlansError(true);
-} finally {
-  setPlansLoading(false);
-}
+      setPlansError(true);
+    } finally {
+      setPlansLoading(false);
+    }
   }, []);
 
-useEffect(() => {
-  loadPlans();
-}, [loadPlans]);
+  useEffect(() => {
+    loadPlans();
+  }, [loadPlans]);
 
 const closeAllModals = useCallback(() => {
   setIsRegisterModalOpen(false);
@@ -533,17 +518,11 @@ const unitPrice = activePlan.price_monthly !== null && activePlan.price_monthly 
 const extraUserPrice = activePlan.extra_user_price !== null && activePlan.extra_user_price !== undefined && Number(activePlan.extra_user_price) > 0
   ? Number(activePlan.extra_user_price)
   : null;
-const usersPerBranch = Number(activePlan.users_included || 3);
 const usersPerBranch = Number(activePlan.users_included ?? activePlan.users_per_branch ?? 3);
 const addonUnitPrice = Number(activePlan.addon_memberships_price ?? 99);
 const effectiveAddonBranches = wantsMembershipsAddon
   ? Math.max(1, Math.min(addonBranchesCount, branchesCount))
   : 0;
-const addonMonthlySubtotal = effectiveAddonBranches * 99;
-const monthlySubtotal =
-  unitPrice !== null
-    ? branchesCount * unitPrice + extraUsersCount * (extraUserPrice || 0)
-    : null;
 const branchesSubtotal = unitPrice !== null ? Number((branchesCount * unitPrice).toFixed(2)) : null;
 const extraUsersPendingQuote = extraUsersCount > 0 && extraUserPrice === null;
 const extraUsersSubtotal = extraUsersCount === 0
@@ -555,26 +534,16 @@ const addonMonthlySubtotal = wantsMembershipsAddon
   ? Number((effectiveAddonBranches * addonUnitPrice).toFixed(2))
   : 0;
 const totalEstimatedMonthly =
-  monthlySubtotal !== null
-    ? monthlySubtotal + addonMonthlySubtotal
-    : wantsMembershipsAddon
-      ? addonMonthlySubtotal
-    branchesSubtotal !== null && !extraUsersPendingQuote
-  ? Number((branchesSubtotal + (extraUsersSubtotal || 0) + addonMonthlySubtotal).toFixed(2))
-  : null;
+  branchesSubtotal !== null && !extraUsersPendingQuote
+    ? Number((branchesSubtotal + (extraUsersSubtotal || 0) + addonMonthlySubtotal).toFixed(2))
+    : null;
 
 const incFeatures = activePlan.included_features || {};
 const planFeaturesList = [
-  { label: 'Facturación electrónica e-CF y POS', included: true },
-  { label: 'Clientes / CRM y fichas técnicas', included: true },
   { label: 'Facturación electrónica e-CF y POS', included: incFeatures.pos !== false },
   { label: 'Control de Cajas (apertura y cierre)', included: (incFeatures.cash_registers ?? incFeatures.cajas) !== false },
   { label: 'Clientes / CRM y fichas técnicas', included: incFeatures.clients !== false },
   { label: 'Recursos humanos', included: true },
-  { label: 'Control de asistencia facial', included: true },
-  { label: 'Nómina y comisiones', included: true },
-  { label: 'Inventario avanzado multisucursal', included: true },
-  { label: 'Contabilidad y reportes DGII (606, 607, IT-1)', included: true },
   { label: 'Control de asistencia facial', included: incFeatures.attendance !== false },
   { label: 'Nómina y comisiones', included: incFeatures.payroll !== false },
   { label: 'Inventario avanzado multisucursal', included: incFeatures.inventory !== false },
@@ -986,52 +955,48 @@ return (
               </h3>
 
               <div className="et-price-row">
-                {unitPrice !== null ? (
-                  {
-                    plansLoading?(
-                    <span className = "et-price-unit" > Cargando tarifa vigente...</span>
-              ) : plansError ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: '#b91c1c' }}>
-                  No se pudo cargar la tarifa vigente.
-                </span>
-                <button
-                  type="button"
-                  onClick={loadPlans}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #cbd5e1',
-                    background: '#ffffff',
-                    color: '#0f172a',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Reintentar
-                </button>
+                {plansLoading ? (
+                  <span className="et-price-unit">Cargando tarifa vigente...</span>
+                ) : plansError ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#b91c1c' }}>
+                      No se pudo cargar la tarifa vigente.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={loadPlans}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#0f172a',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                ) : unitPrice !== null ? (
+                  <>
+                    <span className="et-price-big" style={{ color: '#2563eb' }}>US${unitPrice}</span>
+                    <span className="et-price-unit">/ mes por sucursal</span>
+                  </>
+                ) : (
+                  <span className="et-price-big" style={{ fontSize: '28px', color: '#2563eb' }}>
+                    Tarifa a consultar
+                  </span>
+                )}
               </div>
-              ) : unitPrice !== null ? (
-              <>
-                <span className="et-price-big" style={{ color: '#2563eb' }}>US${unitPrice}</span>
-                <span className="et-price-unit">/ mes por sucursal</span>
-              </>
-              ) : (
-              <span className="et-price-big" style={{ fontSize: '28px', color: '#2563eb' }}>
-                Tarifa a consultar
-              </span>
-                  )}
-            </div>
 
-            <p className="et-plan-desc" style={{ marginBottom: '18px' }}>
-              Todo lo que conecta tu operación.
-            </p>
+              <p className="et-plan-desc" style={{ marginBottom: '18px' }}>
+                Todo lo que conecta tu operación.
+              </p>
 
-            <ul className="et-check-list">
-              {planFeaturesList.map((item) => (
-                {
-                  planFeaturesList.filter((item) => item.included).map((item) => (
+              <ul className="et-check-list">
+                {planFeaturesList.filter((item) => item.included).map((item) => (
                     <li key={item.label}>
                       <Check size={15} color="#2563eb" style={{ flexShrink: 0, marginTop: 2 }} />
                       <span>{item.label}</span>
@@ -1233,7 +1198,6 @@ return (
                     Plan Principal ({branchesCount} {branchesCount === 1 ? 'sucursal' : 'sucursales'})
                   </span>
                   <span className="et-subtotal-val">
-                    {monthlySubtotal !== null ? `US$${monthlySubtotal}/mes` : 'A consultar'}
                     {plansError
                       ? 'Error de carga'
                       : branchesSubtotal !== null
@@ -1262,7 +1226,6 @@ return (
                   <>
                     <div className="et-subtotal-row" style={{ marginBottom: '6px' }}>
                       <span className="et-subtotal-label">
-                        Membresías B2C ({effectiveAddonBranches} {effectiveAddonBranches === 1 ? 'sucursal' : 'sucursales'} × US$99)
                         Suscripciones y Membresías ({effectiveAddonBranches} {effectiveAddonBranches === 1 ? 'sucursal' : 'sucursales'} × US${addonUnitPrice})
                       </span>
                       <span className="et-subtotal-val" style={{ color: '#2563eb' }}>
@@ -1274,7 +1237,6 @@ return (
                         Implementación e integración pasarela
                       </span>
                       <span className="et-subtotal-val" style={{ fontSize: '12px', color: '#475569' }}>
-                        Por separado
                         Cotización por separado
                       </span>
                     </div>
@@ -1283,12 +1245,9 @@ return (
 
                 <div className="et-subtotal-row" style={{ paddingTop: '8px', borderTop: '1px dashed #cbd5e1' }}>
                   <span className="et-subtotal-label" style={{ fontWeight: 700, color: '#0f172a' }}>
-                    Total mensual estimado
                     Total mensual
                   </span>
-                  <span className="et-subtotal-val" style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
-                    {monthlySubtotal !== null
-                      < span className="et-subtotal-val" style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', textAlign: 'right' }}>
+                  <span className="et-subtotal-val" style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', textAlign: 'right' }}>
                     {plansError
                       ? 'Error al cargar'
                       : totalEstimatedMonthly !== null
