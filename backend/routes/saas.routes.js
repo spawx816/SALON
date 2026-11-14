@@ -4,7 +4,11 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { createAuthMiddleware, signAuthToken } = require('../middleware/auth.middleware');
 const {
+  SAAS_PLANS,
+  SAAS_ADDONS,
+  CANONICAL_PLAN_FEATURES,
   CANONICAL_PLANS_CATALOG,
+  MEMBERSHIPS_ADDON_DEFAULT_USD,
   normalizePlanCode,
   isValidPlanCode
 } = require('../services/saas_catalog.constants');
@@ -363,9 +367,16 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
+  const parseOptionalPrice = (val) => {
+    if (val === null || val === undefined || String(val).trim() === '') return null;
+    const n = Number(val);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+
   // GET /api/saas/plans - Obtener catálogo SaaS vigente (Plan Principal único)
   router.get('/plans', async (req, res) => {
     try {
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
       const publicOnly = req.query.public_only === 'true';
       if (!publicOnly) {
         const isSa = await isCallerSuperAdmin(req);
@@ -378,20 +389,42 @@ function createSaasRouter(pool, options = {}) {
       }
 
       if (pool) {
-        const query = "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' ORDER BY id ASC";
+        const query = publicOnly
+          ? "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' AND is_public = true AND is_active = true ORDER BY id ASC"
+          : "SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' ORDER BY id ASC";
         const [plans] = await pool.query(query);
         if (plans && plans.length > 0) {
           let planFeaturesRows = [];
           try {
             const [pf] = await pool.query('SELECT plan_code, feature_key, is_included FROM saas_plan_features');
             planFeaturesRows = pf || [];
-          } catch (_) {}
+          } catch (_) { }
+
+          const canonicalDefaults = CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL] || {};
+          const addonCatalog = [
+            {
+              code: SAAS_ADDONS.MEMBERSHIPS,
+              name: 'Suscripciones y Membresías',
+              price_per_branch: MEMBERSHIPS_ADDON_DEFAULT_USD,
+              currency: 'USD',
+              implementation_separate: true
+            }
+          ];
 
           return res.json(plans.map(p => {
             const normCode = normalizePlanCode(p.code);
-            const baseIncluded = (typeof p.included_features === 'object' && p.included_features !== null)
+            const rawIncluded = (typeof p.included_features === 'object' && p.included_features !== null)
               ? { ...p.included_features }
               : {};
+            if (rawIncluded.cajas !== undefined && rawIncluded.cash_registers === undefined) {
+              rawIncluded.cash_registers = Boolean(rawIncluded.cajas);
+            }
+            delete rawIncluded.cajas;
+
+            const baseIncluded = normCode === SAAS_PLANS.PRINCIPAL
+              ? { ...canonicalDefaults, ...rawIncluded }
+              : { ...rawIncluded };
+
             const matrixForPlan = planFeaturesRows.filter(
               r => String(r.plan_code || '').toUpperCase() === String(p.code || '').toUpperCase() || normalizePlanCode(r.plan_code) === normCode
             );
@@ -402,12 +435,29 @@ function createSaasRouter(pool, options = {}) {
             if (normCode === 'PRINCIPAL') {
               baseIncluded.memberships = false;
             }
+
+            const canonicalMonthly = parseOptionalPrice(p.price_monthly ?? p.price_per_branch ?? p.price);
+            const canonicalPerBranch = parseOptionalPrice(p.price_per_branch ?? p.price_monthly ?? p.price);
+            const canonicalExtraUser = parseOptionalPrice(p.extra_user_price);
+            const usersPerBranch = parseInt(p.users_per_branch, 10) || 3;
+
             return {
               ...p,
               code: normCode,
-              included_features: baseIncluded
+              currency: p.currency || 'USD',
+              price: canonicalPerBranch,
+              price_per_branch: canonicalPerBranch,
+              price_monthly: canonicalMonthly,
+              extra_user_price: canonicalExtraUser,
+              users_per_branch: usersPerBranch,
+              users_included: usersPerBranch,
+              included_features: baseIncluded,
+              addons: addonCatalog
             };
           }));
+        }
+        if (publicOnly) {
+          return res.json([]);
         }
       }
 
@@ -539,21 +589,24 @@ function createSaasRouter(pool, options = {}) {
       const nextName = body.name !== undefined ? body.name : existing.name;
       const nextDescription = body.description !== undefined ? body.description : (existing.description || '');
       const nextBadgeText = body.badge_text !== undefined ? body.badge_text : (existing.badge_text || '');
-      const nextPricePerBranch = body.price_per_branch !== undefined
-        ? (parseFloat(body.price_per_branch) || 0)
-        : Number(existing.price_per_branch ?? existing.price ?? 0);
+      const parsedPerBranch = body.price_per_branch !== undefined
+        ? parseOptionalPrice(body.price_per_branch)
+        : parseOptionalPrice(existing.price_per_branch ?? existing.price);
+      const nextPricePerBranch = parsedPerBranch !== null ? parsedPerBranch : 0;
       const nextPriceMonthly = body.price_monthly !== undefined
-        ? (parseFloat(body.price_monthly) || 0)
-        : (existing.price_monthly !== null && existing.price_monthly !== undefined ? Number(existing.price_monthly) : nextPricePerBranch);
+        ?parseOptionalPrice(body.price_monthly)
+        : (body.price_per_branch !== undefined
+        ? parsedPerBranch
+        : parseOptionalPrice(existing.price_monthly ?? existing.price_per_branch ?? existing.price));
       const nextPriceYearly = body.price_yearly !== undefined
-        ? (parseFloat(body.price_yearly) || 0)
-        : Number(existing.price_yearly ?? 0);
+          ? (parseOptionalPrice(body.price_yearly) ?? 0)
+          : Number(existing.price_yearly ?? 0);
       const nextUsersPerBranch = body.users_per_branch !== undefined
         ? (parseInt(body.users_per_branch, 10) || 1)
         : Number(existing.users_per_branch ?? 3);
       const nextExtraUserPrice = body.extra_user_price !== undefined
-        ? (parseFloat(body.extra_user_price) || 0)
-        : Number(existing.extra_user_price ?? 0);
+        ?parseOptionalPrice(body.extra_user_price)
+        : parseOptionalPrice(existing.extra_user_price);
       const nextMaxBranches = body.max_branches !== undefined
         ? (parseInt(body.max_branches, 10) || 1)
         : Number(existing.max_branches ?? 1);
@@ -568,9 +621,21 @@ function createSaasRouter(pool, options = {}) {
       const baseFeatures = (typeof existing.included_features === 'object' && existing.included_features !== null)
         ? { ...existing.included_features }
         : {};
-      const incomingFeatures = (typeof body.included_features === 'object' && body.included_features !== null && !Array.isArray(body.included_features))
-        ? body.included_features
+      if (baseFeatures.cajas !== undefined && baseFeatures.cash_registers === undefined) {
+        baseFeatures.cash_registers = Boolean(baseFeatures.cajas);
+      }
+      delete baseFeatures.cajas;
+
+      const rawIncoming = (typeof body.included_features === 'object' && body.included_features !== null && !Array.isArray(body.included_features))
+        ? { ...body.included_features }
         : null;
+      if (rawIncoming) {
+        if (rawIncoming.cajas !== undefined && rawIncoming.cash_registers === undefined) {
+          rawIncoming.cash_registers = Boolean(rawIncoming.cajas);
+        }
+        delete rawIncoming.cajas;
+      }
+      const incomingFeatures = rawIncoming;
       const mergedFeatures = incomingFeatures ? { ...baseFeatures, ...incomingFeatures } : baseFeatures;
 
       // Modelo comercial vigente: Clientes e Inventario incluidos; Membresías B2C es add-on independiente
@@ -642,7 +707,7 @@ function createSaasRouter(pool, options = {}) {
             action: 'SAAS_PLAN_UPDATED',
             details: { planId: id, planCode: existing.code, updatedFields: Object.keys(body) }
           });
-        } catch (_) {}
+        } catch (_) { }
       }
 
       await conn.commit();

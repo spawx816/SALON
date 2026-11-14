@@ -77,7 +77,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       reports: true,
       services_catalog: true,
       clients: true,
-      cajas: true,
+      cash_registers: true,
       memberships: false // Desacoplado por defecto, Add-on
     }
   });
@@ -293,24 +293,36 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   };
 
   const openEditPlanModal = (plan) => {
+    const rawFeatures = typeof plan.included_features === 'object' && plan.included_features !== null
+      ? plan.included_features
+      : {};
+    const normalizedFeatures = {
+      pos: true,
+      inventory: true,
+      payroll: true,
+      attendance: true,
+      dgii_ecf: true,
+      reports: true,
+      services_catalog: true,
+      ...rawFeatures,
+      cash_registers: Boolean(rawFeatures.cash_registers ?? rawFeatures.cajas ?? true),
+      clients: Boolean(rawFeatures.clients ?? true),
+      memberships: false
+    };
+    delete normalizedFeatures.cajas;
+
     setEditingPlan(plan);
     setPlanFormData({
       name: plan.name,
       code: plan.code,
       description: plan.description || '',
-      price_per_branch: parseFloat(plan.price_per_branch || plan.price || 49),
-      users_per_branch: parseInt(plan.users_per_branch || 3),
-      extra_user_price: parseFloat(plan.extra_user_price || 15),
+      price_per_branch: plan.price_per_branch ?? plan.price_monthly ?? plan.price ?? '',
+      users_per_branch: parseInt(plan.users_per_branch, 10) || 3,
+      extra_user_price: plan.extra_user_price ?? '',
       billing_cycle: plan.billing_cycle || 'monthly',
       is_public: Boolean(plan.is_public),
       is_active: Boolean(plan.is_active),
-      included_features: typeof plan.included_features === 'object' && plan.included_features !== null 
-        ? plan.included_features 
-        : {
-            pos: true, inventory: true, payroll: true, attendance: true,
-            dgii_ecf: true, reports: true, services_catalog: true,
-            clients: true, cajas: true, memberships: false
-          }
+      included_features: normalizedFeatures
     });
     setIsPlanModalOpen(true);
   };
@@ -321,9 +333,9 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       name: '',
       code: '',
       description: '',
-      price_per_branch: 49.00,
+      price_per_branch: 99.00,
       users_per_branch: 3,
-      extra_user_price: 15.00,
+      extra_user_price: 30.00,
       billing_cycle: 'monthly',
       is_public: true,
       is_active: true,
@@ -336,7 +348,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         reports: true,
         services_catalog: true,
         clients: true,
-        cajas: true,
+        cash_registers: true,
         memberships: false // Membresías desacoplado por defecto
       }
     });
@@ -1065,13 +1077,17 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                           {features.reports ? <Check size={14} color="#10b981" /> : <X size={14} color="#cbd5e1" />}
                           Reportes Analítica
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: features.cajas ? '#0f172a' : '#94a3b8' }}>
-                          {features.cajas ? <Check size={14} color="#10b981" /> : <X size={14} color="#cbd5e1" />}
-                          Control Cajas
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: (features.cash_registers ?? features.cajas) ? '#0f172a' : '#94a3b8' }}>
+                          {(features.cash_registers ?? features.cajas) ? <Check size={14} color="#10b981" /> : <X size={14} color="#cbd5e1" />}
+                          Control de Cajas
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: features.services_catalog ? '#0f172a' : '#94a3b8' }}>
                           {features.services_catalog ? <Check size={14} color="#10b981" /> : <X size={14} color="#cbd5e1" />}
                           Catálogo Servicios
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: features.clients ? '#0f172a' : '#94a3b8' }}>
+                          {features.clients ? <Check size={14} color="#10b981" /> : <X size={14} color="#cbd5e1" />}
+                          Clientes / CRM
                         </div>
                       </div>
 
@@ -1088,7 +1104,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                         justifyContent: 'space-between'
                       }}>
                         <span style={{ fontWeight: '700', color: features.memberships ? '#db2777' : '#64748b' }}>
-                          🎟️ Membresías (Plan Beauty)
+                          🎟️ Suscripciones y Membresías
                         </span>
                         <span style={{ fontWeight: '800', color: features.memberships ? '#db2777' : '#94a3b8' }}>
                           {features.memberships ? 'Incluido en Plan' : 'Add-on US$99/mes por sucursal + implementación'}
@@ -1275,7 +1291,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     <input
                       type="number"
                       step="0.01"
-                      required
+                      placeholder="Pendiente de cotización"
                       value={planFormData.extra_user_price}
                       onChange={(e) => setPlanFormData({ ...planFormData, extra_user_price: e.target.value })}
                       style={{ width: '100%', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.5rem 0.75rem', fontSize: '0.875rem', boxSizing: 'border-box' }}
@@ -1297,10 +1313,10 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     { key: 'attendance', label: 'Kiosco Asistencia & Ponches' },
                     { key: 'dgii_ecf', label: 'Facturación DGII e-CF' },
                     { key: 'reports', label: 'Reportes y Analítica' },
-                    { key: 'cajas', label: 'Apertura y Cierre de Cajas' },
+                    { key: 'cash_registers', label: 'Control de Cajas (Apertura y Cierre)' },
                     { key: 'services_catalog', label: 'Catálogo de Servicios' },
                     { key: 'clients', label: 'Directorio de Clientes / CRM' },
-                    { key: 'memberships', label: 'Membresías B2C (Add-on independiente US$99/mes/sucursal)', lockedOff: true }
+                    { key: 'memberships', label: 'Suscripciones y Membresías (Add-on independiente US$99/mes/sucursal)', lockedOff: true }
                   ].map(f => (
                     <label key={f.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: f.lockedOff ? '#94a3b8' : '#334155', cursor: f.lockedOff ? 'not-allowed' : 'pointer' }}>
                       <input
