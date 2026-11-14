@@ -371,8 +371,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         setRegError('Ingresa el nombre comercial de tu empresa o salón.');
         return;
       }
-      if (!ownerPassword || ownerPassword.length < 6) {
-        setRegError('Define una contraseña de acceso de al menos 6 caracteres.');
+      if (!ownerPassword || ownerPassword.length < 8) {
+        setRegError('Define una contraseña de acceso de al menos 8 caracteres.');
         return;
       }
       setRegStep(3);
@@ -943,6 +943,36 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   ))}
                 </ul>
 
+                <div
+                  style={{
+                    marginTop: '14px',
+                    marginBottom: '14px',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    border: '1px solid #dbeafe',
+                    background: '#f8fafc',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      letterSpacing: '0.06em',
+                      color: '#2563eb',
+                      textTransform: 'uppercase',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    Módulo adicional opcional · Suscripciones y Membresías B2C
+                  </div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
+                    US$99/mes por sucursal + implementación e integración con pasarela de pago
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px' }}>
+                    Se contrata únicamente por sucursal habilitada. La implementación se cotiza por separado.
+                  </div>
+                </div>
+
                 <button
                   type="button"
                   className="et-details-btn"
@@ -1239,7 +1269,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                           className="et-input has-toggle"
                           value={ownerPassword}
                           onChange={(e) => setOwnerPassword(e.target.value)}
-                          placeholder="Mínimo 6 caracteres"
+                          placeholder="Mínimo 8 caracteres"
                           required
                         />
                         <button
