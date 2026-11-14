@@ -43,7 +43,7 @@ async function up(targetPool = defaultPool, targetSchema = 'public') {
       CREATE TABLE IF NOT EXISTS ${schema}.inventory_alert_overrides (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id UUID NOT NULL REFERENCES ${schema}.tenants(id) ON DELETE CASCADE,
-        product_id INTEGER NOT NULL REFERENCES ${schema}.services(id) ON DELETE CASCADE,
+        product_id UUID NOT NULL REFERENCES ${schema}.services(id) ON DELETE CASCADE,
         location_id UUID NULL REFERENCES ${schema}.inventory_locations(id) ON DELETE CASCADE,
         alerts_enabled BOOLEAN NULL,
         min_stock NUMERIC(14,4) NULL CHECK (min_stock IS NULL OR min_stock >= 0),
@@ -69,7 +69,7 @@ async function up(targetPool = defaultPool, targetSchema = 'public') {
       CREATE TABLE IF NOT EXISTS ${schema}.inventory_alert_states (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id UUID NOT NULL REFERENCES ${schema}.tenants(id) ON DELETE CASCADE,
-        product_id INTEGER NOT NULL REFERENCES ${schema}.services(id) ON DELETE CASCADE,
+        product_id UUID NOT NULL REFERENCES ${schema}.services(id) ON DELETE CASCADE,
         location_id UUID NOT NULL REFERENCES ${schema}.inventory_locations(id) ON DELETE CASCADE,
         is_in_low_stock BOOLEAN NOT NULL DEFAULT FALSE,
         last_threshold NUMERIC(14,4),
@@ -96,3 +96,4 @@ async function up(targetPool = defaultPool, targetSchema = 'public') {
 }
 
 module.exports = { up };
+

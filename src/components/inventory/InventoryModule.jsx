@@ -100,7 +100,7 @@ export default function InventoryModule() {
     setSavingAlerts(true);
     try {
       await dataService.upsertInventoryAlertOverride({
-        product_id: Number(overrideForm.product_id),
+        product_id: overrideForm.product_id,
         location_id: overrideForm.location_id || null,
         min_stock: overrideForm.min_stock === '' ? null : Number(overrideForm.min_stock),
         alerts_enabled:
