@@ -38,8 +38,10 @@ export const EntitlementsProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const lastFetchedAtRef = useRef(0);
 
+  const isSuperAdminUser = Boolean(user?.isSuperAdmin || String(user?.role || '').toLowerCase() === 'superadmin');
+
   const fetchEntitlements = useCallback(async () => {
-    if (!user || user.isSuperAdmin) {
+    if (!user || isSuperAdminUser) {
       setLoading(false);
       return;
     }
@@ -75,7 +77,7 @@ export const EntitlementsProvider = ({ children }) => {
   }, [fetchEntitlements]);
 
   useEffect(() => {
-    if (!user || user.isSuperAdmin) return undefined;
+    if (!user || isSuperAdminUser) return undefined;
     const handleRevalidate = () => {
       if (document.visibilityState === 'hidden') return;
       if (Date.now() - lastFetchedAtRef.current >= 5000) {

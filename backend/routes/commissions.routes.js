@@ -39,7 +39,7 @@ function createCommissionsRouter(pool, processVisitCommissions, processBatchVisi
       let query = `
         SELECT c.*, s.localidad as emp_localidad 
         FROM employee_commissions_log c
-        LEFT JOIN staff_records s ON c.employee_id = s.id::text AND s.tenant_id = c.tenant_id
+        LEFT JOIN staff_records s ON c.employee_id::text = s.id::text AND s.tenant_id = c.tenant_id
         WHERE c.tenant_id = ?
       `;
       const params = [tenantId];

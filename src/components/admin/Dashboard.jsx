@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Users, TrendingUp, DollarSign, CalendarCheck, ArrowUpRight, 
+import {
+  Users, TrendingUp, DollarSign, CalendarCheck, ArrowUpRight,
   ShieldCheck, Award, User, X, BarChart3, MoreHorizontal, Sparkles
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
@@ -172,17 +172,17 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
         {/* Action Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', position: 'relative' }}>
           <div style={{ display: 'flex', background: '#f1f5f9', padding: '0.25rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <button 
+            <button
               type="button"
-              onClick={() => setViewType('bars')} 
-              style={{ 
-                background: viewType === 'bars' ? '#09090b' : 'transparent', 
+              onClick={() => setViewType('bars')}
+              style={{
+                background: viewType === 'bars' ? '#09090b' : 'transparent',
                 color: viewType === 'bars' ? '#ffffff' : '#64748b',
-                border: 'none', 
-                borderRadius: '8px', 
-                padding: '0.4rem 0.65rem', 
-                display: 'flex', 
-                alignItems: 'center', 
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.4rem 0.65rem',
+                display: 'flex',
+                alignItems: 'center',
                 cursor: 'pointer',
                 transition: 'all 0.2s',
                 boxShadow: viewType === 'bars' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none'
@@ -191,17 +191,17 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
             >
               <BarChart3 size={16} />
             </button>
-            <button 
+            <button
               type="button"
-              onClick={() => setViewType('line')} 
-              style={{ 
-                background: viewType === 'line' ? '#09090b' : 'transparent', 
+              onClick={() => setViewType('line')}
+              style={{
+                background: viewType === 'line' ? '#09090b' : 'transparent',
                 color: viewType === 'line' ? '#ffffff' : '#64748b',
-                border: 'none', 
-                borderRadius: '8px', 
-                padding: '0.4rem 0.65rem', 
-                display: 'flex', 
-                alignItems: 'center', 
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.4rem 0.65rem',
+                display: 'flex',
+                alignItems: 'center',
                 cursor: 'pointer',
                 transition: 'all 0.2s',
                 boxShadow: viewType === 'line' ? '0 2px 6px rgba(0,0,0,0.1)' : 'none'
@@ -212,15 +212,15 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
             </button>
           </div>
 
-          <button 
+          <button
             type="button"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            style={{ 
-              background: isMenuOpen ? '#09090b' : '#f8fafc', 
-              border: '1px solid #e2e8f0', 
-              borderRadius: '12px', 
-              padding: '0.4rem 0.65rem', 
-              color: isMenuOpen ? '#ffffff' : '#64748b', 
+            style={{
+              background: isMenuOpen ? '#09090b' : '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              padding: '0.4rem 0.65rem',
+              color: isMenuOpen ? '#ffffff' : '#64748b',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -234,9 +234,9 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
           {/* 3-Dots Dropdown Menu */}
           {isMenuOpen && (
             <>
-              <div 
-                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} 
-                onClick={() => setIsMenuOpen(false)} 
+              <div
+                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }}
+                onClick={() => setIsMenuOpen(false)}
               />
               <div style={{
                 position: 'absolute',
@@ -323,7 +323,7 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
 
       {/* Chart Canvas Area */}
       <div style={{ position: 'relative', height: '330px', width: '100%', display: 'flex', alignItems: 'flex-end', paddingTop: '40px', paddingBottom: '30px' }}>
-        
+
         {/* Horizontal Background Grid Lines */}
         <div style={{ position: 'absolute', top: 40, left: 0, right: 0, bottom: 30, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pointerEvents: 'none' }}>
           {yTicks.map((tickVal, idx) => (
@@ -338,7 +338,7 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
 
         {/* Content Container (Bars vs Line Trend) */}
         <div style={{ position: 'relative', zIndex: 2, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr) 1.25fr', width: '100%', height: '100%', paddingLeft: '90px', gap: '0.75rem' }}>
-          
+
           {/* First 7 Daily Columns */}
           {days.map((day, idx) => {
             const curHeightPct = day.isFuture ? 0 : Math.min(Math.max((Number(day.currentAmount || 0) / ceiling) * 100, (day.currentAmount > 0 ? 4 : 0)), 100);
@@ -347,7 +347,7 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
 
             return (
               <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', position: 'relative' }}>
-                
+
                 {/* Metric Tooltip / Amount Above Bars */}
                 <div style={{ textAlign: 'center', marginBottom: '0.5rem', whiteSpace: 'nowrap' }}>
                   <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: day.isFuture ? '#94a3b8' : '#09090b', letterSpacing: '-0.01em' }}>
@@ -358,9 +358,9 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
                       —
                     </span>
                   ) : (
-                    <span style={{ 
-                      fontSize: '0.68rem', 
-                      fontWeight: 700, 
+                    <span style={{
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
                       color: isPositive ? '#16a34a' : '#dc2626',
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -376,29 +376,29 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
                 {viewType === 'bars' && (
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: '5px', height: '165px', width: '100%', justifyContent: 'center' }}>
                     {/* Current Week Bar */}
-                    <div 
+                    <div
                       title={`Esta semana (${day.dayName}): RD$ ${Number(day.currentAmount || 0).toLocaleString()}`}
-                      style={{ 
-                        width: '42%', 
+                      style={{
+                        width: '42%',
                         maxWidth: '30px',
-                        height: `${curHeightPct}%`, 
-                        background: 'linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)', 
+                        height: `${curHeightPct}%`,
+                        background: 'linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)',
                         borderRadius: '8px 8px 0 0',
                         transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
                         boxShadow: '0 4px 10px rgba(37, 99, 235, 0.2)'
-                      }} 
+                      }}
                     />
                     {/* Previous Week Bar */}
-                    <div 
+                    <div
                       title={`Semana anterior: RD$ ${Number(day.previousAmount || 0).toLocaleString()}`}
-                      style={{ 
-                        width: '42%', 
+                      style={{
+                        width: '42%',
                         maxWidth: '30px',
-                        height: `${prevHeightPct}%`, 
-                        background: '#dbeafe', 
+                        height: `${prevHeightPct}%`,
+                        background: '#dbeafe',
                         borderRadius: '8px 8px 0 0',
                         transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
-                      }} 
+                      }}
                     />
                   </div>
                 )}
@@ -408,7 +408,7 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
                   <div style={{ display: 'flex', alignItems: 'flex-end', height: '165px', width: '100%', justifyContent: 'center', position: 'relative' }}>
                     {/* Dot Current Week */}
                     {!day.isFuture && (
-                      <div 
+                      <div
                         title={`Esta semana: RD$ ${Number(day.currentAmount || 0).toLocaleString()}`}
                         style={{
                           position: 'absolute',
@@ -425,7 +425,7 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
                       />
                     )}
                     {/* Dot Prev Week */}
-                    <div 
+                    <div
                       title={`Semana anterior: RD$ ${Number(day.previousAmount || 0).toLocaleString()}`}
                       style={{
                         position: 'absolute',
@@ -454,12 +454,12 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
           })}
 
           {/* 8th Column: Mes en Curso */}
-          <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            alignItems: 'center', 
-            justifyContent: 'flex-end', 
-            height: '100%', 
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            height: '100%',
             position: 'relative',
             borderLeft: '2px dashed #cbd5e1',
             paddingLeft: '0.75rem'
@@ -470,9 +470,9 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
                 RD$ {Number(month.total || 0).toLocaleString()}
               </p>
               {month.variationPercent !== null && month.variationPercent !== undefined && (
-                <span style={{ 
-                  fontSize: '0.7rem', 
-                  fontWeight: 800, 
+                <span style={{
+                  fontSize: '0.7rem',
+                  fontWeight: 800,
                   color: month.variationPercent >= 0 ? '#16a34a' : '#dc2626',
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -486,17 +486,17 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
 
             {/* Month Bar / Metric */}
             <div style={{ display: 'flex', alignItems: 'flex-end', height: '165px', width: '100%', justifyContent: 'center' }}>
-              <div 
+              <div
                 title={`Total Mes: RD$ ${Number(month.total || 0).toLocaleString()} (Comparado del 1 al día actual del mes anterior: ${month.variationPercent >= 0 ? '+' : ''}${month.variationPercent}%)`}
-                style={{ 
-                  width: '55%', 
+                style={{
+                  width: '55%',
                   maxWidth: '42px',
-                  height: '82%', 
-                  background: 'linear-gradient(180deg, #6366f1 0%, #4f46e5 100%)', 
+                  height: '82%',
+                  background: 'linear-gradient(180deg, #6366f1 0%, #4f46e5 100%)',
                   borderRadius: '10px 10px 0 0',
                   boxShadow: '0 6px 16px rgba(79, 70, 229, 0.25)',
                   transition: 'height 0.4s ease-out'
-                }} 
+                }}
               />
             </div>
 
@@ -676,7 +676,7 @@ const VisitasPorLocalidadChart = ({ data, loading = false, error = null, onRefre
 
         {/* Content: Donut + Ranking */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(190px, 220px) 1fr', gap: '1.5rem', alignItems: 'center', margin: '0.5rem 0 1.25rem' }}>
-          
+
           {/* Left: Donut SVG */}
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
             <svg width="220" height="220" viewBox="0 0 220 220" style={{ overflow: 'visible' }}>
@@ -811,17 +811,17 @@ const MetricCard = ({ title, value, trend, icon: Icon, color = '#09090b', bg = '
     </div>
     {onViewDetails && (
       <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px dashed #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
-        <button 
+        <button
           onClick={onViewDetails}
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            color: color, 
-            fontSize: '0.75rem', 
-            fontWeight: 700, 
-            cursor: 'pointer', 
-            display: 'flex', 
-            alignItems: 'center', 
+          style={{
+            background: 'none',
+            border: 'none',
+            color: color,
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
             gap: '0.3rem',
             padding: '0.2rem 0'
           }}
@@ -863,16 +863,16 @@ const Dashboard = () => {
 
   const isPlanBeautyVisit = (v) => {
     if (!v) return false;
-    const isGuest = !v.client_id || 
-                    v.client_id === 'INVITADO' || 
-                    v.client_id === 'generico' || 
-                    (typeof v.client_id === 'string' && v.client_id.toLowerCase().includes('invitado')) ||
-                    (v.client_name && v.client_name.toLowerCase().includes('invitado'));
+    const isGuest = !v.client_id ||
+      v.client_id === 'INVITADO' ||
+      v.client_id === 'generico' ||
+      (typeof v.client_id === 'string' && v.client_id.toLowerCase().includes('invitado')) ||
+      (v.client_name && v.client_name.toLowerCase().includes('invitado'));
     if (isGuest) return false;
 
     const paymentIsPlan = typeof v.metodo_pago === 'string' && v.metodo_pago.toLowerCase().includes('plan');
     const serviceIsPlan = (typeof v.servicios === 'string' && v.servicios.toLowerCase().includes('plan')) ||
-                          (Array.isArray(v.servicios) && v.servicios.some(s => typeof s === 'string' && s.toLowerCase().includes('plan')));
+      (Array.isArray(v.servicios) && v.servicios.some(s => typeof s === 'string' && s.toLowerCase().includes('plan')));
     const hasPlanBenefit = Boolean(v.is_plan_benefit || v.plan_name || v.membership);
 
     return Boolean(paymentIsPlan || serviceIsPlan || hasPlanBenefit);
@@ -1025,7 +1025,7 @@ const Dashboard = () => {
       // 4. Mapear filas con formatos limpios y medibles
       const rows = visits.map(v => {
         const visitedDate = v.visited_at ? new Date(v.visited_at) : null;
-        const formattedDate = visitedDate 
+        const formattedDate = visitedDate
           ? `${visitedDate.getFullYear()}-${String(visitedDate.getMonth() + 1).padStart(2, '0')}-${String(visitedDate.getDate()).padStart(2, '0')} ${String(visitedDate.getHours()).padStart(2, '0')}:${String(visitedDate.getMinutes()).padStart(2, '0')}`
           : 'N/A';
 
@@ -1082,45 +1082,45 @@ const Dashboard = () => {
         </div>
       )}
       <div className="metrics-grid" style={{ marginTop: 0, paddingTop: 0 }}>
-        <MetricCard 
-          title="Visitas de Hoy" 
-          value={stats.visits || 0} 
-          trend="Real-time" 
-          icon={CalendarCheck} 
-          color="#3b82f6" 
-          bg="#eff6ff" 
+        <MetricCard
+          title="Visitas de Hoy"
+          value={stats.visits || 0}
+          trend="Real-time"
+          icon={CalendarCheck}
+          color="#3b82f6"
+          bg="#eff6ff"
           loading={isLoadingSummary}
           onViewDetails={() => setActiveDetailModal('visits')}
         />
         {hasProPlan && (
-          <MetricCard 
-            title="Membresías Activas" 
-            value={stats.clients || 0} 
-            trend="Live" 
-            icon={Users} 
-            color="#10b981" 
-            bg="#ecfdf5" 
+          <MetricCard
+            title="Membresías Activas"
+            value={stats.clients || 0}
+            trend="Live"
+            icon={Users}
+            color="#10b981"
+            bg="#ecfdf5"
             loading={isLoadingSummary}
             onViewDetails={() => setActiveDetailModal('memberships')}
           />
         )}
-        <MetricCard 
-          title="Ventas Diarias" 
-          value={`RD$ ${stats.dailySales ? Number(stats.dailySales).toLocaleString(undefined, {maximumFractionDigits:0}) : '0'}`} 
-          trend="Hoy" 
-          icon={TrendingUp} 
-          color="#8b5cf6" 
-          bg="#f5f3ff" 
+        <MetricCard
+          title="Ventas Diarias"
+          value={`RD$ ${stats.dailySales ? Number(stats.dailySales).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '0'}`}
+          trend="Hoy"
+          icon={TrendingUp}
+          color="#8b5cf6"
+          bg="#f5f3ff"
           loading={isLoadingSummary}
           onViewDetails={() => setActiveDetailModal('dailySales')}
         />
-        <MetricCard 
-          title="Ingresos Estimados" 
-          value={`RD$ ${stats.revenue ? Number(stats.revenue).toLocaleString() : '0'}`} 
-          trend="Monthly" 
-          icon={DollarSign} 
-          color="#09090b" 
-          bg="#f1f5f9" 
+        <MetricCard
+          title="Ingresos Estimados"
+          value={`RD$ ${stats.revenue ? Number(stats.revenue).toLocaleString() : '0'}`}
+          trend="Monthly"
+          icon={DollarSign}
+          color="#09090b"
+          bg="#f1f5f9"
           loading={isLoadingSummary}
         />
       </div>
@@ -1138,15 +1138,15 @@ const Dashboard = () => {
         <div className="surface-card" style={{ marginTop: '1.5rem', border: '1px solid #e2e8f0', background: 'white' }}>
           <div className="chart-header" style={{ marginBottom: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-               <div style={{ background: '#09090b', color: 'white', padding: '0.5rem', borderRadius: '12px' }}>
-                 <Users size={18} />
-               </div>
-               <div>
-                 <h3 className="chart-title">Monitor de Seguridad</h3>
-                 <p className="chart-subtitle">Códigos activos para autorizar servicios en recepción.</p>
-               </div>
+              <div style={{ background: '#09090b', color: 'white', padding: '0.5rem', borderRadius: '12px' }}>
+                <Users size={18} />
+              </div>
+              <div>
+                <h3 className="chart-title">Monitor de Seguridad</h3>
+                <p className="chart-subtitle">Códigos activos para autorizar servicios en recepción.</p>
+              </div>
             </div>
-            <button 
+            <button
               onClick={async () => {
                 const security = await dataService.getSecurityRequests();
                 setSecurityRequests(security);
@@ -1156,38 +1156,38 @@ const Dashboard = () => {
               🔄 Sincronizar
             </button>
           </div>
-          
+
           {securityRequests.length > 0 ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
               {securityRequests.map((req, idx) => (
                 <div key={idx} style={{ background: '#fafafa', padding: '1.5rem', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1.25rem' }}>
-                     <div>
-                       <p style={{ fontSize: '1rem', fontWeight: 900, margin: 0, color: '#09090b' }}>{req.client_name}</p>
-                       <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.25rem 0 0', fontWeight: 500 }}>Solicitado: {new Date(req.created_at).toLocaleTimeString()}</p>
-                     </div>
-                     <span style={{ fontSize: '0.65rem', fontWeight: 800, background: '#fefce8', color: '#a16207', padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #fef08a' }}>PENDIENTE</span>
+                    <div>
+                      <p style={{ fontSize: '1rem', fontWeight: 900, margin: 0, color: '#09090b' }}>{req.client_name}</p>
+                      <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.25rem 0 0', fontWeight: 500 }}>Solicitado: {new Date(req.created_at).toLocaleTimeString()}</p>
+                    </div>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 800, background: '#fefce8', color: '#a16207', padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #fef08a' }}>PENDIENTE</span>
                   </div>
                   <div style={{ background: 'white', padding: '1rem', borderRadius: '16px', border: '1px solid #f1f5f9', marginBottom: '1.25rem' }}>
-                     <p style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '0.4rem', textTransform: 'uppercase' }}>Servicio Solicitado</p>
-                     <p style={{ fontSize: '0.85rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>{req.service_name}</p>
+                    <p style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '0.4rem', textTransform: 'uppercase' }}>Servicio Solicitado</p>
+                    <p style={{ fontSize: '0.85rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>{req.service_name}</p>
                   </div>
                   <div style={{ textAlign: 'center', padding: '1.25rem', background: '#09090b', borderRadius: '18px', boxShadow: '0 10px 20px rgba(0,0,0,0.1)' }}>
-                     <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Código para Recepción</p>
-                     <p style={{ fontSize: '2rem', fontWeight: 900, color: '#d4af37', letterSpacing: '6px', margin: 0, fontFamily: 'monospace' }}>
-                       {req.active_code}
-                     </p>
+                    <p style={{ fontSize: '0.65rem', fontWeight: 800, color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Código para Recepción</p>
+                    <p style={{ fontSize: '2rem', fontWeight: 900, color: '#d4af37', letterSpacing: '6px', margin: 0, fontFamily: 'monospace' }}>
+                      {req.active_code}
+                    </p>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '3.5rem 2rem', background: '#f8fafc', borderRadius: '24px', border: '1px dashed #cbd5e1' }}>
-               <div style={{ width: '56px', height: '56px', background: '#f1f5f9', borderRadius: '50%', margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                 <ShieldCheck size={28} />
-               </div>
-               <h4 style={{ color: '#334155', fontWeight: 800, fontSize: '1.05rem', marginBottom: '0.4rem' }}>Sistema Seguro</h4>
-               <p style={{ color: '#64748b', fontWeight: 500, fontSize: '0.85rem' }}>No hay solicitudes de seguridad activas en este momento.</p>
+              <div style={{ width: '56px', height: '56px', background: '#f1f5f9', borderRadius: '50%', margin: '0 auto 1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                <ShieldCheck size={28} />
+              </div>
+              <h4 style={{ color: '#334155', fontWeight: 800, fontSize: '1.05rem', marginBottom: '0.4rem' }}>Sistema Seguro</h4>
+              <p style={{ color: '#64748b', fontWeight: 500, fontSize: '0.85rem' }}>No hay solicitudes de seguridad activas en este momento.</p>
             </div>
           )}
         </div>
@@ -1210,8 +1210,8 @@ const Dashboard = () => {
               <h3 className="chart-title">{t('dash.recent.title')}</h3>
               <p className="chart-subtitle">{hasProPlan ? 'Últimas socias Plan Beauty atendidas' : 'Últimas atenciones registradas en POS'}</p>
             </div>
-            <button 
-              onClick={handleViewAllVisits} 
+            <button
+              onClick={handleViewAllVisits}
               style={{ border: '1px solid #e2e8f0', background: '#f8fafc', padding: '0.4rem 0.8rem', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', color: '#09090b', fontSize: '0.8rem' }}
             >
               {t('dash.recent.all')}
@@ -1231,7 +1231,7 @@ const Dashboard = () => {
                 </div>
                 <div className="visit-meta" style={{ textAlign: 'right', flexShrink: 0 }}>
                   <p className="visit-date" style={{ fontWeight: 800, fontSize: '0.8rem', color: '#09090b' }}>
-                    {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString(undefined, {hour: '2-digit', minute:'2-digit'})}
+                    {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                   </p>
                   <p className="visit-status" style={{ fontSize: '0.65rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{visit.salon_name || 'Central'}</p>
                 </div>
@@ -1243,11 +1243,11 @@ const Dashboard = () => {
         </div>
       </div>
 
-             {/* Modal de Visitas */}
+      {/* Modal de Visitas */}
       {isVisitsModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(9, 9, 11, 0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', animation: 'fadeIn 0.2s ease-out' }}>
           <div style={{ background: '#fff', borderRadius: '24px', width: '100%', maxWidth: '650px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
-            
+
             <div style={{ padding: '1.75rem 2rem', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to right, #fafafa, #ffffff)' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1257,8 +1257,8 @@ const Dashboard = () => {
                   {hasProPlan ? 'Registro detallado de visitas de socias Plan Beauty' : 'Registro detallado de atenciones y ventas en salón'}
                 </p>
               </div>
-              <button 
-                onClick={() => setIsVisitsModalOpen(false)} 
+              <button
+                onClick={() => setIsVisitsModalOpen(false)}
                 style={{ border: 'none', background: '#f1f5f9', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', transition: 'all 0.2s' }}
                 onMouseOver={(e) => { e.currentTarget.style.background = '#e2e8f0'; e.currentTarget.style.color = '#0f172a'; }}
                 onMouseOut={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; }}
@@ -1283,7 +1283,7 @@ const Dashboard = () => {
                       <div className="visit-avatar" style={{ width: '48px', height: '48px', borderRadius: '14px', background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', color: '#09090b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', fontWeight: 800, border: '1px solid #e2e8f0' }}>
                         {(visit.client_name || visit.clientName)?.charAt(0).toUpperCase() || <User size={24} color="#94a3b8" />}
                       </div>
-                      
+
                       <div className="visit-details" style={{ flex: 1 }}>
                         <p className="visit-name" style={{ fontSize: '0.95rem', fontWeight: 800, color: '#09090b', margin: '0 0 0.25rem 0' }}>{visit.client_name || visit.clientName || 'Cliente No Registrado'}</p>
                         <p className="visit-service" style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 500, margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -1294,7 +1294,7 @@ const Dashboard = () => {
 
                       <div className="visit-time" style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.35rem' }}>
                         <span style={{ display: 'inline-block', padding: '0.25rem 0.6rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}>
-                          {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          {new Date(visit.visited_at).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' })} - {new Date(visit.visited_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         <span style={{ fontSize: '0.7rem', color: '#8b5cf6', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                           {visit.salon_name || 'SUCURSAL'}
@@ -1328,7 +1328,7 @@ const Dashboard = () => {
       {activeDetailModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(9, 9, 11, 0.65)', backdropFilter: 'blur(6px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', animation: 'fadeIn 0.2s ease-out' }}>
           <div style={{ background: '#fff', borderRadius: '24px', width: '100%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-            
+
             {/* Modal Header */}
             <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, #09090b 0%, #18181b 100%)', color: 'white' }}>
               <div>
@@ -1343,8 +1343,8 @@ const Dashboard = () => {
                   {activeDetailModal === 'dailySales' && 'Ingresos facturados y cobrados en el día clasificados por sucursal.'}
                 </p>
               </div>
-              <button 
-                onClick={() => setActiveDetailModal(null)} 
+              <button
+                onClick={() => setActiveDetailModal(null)}
                 style={{ border: 'none', background: 'rgba(255,255,255,0.15)', borderRadius: '50%', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}
               >
                 <X size={18} />
@@ -1353,7 +1353,7 @@ const Dashboard = () => {
 
             {/* Modal Content */}
             <div style={{ padding: '2rem', overflowY: 'auto', flex: 1, background: '#fafafa' }}>
-              
+
               {/* Matrix: Visitas de Hoy */}
               {activeDetailModal === 'visits' && (() => {
                 const salons = breakdowns.salons && breakdowns.salons.length > 0 ? breakdowns.salons : [{ id: 1, name: 'Sede Principal' }];
@@ -1607,9 +1607,9 @@ const Dashboard = () => {
 
             {/* Modal Footer */}
             <div style={{ padding: '1.25rem 2rem', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
-              <button 
+              <button
                 onClick={() => setActiveDetailModal(null)}
-                className="btn-primary" 
+                className="btn-primary"
                 style={{ borderRadius: '12px', background: '#09090b', padding: '0.6rem 1.5rem', fontWeight: 700 }}
               >
                 Cerrar Desglose

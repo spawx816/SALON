@@ -868,96 +868,96 @@ export default function InventoryModule() {
                 </div>
               </div>
             ) : (
-            <form onSubmit={handleAdjustment}>
-              <div style={{ marginBottom: '0.8rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Buscar por nombre, SKU o código de barras</label>
-                <input
-                  type="text"
-                  placeholder="Filtrar productos del Catálogo..."
-                  value={adjSearch}
-                  onChange={(e) => setAdjSearch(e.target.value)}
-                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', marginBottom: '0.5rem' }}
-                />
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Producto *</label>
-                <select
-                  required
-                  value={adjForm.productId}
-                  onChange={(e) => setAdjForm({ ...adjForm, productId: e.target.value })}
-                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                >
-                  <option value="">Selecciona un producto...</option>
-                  {catalogProducts
-                    .filter(p => {
-                      const q = adjSearch.trim().toLowerCase();
-                      if (!q) return true;
-                      return (
-                        (p.name && p.name.toLowerCase().includes(q)) ||
-                        (p.sku && p.sku.toLowerCase().includes(q)) ||
-                        (p.barcode && p.barcode.toLowerCase().includes(q))
-                      );
-                    })
-                    .map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}{p.sku ? ` (${p.sku})` : ''}{p.barcode ? ` [${p.barcode}]` : ''}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '0.8rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tipo de Ajuste</label>
+              <form onSubmit={handleAdjustment}>
+                <div style={{ marginBottom: '0.8rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Buscar por nombre, SKU o código de barras</label>
+                  <input
+                    type="text"
+                    placeholder="Filtrar productos del Catálogo..."
+                    value={adjSearch}
+                    onChange={(e) => setAdjSearch(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px', marginBottom: '0.5rem' }}
+                  />
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Producto *</label>
                   <select
-                    value={adjForm.adjustmentType}
-                    onChange={(e) => setAdjForm({ ...adjForm, adjustmentType: e.target.value })}
+                    required
+                    value={adjForm.productId}
+                    onChange={(e) => setAdjForm({ ...adjForm, productId: e.target.value })}
                     style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
                   >
-                    <option value="ADJUSTMENT_IN">Entrada (+)</option>
-                    <option value="ADJUSTMENT_OUT">Salida (-)</option>
+                    <option value="">Selecciona un producto...</option>
+                    {catalogProducts
+                      .filter(p => {
+                        const q = adjSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          (p.name && p.name.toLowerCase().includes(q)) ||
+                          (p.sku && p.sku.toLowerCase().includes(q)) ||
+                          (p.barcode && p.barcode.toLowerCase().includes(q))
+                        );
+                      })
+                      .map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}{p.sku ? ` (${p.sku})` : ''}{p.barcode ? ` [${p.barcode}]` : ''}
+                        </option>
+                      ))}
                   </select>
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Cantidad *</label>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem', marginBottom: '0.8rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Tipo de Ajuste</label>
+                    <select
+                      value={adjForm.adjustmentType}
+                      onChange={(e) => setAdjForm({ ...adjForm, adjustmentType: e.target.value })}
+                      style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                    >
+                      <option value="ADJUSTMENT_IN">Entrada (+)</option>
+                      <option value="ADJUSTMENT_OUT">Salida (-)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Cantidad *</label>
+                    <input
+                      required
+                      type="number"
+                      min="1"
+                      value={adjForm.quantity}
+                      onChange={(e) => setAdjForm({ ...adjForm, quantity: e.target.value })}
+                      style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '0.8rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Motivo del Ajuste *</label>
                   <input
                     required
-                    type="number"
-                    min="1"
-                    value={adjForm.quantity}
-                    onChange={(e) => setAdjForm({ ...adjForm, quantity: e.target.value })}
+                    type="text"
+                    placeholder="Ej: Conteo físico mensual, merma o rotura"
+                    value={adjForm.reason}
+                    onChange={(e) => setAdjForm({ ...adjForm, reason: e.target.value })}
                     style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
                   />
                 </div>
-              </div>
 
-              <div style={{ marginBottom: '0.8rem' }}>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.2rem' }}>Motivo del Ajuste *</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Ej: Conteo físico mensual, merma o rotura"
-                  value={adjForm.reason}
-                  onChange={(e) => setAdjForm({ ...adjForm, reason: e.target.value })}
-                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.2rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowAdjustmentModal(false)}
-                  style={{ background: '#f1f5f9', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', cursor: 'pointer' }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={submittingAdj}
-                  style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-                >
-                  {submittingAdj ? 'Aplicando...' : 'Confirmar Ajuste'}
-                </button>
-              </div>
-            </form>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.2rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdjustmentModal(false)}
+                    style={{ background: '#f1f5f9', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', cursor: 'pointer' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingAdj}
+                    style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    {submittingAdj ? 'Aplicando...' : 'Confirmar Ajuste'}
+                  </button>
+                </div>
+              </form>
             )}
           </div>
         </div>

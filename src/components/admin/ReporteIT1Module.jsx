@@ -62,6 +62,7 @@ export default function ReporteIT1Module() {
     return String(new Date().getMonth() + 1).padStart(2, '0');
   });
   const [activeTab, setActiveTab] = useState('resumen'); // 'resumen' | 'anexo_a' | 'it1'
+  const [unavailableError, setUnavailableError] = useState(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showComplementModal, setShowComplementModal] = useState(false);
@@ -150,12 +151,17 @@ export default function ReporteIT1Module() {
     const targetPeriodo = periodoOverride || `${selectedYear}${selectedMonth}`;
     const targetSalon = salonOverride !== undefined ? salonOverride : selectedSalon;
     setLoading(true);
+    setUnavailableError(null);
     try {
       const res = await dataService.getReporteIT1({
         periodo: targetPeriodo,
         salonId: targetSalon,
         ...(regimenOverride ? { regimen: regimenOverride } : {})
       });
+      if (res && res.unavailable) {
+        setUnavailableError(res.error || 'Declaración IT-1 pendiente de integración.');
+        return;
+      }
       if (res && res.success) {
         setIt1Data(res);
         const activeReg = res.settings?.regimen_activo || res.settings?.regimen || 'exento';
@@ -171,7 +177,7 @@ export default function ReporteIT1Module() {
       }
     } catch (err) {
       console.error('Error cargando IT-1:', err);
-      showNotification(err.message || 'Error al cargar declaración ITBIS (IT-1)', 'error');
+      setUnavailableError(err.message || 'Declaración IT-1 pendiente de integración fiscal.');
     } finally {
       setLoading(false);
     }
@@ -491,6 +497,25 @@ export default function ReporteIT1Module() {
             }}>
               Preparar declaración
             </h2>
+          )}
+
+          {unavailableError && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '14px 16px',
+              borderRadius: '10px',
+              background: '#fffbeb',
+              border: '1px solid #f59e0b',
+              color: '#92400e',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              fontSize: '14px',
+              fontWeight: 600
+            }}>
+              <AlertTriangle size={18} />
+              <span>Integración pendiente: {unavailableError}</span>
+            </div>
           )}
 
           <div style={{

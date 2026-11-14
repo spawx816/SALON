@@ -186,6 +186,125 @@ function createTenantRouter(pool, options = {}) {
     }
   });
 
+  // GET /api/tenant/profile - Alias canónico para perfil operativo del salón autenticado
+  router.get('/profile', async (req, res) => {
+    try {
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido o no autorizado' });
+      }
+
+      const [rows] = await pool.query(`
+        SELECT 
+          t.*,
+          sp.name as plan_name,
+          sp.slug as plan_slug,
+          sp.price_monthly as plan_price,
+          (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id) as current_branches,
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id) as current_users
+        FROM tenants t
+        LEFT JOIN saas_plans sp ON t.plan_id = sp.id
+        WHERE t.id = ?
+      `, [tenantId]);
+
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Salón no encontrado' });
+      }
+
+      const row = rows[0];
+      return res.json({
+        ...row,
+        email: row.email || row.owner_email || '',
+        phone: row.phone || row.owner_phone || '',
+        primary_color: row.primary_color || row.brand_color || '#0f172a',
+        secondary_color: row.secondary_color || '#d4af37'
+      });
+    } catch (error) {
+      console.error('Error fetching tenant profile:', error);
+      return res.status(500).json({ error: 'Error obteniendo perfil del salón' });
+    }
+  });
+
+  // PUT /api/tenant/profile - Actualización del perfil del salón (solo propietario o admin)
+  router.put('/profile', async (req, res) => {
+    try {
+      const role = String(req.auth?.role || '').toLowerCase();
+      if (!['admin', 'administrador', 'owner'].includes(role)) {
+        return res.status(403).json({ error: 'Solo propietarios o administradores pueden modificar el perfil del salón' });
+      }
+
+      const tenantId = await resolveTenantId(req);
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido o no autorizado' });
+      }
+
+      const {
+        business_name,
+        legal_name,
+        rnc,
+        email,
+        phone,
+        address,
+        website,
+        logo_url,
+        primary_color,
+        secondary_color,
+        receipt_footer,
+        currency
+      } = req.body || {};
+
+      await pool.query(`
+        UPDATE tenants
+        SET
+          business_name = COALESCE(?, business_name),
+          legal_name = COALESCE(?, legal_name),
+          rnc = COALESCE(?, rnc),
+          email = COALESCE(?, email),
+          phone = COALESCE(?, phone),
+          address = COALESCE(?, address),
+          website = COALESCE(?, website),
+          logo_url = COALESCE(?, logo_url),
+          primary_color = COALESCE(?, primary_color),
+          secondary_color = COALESCE(?, secondary_color),
+          receipt_footer = COALESCE(?, receipt_footer),
+          currency = COALESCE(?, currency),
+          updated_at = NOW()
+        WHERE id = ?
+      `, [
+        business_name ?? null,
+        legal_name ?? null,
+        rnc ?? null,
+        email ?? null,
+        phone ?? null,
+        address ?? null,
+        website ?? null,
+        logo_url ?? null,
+        primary_color ?? null,
+        secondary_color ?? null,
+        receipt_footer ?? null,
+        currency ?? null,
+        tenantId
+      ]);
+
+      if (business_name || address || phone) {
+        await pool.query(`
+          UPDATE branches
+          SET
+            name = COALESCE(?, name),
+            address = COALESCE(?, address),
+            phone = COALESCE(?, phone)
+          WHERE tenant_id = ? AND is_main = true
+        `, [business_name ? `${business_name} - Principal` : null, address ?? null, phone ?? null, tenantId]);
+      }
+
+      const [updatedRows] = await pool.query('SELECT * FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      return res.json({ success: true, tenant: updatedRows[0] || null });
+    } catch (error) {
+      console.error('Error updating tenant profile:', error);
+      return res.status(500).json({ error: 'Error actualizando perfil del salón' });
+    }
+  });
+
   // PUT /api/tenant/settings - Actualizar nombre, logo, colores, contacto y RNC del salón
   router.put('/settings', async (req, res) => {
     try {

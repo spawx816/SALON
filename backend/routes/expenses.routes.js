@@ -6,6 +6,44 @@ const express = require('express');
 function createExpensesRouter(pool) {
   const router = express.Router();
 
+  // GET /api/expenses/status
+  router.get('/status', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      await pool.query('SELECT 1 FROM expenses WHERE tenant_id = ? LIMIT 1', [tenantId]);
+      res.json({ ready: true });
+    } catch (err) {
+      res.status(503).json({ ready: false, code: 'MIGRATION_PENDING', error: err.message });
+    }
+  });
+
+  // GET /api/expenses/concepts
+  router.get('/concepts', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query(
+        'SELECT DISTINCT concept as name, COALESCE(category, \'Operativo\') as category FROM expenses WHERE tenant_id = ? AND concept IS NOT NULL ORDER BY concept ASC',
+        [tenantId]
+      );
+      res.json(rows || []);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.post('/concepts', async (req, res) => {
+    const { name, category = 'Operativo' } = req.body || {};
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: 'El nombre del concepto es requerido.' });
+    }
+    res.json({ success: true, name: String(name).trim(), category });
+  });
+
+  // GET /api/expenses/banks, /loans, /accounts (tablas dedicadas no habilitadas aún -> estado vacío real)
+  router.get('/banks', (_req, res) => res.json([]));
+  router.get('/loans', (_req, res) => res.json([]));
+  router.get('/accounts', (_req, res) => res.json([]));
+
   // GET /api/expenses
   router.get('/', async (req, res) => {
     try {
@@ -81,6 +119,35 @@ function createExpensesRouter(pool) {
       );
 
       res.json({ id: result.insertId || result[0]?.id, success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/expenses/:id
+  router.get('/:id', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query('SELECT * FROM expenses WHERE id = ? AND tenant_id = ?', [req.params.id, tenantId]);
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Egreso no encontrado' });
+      }
+      res.json(rows[0]);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/expenses/:id/void
+  router.post('/:id/void', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const [result] = await pool.query('DELETE FROM expenses WHERE id = ? AND tenant_id = ?', [req.params.id, tenantId]);
+      const affected = result.affectedRows ?? result.rowCount ?? 0;
+      if (affected === 0) {
+        return res.status(404).json({ error: 'Egreso no encontrado' });
+      }
+      res.json({ success: true, voided: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

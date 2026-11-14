@@ -1097,7 +1097,7 @@ function createAuthRouter(pool, options = {}) {
 
   router.post('/auth/revoke-tokens', handleRevokeTokens);
   router.post('/revoke-tokens', handleRevokeTokens);
-  router.post('/auth/session-check', async (req, res) => {
+  const handleSessionCheck = async (req, res) => {
     try {
       const auth = req.auth;
       if (!auth || !auth.id) {
@@ -1143,16 +1143,20 @@ function createAuthRouter(pool, options = {}) {
             return res.status(403).json({ valid: false, reason: 'tenant_suspended', error: 'Salón suspendido.' });
           }
         }
-        return res.json({ valid: true, tenant: tenantInfo });
+        return res.json({ valid: true, sessionId, tenant: tenantInfo });
       }
 
-      return res.json({ valid: true });
+      return res.json({ valid: true, sessionId });
     } catch (err) {
       console.error('[SESSION CHECK ERROR]:', err);
       // FAIL CLOSED: NUNCA responder valid: true ante error
       return res.status(500).json({ valid: false, error: 'Error verificando sesión en base de datos.' });
     }
-  });
+  };
+
+  router.post('/auth/session-check', handleSessionCheck);
+  router.get('/auth/session-status', handleSessionCheck);
+  router.get('/session-status', handleSessionCheck);
 
   router.router = router;
   return router;

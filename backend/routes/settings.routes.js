@@ -116,6 +116,111 @@ function createSettingsRouter(pool) {
     }
   });
 
+  // GET /api/settings/contract
+  router.get('/contract', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de salón requerido' });
+      }
+      const [rows] = await pool.query('SELECT * FROM contract_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+      if (rows && rows[0]) {
+        return res.json(rows[0]);
+      }
+      const [tenantRows] = await pool.query('SELECT business_name, rnc, address FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      const t = tenantRows[0] || {};
+      return res.json({
+        tenant_id: tenantId,
+        title: 'CONTRATO DE SERVICIOS DE BELLEZA',
+        company_name: t.business_name || 'SalonPro',
+        company_rnc: t.rnc || '',
+        company_address: t.address || '',
+        renewal_fee: 800,
+        min_duration_months: 12,
+        notice_cancellation_days: 30,
+        content: ''
+      });
+    } catch (err) {
+      console.error('[CONTRACT SETTINGS GET ERROR]:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/settings/contract
+  router.post('/contract', async (req, res) => {
+    const role = String(req.auth?.role || '').toLowerCase();
+    if (!['admin', 'administrador', 'owner', 'superadmin'].includes(role)) {
+      return res.status(403).json({ error: 'Solo administradores pueden modificar la configuración del contrato.' });
+    }
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Contexto de salón requerido' });
+    }
+    const {
+      title = 'CONTRATO DE SERVICIOS DE BELLEZA',
+      company_name = '',
+      company_rnc = '',
+      company_address = '',
+      renewal_fee = 800,
+      min_duration_months = 12,
+      notice_cancellation_days = 30,
+      content = ''
+    } = req.body || {};
+
+    try {
+      await pool.query(`
+        INSERT INTO contract_settings (
+          tenant_id, title, company_name, company_rnc, company_address,
+          renewal_fee, min_duration_months, notice_cancellation_days, content
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          title = EXCLUDED.title,
+          company_name = EXCLUDED.company_name,
+          company_rnc = EXCLUDED.company_rnc,
+          company_address = EXCLUDED.company_address,
+          renewal_fee = EXCLUDED.renewal_fee,
+          min_duration_months = EXCLUDED.min_duration_months,
+          notice_cancellation_days = EXCLUDED.notice_cancellation_days,
+          content = EXCLUDED.content
+      `, [
+        tenantId,
+        title,
+        company_name,
+        company_rnc,
+        company_address,
+        Number(renewal_fee) || 0,
+        parseInt(min_duration_months, 10) || 12,
+        parseInt(notice_cancellation_days, 10) || 30,
+        content
+      ]);
+
+      return res.json({ success: true, message: 'Configuración de contrato guardada con éxito.' });
+    } catch (err) {
+      console.error('[CONTRACT SETTINGS SAVE ERROR]:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/settings/contract/reset
+  router.post('/contract/reset', async (req, res) => {
+    const role = String(req.auth?.role || '').toLowerCase();
+    if (!['admin', 'administrador', 'owner', 'superadmin'].includes(role)) {
+      return res.status(403).json({ error: 'Solo administradores pueden restablecer la configuración del contrato.' });
+    }
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Contexto de salón requerido' });
+    }
+    try {
+      await pool.query('DELETE FROM contract_settings WHERE tenant_id = ?', [tenantId]);
+      return res.json({ success: true, message: 'Contrato restablecido a valores por defecto.' });
+    } catch (err) {
+      console.error('[CONTRACT SETTINGS RESET ERROR]:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }
 

@@ -25,6 +25,48 @@ function createCashRegistersRouter(pool) {
     return bRows[0]?.id || null;
   };
 
+  // 0. Listado de cajas con filtros (salon_id, status, start_date, end_date)
+  router.get('/', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { salon_id, status, start_date, end_date } = req.query;
+
+      let query = `
+        SELECT cr.*,
+               COALESCE(b.name, 'Sede Principal') as salon_name,
+               COALESCE(cr.employee_name, cr.opened_by, 'Principal') as employee_name
+        FROM cash_registers cr
+        LEFT JOIN branches b ON b.id = cr.branch_id AND b.tenant_id = cr.tenant_id
+        WHERE cr.tenant_id = ?
+      `;
+      const params = [tenantId];
+
+      if (salon_id && salon_id !== 'all') {
+        query += ' AND (cr.branch_id::text = ? OR cr.salon_id::text = ?)';
+        params.push(String(salon_id), String(salon_id));
+      }
+      if (status && status !== 'all') {
+        query += ' AND cr.status = ?';
+        params.push(String(status));
+      }
+      if (start_date && /^\d{4}-\d{2}-\d{2}$/.test(String(start_date))) {
+        query += ' AND cr.opened_at >= ?::date';
+        params.push(String(start_date));
+      }
+      if (end_date && /^\d{4}-\d{2}-\d{2}$/.test(String(end_date))) {
+        query += " AND cr.opened_at < (?::date + INTERVAL '1 day')";
+        params.push(String(end_date));
+      }
+
+      query += ' ORDER BY cr.opened_at DESC LIMIT 200';
+      const [rows] = await pool.query(query, params);
+      res.json(rows || []);
+    } catch (err) {
+      console.error('Error listing cash registers:', err);
+      res.status(500).json({ error: 'Error consultando listado de cajas' });
+    }
+  });
+
   // 1. Obtener caja activa para una sucursal dentro del tenant autenticado
   router.get('/active', async (req, res) => {
     try {
@@ -474,6 +516,31 @@ function createCashRegistersRouter(pool) {
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 8. Facturas / visitas cobradas en una caja del tenant autenticado
+  router.get('/:id/invoices', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const { id } = req.params;
+      const [regRows] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      if (regRows.length === 0) {
+        return res.status(404).json({ error: 'Caja no encontrada en este salón' });
+      }
+      const [rows] = await pool.query(`
+        SELECT v.id, v.invoice_number, v.ncf, v.total, v.metodo_pago, v.status, v.visited_at,
+               COALESCE(c.name, 'Cliente General') as client_name
+        FROM visits v
+        LEFT JOIN clients c ON c.id = v.client_id AND c.tenant_id = v.tenant_id
+        WHERE v.tenant_id = ? AND v.cash_register_id = ?
+        ORDER BY v.visited_at DESC
+        LIMIT 200
+      `, [tenantId, id]);
+      res.json(rows || []);
+    } catch (err) {
+      console.error('Error fetching cash register invoices:', err);
+      res.status(500).json({ error: 'Error consultando facturas de la caja' });
     }
   });
 

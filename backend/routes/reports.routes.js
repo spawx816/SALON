@@ -6,6 +6,134 @@ const express = require('express');
 function createReportsRouter(pool) {
   const router = express.Router();
 
+  // GET /api/reports/bi - Reporte operativo BI real por tenant
+  router.get('/bi', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const {
+        reportId = 'sales_summary',
+        startDate,
+        endDate,
+        salonId = 'all'
+      } = req.query;
+
+      const start = startDate && /^\d{4}-\d{2}-\d{2}$/.test(String(startDate))
+        ? String(startDate)
+        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const end = endDate && /^\d{4}-\d{2}-\d{2}$/.test(String(endDate))
+        ? String(endDate)
+        : new Date().toISOString().split('T')[0];
+
+      const salonFilterV = salonId && salonId !== 'all' ? ' AND (v.branch_id::text = ? OR v.salon_id::text = ?)' : '';
+      const vParams = salonId && salonId !== 'all'
+        ? [tenantId, start, end + ' 23:59:59', String(salonId), String(salonId)]
+        : [tenantId, start, end + ' 23:59:59'];
+
+      const [visitAggRows] = await pool.query(`
+        SELECT DATE(v.visited_at) as fecha,
+               COALESCE(b.name, 'Principal') as sucursal,
+               COUNT(*) as facturas,
+               COALESCE(SUM(v.total), 0) as facturacion
+        FROM visits v
+        LEFT JOIN branches b ON v.branch_id::text = b.id::text AND b.tenant_id = v.tenant_id
+        WHERE v.tenant_id = ? AND v.visited_at >= ? AND v.visited_at <= ? AND v.status = 'Facturado' ${salonFilterV}
+        GROUP BY DATE(v.visited_at), COALESCE(b.name, 'Principal')
+        ORDER BY DATE(v.visited_at) DESC
+      `, vParams);
+
+      const totalFacturacion = (visitAggRows || []).reduce((acc, r) => acc + Number(r.facturacion || 0), 0);
+      const totalFacturas = (visitAggRows || []).reduce((acc, r) => acc + Number(r.facturas || 0), 0);
+      const ticketPromedio = totalFacturas > 0 ? Math.round(totalFacturacion / totalFacturas) : 0;
+
+      const chartMap = new Map();
+      for (const r of (visitAggRows || [])) {
+        const key = r.fecha ? String(r.fecha).slice(0, 10) : '';
+        chartMap.set(key, (chartMap.get(key) || 0) + Number(r.facturacion || 0));
+      }
+      const chartData = Array.from(chartMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([label, total]) => ({ label, total }));
+
+      const fmt = (n) => `RD$ ${Math.round(Number(n || 0)).toLocaleString('en-US')}`;
+
+      if (reportId === 'cash_flow') {
+        const expParams = salonId && salonId !== 'all'
+          ? [tenantId, start, end, String(salonId), String(salonId)]
+          : [tenantId, start, end];
+        const salonFilterE = salonId && salonId !== 'all' ? ' AND (branch_id::text = ? OR salon_id::text = ?)' : '';
+        const [expRows] = await pool.query(
+          `SELECT COALESCE(SUM(amount), 0) as total_egresos FROM expenses WHERE tenant_id = ? AND COALESCE(date, expense_date) BETWEEN ? AND ? ${salonFilterE}`,
+          expParams
+        );
+        const totalEgresos = Number(expRows[0]?.total_egresos || 0);
+        const neto = totalFacturacion - totalEgresos;
+        return res.json({
+          success: true,
+          reportId,
+          title: 'Flujo de caja operativo',
+          periodText: `${start} al ${end}`,
+          kpis: [
+            { label: 'Ingresos facturados', value: fmt(totalFacturacion), subtext: `${totalFacturas} facturas`, icon: 'trending', color: 'emerald' },
+            { label: 'Egresos registrados', value: fmt(totalEgresos), subtext: 'Período seleccionado', icon: 'dollar', color: 'rose' },
+            { label: 'Flujo neto', value: fmt(neto), subtext: 'Ingresos - Egresos', icon: 'receipt', color: neto >= 0 ? 'blue' : 'amber' }
+          ],
+          chart: { type: 'sales_evolution', data: chartData },
+          table: {
+            title: 'Detalle de ingresos por fecha',
+            badgeText: `${(visitAggRows || []).length} registros`,
+            columns: [
+              { key: 'fecha', label: 'Fecha' },
+              { key: 'sucursal', label: 'Sucursal' },
+              { key: 'facturas', label: 'Facturas', align: 'center' },
+              { key: 'facturacion', label: 'Ingresos', isCurrency: true }
+            ],
+            rows: (visitAggRows || []).map((r) => ({
+              fecha: r.fecha ? String(r.fecha).slice(0, 10) : '',
+              sucursal: r.sucursal,
+              facturas: Number(r.facturas || 0),
+              facturacion: Number(r.facturacion || 0)
+            }))
+          }
+        });
+      }
+
+      return res.json({
+        success: true,
+        reportId,
+        title: 'Resumen de ventas y cobros',
+        periodText: `${start} al ${end}`,
+        kpis: [
+          { label: 'Facturación', value: fmt(totalFacturacion), subtext: 'Ventas del período', icon: 'trending', color: 'emerald' },
+          { label: 'Total cobrado', value: fmt(totalFacturacion), subtext: 'Facturado en el período', icon: 'dollar', color: 'blue' },
+          { label: 'Cantidad de facturas', value: String(totalFacturas), subtext: 'Facturas válidas', icon: 'receipt', color: 'purple' },
+          { label: 'Ticket promedio', value: fmt(ticketPromedio), subtext: 'Por factura', icon: 'tag', color: 'amber' }
+        ],
+        chart: { type: 'sales_evolution', data: chartData },
+        table: {
+          title: 'Detalle de ventas',
+          badgeText: `${(visitAggRows || []).length} registros`,
+          columns: [
+            { key: 'fecha', label: 'Fecha' },
+            { key: 'sucursal', label: 'Sucursal' },
+            { key: 'facturas', label: 'Facturas', align: 'center' },
+            { key: 'facturacion', label: 'Facturación', isCurrency: true },
+            { key: 'cobrado', label: 'Total cobrado', isCurrency: true }
+          ],
+          rows: (visitAggRows || []).map((r) => ({
+            fecha: r.fecha ? String(r.fecha).slice(0, 10) : '',
+            sucursal: r.sucursal,
+            facturas: Number(r.facturas || 0),
+            facturacion: Number(r.facturacion || 0),
+            cobrado: Number(r.facturacion || 0)
+          }))
+        }
+      });
+    } catch (err) {
+      console.error('Error in GET /api/reports/bi:', err);
+      res.status(500).json({ error: 'Error consultando reporte BI' });
+    }
+  });
+
   // GET /api/reports/analytics
   router.get('/analytics', async (req, res) => {
     try {

@@ -18,7 +18,7 @@ function createHolidaysRouter(pool) {
       `;
       const params = [tenantId];
       if (year) {
-        query += ` AND YEAR(date) = ?`;
+        query += ` AND EXTRACT(YEAR FROM date) = ?`;
         params.push(year);
       }
       query += ` ORDER BY date ASC`;
@@ -126,7 +126,7 @@ function createHolidaysRouter(pool) {
         [`${year}-12-25`, 'Día de Navidad', 'Oficial', 2.00, 1]
       ];
 
-      await pool.query('DELETE FROM holidays WHERE tenant_id = ? AND YEAR(date) = ?', [tenantId, year]);
+      await pool.query('DELETE FROM holidays WHERE tenant_id = ? AND EXTRACT(YEAR FROM date) = ?', [tenantId, year]);
       for (const h of defaultHolidays) {
         await pool.query(`
           INSERT INTO holidays (tenant_id, date, name, type, rate_multiplier, is_active)

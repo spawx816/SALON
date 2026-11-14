@@ -420,8 +420,8 @@ export default function PayrollModule({ initialTab }) {
         // Cargar el último período activo o el primero de la lista
         await loadPeriodDetail(periodsRes[0].id);
       } else {
-        // Generar un período por defecto automáticamente si no existe ninguno
-        await handleGenerateDefaultPeriod();
+        setCurrentPeriod(null);
+        setItems([]);
       }
     } catch (err) {
       console.error('Error cargando nómina inicial:', err);

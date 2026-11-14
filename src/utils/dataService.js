@@ -2495,15 +2495,27 @@ export const dataService = {
   checkSessionStatus: async (sessionId, userId, role) => {
     try {
       const res = await fetch(`${API_URL}/auth/session-status`, {
+        credentials: 'include',
         headers: {
           'x-session-id': sessionId || '',
           'x-user-id': userId || '',
           'x-user-role': role || ''
         }
       });
-      return res.ok ? await res.json() : { valid: true };
+      if (res.ok) {
+        return await res.json();
+      }
+      if (res.status === 401 || res.status === 403) {
+        const errData = await res.json().catch(() => ({}));
+        return {
+          valid: false,
+          reason: errData.reason || (res.status === 403 ? 'tenant_suspended' : 'session_invalid'),
+          error: errData.error || 'Sesión no válida.'
+        };
+      }
+      return { valid: true, degraded: true };
     } catch {
-      return { valid: true };
+      return { valid: true, offline: true };
     }
   },
 

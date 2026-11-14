@@ -8,10 +8,13 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useAuth } from '../../context/AuthContext';
+import { useEntitlements } from '../../context/EntitlementsContext';
 import ElectronicInvoicePrintModal from '../common/ElectronicInvoicePrintModal';
 
 export default function InvoiceHistory() {
   const { user } = useAuth();
+  const { hasFeature, loading: entitlementsLoading } = useEntitlements();
+  const hasMemberships = hasFeature('memberships');
   const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
   const canVoid = isAdmin || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.manage_staff);
   const canEditCommission = isAdmin || Boolean(user?.permissions?.manage_staff) || Boolean(user?.permissions?.void_invoices) || Boolean(user?.permissions?.edit_invoices) || Boolean(user?.permissions?.manage_commissions);
@@ -246,7 +249,7 @@ export default function InvoiceHistory() {
       const [vData, sData, pData, stData] = await Promise.all([
         dataService.getVisits(),
         dataService.getSalons(),
-        dataService.getPayments(),
+        hasMemberships ? dataService.getPayments().catch(() => []) : Promise.resolve([]),
         dataService.getStaffRecords(true).catch(() => [])
       ]);
       setVisits(Array.isArray(vData) ? vData : []);
@@ -261,8 +264,9 @@ export default function InvoiceHistory() {
   };
 
   useEffect(() => {
+    if (entitlementsLoading) return;
     fetchAllData();
-  }, []);
+  }, [entitlementsLoading, hasMemberships]);
 
   // Helper to extract visit timing (Start, End, Duration)
   const getVisitTiming = (visit) => {

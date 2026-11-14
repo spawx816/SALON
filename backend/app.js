@@ -543,11 +543,22 @@ function createApp(dependencies = {}) {
   app.use('/api/holidays', rejectControlPlaneRoleOnTenantRoutes, createHolidaysRouter(pool));
   app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPayrollRouter(pool));
   app.use('/api/services', rejectControlPlaneRoleOnTenantRoutes, createServicesRouter(pool));
-  app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createEmployeeSecurityRouter(pool));
+  const employeeSecurityRouter = createEmployeeSecurityRouter(pool);
+  app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, employeeSecurityRouter);
+  app.use('/api/employee-discounts', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, (req, res, next) => {
+    req.url = '/employee-discounts' + (req.url === '/' ? '' : req.url);
+    return employeeSecurityRouter(req, res, next);
+  });
   const giftsSurveysRouter = createGiftsSurveysRouter(pool);
   app.use(['/api/gifts', '/api/admin/gifts', '/api/surveys'], rejectControlPlaneRoleOnTenantRoutes);
   app.use('/api', giftsSurveysRouter);
-  app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createEmployeesRouter(pool));
+  const employeesRouter = createEmployeesRouter(pool);
+  app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, employeesRouter);
+  app.use('/api/rrhh/staff', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, employeesRouter);
+  app.use('/api/staff-positions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, (req, res, next) => {
+    req.url = '/positions' + (req.url === '/' ? '' : req.url);
+    return employeesRouter(req, res, next);
+  });
 
   const { router: visitsRouter, processVisitCommissions, processBatchVisitCommissions } = createVisitsRouter(pool, {
     transmitInvoiceDirectlyToDgii: dgiiService.transmitInvoiceDirectlyToDgii,

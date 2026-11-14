@@ -10,10 +10,10 @@ const actorPinLockouts = new Map();
  * Helper to get clean client IP address
  */
 function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
-         req.socket?.remoteAddress || 
-         req.ip || 
-         '127.0.0.1';
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    req.ip ||
+    '127.0.0.1';
 }
 
 /**
@@ -71,7 +71,7 @@ function createSecurityRouter(pool) {
         [tenantId]
       );
       return newRows[0] || null;
-    } catch(e) {
+    } catch (e) {
       return null;
     }
   };
@@ -94,7 +94,7 @@ function createSecurityRouter(pool) {
           "UPDATE security_requests SET status = 'cancelled' WHERE client_id = ? AND status = 'pending' AND tenant_id = ?",
           [clientId || 'POS', tenantId]
         );
-      } catch(e) {}
+      } catch (e) { }
 
       const [result] = await pool.query(
         `INSERT INTO security_requests (client_id, client_name, service_name, staff_name, auth_code, type, status, expires_at, created_at, tenant_id)
@@ -134,7 +134,7 @@ function createSecurityRouter(pool) {
 
       if (secSettings) {
         const { admin_pin, active_otp_pin, otp_expires_at } = secSettings;
-        
+
         // PIN OTP dinámico (si está activo y no ha expirado)
         if (active_otp_pin && cleanPin === String(active_otp_pin).trim()) {
           const isExpired = otp_expires_at && new Date(otp_expires_at) < new Date();
@@ -143,7 +143,7 @@ function createSecurityRouter(pool) {
             authorizedRole = 'PIN OTP Dinámico (Correo)';
           }
         }
-        
+
         // PIN Maestro configurado en la base de datos para este inquilino
         if (!isPinAuthorized && admin_pin && cleanPin === String(admin_pin).trim()) {
           isPinAuthorized = true;
@@ -153,18 +153,18 @@ function createSecurityRouter(pool) {
 
       if (isPinAuthorized) {
         if (requestId) {
-          try { 
+          try {
             await pool.query(
-              "UPDATE security_requests SET status = 'authorized' WHERE id::text = ? AND tenant_id = ?", 
+              "UPDATE security_requests SET status = 'authorized' WHERE id::text = ? AND tenant_id = ?",
               [String(requestId), tenantId]
-            ); 
-          } catch(e){}
+            );
+          } catch (e) { }
         }
         await logSecurityAudit(
-          req.headers['x-user-id'] || 'admin', 
-          req.headers['x-user-name'] || 'Administrador', 
-          'AUTH_PIN_VERIFIED', 
-          `Autorización de seguridad aprobada mediante ${authorizedRole}`, 
+          req.headers['x-user-id'] || 'admin',
+          req.headers['x-user-name'] || 'Administrador',
+          'AUTH_PIN_VERIFIED',
+          `Autorización de seguridad aprobada mediante ${authorizedRole}`,
           req,
           tenantId
         );
@@ -181,21 +181,21 @@ function createSecurityRouter(pool) {
 
       if (secRows.length > 0) {
         await pool.query(
-          "UPDATE security_requests SET status = 'authorized' WHERE id = ? AND tenant_id = ?", 
+          "UPDATE security_requests SET status = 'authorized' WHERE id = ? AND tenant_id = ?",
           [secRows[0].id, tenantId]
         );
         await logSecurityAudit(
-          req.headers['x-user-id'] || 'pos', 
-          req.headers['x-user-name'] || 'Recepción POS', 
-          'AUTH_CODE_VERIFIED', 
-          `Código de solicitud #${secRows[0].id} autorizado para "${secRows[0].service_name}"`, 
+          req.headers['x-user-id'] || 'pos',
+          req.headers['x-user-name'] || 'Recepción POS',
+          'AUTH_CODE_VERIFIED',
+          `Código de solicitud #${secRows[0].id} autorizado para "${secRows[0].service_name}"`,
           req,
           tenantId
         );
-        return res.json({ 
-          success: true, 
-          valid: true, 
-          authorizedBy: `Monitor de Seguridad (${secRows[0].service_name})` 
+        return res.json({
+          success: true,
+          valid: true,
+          authorizedBy: `Monitor de Seguridad (${secRows[0].service_name})`
         });
       }
 
@@ -209,7 +209,7 @@ function createSecurityRouter(pool) {
 
       if (verRows.length > 0) {
         await pool.query(
-          "UPDATE verification_codes SET is_used = 1 WHERE id = ? AND tenant_id = ?", 
+          "UPDATE verification_codes SET is_used = 1 WHERE id = ? AND tenant_id = ?",
           [verRows[0].id, tenantId]
         );
         return res.json({ success: true, valid: true, authorizedBy: 'Código de Membresía' });
@@ -217,10 +217,10 @@ function createSecurityRouter(pool) {
 
       // Auditoría de intento fallido
       await logSecurityAudit(
-        req.headers['x-user-id'] || 'guest', 
-        req.headers['x-user-name'] || 'Intento no autorizado', 
-        'AUTH_PIN_FAILED', 
-        'Intento fallido de autorización con PIN o código incorrecto', 
+        req.headers['x-user-id'] || 'guest',
+        req.headers['x-user-name'] || 'Intento no autorizado',
+        'AUTH_PIN_FAILED',
+        'Intento fallido de autorización con PIN o código incorrecto',
         req,
         tenantId
       );
@@ -393,10 +393,10 @@ function createSecurityRouter(pool) {
       }
 
       await logSecurityAudit(
-        req.headers['x-user-id'] || 'admin', 
-        req.headers['x-user-name'] || 'Administrador', 
-        'REMOTE_SESSION_TERMINATE', 
-        `Sesión finalizada forzosamente: ${sessionId ? `Sesión ID ${sessionId}` : `Usuario ID ${userId}`}`, 
+        req.headers['x-user-id'] || 'admin',
+        req.headers['x-user-name'] || 'Administrador',
+        'REMOTE_SESSION_TERMINATE',
+        `Sesión finalizada forzosamente: ${sessionId ? `Sesión ID ${sessionId}` : `Usuario ID ${userId}`}`,
         req,
         tenantId
       );
@@ -644,10 +644,10 @@ function createSecurityRouter(pool) {
       }
 
       await logSecurityAudit(
-        req.headers['x-user-id'] || req.auth?.userId || 'owner', 
-        req.headers['x-user-name'] || req.auth?.name || 'Propietario', 
-        'SECURITY_SETTINGS_UPDATED', 
-        hashedNewPin ? 'Configuración de seguridad y PIN administrativo actualizado con hash adaptativo' : 'Parámetros de seguridad actualizados para el salón.', 
+        req.headers['x-user-id'] || req.auth?.userId || 'owner',
+        req.headers['x-user-name'] || req.auth?.name || 'Propietario',
+        'SECURITY_SETTINGS_UPDATED',
+        hashedNewPin ? 'Configuración de seguridad y PIN administrativo actualizado con hash adaptativo' : 'Parámetros de seguridad actualizados para el salón.',
         req,
         tenantId
       );
@@ -709,10 +709,10 @@ function createSecurityRouter(pool) {
       });
 
       await logSecurityAudit(
-        req.headers['x-user-id'] || 'admin', 
-        req.headers['x-user-name'] || 'Administrador', 
-        'SECURITY_PIN_REQUESTED', 
-        `PIN de seguridad dinámico generado y enviado a: ${emailRecipients.join(', ')}`, 
+        req.headers['x-user-id'] || 'admin',
+        req.headers['x-user-name'] || 'Administrador',
+        'SECURITY_PIN_REQUESTED',
+        `PIN de seguridad dinámico generado y enviado a: ${emailRecipients.join(', ')}`,
         req,
         tenantId
       );
@@ -821,10 +821,10 @@ function createSecurityRouter(pool) {
         }
 
         await logSecurityAudit(
-          req.headers['x-user-id'] || req.auth?.userId || 'admin', 
-          req.headers['x-user-name'] || req.auth?.name || 'Administrador', 
-          'SECURITY_PIN_VERIFIED', 
-          `Acceso a área protegida autorizado mediante ${isOtpValid ? 'PIN OTP dinámico' : 'PIN Maestro'}`, 
+          req.headers['x-user-id'] || req.auth?.userId || 'admin',
+          req.headers['x-user-name'] || req.auth?.name || 'Administrador',
+          'SECURITY_PIN_VERIFIED',
+          `Acceso a área protegida autorizado mediante ${isOtpValid ? 'PIN OTP dinámico' : 'PIN Maestro'}`,
           req,
           tenantId
         );

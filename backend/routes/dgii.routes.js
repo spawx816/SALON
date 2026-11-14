@@ -119,37 +119,113 @@ function createDgiiRouter(pool) {
     }
   });
 
-  // 4. GET /api/dgii/607 - Generate DGII 607 Sales Report for a given period (YYYYMM) within the authenticated tenant
+  // 4. GET /api/dgii/607 & /api/dgii/report-607 - Generate DGII 607 Sales Report within the authenticated tenant
+  const queryReport607 = async (req, res) => {
+    const tenantId = req.tenantId;
+    const targetPeriod = req.query.periodo || req.query.period || '';
+    const { start_date, end_date } = req.query;
+    let query = `
+      SELECT id, ticket_number, ncf, ncf_type, ncf_name, client_name, rnc_cliente, rzn_soc_cliente,
+             subtotal, descuento, total, metodo_pago, pago_efectivo, pago_tarjeta, pago_transferencia,
+             status, visited_at
+      FROM visits
+      WHERE tenant_id = ? AND ncf IS NOT NULL AND ncf != '' AND status = 'Facturado'
+    `;
+    const params = [tenantId];
+
+    if (targetPeriod && /^\d{6}$/.test(String(targetPeriod))) {
+      const y = String(targetPeriod).slice(0, 4);
+      const m = String(targetPeriod).slice(4, 6);
+      query += ' AND EXTRACT(YEAR FROM visited_at) = ? AND EXTRACT(MONTH FROM visited_at) = ?';
+      params.push(Number(y), Number(m));
+    } else if (start_date && end_date) {
+      query += ' AND visited_at >= ? AND visited_at <= ?';
+      params.push(`${start_date} 00:00:00`, `${end_date} 23:59:59`);
+    }
+
+    query += ' ORDER BY visited_at DESC';
+    const [rows] = await pool.query(query, params);
+    const records = rows || [];
+    return { records, targetPeriod, tenantId };
+  };
+
   router.get('/607', async (req, res) => {
     try {
-      const tenantId = req.tenantId;
-      const { period, start_date, end_date } = req.query;
-      let query = `
-        SELECT id, ticket_number, ncf, ncf_type, ncf_name, client_name, rnc_cliente, rzn_soc_cliente,
-               subtotal, descuento, total, metodo_pago, pago_efectivo, pago_tarjeta, pago_transferencia,
-               status, visited_at
-        FROM visits
-        WHERE tenant_id = ? AND ncf IS NOT NULL AND ncf != '' AND status = 'Facturado'
-      `;
-      const params = [tenantId];
-
-      if (period && String(period).length === 6) {
-        const y = String(period).slice(0, 4);
-        const m = String(period).slice(4, 6);
-        query += ' AND YEAR(visited_at) = ? AND MONTH(visited_at) = ?';
-        params.push(Number(y), Number(m));
-      } else if (start_date && end_date) {
-        query += ' AND visited_at >= ? AND visited_at <= ?';
-        params.push(`${start_date} 00:00:00`, `${end_date} 23:59:59`);
-      }
-
-      query += ' ORDER BY visited_at DESC';
-      const [rows] = await pool.query(query, params);
-      res.json(rows);
+      const { records } = await queryReport607(req, res);
+      res.json(records);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  router.get('/report-607', async (req, res) => {
+    try {
+      const { records, targetPeriod, tenantId } = await queryReport607(req, res);
+      const [tRows] = await pool.query('SELECT business_name, rnc FROM tenants WHERE id = ? LIMIT 1', [tenantId]);
+      const tenant = tRows[0] || {};
+      const totals = records.reduce((acc, row) => {
+        acc.subtotal += Number(row.subtotal || 0);
+        acc.descuento += Number(row.descuento || 0);
+        acc.total += Number(row.total || 0);
+        return acc;
+      }, { subtotal: 0, descuento: 0, total: 0 });
+
+      res.json({
+        header: {
+          empresa: tenant.business_name || 'SalonPro',
+          rnc: tenant.rnc || '',
+          periodo: targetPeriod || '',
+          cantidad_registros: records.length,
+          fecha_impresion: new Date().toLocaleDateString('es-DO')
+        },
+        records,
+        totals
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4b. GET /api/dgii/credit-notes - Local credit notes issued on visits for this tenant
+  router.get('/credit-notes', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const [rows] = await pool.query(`
+        SELECT id, ticket_number, ncf, ncf_nota_credito, nota_credito_motivo, nota_credito_fecha,
+               nota_credito_track_id, nota_credito_qr_url, client_name, rnc_cliente, rzn_soc_cliente,
+               total, status, visited_at
+        FROM visits
+        WHERE tenant_id = ? AND ncf_nota_credito IS NOT NULL AND ncf_nota_credito != ''
+        ORDER BY COALESCE(nota_credito_fecha, visited_at) DESC
+      `, [tenantId]);
+      res.json(rows || []);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4c. POST /api/dgii/credit-notes/retransmit/:id - Explicit disabled state (no real DGII transport)
+  router.post('/credit-notes/retransmit/:id', (req, res) => {
+    return res.status(503).json({
+      success: false,
+      unavailable: true,
+      code: 'DGII_INTEGRATION_DISABLED',
+      error: 'La transmisión electrónica a la DGII está desactivada en este entorno (pendiente de integración e-CF).'
+    });
+  });
+
+  // 4d. /api/dgii/it1* - Explicit unavailable state until IT-1 schema and DGII integration are enabled
+  const handleIt1Unavailable = (req, res) => {
+    return res.status(501).json({
+      success: false,
+      unavailable: true,
+      code: 'DGII_IT1_UNAVAILABLE',
+      error: 'Declaración IT-1 pendiente de integración fiscal y esquema en PostgreSQL.'
+    });
+  };
+  router.get('/it1', handleIt1Unavailable);
+  router.post('/it1/settings', handleIt1Unavailable);
+  router.post('/it1/save', handleIt1Unavailable);
 
   // 5. GET /api/dgii/certificate-status - Verify X.509 certificate status
   router.get('/certificate-status', async (req, res) => {

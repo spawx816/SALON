@@ -96,7 +96,7 @@ const ClientProfile = () => {
   const [salonFilter, setSalonFilter] = useState('all'); // all, or salon_id
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
   // Clientes/CRM está en BASE y PRO; los paneles de membresía/contratos/tarjetas/cobros solo existen en PRO.
-  const { hasFeature } = useEntitlements();
+  const { hasFeature, loading: entitlementsLoading } = useEntitlements();
   const showMemberships = hasFeature('memberships');
   const [sortBy, setSortBy] = useState('name_asc'); // 'name_asc' | 'name_desc' | 'status' | 'salon'
   const [currentPage, setCurrentPage] = useState(1);
@@ -158,19 +158,17 @@ const ClientProfile = () => {
         console.error("Error fetching salons:", err);
       }
     };
-    const fetchPlans = async () => {
-      try {
-        const data = await dataService.getPlans();
-        setAllPlansList(data || []);
-      } catch (err) {
-        console.error("Error fetching plans catalog in Profile:", err);
-      }
-    };
     fetchAll();
     fetchEmployees();
     fetchSalons();
-    fetchPlans();
   }, []); // Load once on mount
+
+  useEffect(() => {
+    if (entitlementsLoading || !showMemberships) return;
+    dataService.getPlans()
+      .then((data) => setAllPlansList(data || []))
+      .catch((err) => console.error('Error fetching plans catalog in Profile:', err));
+  }, [entitlementsLoading, showMemberships]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -318,11 +316,13 @@ const ClientProfile = () => {
         pendingSurveyData
       ] = await Promise.all([
         dataService.getVisitsByClient(found.id).catch(() => []),
-        dataService.getPaymentsByClient(found.id).catch(() => []),
+        showMemberships ? dataService.getPaymentsByClient(found.id).catch(() => []) : Promise.resolve([]),
         dataService.getGiftsByClient(found.id).catch(() => []),
-        dataService.getPaymentProfilesByClient(found.id).catch(() => []),
-        dataService.getContractByClient(found.id).catch(() => []),
-        (allPlansList && allPlansList.length > 0) ? Promise.resolve(allPlansList) : dataService.getPlans().catch(() => []),
+        showMemberships ? dataService.getPaymentProfilesByClient(found.id).catch(() => []) : Promise.resolve([]),
+        showMemberships ? dataService.getContractByClient(found.id).catch(() => []) : Promise.resolve([]),
+        showMemberships
+          ? ((allPlansList && allPlansList.length > 0) ? Promise.resolve(allPlansList) : dataService.getPlans().catch(() => []))
+          : Promise.resolve([]),
         dataService.getPendingSurvey(found.id).catch(() => null)
       ]);
 

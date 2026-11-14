@@ -14,22 +14,6 @@ function createEmployeesRouter(pool) {
         return res.status(403).json({ error: 'Contexto de salón requerido.' });
       }
 
-      if (pool.isPostgres) {
-        try {
-          const [pgRows] = await pool.query(`
-            SELECT id, tenant_id, branch_id, name as nombre, role as posicion, phone as telefono, email,
-                   commission_rate, base_salary as salario_base, is_active, created_at,
-                   CASE WHEN is_active THEN 'Activo' ELSE 'Inactivo' END as status
-            FROM employees
-            WHERE tenant_id = ?
-            ORDER BY name ASC
-          `, [tenantId]);
-          if (pgRows && pgRows.length > 0) {
-            return res.json(pgRows);
-          }
-        } catch (pgErr) {}
-      }
-
       const [rows] = await pool.query(`
         SELECT s.*, COALESCE(b.name, sal.name, s.localidad, 'Principal') as salon_name 
         FROM staff_records s
