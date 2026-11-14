@@ -36,7 +36,7 @@ function createCashRegistersRouter(pool) {
                COALESCE(b.name, 'Sede Principal') as salon_name,
                COALESCE(cr.employee_name, cr.opened_by, 'Principal') as employee_name
         FROM cash_registers cr
-        LEFT JOIN branches b ON b.id = cr.branch_id AND b.tenant_id = cr.tenant_id
+        LEFT JOIN branches b ON b.id::text = cr.branch_id::text AND b.tenant_id = cr.tenant_id
         WHERE cr.tenant_id = ?
       `;
       const params = [tenantId];
@@ -532,7 +532,7 @@ function createCashRegistersRouter(pool) {
         SELECT v.id, v.invoice_number, v.ncf, v.total, v.metodo_pago, v.status, v.visited_at,
                COALESCE(c.name, 'Cliente General') as client_name
         FROM visits v
-        LEFT JOIN clients c ON c.id = v.client_id AND c.tenant_id = v.tenant_id
+        LEFT JOIN clients c ON c.id::text = v.client_id::text AND c.tenant_id = v.tenant_id
         WHERE v.tenant_id = ? AND v.cash_register_id = ?
         ORDER BY v.visited_at DESC
         LIMIT 200
