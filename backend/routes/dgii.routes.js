@@ -126,7 +126,7 @@ function createDgiiRouter(pool) {
     const { start_date, end_date } = req.query;
     let query = `
       SELECT id, ticket_number, ncf, ncf_type, ncf_name, client_name, rnc_cliente, rzn_soc_cliente,
-             subtotal, descuento, total, metodo_pago, pago_efectivo, pago_tarjeta, pago_transferencia,
+             subtotal, descuento, itbis, total, metodo_pago, applied_payments,
              status, visited_at
       FROM visits
       WHERE tenant_id = ? AND ncf IS NOT NULL AND ncf != '' AND status = 'Facturado'
