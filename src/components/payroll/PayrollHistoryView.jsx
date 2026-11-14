@@ -87,18 +87,28 @@ export default function PayrollHistoryView({
     return groups;
   }, [filteredPeriods]);
 
-  // Totales KPI superiores
+  // Totales KPI superiores (solo datos reales)
   const statsSummary = useMemo(() => {
     const totalNominas = filteredPeriods.length;
     const totalPagado = filteredPeriods.reduce((acc, p) => acc + parseFloat(p.total_neto || 0), 0);
-    const totalPagosProcesados = filteredPeriods.reduce((acc, p) => acc + (parseInt(p.total_empleados || 0) * 1.34), 0);
+    const totalPagosProcesados = filteredPeriods.reduce((acc, p) => acc + parseInt(p.total_empleados || 0, 10), 0);
 
     return {
-      totalNominas: totalNominas || 18,
-      totalPagado: totalPagado || 12836450,
-      totalPagosProcesados: Math.round(totalPagosProcesados) || 1012
+      totalNominas,
+      totalPagado,
+      totalPagosProcesados
     };
   }, [filteredPeriods]);
+
+  const availableSucursales = useMemo(() => {
+    const set = new Set();
+    approvedPeriods.forEach((p) => {
+      if (p.sucursal && String(p.sucursal).trim()) {
+        set.add(String(p.sucursal).trim());
+      }
+    });
+    return Array.from(set).sort();
+  }, [approvedPeriods]);
 
   // Manejo de Selección para Comparar
   const handleToggleSelectPeriod = (periodId) => {
@@ -174,9 +184,9 @@ export default function PayrollHistoryView({
             className="ph-select"
           >
             <option value="Todas">Todas las sucursales</option>
-            <option value="San Vicente">Sucursal San Vicente</option>
-            <option value="Villa Mella">Sucursal Villa Mella</option>
-            <option value="Disponibles (*)">Disponibles (*)</option>
+            {availableSucursales.map((sucursal) => (
+              <option key={sucursal} value={sucursal}>{sucursal}</option>
+            ))}
           </select>
 
           <div className="ph-search-box">
