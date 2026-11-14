@@ -215,6 +215,17 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     }
   }, [initialAuthModal, initialIsLogin]);
 
+  // Scroll to hash target when arriving from secondary public pages (e.g. /#integracion, /#planes)
+  useEffect(() => {
+    const hash = typeof window !== 'undefined' ? window.location.hash : '';
+    if (hash && hash.length > 1) {
+      const target = document.getElementById(hash.slice(1));
+      if (target) {
+        setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+      }
+    }
+  }, []);
+
   // Load canonical plans from backend
   useEffect(() => {
     let mounted = true;

@@ -312,9 +312,9 @@ const AppContent = () => {
 
     if (isMarketingRoute) {
       return (
-        <div className="landing-page" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <div className="etereas-landing et-public-shell">
           <PublicHeader />
-          <main style={{ flex: 1 }}>
+          <main className="et-public-main">
             <Suspense fallback={<WorkspaceSkeleton />}>
               <Routes>
                 <Route path="/plan-de-belleza" element={<PlanBelleza />} />
