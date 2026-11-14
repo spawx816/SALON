@@ -27,7 +27,7 @@ const PLANS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
 
 const ensureArray = (field) => {
   if (!field) return [];
-  
+
   // Función para "pelar la cebolla" (quitar capas de stringify recursivo)
   const peel = (data) => {
     let current = data;
@@ -145,8 +145,8 @@ export const dataService = {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Server Error');
       return data;
-    } catch (e) { 
-      throw e; 
+    } catch (e) {
+      throw e;
     }
   },
   activateAccount: async (payload) => {
@@ -243,7 +243,7 @@ export const dataService = {
     }
   },
 
-    checkoutTicket: async (ticketId, checkoutData) => {
+  checkoutTicket: async (ticketId, checkoutData) => {
     try {
       const res = await fetch(`${API_URL}/visits/${ticketId}/checkout`, {
         method: 'POST',
@@ -846,7 +846,7 @@ export const dataService = {
               clientEmail: data.email || clientEmail,
               expiresAt: Date.now() + 15 * 60 * 1000
             }));
-          } catch {}
+          } catch { }
         }
         return data;
       }
@@ -860,7 +860,7 @@ export const dataService = {
         clientEmail,
         expiresAt: Date.now() + 15 * 60 * 1000
       }));
-    } catch {}
+    } catch { }
     return { success: true, code: localCode, email: clientEmail };
   },
 
@@ -871,7 +871,7 @@ export const dataService = {
         const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
         const user = userStr ? JSON.parse(userStr) : null;
         role = user?.role || user?.role_name || '';
-      } catch (e) {}
+      } catch (e) { }
 
       const res = await fetch(`${API_URL}/otp/active/${clientId}`, {
         headers: { 'x-user-role': role }
@@ -881,7 +881,7 @@ export const dataService = {
     try {
       const stored = sessionStorage.getItem(`otp_${clientId}`);
       if (stored) return JSON.parse(stored);
-    } catch {}
+    } catch { }
     return null;
   },
 
@@ -889,7 +889,7 @@ export const dataService = {
     const cleanCode = String(code || '').trim();
     if (['2026', '1234', '8888', '0000'].includes(cleanCode)) {
       if (visitData) {
-        try { await dataService.saveVisit({ ...visitData, clientId }); } catch(err) { console.error(err); }
+        try { await dataService.saveVisit({ ...visitData, clientId }); } catch (err) { console.error(err); }
       }
       return { success: true, verified: true };
     }
@@ -917,12 +917,12 @@ export const dataService = {
             sessionStorage.removeItem(`otp_${clientId}`);
             sessionStorage.removeItem('otp_undefined');
             if (visitData) {
-              try { await dataService.saveVisit({ ...visitData, clientId }); } catch(err) { console.error(err); }
+              try { await dataService.saveVisit({ ...visitData, clientId }); } catch (err) { console.error(err); }
             }
             return { success: true, verified: true };
           }
         }
-      } catch {}
+      } catch { }
       throw e;
     }
   },
@@ -958,7 +958,7 @@ export const dataService = {
             return { success: true, verified: true };
           }
         }
-      } catch {}
+      } catch { }
       throw e;
     }
   },
@@ -1053,24 +1053,24 @@ export const dataService = {
         const peeledUsage = (data) => {
           let current = data;
           try {
-            while(typeof current === 'string') {
+            while (typeof current === 'string') {
               const p = JSON.parse(current);
               if (typeof p !== 'object' || p === null) break;
               current = p;
             }
-          } catch(e) {}
+          } catch (e) { }
           return typeof current === 'object' ? current : {};
         };
 
-        return { 
-          ...p, 
+        return {
+          ...p,
           services: ensureArray(p.services),
           promo_services: ensureArray(p.promo_services),
           usage_limits: peeledUsage(p.usage_limits)
         };
       });
       const resolvedPlans = plans.length > 0 ? plans : [
-        { 
+        {
           id: '1', title: 'Plan Diamante', price: '8500.00', discount: 15,
           services: ['Lavado Ilimitado', '4 Secados', '2 Manicuras', 'Tratamiento Especial'],
           color: '#d4af37', location: 'Sede Central'
@@ -1120,9 +1120,9 @@ export const dataService = {
     const data = await res.json();
     return Array.isArray(data)
       ? data.map(r => ({
-          ...r,
-          plan_services: Array.isArray(r.plan_services) ? r.plan_services : []
-        }))
+        ...r,
+        plan_services: Array.isArray(r.plan_services) ? r.plan_services : []
+      }))
       : [];
   },
 
@@ -1189,7 +1189,7 @@ export const dataService = {
           const xhr = new XMLHttpRequest();
           xhr.open('GET', url, true);
           xhr.setRequestHeader('Accept', 'application/json');
-          xhr.onload = function() {
+          xhr.onload = function () {
             if (xhr.status >= 200 && xhr.status < 300) {
               try {
                 const data = JSON.parse(xhr.responseText);
@@ -1201,7 +1201,7 @@ export const dataService = {
               resolve(null);
             }
           };
-          xhr.onerror = function() {
+          xhr.onerror = function () {
             resolve(null);
           };
           xhr.send();
@@ -1304,8 +1304,8 @@ export const dataService = {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       return data;
-    } catch (e) { 
-      throw e; 
+    } catch (e) {
+      throw e;
     }
   },
 
@@ -1316,11 +1316,11 @@ export const dataService = {
         const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
         const user = userStr ? JSON.parse(userStr) : null;
         role = user?.role || user?.role_name || '';
-      } catch (e) {}
+      } catch (e) { }
 
       const res = await fetch(`${API_URL}/contracts/${contractId}/request-code`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'x-user-role': role
         },
@@ -1352,13 +1352,13 @@ export const dataService = {
         const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
         const user = userStr ? JSON.parse(userStr) : null;
         role = user?.role || user?.role_name || '';
-      } catch (e) {}
+      } catch (e) { }
 
       const res = await fetch(`${API_URL}/contracts/${contractId}/active-code?actionType=${actionType}`, {
         headers: { 'x-user-role': role }
       });
       if (res.ok) return await res.json();
-    } catch (e) {}
+    } catch (e) { }
     return null;
   },
 
@@ -1779,8 +1779,8 @@ export const dataService = {
         method: 'DELETE'
       });
       return await res.json();
-    } catch (e) { 
-      console.error('Error deleting staff position:', e); 
+    } catch (e) {
+      console.error('Error deleting staff position:', e);
       return { error: e.message };
     }
   },
@@ -1899,7 +1899,7 @@ export const dataService = {
       if (filters.salonId) params.append('salonId', filters.salonId);
       if (filters.status) params.append('status', filters.status);
       if (filters.type) params.append('type', filters.type);
-      
+
       const res = await fetch(`${API_URL}/attendance/history?${params.toString()}`);
       return res.ok ? await res.json() : [];
     } catch (e) {
@@ -2047,7 +2047,7 @@ export const dataService = {
       if (filters.endDate) params.append('endDate', filters.endDate);
       if (filters.employeeId) params.append('employeeId', filters.employeeId);
       if (filters.salonId) params.append('salonId', filters.salonId);
-      
+
       const res = await fetch(`${API_URL}/attendance/pending?${params.toString()}`);
       return res.ok ? await res.json() : [];
     } catch (e) {
@@ -2326,9 +2326,9 @@ export const dataService = {
           totals: data.totals || {}
         };
       }
-      return { 
-        success: false, 
-        error: 'Error cargando Reporte 607', 
+      return {
+        success: false,
+        error: 'Error cargando Reporte 607',
         header: {
           empresa: 'ETEREAS SRL',
           rnc: '131917038',
@@ -2336,14 +2336,14 @@ export const dataService = {
           cantidad_registros: 0,
           fecha_impresion: new Date().toLocaleDateString('es-DO')
         },
-        records: [], 
-        totals: {} 
+        records: [],
+        totals: {}
       };
     } catch (e) {
       console.error('Error fetching Reporte 607:', e);
-      return { 
-        success: false, 
-        error: e.message, 
+      return {
+        success: false,
+        error: e.message,
         header: {
           empresa: 'ETEREAS SRL',
           rnc: '131917038',
@@ -2351,8 +2351,8 @@ export const dataService = {
           cantidad_registros: 0,
           fecha_impresion: new Date().toLocaleDateString('es-DO')
         },
-        records: [], 
-        totals: {} 
+        records: [],
+        totals: {}
       };
     }
   },
@@ -3214,6 +3214,8 @@ export const dataService = {
 
   getContactMessages: async () => saasFetch('/contact-messages'),
 
+  getSaasAddonRequests: async () => saasFetch('/saas/addon-requests'),
+
   createSaasTenant: async (tenantData) =>
     saasFetch('/saas/tenants', {
       method: 'POST',
@@ -3778,9 +3780,9 @@ export const dataService = {
     const body =
       typeof payloadOrNote === 'object' && payloadOrNote !== null
         ? {
-            note: payloadOrNote.note || '',
-            branchIds: Array.isArray(payloadOrNote.branchIds) ? payloadOrNote.branchIds : [],
-          }
+          note: payloadOrNote.note || '',
+          branchIds: Array.isArray(payloadOrNote.branchIds) ? payloadOrNote.branchIds : [],
+        }
         : { note: payloadOrNote, branchIds: [] };
     const res = await fetch(`${API_URL}/saas/billing/addons/${encodeURIComponent(addonCode)}/request`, {
       method: 'POST',

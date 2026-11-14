@@ -48,6 +48,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const [branchPage, setBranchPage] = useState(1);
   const [contactSearch, setContactSearch] = useState('');
   const [contactPage, setContactPage] = useState(1);
+  const [addonRequests, setAddonRequests] = useState([]);
   const PAGE_SIZE = 10;
 
   // Modales
@@ -107,14 +108,15 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     setLoading(true);
     setLoadError(null);
     try {
-      const [mRes, tRes, pRes, sRes, iRes, bRes, cRes] = await Promise.allSettled([
+      const [mRes, tRes, pRes, sRes, iRes, bRes, cRes, arRes] = await Promise.allSettled([
         dataService.getSaasMetrics(),
         dataService.getSaasTenants(),
         dataService.getSaasPlans(false),
         dataService.getSaasPlatformSubscriptions(),
         dataService.getSaasPlatformInvoices(),
         dataService.getSaasBranches(),
-        dataService.getContactMessages()
+        dataService.getContactMessages(),
+        dataService.getSaasAddonRequests()
       ]);
 
       const failures = [];
@@ -138,6 +140,9 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
       if (cRes.status === 'fulfilled') setContactMessages(Array.isArray(cRes.value) ? cRes.value : (cRes.value?.messages || []));
       else if (cRes.status === 'rejected') failures.push(`Contactos: ${cRes.reason?.message}`);
+
+      if (arRes.status === 'fulfilled') setAddonRequests(Array.isArray(arRes.value?.requests) ? arRes.value.requests : []);
+      else if (arRes.status === 'rejected') failures.push(`Solicitudes Add-on: ${arRes.reason?.message}`);
 
       if (failures.length > 0) {
         setLoadError(failures.join(' | '));
@@ -853,6 +858,25 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         >
           <ShieldAlert size={17} />
           Mensajes Contacto ({contactMessages.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('addon-requests')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.6rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            background: activeTab === 'addon-requests' ? '#0f172a' : 'transparent',
+            color: activeTab === 'addon-requests' ? '#ffffff' : '#64748b'
+          }}
+        >
+          <CreditCard size={17} />
+          Solicitudes Add-on ({addonRequests.filter(r => !r.is_fulfilled).length})
         </button>
       </div>
 
@@ -1698,6 +1722,120 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           </div>
         );
       })()}
+
+      {/* ========================================================================= */}
+      {/* TAB 6: SOLICITUDES DE ADD-ON MEMBRESÍAS B2C */}
+      {/* ========================================================================= */}
+      {activeTab === 'addon-requests' && (
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+          <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0' }}>
+            <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>
+              Solicitudes de Add-on Membresías B2C ({addonRequests.length})
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+              Solicitudes enviadas por propietarios desde Mi suscripción. La activación aplica únicamente a las sucursales seleccionadas.
+            </p>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '0.85rem 1.25rem' }}>Salón</th>
+                  <th style={{ padding: '0.85rem 1rem' }}>Sucursales solicitadas</th>
+                  <th style={{ padding: '0.85rem 1rem' }}>Mensualidad</th>
+                  <th style={{ padding: '0.85rem 1rem' }}>Nota</th>
+                  <th style={{ padding: '0.85rem 1rem' }}>Estado</th>
+                  <th style={{ padding: '0.85rem 1rem' }}>Fecha</th>
+                  <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {addonRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                      No hay solicitudes de add-on registradas.
+                    </td>
+                  </tr>
+                ) : addonRequests.map((reqItem) => {
+                  const reqBranchIds = (reqItem.requested_branches || []).map(b => b.id);
+                  return (
+                    <tr key={reqItem.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '0.85rem 1.25rem' }}>
+                        <div style={{ fontWeight: '700', color: '#0f172a' }}>{reqItem.business_name}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{reqItem.tenant_email}</div>
+                      </td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#334155' }}>
+                        {reqItem.requested_branches?.length > 0
+                          ? reqItem.requested_branches.map(b => b.name).join(', ')
+                          : 'Sin detalle de sucursales'}
+                      </td>
+                      <td style={{ padding: '0.85rem 1rem', fontWeight: '700', color: '#0f172a' }}>
+                        US${Number(reqItem.monthly_usd || 0).toFixed(2)}/mes
+                      </td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#475569', maxWidth: '280px' }}>{reqItem.note || '—'}</td>
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <span style={{
+                          padding: '0.2rem 0.6rem',
+                          borderRadius: '999px',
+                          fontSize: '0.75rem',
+                          fontWeight: '700',
+                          background: reqItem.is_fulfilled ? '#ecfdf5' : '#fef3c7',
+                          color: reqItem.is_fulfilled ? '#047857' : '#92400e'
+                        }}>
+                          {reqItem.is_fulfilled ? 'Activado' : 'Pendiente'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#64748b', fontSize: '0.8rem' }}>
+                        {reqItem.created_at ? new Date(reqItem.created_at).toLocaleString() : '—'}
+                      </td>
+                      <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
+                        {!reqItem.is_fulfilled && (
+                          <button
+                            onClick={() => {
+                              const tenantRow = tenants.find(t => t.id === reqItem.tenant_id);
+                              const branchOptions = tenantRow?.tenant_branches || reqItem.requested_branches || [];
+                              setConfirmModal({
+                                title: `Activar Add-on para "${reqItem.business_name}"`,
+                                description: 'Se activará el add-on Suscripciones/Membresías B2C para las sucursales solicitadas.',
+                                requireReason: true,
+                                reason: `Activación según solicitud (${reqItem.requested_branches?.map(b => b.name).join(', ') || '1+ sucursales'})`,
+                                branchOptions,
+                                selectedBranchIds: reqBranchIds.length > 0 ? reqBranchIds : branchOptions.map(b => b.id),
+                                onConfirm: async (reason, selectedBranchIds) => {
+                                  await dataService.setTenantAddon(reqItem.tenant_id, 'memberships', {
+                                    enabled: true,
+                                    branchIds: selectedBranchIds,
+                                    reason: reason || 'Activación desde bandeja de solicitudes',
+                                    source: 'commercial_addon'
+                                  });
+                                  showNotification('Add-on de Membresías activado para las sucursales seleccionadas.');
+                                  await fetchData();
+                                }
+                              });
+                            }}
+                            style={{
+                              padding: '0.45rem 0.85rem',
+                              borderRadius: '8px',
+                              border: 'none',
+                              background: '#059669',
+                              color: '#fff',
+                              fontWeight: '700',
+                              fontSize: '0.78rem',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Activar add-on
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE CONFIRMACIÓN PARA ACCIONES CRÍTICAS */}
       {confirmModal && (

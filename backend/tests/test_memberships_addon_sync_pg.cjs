@@ -4,8 +4,9 @@
  */
 const assert = require('assert');
 const crypto = require('crypto');
+const http = require('http');
 const express = require('express');
-const request = require('supertest');
+const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const { createSaasRouter } = require('../routes/saas.routes');
 const { createTenantRouter } = require('../routes/tenant.routes');
@@ -74,6 +75,7 @@ function buildApp() {
   const branchA1 = crypto.randomUUID();
   const branchA2 = crypto.randomUUID();
   const branchB1 = crypto.randomUUID();
+  const saUserId = crypto.randomUUID();
   const salonA = `salon-a-${Date.now()}`;
   const planB2CId = `b2c-${Date.now()}`;
 
@@ -111,110 +113,152 @@ function buildApp() {
       [salonA, tenantA]
     );
     await pool.query(
-      `INSERT INTO plans (id, tenant_id, salon_id, name, price, currency, description, is_active)
-       VALUES (?, ?, ?, 'Plan Beauty Historico', 1990, 'DOP', 'Preservado', TRUE)`,
-      [planB2CId, tenantA, salonA]
+      `INSERT INTO plans (id, tenant_id, title, name, price, description)
+       VALUES (?, ?, 'Plan Beauty Historico', 'Plan Beauty Historico', 1990, 'Preservado')`,
+      [planB2CId, tenantA]
+    );
+
+    await pool.query(
+      `INSERT INTO users (id, name, nombre, email, username, password_hash, role, is_active, estado, created_at)
+       VALUES (?, 'SA Test', 'SA Test', ?, ?, '$2b$10$dummyhashfortestingonly0000000000000000000000000000000', 'superadmin', TRUE, 'Activo', NOW())`,
+      [saUserId, `sa-${Date.now()}@test.local`, `sa_test_${Date.now()}`]
     );
 
     const { app } = buildApp();
-
-    // 1. Tenant A without add-on remains blocked
-    const ent0 = await request(app).get('/api/tenant/entitlements').set('x-test-tenant-id', tenantA);
-    assert.strictEqual(ent0.status, 200);
-    assert.strictEqual(ent0.body.addons.memberships.active, false);
-    assert.strictEqual(ent0.body.features.memberships, false);
-
-    for (const path of ['/api/plans', '/api/contracts', '/api/payments']) {
-      const blocked = await request(app).get(path).set('x-test-tenant-id', tenantA);
-      assert.strictEqual(blocked.status, 403, `${path} should return 403 without add-on`);
-      assert.strictEqual(blocked.body.code, 'FEATURE_NOT_INCLUDED');
-    }
-
-    // 2. Legacy flags MUST NOT grant accidental access
-    await pool.query(
-      `UPDATE tenants SET has_memberships = TRUE, modules_config = '{"memberships": true}'::jsonb WHERE id = ?`,
-      [tenantA]
+    const server = http.createServer(app);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const fs = require('fs');
+    const jwtSecret = process.env.JWT_SECRET || (fs.existsSync('/run/secrets/jwt_secret') ? fs.readFileSync('/run/secrets/jwt_secret', 'utf8').trim() : 'test-secret');
+    const saToken = jwt.sign(
+      { id: saUserId, role: 'superadmin', isSuperAdmin: true },
+      jwtSecret,
+      { expiresIn: '5m', audience: 'salonpro-app', issuer: 'salonpro-saas' }
     );
-    const entLegacy = await request(app).get('/api/tenant/entitlements').set('x-test-tenant-id', tenantA);
-    assert.strictEqual(entLegacy.body.addons.memberships.active, false);
-    const blockedLegacy = await request(app).get('/api/plans').set('x-test-tenant-id', tenantA);
-    assert.strictEqual(blockedLegacy.status, 403);
-    assert.strictEqual(blockedLegacy.body.code, 'FEATURE_NOT_INCLUDED');
+    const apiCall = async (method, path, headers = {}, body = null) => {
+      const authHeaders = { ...headers };
+      if (authHeaders['x-test-role'] === 'superadmin') {
+        authHeaders['Authorization'] = `Bearer ${saToken}`;
+      }
+      const res = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const json = await res.json().catch(() => ({}));
+      return { status: res.status, body: json };
+    };
 
-    const saasList0 = await request(app).get('/api/saas/tenants').set('x-test-role', 'superadmin');
-    const rowA0 = saasList0.body.find(r => r.id === tenantA);
-    assert.strictEqual(rowA0.has_memberships, false, 'SuperAdmin DTO must ignore stale tenants.has_memberships');
+    try {
+      // 1. Tenant A without add-on remains blocked
+      const ent0 = await apiCall('GET', '/api/tenant/entitlements', { 'x-test-tenant-id': tenantA });
+      assert.strictEqual(ent0.status, 200);
+      assert.strictEqual(ent0.body.addons.memberships.active, false);
+      assert.strictEqual(ent0.body.features.memberships, false);
 
-    // 3. Invalid branch selection (branchB1 from tenantB) returns 400 and preserves previous state
-    const badActivate = await request(app)
-      .put(`/api/saas/tenants/${tenantA}/addons/memberships`)
-      .set('x-test-role', 'superadmin')
-      .send({ enabled: true, branchIds: [branchB1], reason: 'Cross-tenant branch attempt' });
-    assert.strictEqual(badActivate.status, 400);
-    assert.strictEqual(badActivate.body.code, 'INVALID_BRANCH_SELECTION');
+      for (const path of ['/api/plans', '/api/contracts', '/api/payments']) {
+        const blocked = await apiCall('GET', path, { 'x-test-tenant-id': tenantA });
+        assert.strictEqual(blocked.status, 403, `${path} should return 403 without add-on`);
+        assert.strictEqual(blocked.body.code, 'FEATURE_NOT_INCLUDED');
+      }
 
-    // 4. Activate ONLY on branchA1
-    const actRes = await request(app)
-      .put(`/api/saas/tenants/${tenantA}/addons/memberships`)
-      .set('x-test-role', 'superadmin')
-      .send({ enabled: true, branchIds: [branchA1], reason: 'Contratacion Sucursal A1' });
-    assert.strictEqual(actRes.status, 200);
-    assert.strictEqual(actRes.body.has_memberships, true);
-    assert.deepStrictEqual(actRes.body.addon.branchIds, [branchA1]);
-    assert.strictEqual(actRes.body.addon.enabledBranchCount, 1);
+      // 2. Legacy flags MUST NOT grant accidental access
+      await pool.query(
+        `UPDATE tenants SET has_memberships = TRUE, modules_config = '{"memberships": true}'::jsonb WHERE id = ?`,
+        [tenantA]
+      );
+      const entLegacy = await apiCall('GET', '/api/tenant/entitlements', { 'x-test-tenant-id': tenantA });
+      assert.strictEqual(entLegacy.body.addons.memberships.active, false);
+      const blockedLegacy = await apiCall('GET', '/api/plans', { 'x-test-tenant-id': tenantA });
+      assert.strictEqual(blockedLegacy.status, 403);
+      assert.strictEqual(blockedLegacy.body.code, 'FEATURE_NOT_INCLUDED');
 
-    // 5. SuperAdmin table, Owner entitlements, branchA1 allowed, branchA2 blocked, tenantB unaffected
-    const saasList1 = await request(app).get('/api/saas/tenants').set('x-test-role', 'superadmin');
-    const rowA1 = saasList1.body.find(r => r.id === tenantA);
-    const rowB1 = saasList1.body.find(r => r.id === tenantB);
-    assert.strictEqual(rowA1.has_memberships, true);
-    assert.deepStrictEqual(rowA1.memberships_branch_ids, [branchA1]);
-    assert.strictEqual(rowB1.has_memberships, false);
+      const saasList0 = await apiCall('GET', '/api/saas/tenants', { 'x-test-role': 'superadmin' });
+      assert.strictEqual(saasList0.status, 200, `Expected 200 from /api/saas/tenants, got ${saasList0.status}: ${JSON.stringify(saasList0.body)}`);
+      const rowA0 = saasList0.body.find(r => r.id === tenantA);
+      assert.strictEqual(rowA0.has_memberships, false, 'SuperAdmin DTO must ignore stale tenants.has_memberships');
 
-    const ent1 = await request(app).get('/api/tenant/entitlements').set('x-test-tenant-id', tenantA);
-    assert.strictEqual(ent1.body.addons.memberships.active, true);
-    assert.deepStrictEqual(ent1.body.addons.memberships.branchIds, [branchA1]);
+      // 3. Invalid branch selection (branchB1 from tenantB) returns 400 and preserves previous state
+      const badActivate = await apiCall(
+        'PUT',
+        `/api/saas/tenants/${tenantA}/addons/memberships`,
+        { 'x-test-role': 'superadmin' },
+        { enabled: true, branchIds: [branchB1], reason: 'Cross-tenant branch attempt' }
+      );
+      assert.strictEqual(badActivate.status, 400);
+      assert.strictEqual(badActivate.body.code, 'INVALID_BRANCH_SELECTION');
 
-    const okBranch1 = await request(app).get('/api/plans').set('x-test-tenant-id', tenantA).set('x-branch-id', branchA1);
-    assert.strictEqual(okBranch1.status, 200);
+      // 4. Activate ONLY on branchA1
+      const actRes = await apiCall(
+        'PUT',
+        `/api/saas/tenants/${tenantA}/addons/memberships`,
+        { 'x-test-role': 'superadmin' },
+        { enabled: true, branchIds: [branchA1], reason: 'Contratacion Sucursal A1' }
+      );
+      assert.strictEqual(actRes.status, 200);
+      assert.strictEqual(actRes.body.has_memberships, true);
+      assert.deepStrictEqual(actRes.body.addon.branchIds, [branchA1]);
+      assert.strictEqual(actRes.body.addon.enabledBranchCount, 1);
 
-    const blockedBranch2 = await request(app).get('/api/plans').set('x-test-tenant-id', tenantA).set('x-branch-id', branchA2);
-    assert.strictEqual(blockedBranch2.status, 403);
-    assert.strictEqual(blockedBranch2.body.code, 'FEATURE_NOT_INCLUDED');
+      // 5. SuperAdmin table, Owner entitlements, branchA1 allowed, branchA2 blocked, tenantB unaffected
+      const saasList1 = await apiCall('GET', '/api/saas/tenants', { 'x-test-role': 'superadmin' });
+      const rowA1 = saasList1.body.find(r => r.id === tenantA);
+      const rowB1 = saasList1.body.find(r => r.id === tenantB);
+      assert.strictEqual(rowA1.has_memberships, true);
+      assert.deepStrictEqual(rowA1.memberships_branch_ids, [branchA1]);
+      assert.strictEqual(rowB1.has_memberships, false);
 
-    const blockedTenantB = await request(app).get('/api/plans').set('x-test-tenant-id', tenantB).set('x-branch-id', branchB1);
-    assert.strictEqual(blockedTenantB.status, 403);
+      const ent1 = await apiCall('GET', '/api/tenant/entitlements', { 'x-test-tenant-id': tenantA });
+      assert.strictEqual(ent1.body.addons.memberships.active, true);
+      assert.deepStrictEqual(ent1.body.addons.memberships.branchIds, [branchA1]);
 
-    // 6. Idempotent retry does not duplicate events
-    const [evBefore] = await pool.query('SELECT COUNT(*)::int as c FROM tenant_subscription_events WHERE tenant_id = ?', [tenantA]);
-    const retryRes = await request(app)
-      .put(`/api/saas/tenants/${tenantA}/addons/memberships`)
-      .set('x-test-role', 'superadmin')
-      .send({ enabled: true, branchIds: [branchA1], reason: 'Contratacion Sucursal A1' });
-    assert.strictEqual(retryRes.status, 200);
-    assert.strictEqual(retryRes.body.idempotent, true);
-    const [evAfter] = await pool.query('SELECT COUNT(*)::int as c FROM tenant_subscription_events WHERE tenant_id = ?', [tenantA]);
-    assert.strictEqual(evAfter[0].c, evBefore[0].c, 'Idempotent retry must not duplicate subscription events');
+      const okBranch1 = await apiCall('GET', '/api/plans', { 'x-test-tenant-id': tenantA, 'x-branch-id': branchA1 });
+      assert.strictEqual(okBranch1.status, 200);
 
-    // 7. Deactivate revokes access without deleting B2C plans/history
-    const deactRes = await request(app)
-      .put(`/api/saas/tenants/${tenantA}/addons/memberships`)
-      .set('x-test-role', 'superadmin')
-      .send({ enabled: false, reason: 'Baja de add-on' });
-    assert.strictEqual(deactRes.status, 200);
-    assert.strictEqual(deactRes.body.has_memberships, false);
+      const blockedBranch2 = await apiCall('GET', '/api/plans', { 'x-test-tenant-id': tenantA, 'x-branch-id': branchA2 });
+      assert.strictEqual(blockedBranch2.status, 403);
+      assert.strictEqual(blockedBranch2.body.code, 'FEATURE_NOT_INCLUDED');
 
-    const ent2 = await request(app).get('/api/tenant/entitlements').set('x-test-tenant-id', tenantA);
-    assert.strictEqual(ent2.body.addons.memberships.active, false);
+      const blockedTenantB = await apiCall('GET', '/api/plans', { 'x-test-tenant-id': tenantB, 'x-branch-id': branchB1 });
+      assert.strictEqual(blockedTenantB.status, 403);
 
-    const blockedAfterDeact = await request(app).get('/api/plans').set('x-test-tenant-id', tenantA).set('x-branch-id', branchA1);
-    assert.strictEqual(blockedAfterDeact.status, 403);
-    assert.strictEqual(blockedAfterDeact.body.code, 'FEATURE_NOT_INCLUDED');
+      // 6. Idempotent retry does not duplicate events
+      const [evBefore] = await pool.query('SELECT COUNT(*)::int as c FROM tenant_subscription_events WHERE tenant_id = ?', [tenantA]);
+      const retryRes = await apiCall(
+        'PUT',
+        `/api/saas/tenants/${tenantA}/addons/memberships`,
+        { 'x-test-role': 'superadmin' },
+        { enabled: true, branchIds: [branchA1], reason: 'Contratacion Sucursal A1' }
+      );
+      assert.strictEqual(retryRes.status, 200);
+      assert.strictEqual(retryRes.body.idempotent, true);
+      const [evAfter] = await pool.query('SELECT COUNT(*)::int as c FROM tenant_subscription_events WHERE tenant_id = ?', [tenantA]);
+      assert.strictEqual(evAfter[0].c, evBefore[0].c, 'Idempotent retry must not duplicate subscription events');
 
-    const [preservedPlans] = await pool.query('SELECT COUNT(*)::int as c FROM plans WHERE tenant_id = ?', [tenantA]);
-    assert.strictEqual(preservedPlans[0].c, 1, 'Existing B2C plans must be preserved after deactivation');
+      // 7. Deactivate revokes access without deleting B2C plans/history
+      const deactRes = await apiCall(
+        'PUT',
+        `/api/saas/tenants/${tenantA}/addons/memberships`,
+        { 'x-test-role': 'superadmin' },
+        { enabled: false, reason: 'Baja de add-on' }
+      );
+      assert.strictEqual(deactRes.status, 200);
+      assert.strictEqual(deactRes.body.has_memberships, false);
 
-    console.log('ALL POSTGRESQL MEMBERSHIPS ADD-ON SYNC & BRANCH SCOPING TESTS PASSED');
+      const ent2 = await apiCall('GET', '/api/tenant/entitlements', { 'x-test-tenant-id': tenantA });
+      assert.strictEqual(ent2.body.addons.memberships.active, false);
+
+      const blockedAfterDeact = await apiCall('GET', '/api/plans', { 'x-test-tenant-id': tenantA, 'x-branch-id': branchA1 });
+      assert.strictEqual(blockedAfterDeact.status, 403);
+      assert.strictEqual(blockedAfterDeact.body.code, 'FEATURE_NOT_INCLUDED');
+
+      const [preservedPlans] = await pool.query('SELECT COUNT(*)::int as c FROM plans WHERE tenant_id = ?', [tenantA]);
+      assert.strictEqual(preservedPlans[0].c, 1, 'Existing B2C plans must be preserved after deactivation');
+
+      console.log('ALL POSTGRESQL MEMBERSHIPS ADD-ON SYNC & BRANCH SCOPING TESTS PASSED');
+    } finally {
+      server.close();
+    }
   } finally {
     await pool.query('DELETE FROM plans WHERE tenant_id IN (?, ?)', [tenantA, tenantB]).catch(() => {});
     await pool.query('DELETE FROM salons WHERE tenant_id IN (?, ?)', [tenantA, tenantB]).catch(() => {});
@@ -222,6 +266,7 @@ function buildApp() {
     await pool.query('DELETE FROM tenant_feature_overrides WHERE tenant_id IN (?, ?)', [tenantA, tenantB]).catch(() => {});
     await pool.query('DELETE FROM tenant_subscription_events WHERE tenant_id IN (?, ?)', [tenantA, tenantB]).catch(() => {});
     await pool.query('DELETE FROM tenant_subscriptions WHERE tenant_id IN (?, ?)', [tenantA, tenantB]).catch(() => {});
+    await pool.query('DELETE FROM users WHERE id = ?', [saUserId]).catch(() => {});
     await pool.query('DELETE FROM tenants WHERE id IN (?, ?)', [tenantA, tenantB]).catch(() => {});
     await pgPool.end();
   }

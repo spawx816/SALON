@@ -1126,6 +1126,73 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
+  // GET /api/saas/addon-requests - Bandeja de solicitudes de add-on enviadas por propietarios (PROTEGIDO SUPERADMIN)
+  router.get('/addon-requests', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const [rows] = await pool.query(`
+        SELECT
+          tse.id,
+          tse.tenant_id::text as tenant_id,
+          tse.reason,
+          tse.actor_id,
+          tse.created_at,
+          t.business_name,
+          t.email as tenant_email,
+          t.status as tenant_status
+        FROM tenant_subscription_events tse
+        JOIN tenants t ON tse.tenant_id = t.id
+        WHERE tse.reason LIKE 'addon_request:%'
+        ORDER BY tse.created_at DESC
+        LIMIT 100
+      `);
+
+      const requests = await Promise.all((rows || []).map(async (row) => {
+        const raw = String(row.reason || '');
+        const match = raw.match(/^addon_request:([^:]+):\s*branches=\[([^\]]*)\]\s*monthly_usd=([0-9.]+)\s*\|\s*(.*)$/);
+        const addonCode = match ? match[1].trim() : 'memberships';
+        const branchesRaw = match ? match[2].trim() : '';
+        const monthlyUsd = match ? Number(match[3]) : 0;
+        const note = match ? match[4].trim() : raw;
+        const requestedBranches = branchesRaw
+          ? branchesRaw.split(',').map((item) => {
+              const idx = item.indexOf(':');
+              if (idx === -1) return { id: item.trim(), name: item.trim() };
+              return { id: item.slice(0, idx).trim(), name: item.slice(idx + 1).trim() };
+            }).filter((b) => b.id)
+          : [];
+
+        const ent = await entitlementsService.getTenantEntitlements(row.tenant_id);
+        const currentAddon = ent?.addons?.memberships || { active: false, branchIds: [], branches: [] };
+        const requestedIds = requestedBranches.map((b) => b.id);
+        const currentIds = new Set((currentAddon.branchIds || []).map(String));
+        const allRequestedActive = Boolean(currentAddon.active)
+          && (requestedIds.length === 0 || requestedIds.every((id) => currentIds.has(id)));
+
+        return {
+          id: row.id,
+          tenant_id: row.tenant_id,
+          business_name: row.business_name,
+          tenant_email: row.tenant_email,
+          tenant_status: row.tenant_status,
+          addon_code: addonCode,
+          requested_branches: requestedBranches,
+          monthly_usd: monthlyUsd,
+          note,
+          actor_id: row.actor_id,
+          created_at: row.created_at,
+          is_fulfilled: allRequestedActive,
+          current_addon_active: Boolean(currentAddon.active),
+          current_branch_ids: currentAddon.branchIds || []
+        };
+      }));
+
+      res.json({ requests });
+    } catch (error) {
+      console.error('Error fetching SaaS addon requests:', error);
+      res.status(500).json({ error: 'Error consultando solicitudes de add-on' });
+    }
+  });
+
   return router;
 }
 
