@@ -11,6 +11,7 @@ const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
+const { setStaticCacheHeaders, createAssetsFallbackMiddleware } = require('./utils/static_assets');
 
 // BigInt JSON serialization support across Express
 BigInt.prototype.toJSON = function () {
@@ -282,8 +283,9 @@ function createApp(dependencies = {}) {
     next();
   });
 
-  app.use(express.static(path.join(__dirname, '..', 'public')));
-  app.use(express.static(path.join(__dirname, '..', 'dist')));
+  app.use(express.static(path.join(__dirname, '..', 'public'), { index: false, setHeaders: setStaticCacheHeaders }));
+  app.use(express.static(path.join(__dirname, '..', 'dist'), { index: false, setHeaders: setStaticCacheHeaders }));
+  app.use('/assets', createAssetsFallbackMiddleware());
 
   // CardNet Configuration
   const CARDNET_CONFIG = dependencies.cardnetConfig || {
@@ -364,8 +366,8 @@ function createApp(dependencies = {}) {
   });
 
   // Email helpers
-  const sendPaymentReceiptEmail = dependencies.sendPaymentReceiptEmail || (async () => {});
-  const sendPaymentFailedEmail = dependencies.sendPaymentFailedEmail || (async () => {});
+  const sendPaymentReceiptEmail = dependencies.sendPaymentReceiptEmail || (async () => { });
+  const sendPaymentFailedEmail = dependencies.sendPaymentFailedEmail || (async () => { });
   const sendSurveyEmail = dependencies.sendSurveyEmail || ((p, clientId, name, email, tenantId) => sendSurveyEmailHelper(p || pool, clientId, name, email, tenantId));
 
   // Authentication & Multi-Tenant Isolation Shield

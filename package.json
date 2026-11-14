@@ -9,6 +9,7 @@
     "dev": "vite",
     "demo:local": "node backend/scripts/start_local_demo.cjs",
     "build": "vite build",
+    "verify:release": "node backend/scripts/verify_release_chunks.cjs",
     "migrate": "node backend/migrations/migrate_all.cjs",
     "lint": "npm run lint:frontend && npm run lint:backend",
     "lint:frontend": "eslint src",

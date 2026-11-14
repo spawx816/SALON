@@ -8,9 +8,13 @@ const axios = require('axios');
 const { pool } = require('./db');
 const { createApp } = require('./app');
 const { processSubscriptionsInternal } = require('./routes/contracts.routes');
+const { syncDistAssetsCache } = require('./utils/static_assets');
 
 // Instantiate Express application with production database pool
 const app = createApp({ pool });
+if (process.env.NODE_ENV !== 'test') {
+  syncDistAssetsCache(path.join(__dirname, '..', 'dist'));
+}
 
 // Setup Database Schema for legacy MySQL (if applicable)
 const setupDB = async () => {
@@ -73,7 +77,9 @@ app.use('/api', (req, res) => {
 
 // SPA Fallback for React Router - MUST BE AFTER ALL API ROUTES
 app.get(/.*/, (req, res) => {
-  if (req.path.includes('.')) {
+  if (req.path.includes('.') || req.path.startsWith('/assets/')) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     return res.status(404).send('Not Found');
   }
 

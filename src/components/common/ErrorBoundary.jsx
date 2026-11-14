@@ -1,4 +1,5 @@
 import React from 'react';
+import { isChunkLoadError, getAppEntryVersion } from '../../utils/lazyWithRetry';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -38,6 +39,8 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       const isDev = Boolean(typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV);
+      const chunkError = isChunkLoadError(this.state.error);
+      const appVersion = this.state.error?.appVersion || getAppEntryVersion();
 
       return (
         <div style={{
@@ -77,11 +80,13 @@ class ErrorBoundary extends React.Component {
             </div>
 
             <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 0.5rem 0', color: '#0f172a' }}>
-              Ha ocurrido un detalle al cargar esta vista
+              {chunkError ? 'Hay una actualización disponible. Recargar' : 'Ha ocurrido un detalle al cargar esta vista'}
             </h2>
             
             <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: 1.5, margin: '0 0 1.5rem 0' }}>
-              El sistema ha evitado que la pantalla quede en blanco. Puedes recargar la página o volver al panel principal.
+              {chunkError
+                ? `Se publicó una nueva versión de Etereas (${appVersion}). Recarga la página para continuar con los módulos actualizados.`
+                : 'El sistema ha evitado que la pantalla quede en blanco. Puedes recargar la página o volver al panel principal.'}
             </p>
 
             {isDev && this.state.error ? (
