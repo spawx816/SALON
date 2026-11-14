@@ -35,7 +35,7 @@ import { PublicHeader, PublicFooter } from '../components/common/PublicLayout';
 const SAAS_FAQS = [
   {
     question: '¿Cuál es la diferencia exacta entre el Plan Base y el Plan Pro?',
-    answer: 'El Plan Base ($49 USD/mes por sucursal) incluye el sistema POS de recepción, facturación fiscal DGII (606, 607, IT-1), catálogo de productos y servicios, cajas registradoras, control de personal, comisiones, nómina y creación de usuarios, pero NO incluye el directorio de clientes ni las suscripciones mensuales. El Plan Pro ($99 USD/mes por sucursal) incluye todo el Plan Base más el Registro/CRM de Clientes y el ecosistema completo de Suscripciones y Membresías (Plan Beauty, contratos digitales, cupos de lavados de 30 días, descuentos de cumpleaños, encuestas y Gift Cards).'
+    answer: 'El Plan Base ($49 USD/mes por sucursal) incluye el sistema POS de recepción, facturación fiscal DGII (606, 607, IT-1), catálogo de productos y servicios, cajas registradoras, directorio CRM de clientes, control de personal, comisiones, nómina y creación de usuarios, pero NO incluye las suscripciones mensuales ni los contratos de membresía. El Plan Pro ($99 USD/mes por sucursal) incluye todo el Plan Base más el ecosistema completo de Suscripciones y Membresías (Plan Beauty, contratos digitales, cupos de lavados de 30 días, descuentos de cumpleaños, marketing, encuestas y Gift Cards).'
   },
   {
     question: '¿Puedo comenzar con el Plan Base y luego subir mi salón al Plan Pro?',
@@ -82,14 +82,14 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         name: 'Plan Base',
         price: '49.00',
         priceCurrency: 'USD',
-        description: 'POS de recepción, facturación fiscal DGII (606, 607, IT-1), cajas, comisiones y nómina para salones de belleza.'
+        description: 'POS de recepción, facturación fiscal DGII (606, 607, IT-1), cajas, directorio CRM de clientes, comisiones y nómina para salones de belleza.'
       },
       {
         '@type': 'Offer',
         name: 'Plan Pro',
         price: '99.00',
         priceCurrency: 'USD',
-        description: 'Todo el Plan Base más directorio CRM de clientes, motor de membresías recurrentes tipo Plan Beauty y contratos digitales.'
+        description: 'Todo el Plan Base más motor de membresías recurrentes tipo Plan Beauty, contratos digitales y marketing.'
       }
     ],
     creator: {
@@ -473,7 +473,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                 </h1>
 
                 <p className="hero-lead">
-                  Controla tu recepción con POS térmico de 80mm/60mm, facturación fiscal DGII (e-CF), cajas registradoras, comisiones de personal y nómina en el <strong>Plan Base</strong>, o impulsa ingresos recurrentes con membresías mensuales y CRM de clientas en el <strong>Plan Pro</strong>.
+                  Controla tu recepción con POS térmico de 80mm/60mm, facturación fiscal DGII (e-CF), cajas registradoras, directorio de clientes, comisiones de personal y nómina en el <strong>Plan Base</strong>, o impulsa ingresos recurrentes con membresías mensuales y marketing en el <strong>Plan Pro</strong>.
                 </p>
 
                 <div className="hero-offer-pills" aria-label="Resumen de planes SaaS">
@@ -483,7 +483,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   </div>
                   <div className="offer-pill">
                     <Crown size={18} aria-hidden="true" />
-                    <span><strong>Plan Pro $99/mes:</strong> + Clientes y Suscripciones</span>
+                    <span><strong>Plan Pro $99/mes:</strong> + Suscripciones y Marketing</span>
                   </div>
                 </div>
 
@@ -658,9 +658,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                 <div className="benefit-icon" aria-hidden="true">
                   <Crown size={24} />
                 </div>
-                <h3>Membresías y Clientes (Exclusivo Plan Pro)</h3>
+                <h3>Membresías y Suscripciones (Exclusivo Plan Pro)</h3>
                 <p>
-                  Habilita el registro de clientes y crea tu propio programa de suscripción mensual con control de cupos de lavados por ciclo de 30 días, contratos firmados y descuentos de cumpleaños.
+                  Habilita tu propio programa de suscripción mensual con control de cupos de lavados por ciclo de 30 días, contratos firmados y descuentos de cumpleaños.
                 </p>
                 <div className="benefit-tags">
                   <span>Ciclos de 30 días</span>
@@ -705,7 +705,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                 </div>
                 <h3>Elige tu nivel de operación</h3>
                 <p>
-                  Selecciona el <strong>Plan Base</strong> si buscas facturación POS y control interno, o el <strong>Plan Pro</strong> para incluir registro de clientes y suscripciones mensuales.
+                  Selecciona el <strong>Plan Base</strong> si buscas facturación POS y control interno, o el <strong>Plan Pro</strong> para sumar suscripciones mensuales y marketing.
                 </p>
               </div>
 
@@ -743,7 +743,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                 Dos planes diseñados para <span>cada etapa de tu salón</span>
               </h2>
               <p className="section-subtitle">
-                Sin planes confusos: elige operación pura de punto de venta en el <strong>Plan Base</strong> o desbloquea clientes y membresías recurrentes en el <strong>Plan Pro</strong>.
+                Sin planes confusos: elige operación pura de punto de venta en el <strong>Plan Base</strong> o desbloquea membresías recurrentes y marketing en el <strong>Plan Pro</strong>.
               </p>
             </div>
 
@@ -792,9 +792,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       <CheckCircle size={18} aria-hidden="true" />
                       <span><strong>Contabilidad DGII:</strong> secuencias e-CF, 606, 607 e IT-1.</span>
                     </li>
-                    <li className="plan-item-excluded">
-                      <X size={18} aria-hidden="true" className="icon-excluded" />
-                      <span>No incluye registro ni directorio CRM de clientes.</span>
+                    <li>
+                      <CheckCircle size={18} aria-hidden="true" />
+                      <span><strong>Directorio CRM de Clientes:</strong> registro, búsqueda, historial y fichas de clientes.</span>
                     </li>
                     <li className="plan-item-excluded">
                       <X size={18} aria-hidden="true" className="icon-excluded" />
@@ -816,7 +816,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               {/* PLAN PRO */}
               <article className="saas-plan-card pro-featured">
                 <div>
-                  <span className="plan-ribbon pro">✦ Más Completo &bull; Clientes + Suscripciones</span>
+                  <span className="plan-ribbon pro">✦ Más Completo &bull; Suscripciones + Marketing</span>
                   <div className="pricing-header-inner" style={{ marginBottom: '0.5rem' }}>
                     <Crown size={28} aria-hidden="true" style={{ color: 'var(--lp-accent)' }} />
                     <h3>PLAN <span>PRO</span></h3>
@@ -839,7 +839,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                     </li>
                     <li>
                       <CheckCircle size={18} aria-hidden="true" />
-                      <span><strong>Registro y Directorio CRM de Clientes</strong> con historial de visitas.</span>
+                      <span><strong>Directorio CRM de Clientes</strong> (incluido también en Plan Base) vinculado a membresías y contratos.</span>
                     </li>
                     <li>
                       <CheckCircle size={18} aria-hidden="true" />
@@ -872,7 +872,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
             </div>
 
             <div className="pricing-conditions-note" style={{ maxWidth: '1080px', margin: '0 auto' }}>
-              <strong>Condiciones de licenciamiento SaaS:</strong> La facturación de la licencia es mensual por cada sucursal activa registrada. En el <strong>Plan Base</strong>, los módulos de registro de clientes y suscripciones permanecen ocultos para mantener una interfaz limpia enfocada en caja rápida. Puedes cambiar entre Plan Base y Plan Pro en cualquier momento desde tu panel administrativo. Consulta nuestros{' '}
+              <strong>Condiciones de licenciamiento SaaS:</strong> La facturación de la licencia es mensual por cada sucursal activa registrada. En el <strong>Plan Base</strong>, los módulos de suscripciones, contratos de membresía y marketing permanecen ocultos para mantener una interfaz limpia enfocada en caja rápida y gestión de clientes. Puedes cambiar entre Plan Base y Plan Pro en cualquier momento desde tu panel administrativo. Consulta nuestros{' '}
               <Link to="/terminos-y-condiciones" style={{ color: 'var(--lp-accent)', fontWeight: 700 }}>
                 Términos del Servicio
               </Link>{' '}
@@ -1048,7 +1048,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
             <div className="final-cta-box">
               <h2>¿Listo para modernizar la gestión de <span>tu salón</span>?</h2>
               <p>
-                Crea la cuenta de tu salón en minutos eligiendo el Plan Base ($49/mes) o el Plan Pro con Suscripciones y Clientes ($99/mes).
+                Crea la cuenta de tu salón en minutos eligiendo el Plan Base ($49/mes) o el Plan Pro con Suscripciones y Marketing ($99/mes).
               </p>
               <div className="final-cta-buttons">
                 <button
@@ -1461,7 +1461,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                           <li>
                             <strong>Plan seleccionado:</strong>{' '}
                             {selectedPlanCode === 'pro'
-                              ? 'Plan Pro ($99 USD/mes por sede — Incluye Clientes + Suscripciones)'
+                              ? 'Plan Pro ($99 USD/mes por sede — Incluye Suscripciones + Marketing)'
                               : 'Plan Base ($49 USD/mes por sede — POS, Cajas, Usuarios y DGII)'}
                           </li>
                           <li>

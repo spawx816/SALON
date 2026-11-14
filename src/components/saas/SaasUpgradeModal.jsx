@@ -40,7 +40,7 @@ export default function SaasUpgradeModal({ isOpen, onClose, currentPlan = 'BASE'
           </h3>
           <p className="text-sm opacity-90 mt-1">
             {isProTarget
-              ? 'Desbloquea CRM de clientes, membresías Plan Beauty, marketing y transferencias multi-sucursal.'
+              ? 'Desbloquea membresías Plan Beauty, contratos, marketing y transferencias multi-sucursal.'
               : 'Regresa al plan operativo esencial con POS, DGII y nómina.'}
           </p>
         </div>

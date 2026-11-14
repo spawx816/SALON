@@ -52,7 +52,7 @@ class InMemoryDbMock {
             attendance: true,
             dgii_ecf: true,
             reports: true,
-            clients: false,
+            clients: true,
             memberships: false,
             multi_branch: false,
             inventory_advanced: false

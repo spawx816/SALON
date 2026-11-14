@@ -21,7 +21,7 @@ export const EntitlementsProvider = ({ children }) => {
       dgii_ecf: true,
       reports: true,
       security: true,
-      clients: false,
+      clients: true,
       memberships: false,
       marketing: false
     },

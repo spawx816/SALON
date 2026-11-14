@@ -135,16 +135,14 @@ const VisitRecorder = () => {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
 
-  // Determinación de Plan SaaS: Plan Base (solo facturación directa y empleados) vs Plan Pro (clientes y membresías Plan Beauty)
+  // Determinación de Plan SaaS: `hasProPlan` = capacidades PRO (membresías Plan Beauty). Clientes/CRM está incluido en BASE y PRO.
   const isSuperAdmin = currentUser?.role?.toLowerCase() === 'superadmin';
   const hasProPlan = Boolean(
     isSuperAdmin ||
     (!currentUser?.tenant && !currentUser?.tenant_id) ||
     currentUser?.tenant?.plan_code === 'pro' ||
     currentUser?.tenant?.has_memberships === true ||
-    currentUser?.tenant?.has_clients === true ||
-    currentUser?.tenant?.included_features?.memberships === true ||
-    currentUser?.tenant?.included_features?.clients === true
+    currentUser?.tenant?.included_features?.memberships === true
   ) && currentUser?.tenant?.plan_code !== 'base';
 
   const [salonId, setSalonId] = useState(currentUser?.salon_id || 1);
@@ -1200,7 +1198,9 @@ const VisitRecorder = () => {
   };
 
   const fetchClients = async () => {
-    if (!hasProPlan) {
+    // Clientes/CRM está incluido en BASE y PRO: la autorización de plan la impone el backend (`clients`).
+    // Los beneficios de membresía siguen siendo exclusivos de `hasProPlan` en la UI del ticket.
+    if (isSuperAdmin) {
       setAllClients([]);
       return;
     }

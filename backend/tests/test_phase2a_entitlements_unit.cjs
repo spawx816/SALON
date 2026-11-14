@@ -99,16 +99,20 @@ async function runAllTests() {
     }
   });
 
-  // TEST 4: Base blocks Pro features (clients, memberships)
-  await runAsyncTest('Test 4: Base blocks Pro features (clients, memberships)', async () => {
+  // TEST 4: Base includes Clients/CRM but blocks Pro-only features (memberships, marketing, inventory_advanced)
+  await runAsyncTest('Test 4: Base includes clients (CRM) and blocks memberships, marketing and inventory_advanced', async () => {
     const tenantId = 'tenant-test-4';
     await service.createInitialSubscription(tenantId, { actorId: 'admin-4' });
     const checkClients = await service.hasFeature(tenantId, SAAS_FEATURES.CLIENTS);
     const checkMemberships = await service.hasFeature(tenantId, SAAS_FEATURES.MEMBERSHIPS);
-    assert.strictEqual(checkClients.allowed, false, 'Base must block clients feature');
-    assert.strictEqual(checkClients.code, 'FEATURE_NOT_INCLUDED');
+    const checkMarketing = await service.hasFeature(tenantId, SAAS_FEATURES.MARKETING);
+    const checkAdvInv = await service.hasFeature(tenantId, SAAS_FEATURES.INVENTORY_ADVANCED);
+    assert.strictEqual(checkClients.allowed, true, 'Base must include clients feature (CRM)');
     assert.strictEqual(checkMemberships.allowed, false, 'Base must block memberships feature');
     assert.strictEqual(checkMemberships.code, 'FEATURE_NOT_INCLUDED');
+    assert.strictEqual(checkMarketing.allowed, false, 'Base must block marketing feature');
+    assert.strictEqual(checkMarketing.code, 'FEATURE_NOT_INCLUDED');
+    assert.strictEqual(checkAdvInv.allowed, false, 'Base must block advanced inventory');
   });
 
   // TEST 5: Pro allows Base features
@@ -306,7 +310,7 @@ async function runAllTests() {
   await runAsyncTest('Test 17: x-tenant-id header does not override authenticated req.tenantId', async () => {
     const tenantAuth = 'tenant-auth-17';
     await service.createInitialSubscription(tenantAuth, { actorId: 'admin-17' });
-    const reqClients = middleware.requirePlanFeature(SAAS_FEATURES.CLIENTS);
+    const reqClients = middleware.requirePlanFeature(SAAS_FEATURES.MEMBERSHIPS); // BASE bloquea memberships (clients ya es BASE)
     const req = {
       user: { id: 'u1', role: 'admin', tenantId: tenantAuth },
       tenantId: tenantAuth,
@@ -327,7 +331,7 @@ async function runAllTests() {
   await runAsyncTest('Test 18: Query string ?tenant_id= does not override authenticated req.tenantId', async () => {
     const tenantAuth = 'tenant-auth-18';
     await service.createInitialSubscription(tenantAuth, { actorId: 'admin-18' });
-    const reqClients = middleware.requirePlanFeature(SAAS_FEATURES.CLIENTS);
+    const reqClients = middleware.requirePlanFeature(SAAS_FEATURES.MEMBERSHIPS); // BASE bloquea memberships (clients ya es BASE)
     const req = {
       user: { id: 'u1', role: 'admin', tenantId: tenantAuth },
       tenantId: tenantAuth,
@@ -348,7 +352,7 @@ async function runAllTests() {
   await runAsyncTest('Test 19: Body payload tenant_id does not override authenticated req.tenantId', async () => {
     const tenantAuth = 'tenant-auth-19';
     await service.createInitialSubscription(tenantAuth, { actorId: 'admin-19' });
-    const reqClients = middleware.requirePlanFeature(SAAS_FEATURES.CLIENTS);
+    const reqClients = middleware.requirePlanFeature(SAAS_FEATURES.MEMBERSHIPS); // BASE bloquea memberships (clients ya es BASE)
     const req = {
       user: { id: 'u1', role: 'admin', tenantId: tenantAuth },
       tenantId: tenantAuth,

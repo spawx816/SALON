@@ -28,6 +28,7 @@ const { up: upUserTokenVersion } = require('./20261110_phase2h_user_token_versio
 const { up: upJobNoncesAndStrictIdempotency } = require('./20261110_job_nonces_and_strict_idempotency.cjs');
 const { up: upStorageAndPortability } = require('./20261110_phase3b_storage_and_portability.cjs');
 const { up: upP2P3Extensions } = require('./20261110_phase3b_p2p3_extensions.cjs');
+const { up: upClientsInBasePlan } = require('./20261111_phase3c_clients_in_base_plan.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -197,6 +198,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Toma física de inventario (REM-P2-03), retención dry-run (REM-P2-09), arqueo de caja (REM-P2-02) e índices compuestos (REM-P2-08)',
     execute: async (targetPool, targetSchema) => {
       return upP2P3Extensions(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261111_phase3c_clients_in_base_plan',
+    description: 'Incluye Clientes/CRM (clients) en Plan BASE conservándolo en PRO; membresías, contratos y marketing siguen exclusivos de PRO',
+    execute: async (targetPool, targetSchema) => {
+      return upClientsInBasePlan(targetPool, targetSchema);
     }
   }
 ];

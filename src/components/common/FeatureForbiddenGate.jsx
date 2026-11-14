@@ -43,8 +43,8 @@ export default function FeatureForbiddenGate({
             <span>Beneficios incluidos en Plan PRO:</span>
           </div>
           <ul className="space-y-1 pl-6 list-disc text-slate-600 dark:text-slate-400">
-            <li>Directorio CRM de clientas y fichas de servicio</li>
-            <li>Membresías recurrentes Plan Beauty RD</li>
+            <li>Membresías recurrentes Plan Beauty RD con contratos digitales</li>
+            <li>Marketing, encuestas y Gift Cards</li>
             <li>Transferencias de inventario entre sucursales</li>
             <li>Hasta 5 sucursales y 15 usuarios colaboradores</li>
           </ul>

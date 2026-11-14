@@ -515,7 +515,7 @@ function createApp(dependencies = {}) {
 
   app.use('/api/security', rejectClientRoleOnStaffRoutes, createSecurityRouter(pool));
   app.use('/api/salons', rejectControlPlaneRoleOnTenantRoutes, createSalonsRouter(pool, { entitlementsService }));
-  app.use('/api/clients', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('clients'), createClientsRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
+  app.use('/api/clients', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('clients'), createClientsRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders, entitlementsService }));
   app.use('/api/inventory', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createInventoryRouter({
     inventoryService,
     purchaseService: inventoryPurchaseService,
@@ -530,7 +530,14 @@ function createApp(dependencies = {}) {
   app.use('/api/reports', rejectControlPlaneRoleOnTenantRoutes, createReportsRouter(pool));
   app.use('/api/appointments', rejectControlPlaneRoleOnTenantRoutes, createAppointmentsRouter(pool));
   app.use('/api/settings', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createSettingsRouter(pool));
-  app.use('/api/marketing', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createMarketingRouter(pool));
+  // Marketing es exclusivo de PRO. Se exentan únicamente el job HMAC programado (sin sesión de tenant)
+  // y el pixel público de apertura de correo, que no operan con sesión autenticada de salón.
+  const requireMarketingFeature = requirePlanFeature('marketing');
+  const marketingPlanGuard = (req, res, next) => {
+    if (req.path === '/send-daily-birthdays' || req.path.startsWith('/track-open/')) return next();
+    return requireMarketingFeature(req, res, next);
+  };
+  app.use('/api/marketing', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, marketingPlanGuard, createMarketingRouter(pool));
   app.use('/api/holidays', rejectControlPlaneRoleOnTenantRoutes, createHolidaysRouter(pool));
   app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPayrollRouter(pool));
   app.use('/api/services', rejectControlPlaneRoleOnTenantRoutes, createServicesRouter(pool));

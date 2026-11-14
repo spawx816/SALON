@@ -231,8 +231,8 @@ export default function SaasBillingModule() {
           <div className="mt-6 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-slate-500">
               {isPro
-                ? 'Plan PRO incluye CRM de clientes, membresías y multi-sucursal.'
-                : 'Plan Base incluye POS, inventario, DGII, cajas y nómina.'}
+                ? 'Plan PRO incluye membresías, contratos, marketing y multi-sucursal (además de Clientes/CRM, incluido en BASE).'
+                : 'Plan Base incluye POS, inventario, DGII, cajas, nómina y Clientes/CRM.'}
             </span>
             <button
               onClick={() => setShowUpgradeModal(true)}

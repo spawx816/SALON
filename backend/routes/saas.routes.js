@@ -163,7 +163,7 @@ function createSaasRouter(pool, options = {}) {
       let modules_config = {};
       if (parsedPlanId === 1) {
         modules_config = {
-          pos: true, appointments: false, clients: false, services: true,
+          pos: true, appointments: false, clients: true, services: true,
           employees: true, inventory: true, cash_register: true, invoices: true,
           dgii: true, commissions: true, payroll: false, expenses: true,
           marketing: false, loyalty_plans: false, gift_cards: false, surveys: false,
@@ -237,7 +237,7 @@ function createSaasRouter(pool, options = {}) {
       const passwordHash = await bcrypt.hash(admin_password, 12);
 
       const defaultModules = parsedPlanId === 1 ? {
-        pos: true, appointments: false, clients: false, services: true,
+        pos: true, appointments: false, clients: true, services: true,
         employees: true, inventory: true, cash_register: true, invoices: true,
         dgii: true, commissions: true, payroll: false, expenses: true,
         marketing: false, loyalty_plans: false, gift_cards: false, surveys: false,

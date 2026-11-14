@@ -741,16 +741,14 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
 
-  // Determinación de Plan SaaS (Opción A: ocultación total de Membresías/Clientes en Plan Base)
+  // Determinación de Plan SaaS: `hasProPlan` = capacidades PRO (Membresías). Clientes/CRM está incluido en BASE y PRO.
   const isSuperAdmin = currentUser?.role?.toLowerCase() === 'superadmin';
   const hasProPlan = Boolean(
     isSuperAdmin ||
     (!currentUser?.tenant && !currentUser?.tenant_id) ||
     currentUser?.tenant?.plan_code === 'pro' ||
     currentUser?.tenant?.has_memberships === true ||
-    currentUser?.tenant?.has_clients === true ||
-    currentUser?.tenant?.included_features?.memberships === true ||
-    currentUser?.tenant?.included_features?.clients === true
+    currentUser?.tenant?.included_features?.memberships === true
   ) && currentUser?.tenant?.plan_code !== 'base';
 
   const [stats, setStats] = useState({ todayVisits: 0, activeClients: 0, monthlyRevenue: 0, dailySales: 0 });

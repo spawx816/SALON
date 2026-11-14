@@ -25,7 +25,8 @@ const CANONICAL_MIGRATIONS = [
   '20261110_phase2h_user_token_version',
   '20261110_job_nonces_and_strict_idempotency',
   '20261110_phase3b_storage_and_portability',
-  '20261110_phase3b_p2p3_extensions'
+  '20261110_phase3b_p2p3_extensions',
+  '20261111_phase3c_clients_in_base_plan'
 ];
 
 // 13 Global / Control Plane / System Tables

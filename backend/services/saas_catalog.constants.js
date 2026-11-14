@@ -30,9 +30,10 @@ const SAAS_FEATURES = Object.freeze({
   DGII_ECF: 'dgii_ecf',
   REPORTS: 'reports',
   SECURITY: 'security',
+  // Directorio CRM de Clientes: incluido en BASE y PRO (la matriz canónica es la única fuente de verdad)
+  CLIENTS: 'clients',
 
   // Módulos PRO exclusivos
-  CLIENTS: 'clients',
   MEMBERSHIPS: 'memberships',
   MARKETING: 'marketing',
   INVENTORY_ADVANCED: 'inventory_advanced'
@@ -51,7 +52,7 @@ const CANONICAL_PLAN_FEATURES = Object.freeze({
     [SAAS_FEATURES.DGII_ECF]: true,
     [SAAS_FEATURES.REPORTS]: true,
     [SAAS_FEATURES.SECURITY]: true,
-    [SAAS_FEATURES.CLIENTS]: false,
+    [SAAS_FEATURES.CLIENTS]: true,
     [SAAS_FEATURES.MEMBERSHIPS]: false,
     [SAAS_FEATURES.MARKETING]: false,
     [SAAS_FEATURES.INVENTORY_ADVANCED]: false
@@ -95,7 +96,7 @@ const CANONICAL_PLANS_CATALOG = Object.freeze([
     users_included: 3,
     extra_user_price: 15.0,
     branches_included: 1,
-    description: 'Facturación POS, Comprobantes Fiscales e-CF DGII, Cajas Registradoras, Catálogo, Inventario Operativo de Sucursal, Comisiones y Control de Nómina.',
+    description: 'Facturación POS, Comprobantes Fiscales e-CF DGII, Cajas Registradoras, Catálogo, Inventario Operativo de Sucursal, Directorio CRM de Clientes, Comisiones y Control de Nómina.',
     features: CANONICAL_PLAN_FEATURES[SAAS_PLANS.BASE],
     limits: DEFAULT_PLAN_LIMITS[SAAS_PLANS.BASE]
   },
@@ -107,7 +108,7 @@ const CANONICAL_PLANS_CATALOG = Object.freeze([
     users_included: 3,
     extra_user_price: 15.0,
     branches_included: 1,
-    description: 'Todo lo incluido en Plan Base más Inventario Avanzado Multisucursal, Compras y Proveedores, Directorio CRM de Clientas, Motor de Membresías Plan Beauty y Marketing.',
+    description: 'Todo lo incluido en Plan Base más Inventario Avanzado Multisucursal, Compras y Proveedores, Motor de Membresías Plan Beauty con Contratos y Marketing.',
     features: CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRO],
     limits: DEFAULT_PLAN_LIMITS[SAAS_PLANS.PRO]
   }

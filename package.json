@@ -61,6 +61,7 @@
     "test:openapi": "node backend/tests/test_openapi_spec.cjs",
     "test:performance": "node backend/tests/test_performance_indexes.cjs",
     "test:phase3b:p2p3": "node backend/tests/test_phase3b_p2p3.cjs",
+    "test:phase3c:clients-base": "node backend/tests/test_phase3c_clients_base.cjs",
     "worker:billing": "node backend/workers/billing.worker.cjs",
     "test:phase1:all": "node backend/scripts/run_all_phase1_tests.cjs"
   },

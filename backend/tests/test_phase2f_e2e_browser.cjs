@@ -307,15 +307,31 @@ async function runE2ESuite() {
       });
       assert.strictEqual(hasInventoryLink, true, 'Base plan must show Inventory in navigation');
 
-      // 3.3 CRM (Clientes) and Memberships (Planes) are NOT in the standard Base navigation
-      const hasClientsInNav = await page.evaluate(() => {
+      // 3.3 CRM (Clientes) IS in the Base navigation; Memberships (Planes/Contratos) are NOT
+      const baseNavHrefs = await page.evaluate(() => {
         const links = Array.from(document.querySelectorAll('nav a, aside a, header a'));
-        return links.some((a) => a.getAttribute('href') === '/clientes' || a.getAttribute('href') === '/lista-clientes');
+        return links.map((a) => a.getAttribute('href'));
       });
-      assert.strictEqual(hasClientsInNav, false, 'Base plan must not show CRM clients in primary navigation');
+      assert.strictEqual(
+        baseNavHrefs.some((h) => h === '/clientes' || h === '/lista-clientes'),
+        true,
+        'Base plan must show Clientes (CRM) in primary navigation'
+      );
+      assert.strictEqual(
+        baseNavHrefs.some((h) => h === '/planes' || h === '/contratos' || h === '/membresias'),
+        false,
+        'Base plan must NOT show Membresias/Contratos in navigation'
+      );
 
-      // 3.4 Direct URL access to /clientes displays FeatureForbiddenGate (403)
+      // 3.4 Direct URL access to /clientes renders the CRM directory (no 403 gate) on BASE
       await page.goto(`${viteUrl}clientes`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('body', { timeout: 5000 });
+      await new Promise((r) => setTimeout(r, 1200));
+      const clientsText = await page.evaluate(() => document.body.innerText);
+      assert.strictEqual(clientsText.includes('Acceso Restringido (403)'), false, 'CRM clients must be accessible on BASE');
+
+      // 3.4b Direct URL access to /contratos displays FeatureForbiddenGate (403) with PRO CTA
+      await page.goto(`${viteUrl}contratos`, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(
         () => document.body.innerText.includes('403') || document.body.innerText.includes('Acceso Restringido'),
         { timeout: 5000 }

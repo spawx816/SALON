@@ -393,7 +393,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             Control Central SaaS, Planes & Licencias
           </h1>
           <p style={{ margin: '0.4rem 0 0', color: '#cbd5e1', fontSize: '0.9rem', maxWidth: '750px', lineHeight: '1.5' }}>
-            Modelo comercial de 2 niveles: <strong>Plan Base</strong> (POS, Facturación, Catálogo y Empleados sin clientes registrados) y <strong>Plan Pro</strong> (Clientes registrados, Suscripciones Plan Beauty, Contratos y Cobros recurrentes).
+            Modelo comercial de 2 niveles: <strong>Plan Base</strong> (POS, Facturación, Catálogo, Empleados y Clientes/CRM) y <strong>Plan Pro</strong> (Suscripciones Plan Beauty, Contratos, Cobros recurrentes y Marketing).
           </p>
         </div>
 

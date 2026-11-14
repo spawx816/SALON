@@ -2,8 +2,69 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { decodeCursor, computeFilterHash, buildPaginatedResponse } = require('../utils/cursor_pagination');
 
-function createClientsRouter(pool) {
+const MEMBERSHIP_RESPONSE_FIELDS = Object.freeze([
+  'contract_id', 'plan_id', 'plan_name', 'contract_status', 'wash_Quota', 'washes_used',
+  'current_period_start', 'current_period_end', 'next_billing_date', 'auto_billing_enabled',
+  'signed_at', 'precio_mensual'
+]);
+
+function createClientsRouter(pool, options = {}) {
   const router = express.Router();
+  const { entitlementsService } = options;
+
+  /**
+   * Clientes/CRM está incluido en BASE y PRO, pero las capacidades de membresía (contratos, planes, cupos)
+   * siguen siendo exclusivas de PRO. El tenant se resuelve SOLO desde req.tenantId (sesión autenticada).
+   * FAIL CLOSED: sin servicio de entitlements o ante error se asume que NO hay membresías.
+   */
+  async function tenantHasMemberships(req) {
+    if (!entitlementsService || !req.tenantId) return false;
+    try {
+      const check = await entitlementsService.hasFeature(req.tenantId, 'memberships');
+      return Boolean(check && check.allowed);
+    } catch {
+      return false;
+    }
+  }
+
+  // Campos que NUNCA salen en respuestas de clientes (hash de contraseña del portal de clientas).
+  const SENSITIVE_FIELDS = ['password', 'password_hash'];
+
+  function stripMembershipFields(row) {
+    if (!row || typeof row !== 'object') return row;
+    const clean = sanitizeClient(row);
+    for (const f of MEMBERSHIP_RESPONSE_FIELDS) delete clean[f];
+    return clean;
+  }
+
+  function sanitizeClient(row) {
+    if (!row || typeof row !== 'object') return row;
+    const clean = { ...row };
+    for (const f of SENSITIVE_FIELDS) delete clean[f];
+    return clean;
+  }
+
+  async function presentClients(req, rows) {
+    const withMemberships = await tenantHasMemberships(req);
+    return rows.map(r => (withMemberships ? sanitizeClient(r) : stripMembershipFields(r)));
+  }
+
+  function rejectMembershipFeature(res) {
+    return res.status(403).json({
+      error: 'Las membresías y contratos no están incluidos en el plan actual. Cambia a Plan PRO para habilitarlos.',
+      code: 'FEATURE_NOT_INCLUDED',
+      feature: 'memberships'
+    });
+  }
+
+  const isSet = (v) => v !== undefined && v !== null && v !== '';
+  const hasMembershipPayload = (body = {}) => (
+    isSet(body.plan_id) ||
+    isSet(body.plan_name) ||
+    isSet(body.contract_status) ||
+    isSet(body.washes_used) ||
+    isSet(body.wash_Quota)
+  );
 
   // GET /api/clients/search - Isolated tenant client search/autocomplete (REM-P2-01)
   router.get('/search', async (req, res) => {
@@ -125,7 +186,7 @@ function createClientsRouter(pool) {
       `, params);
 
       const paginated = buildPaginatedResponse({
-        items: rows,
+        items: await presentClients(req, rows),
         limit,
         tenant_id: tenantId
       });
@@ -180,7 +241,7 @@ function createClientsRouter(pool) {
         return res.status(404).json({ error: 'Cliente no encontrado' });
       }
 
-      res.json(rows[0]);
+      res.json((await presentClients(req, [rows[0]]))[0]);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -221,7 +282,7 @@ function createClientsRouter(pool) {
         return res.status(404).json({ error: 'Cliente no encontrado' });
       }
 
-      res.json(rows[0]);
+      res.json((await presentClients(req, [rows[0]]))[0]);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -252,6 +313,11 @@ function createClientsRouter(pool) {
 
       if (!nombre) {
         return res.status(400).json({ error: 'El nombre del cliente es obligatorio.' });
+      }
+
+      // BASE puede registrar clientes, pero NO suscribirlos a membresías (crear contratos).
+      if (hasMembershipPayload(req.body) && !(await tenantHasMemberships(req))) {
+        return rejectMembershipFeature(res);
       }
 
       const cleanCedula = cedula ? String(cedula).trim() : null;
@@ -368,6 +434,11 @@ function createClientsRouter(pool) {
       const [existingRows] = await pool.query('SELECT id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (existingRows.length === 0) {
         return res.status(404).json({ error: 'Cliente no encontrado en este salón.' });
+      }
+
+      // BASE puede editar clientes, pero NO crear ni modificar contratos/membresías.
+      if (hasMembershipPayload(req.body) && !(await tenantHasMemberships(req))) {
+        return rejectMembershipFeature(res);
       }
 
       const cleanBirthDate = fecha_nacimiento !== undefined
@@ -487,11 +558,29 @@ function createClientsRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      await pool.query('DELETE FROM contracts WHERE client_id = ? AND tenant_id = ?', [id, tenantId]);
-      const [result] = await pool.query('DELETE FROM clients WHERE id = ? AND tenant_id = ?', [id, tenantId]);
-      if (result.rowCount === 0) {
+
+      // 404 explícito para clientes inexistentes o de otro tenant (antes devolvía 200 sin borrar nada).
+      const [ownedRows] = await pool.query('SELECT id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+      if (!ownedRows || ownedRows.length === 0) {
         return res.status(404).json({ error: 'Cliente no encontrado' });
       }
+
+      // Los contratos PRO conservados tras un downgrade nunca se destruyen desde BASE (solo PRO puede eliminarlos).
+      if (!(await tenantHasMemberships(req))) {
+        const [existingContracts] = await pool.query(
+          'SELECT id FROM contracts WHERE client_id = ? AND tenant_id = ? LIMIT 1',
+          [id, tenantId]
+        );
+        if (existingContracts.length > 0) {
+          return res.status(409).json({
+            error: 'El cliente tiene contratos de membresía conservados. Reactiva el Plan PRO para administrarlos antes de eliminarlo.',
+            code: 'CLIENT_HAS_MEMBERSHIP_DATA'
+          });
+        }
+      }
+
+      await pool.query('DELETE FROM contracts WHERE client_id = ? AND tenant_id = ?', [id, tenantId]);
+      await pool.query('DELETE FROM clients WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

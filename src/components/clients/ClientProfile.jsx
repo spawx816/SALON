@@ -14,6 +14,7 @@ import { useTranslation } from '../../context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
+import { useEntitlements } from '../../context/EntitlementsContext';
 import { Lock, CheckCircle, ShieldOff } from 'lucide-react';
 import { formatName, getInitials } from '../../utils/formatters';
 
@@ -94,6 +95,9 @@ const ClientProfile = () => {
   const [statusFilter, setStatusFilter] = useState('all'); // all, active, pending, cancelled, inactive
   const [salonFilter, setSalonFilter] = useState('all'); // all, or salon_id
   const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'table'
+  // Clientes/CRM está en BASE y PRO; los paneles de membresía/contratos/tarjetas/cobros solo existen en PRO.
+  const { hasFeature } = useEntitlements();
+  const showMemberships = hasFeature('memberships');
   const [sortBy, setSortBy] = useState('name_asc'); // 'name_asc' | 'name_desc' | 'status' | 'salon'
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
@@ -1778,6 +1782,7 @@ const ClientProfile = () => {
               </div>
 
               {/* Payment Method Info */}
+              {showMemberships && (
               <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                   <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
@@ -1948,6 +1953,7 @@ const ClientProfile = () => {
                   )}
                 </div>
               </div>
+              )}
             </div>
 
             {/* Expediente Digital Section */}
@@ -2361,6 +2367,7 @@ const ClientProfile = () => {
               </div>
 
               {/* Payments History List */}
+              {showMemberships && (<>
               <h4 style={{ fontSize: '0.875rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>Historial de Transacciones</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '250px', overflowY: 'auto', paddingRight: '0.5rem' }}>
                 {isLoadingDetails ? (
@@ -2408,6 +2415,7 @@ const ClientProfile = () => {
                   </div>
                 )}
               </div>
+              </>)}
 
               {/* Gift Cards History */}
               <h4 style={{ fontSize: '0.875rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', margin: '2rem 0 1rem' }}>Tarjetas de Regalo Compradas</h4>
@@ -2507,7 +2515,7 @@ const ClientProfile = () => {
                   { id: 'pending', label: 'Cobro Pendiente', count: allClients.filter(c => c.contract_status === 'Pending_Retry' || (c.status === 'Inactive' && c.contract_status !== 'Cancelled')).length },
                   { id: 'cancelled', label: 'Cancelados', count: allClients.filter(c => c.status === 'Cancelled' || c.contract_status === 'Cancelled').length },
                   { id: 'inactive', label: 'Sin Plan' }
-                ].map(p => (
+                ].filter(p => showMemberships || p.id === 'all' || p.id === 'active').map(p => (
                   <button
                     key={p.id}
                     onClick={() => { setStatusFilter(p.id); setCurrentPage(1); }}
@@ -2693,7 +2701,9 @@ const ClientProfile = () => {
                           <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                             <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cliente</th>
                             <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sede</th>
+                            {showMemberships && (
                             <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Membresía / Plan</th>
+                            )}
                             <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Contacto</th>
                             <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cumpleaños</th>
                             <th style={{ padding: '1rem 1.25rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Acción</th>
@@ -2756,6 +2766,7 @@ const ClientProfile = () => {
                                 </td>
 
                                 {/* Columna Membresía */}
+                                {showMemberships && (
                                 <td style={{ padding: '1rem 1.25rem' }}>
                                   {isActive ? (
                                     <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '0.25rem 0.65rem', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
@@ -2777,6 +2788,7 @@ const ClientProfile = () => {
                                     </span>
                                   )}
                                 </td>
+                                )}
 
                                 {/* Columna Contacto */}
                                 <td style={{ padding: '1rem 1.25rem' }}>
@@ -2979,10 +2991,12 @@ const ClientProfile = () => {
                             </div>
 
                             {/* Caja de Estado de Membresía */}
+                            {showMemberships && (
                             <div style={{ background: boxBg, padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', border: `1px solid ${boxBorder}` }}>
                               <p style={{ fontSize: '0.65rem', color: titleColor, fontWeight: 800, textTransform: 'uppercase', margin: '0 0 0.2rem 0', letterSpacing: '0.05em' }}>{titleText}</p>
                               <p style={{ fontSize: '0.88rem', fontWeight: 800, color: valueColor, margin: 0 }}>{valueText}</p>
                             </div>
+                            )}
 
                             {/* Contactos */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>

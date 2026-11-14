@@ -8,7 +8,7 @@
  *   1. Onboarding creates tenant Base and neutralizes attempt to force Pro.
  *   2. Base queries correct entitlements.
  *   3. Base uses basic inventory.
- *   4. Base receives 403 trying CRM, memberships, or advanced inventory.
+ *   4. Base accesses CRM clients, but receives 403 trying memberships or advanced inventory.
  *   5. Upgrade Base -> Pro with fake payment enables Pro features.
  *   6. Repeat upgrade does not duplicate invoice or charge.
  *   7. Downgrade is blocked if it exceeds users or branches.
@@ -254,7 +254,8 @@ async function runAll() {
       assert.strictEqual(res.body.currentPlan, 'BASE');
       assert.strictEqual(res.body.features.inventory, true, 'Base includes basic inventory');
       assert.strictEqual(res.body.features.pos, true, 'Base includes POS');
-      assert.strictEqual(res.body.features.clients, false, 'Base excludes CRM clients');
+      assert.strictEqual(res.body.features.clients, true, 'Base includes CRM clients');
+      assert.strictEqual(res.body.features.marketing, false, 'Base excludes marketing');
       assert.strictEqual(res.body.features.memberships, false, 'Base excludes B2C memberships');
       assert.strictEqual(res.body.features.inventory_advanced, false, 'Base excludes advanced inventory');
       assert.strictEqual(res.body.limits.branches, 1, 'Base allows 1 branch maximum');
@@ -315,16 +316,15 @@ async function runAll() {
     // =========================================================================
     // FLOW 4: BASE RECIBE 403 AL INTENTAR CRM, MEMBRESÍAS O INVENTARIO AVANZADO
     // =========================================================================
-    await runAsyncTest('Flow 4.1: Base tenant is blocked with 403 on CRM Clients', async () => {
+    await runAsyncTest('Flow 4.1: Base tenant is NOT blocked on CRM Clients (feature included in BASE)', async () => {
       const res = await harness.request({
         method: 'GET',
         path: '/api/clients',
         headers: tenantBaseUser.headers
       });
 
-      assert.strictEqual(res.status, 403);
-      assert.strictEqual(res.body.code, 'FEATURE_NOT_INCLUDED');
-      assert.strictEqual(res.body.feature, 'clients');
+      assert.notStrictEqual(res.status, 403, 'Clients/CRM must not be blocked by plan on BASE');
+      assert.notStrictEqual(res.body && res.body.code, 'FEATURE_NOT_INCLUDED');
     });
 
     await runAsyncTest('Flow 4.2: Base tenant is blocked with 403 on B2C Memberships', async () => {
