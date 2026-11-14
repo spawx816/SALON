@@ -8,31 +8,19 @@ import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 
-const WeeklyBilling8BarsChart = ({ billingData, onRefresh }) => {
+const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, onRefresh }) => {
   const [viewType, setViewType] = useState('bars'); // 'bars' | 'line'
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
 
-  // Default fallback data if empty or initial loading
-  const defaultDays = [
-    { dayName: 'Lun', dayLabel: '29 sep', currentAmount: 58400, previousAmount: 52000, variationPercent: 12.3 },
-    { dayName: 'Mar', dayLabel: '30 sep', currentAmount: 73450, previousAmount: 68800, variationPercent: 6.8 },
-    { dayName: 'Mié', dayLabel: '1 oct', currentAmount: 62100, previousAmount: 64100, variationPercent: -3.1 },
-    { dayName: 'Jue', dayLabel: '2 oct', currentAmount: 68900, previousAmount: 65200, variationPercent: 5.6 },
-    { dayName: 'Vie', dayLabel: '3 oct', currentAmount: 81750, previousAmount: 74700, variationPercent: 9.4 },
-    { dayName: 'Sáb', dayLabel: '4 oct', currentAmount: 103200, previousAmount: 90400, variationPercent: 14.2 },
-    { dayName: 'Dom', dayLabel: '5 oct', currentAmount: 80850, previousAmount: 75100, variationPercent: 7.6 },
-  ];
-
-  const defaultMonth = {
-    title: 'Mes',
-    subtitle: 'Octubre 2026',
-    total: 1356780,
-    variationPercent: 10.8
-  };
-
-  const days = billingData?.days?.length > 0 ? billingData.days : defaultDays;
-  const month = billingData?.month || defaultMonth;
+  const days = Array.isArray(billingData?.days) ? billingData.days : [];
+  const month = billingData?.month || { title: 'Mes', subtitle: '', total: 0, variationPercent: null };
+  const periodLabel = billingData?.period?.label || '';
+  const hasActivity = Boolean(
+    billingData?.hasActivity ||
+    days.some(d => Number(d.currentAmount || 0) > 0 || Number(d.previousAmount || 0) > 0) ||
+    Number(month.total || 0) > 0
+  );
 
   // Max value among daily data to compute relative bar height (between 0% and 100%)
   const maxDaily = Math.max(
@@ -107,6 +95,60 @@ const WeeklyBilling8BarsChart = ({ billingData, onRefresh }) => {
 
   const pathCurrent = makePath(linePointsCurrent.filter(p => !p.day.isFuture));
   const pathPrev = makePath(linePointsPrev);
+
+  if (loading && !billingData) {
+    return (
+      <div className="surface-card" style={{ marginTop: '1.5rem', background: '#ffffff', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem 2rem' }}>
+        <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#09090b', margin: '0 0 0.75rem 0', letterSpacing: '-0.02em' }}>Facturación</h3>
+        <div className="skeleton-shimmer" style={{ height: '180px', borderRadius: '16px' }} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="surface-card" style={{ marginTop: '1.5rem', background: '#ffffff', borderRadius: '24px', border: '1px solid #fecaca', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem 2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <div>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#09090b', margin: '0 0 0.35rem 0', letterSpacing: '-0.02em' }}>Facturación</h3>
+            <p style={{ margin: 0, fontSize: '0.88rem', color: '#b91c1c', fontWeight: 600 }}>
+              No se pudo cargar la facturación ({error}).
+            </p>
+          </div>
+          {onRefresh && (
+            <button type="button" onClick={onRefresh} style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
+              Reintentar
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasActivity) {
+    return (
+      <div className="surface-card" style={{ marginTop: '1.5rem', background: '#ffffff', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem 2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+          <div>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#09090b', margin: '0 0 0.25rem 0', letterSpacing: '-0.02em' }}>Facturación</h3>
+            {(periodLabel || month.subtitle) && (
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
+                {periodLabel ? `Semana ${periodLabel}` : ''}{periodLabel && month.subtitle ? ' · ' : ''}{month.subtitle || ''}
+              </p>
+            )}
+          </div>
+          <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f172a', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '0.35rem 0.75rem' }}>
+            RD$ 0
+          </span>
+        </div>
+        <div style={{ textAlign: 'center', padding: '2.5rem 1rem', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #cbd5e1' }}>
+          <BarChart3 size={32} color="#94a3b8" style={{ marginBottom: '0.6rem' }} />
+          <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#0f172a' }}>Aún no tienes ventas registradas</p>
+          <p style={{ margin: '0.3rem 0 0', fontSize: '0.82rem', color: '#64748b' }}>Cuando registres ventas en este período, verás aquí la comparación semanal y mensual.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="surface-card" style={{ marginTop: '1.5rem', background: '#ffffff', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem 2rem', position: 'relative' }}>
@@ -426,17 +468,19 @@ const WeeklyBilling8BarsChart = ({ billingData, onRefresh }) => {
               <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.01em' }}>
                 RD$ {Number(month.total || 0).toLocaleString()}
               </p>
-              <span style={{ 
-                fontSize: '0.7rem', 
-                fontWeight: 800, 
-                color: (month.variationPercent || 0) >= 0 ? '#16a34a' : '#dc2626',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.15rem',
-                marginTop: '0.1rem'
-              }}>
-                {(month.variationPercent || 0) >= 0 ? '↑' : '↓'} {Math.abs(month.variationPercent || 0)}%
-              </span>
+              {month.variationPercent !== null && month.variationPercent !== undefined && (
+                <span style={{ 
+                  fontSize: '0.7rem', 
+                  fontWeight: 800, 
+                  color: month.variationPercent >= 0 ? '#16a34a' : '#dc2626',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.15rem',
+                  marginTop: '0.1rem'
+                }}>
+                  {month.variationPercent >= 0 ? '↑' : '↓'} {Math.abs(month.variationPercent)}%
+                </span>
+              )}
             </div>
 
             {/* Month Bar / Metric */}
@@ -468,14 +512,7 @@ const WeeklyBilling8BarsChart = ({ billingData, onRefresh }) => {
   );
 };
 
-const VisitasPorLocalidadChart = ({ data, onRefresh }) => {
-  // Default values matching sample design if no visits exist
-  const defaultLocations = [
-    { rank: '01', salon_name: 'Sucursal A', visits: 500, percentage: 50, color: '#0066ff' },
-    { rank: '02', salon_name: 'Sucursal B', visits: 300, percentage: 30, color: '#3b82f6' },
-    { rank: '03', salon_name: 'Sucursal C', visits: 200, percentage: 20, color: '#93c5fd' }
-  ];
-
+const VisitasPorLocalidadChart = ({ data, loading = false, error = null, onRefresh }) => {
   const now = new Date();
   const monthNamesLong = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -483,12 +520,71 @@ const VisitasPorLocalidadChart = ({ data, onRefresh }) => {
   ];
   const currentMonthLabel = `${monthNamesLong[now.getMonth()]} ${now.getFullYear()}`;
 
-  const locations = (data?.locations && data.locations.length > 0)
-    ? data.locations
-    : defaultLocations;
-
-  const totalVisits = data !== null && data !== undefined ? Number(data.totalVisits || 0) : 1000;
+  const locations = Array.isArray(data?.locations) ? data.locations : [];
+  const totalVisits = Number(data?.totalVisits || 0);
   const monthLabel = data?.monthLabel || currentMonthLabel;
+
+  if (loading && !data) {
+    return (
+      <div className="surface-card" style={{ background: '#ffffff', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem', height: '100%' }}>
+        <h3 style={{ margin: '0 0 1rem', fontSize: '1.3rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.02em' }}>
+          Visitas por localidad
+        </h3>
+        <div className="skeleton-shimmer" style={{ height: '210px', borderRadius: '16px' }} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="surface-card" style={{ background: '#ffffff', borderRadius: '24px', border: '1px solid #fecaca', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div>
+          <h3 style={{ margin: '0 0 0.4rem', fontSize: '1.3rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.02em' }}>
+            Visitas por localidad
+          </h3>
+          <p style={{ margin: 0, fontSize: '0.88rem', color: '#b91c1c', fontWeight: 600 }}>
+            No se pudo cargar la distribución por sucursal ({error}).
+          </p>
+        </div>
+        {onRefresh && (
+          <div style={{ marginTop: '1rem' }}>
+            <button type="button" onClick={onRefresh} style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
+              Reintentar
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (locations.length === 0 || totalVisits === 0) {
+    return (
+      <div className="surface-card" style={{ background: '#ffffff', borderRadius: '24px', border: '1px solid #e2e8f0', boxShadow: '0 4px 20px rgba(0,0,0,0.03)', padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.02em' }}>
+              Visitas por localidad
+            </h3>
+            <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: '#64748b', fontWeight: 500 }}>
+              Acumulado del mes en curso
+            </p>
+          </div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', padding: '0.4rem 0.8rem', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#ffffff', fontSize: '0.78rem', fontWeight: 700, color: '#334155' }}>
+            <CalendarCheck size={14} color="#64748b" />
+            <span>{monthLabel}</span>
+          </div>
+        </div>
+        <div style={{ textAlign: 'center', padding: '2.5rem 1rem', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #cbd5e1', marginBottom: '1rem' }}>
+          <p style={{ margin: 0, fontSize: '1.75rem', fontWeight: 900, color: '#09090b' }}>0</p>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.92rem', fontWeight: 700, color: '#334155' }}>Sin visitas en este período</p>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.75rem', borderTop: '1px solid #f1f5f9', fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>
+          <span>{monthLabel}</span>
+          <span>0 visitas registradas</span>
+        </div>
+      </div>
+    );
+  }
 
   // Donut SVG Math
   const cx = 110;
@@ -682,8 +778,8 @@ const VisitasPorLocalidadChart = ({ data, onRefresh }) => {
         color: '#94a3b8',
         fontWeight: 600
       }}>
-        <span>De mayor a menor · Mes en curso</span>
-        <span>{data?.totalVisits > 0 ? 'Datos en vivo' : 'Datos de ejemplo'}</span>
+        <span>De mayor a menor · {monthLabel}</span>
+        <span>Datos en vivo</span>
       </div>
     </div>
   );
@@ -751,7 +847,7 @@ const Dashboard = () => {
     currentUser?.tenant?.included_features?.memberships === true
   ) && currentUser?.tenant?.plan_code !== 'base';
 
-  const [stats, setStats] = useState({ todayVisits: 0, activeClients: 0, monthlyRevenue: 0, dailySales: 0 });
+  const [stats, setStats] = useState({ visits: 0, clients: 0, revenue: 0, dailySales: 0 });
   const [breakdowns, setBreakdowns] = useState({ salons: [], visits: [], memberships: [], dailySales: [] });
   const [activeDetailModal, setActiveDetailModal] = useState(null); // 'visits' | 'memberships' | 'dailySales' | null
   const [recentVisits, setRecentVisits] = useState([]);
@@ -764,6 +860,11 @@ const Dashboard = () => {
   const [isVisitsModalOpen, setIsVisitsModalOpen] = useState(false);
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+  const [isLoadingBilling, setIsLoadingBilling] = useState(true);
+  const [isLoadingLocations, setIsLoadingLocations] = useState(true);
+  const [summaryError, setSummaryError] = useState(null);
+  const [billingError, setBillingError] = useState(null);
+  const [locationsError, setLocationsError] = useState(null);
 
   const isPlanBeautyVisit = (v) => {
     if (!v) return false;
@@ -797,30 +898,60 @@ const Dashboard = () => {
   };
 
   const fetchBillingComparison = async () => {
-    const data = await dataService.getWeeklyBillingComparison();
-    if (data) {
-      setBillingComparison(data);
+    try {
+      setIsLoadingBilling(true);
+      setBillingError(null);
+      const data = await dataService.getWeeklyBillingComparison();
+      setBillingComparison(data || null);
+    } catch (err) {
+      setBillingComparison(null);
+      setBillingError(err.message || 'Error al cargar facturación');
+    } finally {
+      setIsLoadingBilling(false);
     }
   };
 
   const fetchVisitsByLocation = async () => {
-    const data = await dataService.getVisitsByLocation();
-    if (data) {
-      setVisitsByLocation(data);
+    try {
+      setIsLoadingLocations(true);
+      setLocationsError(null);
+      const data = await dataService.getVisitsByLocation();
+      setVisitsByLocation(data || null);
+    } catch (err) {
+      setVisitsByLocation(null);
+      setLocationsError(err.message || 'Error al cargar visitas por localidad');
+    } finally {
+      setIsLoadingLocations(false);
     }
   };
 
   useEffect(() => {
+    let cancelled = false;
+    setStats({ visits: 0, clients: 0, revenue: 0, dailySales: 0 });
+    setBreakdowns({ salons: [], visits: [], memberships: [], dailySales: [] });
+    setRecentVisits([]);
+    setAllVisits([]);
+    setPlanUsages([]);
+    setVisitsByLocation(null);
+    setBillingComparison(null);
+    setSecurityRequests([]);
+    setSummaryError(null);
+    setBillingError(null);
+    setLocationsError(null);
+    setIsLoadingSummary(true);
+
     const load = async () => {
       try {
         const summary = await dataService.getDashboardSummary();
+        if (cancelled) return;
         const usages = hasProPlan ? await dataService.getPlanUsages() : [];
+        if (cancelled) return;
         if (summary) {
           setStats({
-            visits: summary.metrics?.todayVisits || 0,
-            clients: summary.metrics?.activeClients || 0,
-            revenue: summary.metrics?.monthlyRevenue || 0,
-            dailySales: summary.metrics?.dailySales || 0
+            visits: summary.metrics?.todayVisits ?? summary.visitsToday ?? 0,
+            clients: summary.metrics?.activeClients ?? summary.activeSubscriptions ?? 0,
+            revenue: summary.metrics?.monthlyRevenue ?? summary.totalRevenueMonth ?? 0,
+            dailySales: summary.metrics?.dailySales ?? summary.revenueToday ?? 0,
           });
           if (summary.breakdowns) {
             setBreakdowns(summary.breakdowns);
@@ -832,25 +963,35 @@ const Dashboard = () => {
           setAllVisits(filteredVisits);
         }
         setPlanUsages(usages);
+      } catch (err) {
+        if (!cancelled) {
+          setSummaryError(err.message || 'Error al cargar el resumen del dashboard');
+        }
       } finally {
-        setIsLoadingSummary(false);
+        if (!cancelled) setIsLoadingSummary(false);
       }
     };
 
     const fetchSecurity = async () => {
-      const security = await dataService.getSecurityRequests();
-      setSecurityRequests(security);
+      try {
+        const security = await dataService.getSecurityRequests();
+        if (!cancelled) setSecurityRequests(security);
+      } catch {
+        // Non-blocking security poll
+      }
     };
 
     load();
     fetchSecurity();
     fetchBillingComparison();
     fetchVisitsByLocation();
-    
-    // Auto-refresh security requests every 10 seconds
+
     const interval = setInterval(fetchSecurity, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [currentUser?.id, currentUser?.tenant_id, hasProPlan]);
 
   const handleExport = async () => {
     try {
@@ -940,6 +1081,11 @@ const Dashboard = () => {
 
   return (
     <div style={{ background: '#ffffff', minHeight: '100%', padding: '0 0 2rem 0' }}>
+      {summaryError && (
+        <div role="alert" style={{ marginBottom: '1.25rem', padding: '0.9rem 1.25rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '14px', color: '#b91c1c', fontSize: '0.88rem', fontWeight: 600 }}>
+          No se pudieron cargar los indicadores del dashboard: {summaryError}
+        </div>
+      )}
       <div className="metrics-grid" style={{ marginTop: 0, paddingTop: 0 }}>
         <MetricCard 
           title="Visitas de Hoy" 
@@ -985,7 +1131,12 @@ const Dashboard = () => {
       </div>
 
       {/* 8-Bar Facturación Weekly & Monthly Comparison Chart */}
-      <WeeklyBilling8BarsChart billingData={billingComparison} onRefresh={fetchBillingComparison} />
+      <WeeklyBilling8BarsChart
+        billingData={billingComparison}
+        loading={isLoadingBilling}
+        error={billingError}
+        onRefresh={fetchBillingComparison}
+      />
 
       {/* Security Requests Section */}
       {(securityRequests.length > 0 || (currentUser?.role === 'admin' || currentUser?.role_name === 'Administrador')) && (
@@ -1050,7 +1201,12 @@ const Dashboard = () => {
       {/* Grid: Visitas por localidad & Visitas Recientes */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '1.5rem', marginTop: '1.5rem' }}>
         {/* Visitas por Localidad Donut & Ranking */}
-        <VisitasPorLocalidadChart data={visitsByLocation} onRefresh={fetchVisitsByLocation} />
+        <VisitasPorLocalidadChart
+          data={visitsByLocation}
+          loading={isLoadingLocations}
+          error={locationsError}
+          onRefresh={fetchVisitsByLocation}
+        />
 
         {/* Recent Traffic */}
         <div className="surface-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

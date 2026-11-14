@@ -1076,52 +1076,58 @@ export const dataService = {
   },
 
   getDashboardSummary: async () => {
-    try {
-      const res = await fetch(`${API_URL}/dashboard/summary`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data && data.recentVisits) {
-        data.recentVisits = data.recentVisits.map(v => ({
-          ...v,
-          servicios: ensureArray(v.servicios)
-        }));
-      }
-      return data;
-    } catch { return null; }
+    const res = await fetch(`${API_URL}/dashboard/summary`);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.error || `Error ${res.status} al cargar resumen del dashboard`);
+    }
+    const data = await res.json();
+    if (data && data.recentVisits) {
+      data.recentVisits = data.recentVisits.map(v => ({
+        ...v,
+        servicios: ensureArray(v.servicios)
+      }));
+    }
+    return data;
   },
 
   getPlanUsages: async () => {
-    try {
-      const res = await fetch(`${API_URL}/dashboard/plan-usage`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.map(r => ({
-        ...r,
-        plan_services: Array.isArray(r.plan_services) ? r.plan_services : []
-      }));
-    } catch { return []; }
+    const res = await fetch(`${API_URL}/dashboard/plan-usage`);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.error || `Error ${res.status} al cargar uso de planes`);
+    }
+    const data = await res.json();
+    return Array.isArray(data)
+      ? data.map(r => ({
+          ...r,
+          plan_services: Array.isArray(r.plan_services) ? r.plan_services : []
+        }))
+      : [];
   },
 
   getWeeklyBillingComparison: async () => {
-    try {
-      const res = await fetch(`${API_URL}/dashboard/weekly-billing-comparison`);
-      if (!res.ok) return null;
-      return await res.json();
-    } catch { return null; }
+    const res = await fetch(`${API_URL}/dashboard/weekly-billing-comparison`);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.error || `Error ${res.status} al cargar facturación semanal`);
+    }
+    return await res.json();
   },
 
   getVisitsByLocation: async (month = null, year = null) => {
-    try {
-      let url = `${API_URL}/dashboard/visits-by-location`;
-      const params = new URLSearchParams();
-      if (month) params.append('month', month);
-      if (year) params.append('year', year);
-      if (params.toString()) url += `?${params.toString()}`;
-      
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      return await res.json();
-    } catch { return null; }
+    let url = `${API_URL}/dashboard/visits-by-location`;
+    const params = new URLSearchParams();
+    if (month) params.append('month', month);
+    if (year) params.append('year', year);
+    if (params.toString()) url += `?${params.toString()}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.error || `Error ${res.status} al cargar visitas por sucursal`);
+    }
+    return await res.json();
   },
 
   getAnalyticsReports: async (salonId = 'all', startDate = null, endDate = null) => {
