@@ -189,6 +189,7 @@ module.exports = {
   DEFAULT_PLAN_LIMITS,
   CANONICAL_PLANS_CATALOG,
   ADDONS_CATALOG,
+  MEMBERSHIPS_ADDON_DEFAULT_USD,
   getConfiguredPricing,
   normalizePlanCode,
   isValidPlanCode,
