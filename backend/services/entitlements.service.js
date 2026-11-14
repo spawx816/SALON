@@ -411,9 +411,12 @@ class EntitlementsService {
       ? String(reason).trim()
       : `${prefix}: ${(reason && String(reason).trim()) || (enabledBool ? 'Add-on Suscripciones/Membresías B2C habilitado' : 'Add-on Suscripciones/Membresías B2C desactivado')}`;
 
-    const pool = this.entitlementsRepo?.pool;
-    if (pool && typeof pool.connect === 'function') {
-      const client = await pool.connect();
+    const rawPool = this.entitlementsRepo?.pool;
+    const pgPool = rawPool && typeof rawPool.connect === 'function'
+      ? rawPool
+      : (rawPool?.rawPool && typeof rawPool.rawPool.connect === 'function' ? rawPool.rawPool : null);
+    if (pgPool) {
+      const client = await pgPool.connect();
 
       try {
         await client.query('BEGIN');
