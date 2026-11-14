@@ -347,17 +347,19 @@ const handleLoginSubmit = async (e) => {
   }
   setLoginLoading(true);
   try {
-    const result = await login(email.trim(), password);
-    if (!result.success) {
-      if (result.requiresActivation) {
-        setPendingClientId(result.clientId);
-        setShowActivation(true);
+    await login(email.trim(), password);
+  } catch (err) {
+    if (err?.status === 'Pendiente') {
+      setPendingClientId(err.id);
+      setShowActivation(true);
+    } else {
+      const msg = err?.message || '';
+      if (!msg || msg === 'Failed to fetch' || err?.name === 'TypeError') {
+        setLoginError('Error de conexión con el servidor.');
       } else {
-        setLoginError(result.error || 'Credenciales incorrectas.');
+        setLoginError(msg);
       }
     }
-  } catch {
-    setLoginError('Error de conexión con el servidor.');
   } finally {
     setLoginLoading(false);
   }

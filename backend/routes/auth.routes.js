@@ -814,27 +814,35 @@ function createAuthRouter(pool, options = {}) {
           LEFT JOIN branches b ON (u.branch_id::text = b.id::text AND b.tenant_id = u.tenant_id)
           WHERE (LOWER(u.email) = LOWER(?) OR LOWER(u.username) = LOWER(?))
             AND COALESCE(u.is_active, true) = true
-          LIMIT 1
+          ORDER BY u.created_at DESC
         `, [identifier, identifier]);
 
         if (pgUsers && pgUsers.length > 0) {
-          const u = pgUsers[0];
-          const storedHash = u.password_hash || u.password || '';
-          let isPassValid = false;
+          let matchedUser = null;
+          for (const candidate of pgUsers) {
+            const storedHash = candidate.password_hash || candidate.password || '';
+            let isPassValid = false;
 
-          if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
-            isPassValid = await bcrypt.compare(String(password), storedHash);
-          } else if (storedHash) {
-            isPassValid = (password === storedHash);
+            if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
+              isPassValid = await bcrypt.compare(String(password), storedHash);
+            } else if (storedHash) {
+              isPassValid = (password === storedHash);
+              if (isPassValid) {
+                const upgradedHash = await bcrypt.hash(String(password), 10);
+                await pool.query('UPDATE users SET password_hash = ?, password = NULL WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)', [upgradedHash, candidate.id, candidate.tenant_id]);
+              }
+            }
+
             if (isPassValid) {
-              const upgradedHash = await bcrypt.hash(String(password), 10);
-              await pool.query('UPDATE users SET password_hash = ?, password = NULL WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)', [upgradedHash, u.id, u.tenant_id]);
+              matchedUser = candidate;
+              break;
             }
           }
 
-          if (!isPassValid) {
+          if (!matchedUser) {
             return res.status(401).json({ error: 'Contraseña incorrecta.' });
           }
+          const u = matchedUser;
 
           const effectiveRole = String(u.role || 'admin').toLowerCase();
           const isSuperAdmin = effectiveRole === 'superadmin';
