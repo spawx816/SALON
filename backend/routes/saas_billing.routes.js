@@ -430,19 +430,24 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   // 11. Endpoint Administrativo SuperAdmin: Extender período de gracia
   router.post('/admin/extend-grace', async (req, res) => {
     try {
-      if (!req.auth?.isSuperAdmin && req.user?.role !== 'superadmin' && req.auth?.role !== 'superadmin') {
+      if (!req.auth?.isSuperAdmin) {
         return res.status(403).json({ error: 'Acceso reservado a SuperAdmin', code: 'SUPERADMIN_REQUIRED' });
       }
 
-      const { tenantId, additionalDays, reason } = req.body;
-      if (!tenantId || !reason) {
-        return res.status(400).json({ error: 'tenantId y reason son requeridos' });
+      const { tenantId, additionalDays, reason } = req.body || {};
+      const cleanReason = typeof reason === 'string' ? reason.trim() : '';
+      const parsedDays = additionalDays === undefined ? 5 : Number(additionalDays);
+      if (!tenantId || !cleanReason || cleanReason.length < 3) {
+        return res.status(400).json({ error: 'tenantId y un motivo válido (mín. 3 caracteres) son requeridos' });
+      }
+      if (!Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 90) {
+        return res.status(400).json({ error: 'additionalDays debe ser un entero entre 1 y 90 días' });
       }
 
       const updated = await lifecycleService.extendGracePeriod(tenantId, {
-        additionalDays: additionalDays || 5,
-        reason,
-        actorId: req.user?.id || 'superadmin'
+        additionalDays: parsedDays,
+        reason: cleanReason,
+        actorId: req.auth?.userId || 'superadmin'
       });
 
       res.json({
@@ -451,7 +456,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         subscription: updated
       });
     } catch (err) {
-      res.status(400).json({ error: err.message, code: 'EXTEND_GRACE_FAILED' });
+      res.status(err.statusCode || 400).json({ error: err.message, code: 'EXTEND_GRACE_FAILED' });
     }
   });
 

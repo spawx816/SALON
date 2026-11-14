@@ -64,20 +64,71 @@ function createSaasRouter(pool, options = {}) {
       const [suspendedTenants] = await pool.query("SELECT COUNT(*) as suspended FROM tenants WHERE status = 'suspended'");
       const [branchesCount] = await pool.query("SELECT COUNT(b.id) as total FROM branches b JOIN tenants t ON b.tenant_id = t.id");
       const [usersCount] = await pool.query("SELECT COUNT(u.id) as total FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE u.role != 'superadmin'");
-      const [mrrResult] = await pool.query(`
-        SELECT COALESCE(SUM(sp.price_monthly), 0) as mrr
+
+      // Regla explícita de MRR recurrente:
+      // - Solo suscripciones/tenants en estado comercial elegible ('active')
+      // - Excluye cuentas de prueba (slug 'test-%' / '%-test' o email '%@test.%' / '%@example.%')
+      // - Excluye cargos únicos / implementación (solo plan * sucursales + asientos extra + add-on membresías * sucursales)
+      // - Agrupa por moneda sin mezclar divisas sin conversión definida
+      const [mrrRows] = await pool.query(`
+        SELECT
+          t.id,
+          t.slug,
+          t.email,
+          t.status as tenant_status,
+          COALESCE(ts.status, t.status) as commercial_status,
+          COALESCE(ts.currency, t.currency, 'USD') as currency,
+          COALESCE(ts.billing_cycle, sp.billing_cycle, 'monthly') as billing_cycle,
+          GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) as billable_branches,
+          GREATEST(COALESCE(t.extra_user_seats, 0), 0) as extra_seats,
+          COALESCE(t.has_memberships, false) as has_memberships,
+          COALESCE(sp.price_per_branch, sp.price_monthly, 0) as plan_price_per_branch,
+          COALESCE(sp.price_yearly, 0) as plan_price_yearly,
+          COALESCE(sp.extra_user_price, 0) as extra_user_price
         FROM tenants t
-        JOIN saas_plans sp ON t.plan_id = sp.id
+        LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
+        LEFT JOIN saas_plans sp ON (
+          (ts.plan_code IS NOT NULL AND UPPER(sp.code) = UPPER(ts.plan_code))
+          OR (ts.plan_code IS NULL AND sp.id = t.plan_id)
+        )
         WHERE t.status = 'active'
+          AND COALESCE(ts.status, 'active') IN ('active', 'past_due')
+          AND LOWER(COALESCE(t.slug, '')) NOT LIKE 'test-%'
+          AND LOWER(COALESCE(t.slug, '')) NOT LIKE '%-test'
+          AND LOWER(COALESCE(t.email, '')) NOT LIKE '%@test.%'
+          AND LOWER(COALESCE(t.email, '')) NOT LIKE '%@example.%'
       `);
 
+      const mrrCentsByCurrency = {};
+      for (const row of mrrRows) {
+        const curr = String(row.currency || 'USD').trim().toUpperCase();
+        const branches = Number(row.billable_branches) || 1;
+        const extraSeats = Number(row.extra_seats) || 0;
+        const planUnitCents = Math.round(Number(row.plan_price_per_branch || 0) * 100);
+        const extraUnitCents = Math.round(Number(row.extra_user_price || 0) * 100);
+        const addonUnitCents = row.has_memberships ? Math.round(Number(MEMBERSHIPS_ADDON_DEFAULT_USD || 99) * 100) : 0;
+
+        let monthlyCents = (planUnitCents * branches) + (extraUnitCents * extraSeats) + (addonUnitCents * branches);
+        if (String(row.billing_cycle).toLowerCase() === 'yearly' && Number(row.plan_price_yearly) > 0) {
+          const yearlyPlanCents = Math.round(Number(row.plan_price_yearly) * 100) * branches;
+          monthlyCents = Math.round(yearlyPlanCents / 12) + (extraUnitCents * extraSeats) + (addonUnitCents * branches);
+        }
+        mrrCentsByCurrency[curr] = (mrrCentsByCurrency[curr] || 0) + monthlyCents;
+      }
+
+      const mrrByCurrency = {};
+      for (const [curr, cents] of Object.entries(mrrCentsByCurrency)) {
+        mrrByCurrency[curr] = Number((cents / 100).toFixed(2));
+      }
+
       res.json({
-        total_tenants: parseInt(tenantsCount[0]?.total || 0),
-        active_tenants: parseInt(activeTenants[0]?.active || 0),
-        suspended_tenants: parseInt(suspendedTenants[0]?.suspended || 0),
-        total_branches: parseInt(branchesCount[0]?.total || 0),
-        total_users: parseInt(usersCount[0]?.total || 0),
-        mrr: parseFloat(mrrResult[0]?.mrr || 0)
+        total_tenants: parseInt(tenantsCount[0]?.total || 0, 10),
+        active_tenants: parseInt(activeTenants[0]?.active || 0, 10),
+        suspended_tenants: parseInt(suspendedTenants[0]?.suspended || 0, 10),
+        total_branches: parseInt(branchesCount[0]?.total || 0, 10),
+        total_users: parseInt(usersCount[0]?.total || 0, 10),
+        mrr: mrrByCurrency.USD ?? Object.values(mrrByCurrency)[0] ?? 0,
+        mrr_by_currency: mrrByCurrency
       });
     } catch (error) {
       console.error('Error fetching SaaS metrics:', error);
@@ -91,16 +142,26 @@ function createSaasRouter(pool, options = {}) {
       const [tenants] = await pool.query(`
         SELECT 
           t.*,
+          COALESCE(ts.plan_code, sp.code, 'PRINCIPAL') as plan_code,
+          COALESCE(ts.status, t.status) as subscription_status,
           sp.name as plan_name,
           sp.slug as plan_slug,
-          sp.price_monthly as plan_price,
+          COALESCE(sp.price_per_branch, sp.price_monthly, 0) as plan_price,
+          COALESCE(sp.price_per_branch, sp.price_monthly, 0) as plan_price_per_branch,
           sp.max_branches as plan_max_branches,
           sp.max_users as plan_max_users,
+          COALESCE(sp.users_per_branch, 3) as plan_users_per_branch,
+          COALESCE(sp.extra_user_price, 0) as plan_extra_user_price,
+          COALESCE(sp.is_public, true) as plan_is_public,
           (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id) as branches_count,
-          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id) as users_count,
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND u.role != 'superadmin') as users_count,
           (SELECT COUNT(*) FROM clients c WHERE c.tenant_id = t.id) as clients_count
         FROM tenants t
-        LEFT JOIN saas_plans sp ON t.plan_id = sp.id
+        LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
+        LEFT JOIN saas_plans sp ON (
+          (ts.plan_code IS NOT NULL AND UPPER(sp.code) = UPPER(ts.plan_code))
+          OR (ts.plan_code IS NULL AND sp.id = t.plan_id)
+        )
         ORDER BY t.created_at DESC
       `);
       res.json(tenants);
@@ -110,11 +171,28 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
+  // GET /api/saas/branches - Directorio global de sedes físicas (Control Plane)
+  router.get('/branches', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const [branches] = await pool.query(`
+        SELECT b.id, b.tenant_id, b.name, b.address, b.phone, b.is_main, b.is_active, b.created_at,
+               t.business_name as tenant_name, t.status as tenant_status
+        FROM branches b
+        JOIN tenants t ON b.tenant_id = t.id
+        ORDER BY t.business_name ASC, b.is_main DESC, b.created_at ASC
+      `);
+      res.json({ branches: branches || [] });
+    } catch (error) {
+      console.error('Error fetching global branches:', error);
+      res.status(500).json({ error: 'Error listando sedes físicas de la plataforma' });
+    }
+  });
+
   // GET /api/saas/subscriptions - Lista de suscripciones SaaS de la plataforma (Control Plane)
   router.get('/subscriptions', authenticate, requireSuperAdmin, async (req, res) => {
     try {
       const [subscriptions] = await pool.query(`
-        SELECT s.*, t.business_name, t.name as salon_name
+        SELECT s.*, t.business_name, t.business_name as salon_name, t.status as tenant_status
         FROM tenant_subscriptions s
         LEFT JOIN tenants t ON s.tenant_id = t.id
         ORDER BY s.created_at DESC
@@ -142,59 +220,177 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
-  // PUT /api/saas/tenants/:id/modules - Actualizar módulos habilitados por salón (PROTEGIDO SUPERADMIN)
+  const ALLOWED_MODULE_KEYS = new Set([
+    'pos', 'cash_register', 'cash_registers', 'appointments', 'clients', 'services',
+    'services_catalog', 'employees', 'inventory', 'inventory_advanced', 'invoices',
+    'dgii', 'dgii_ecf', 'commissions', 'payroll', 'expenses', 'marketing',
+    'gift_cards', 'surveys', 'attendance', 'reports', 'security'
+  ]);
+
+  const STATUS_TRANSITIONS = Object.freeze({
+    pending: ['active', 'suspended', 'cancelled'],
+    active: ['past_due', 'suspended', 'cancelled', 'expired'],
+    past_due: ['active', 'suspended', 'cancelled', 'expired'],
+    suspended: ['active', 'cancelled'],
+    expired: ['active', 'cancelled'],
+    cancelled: ['active']
+  });
+
+  // PUT /api/saas/tenants/:id/modules - Actualizar módulos habilitados por salón (Merge parcial validado)
   router.put('/tenants/:id/modules', authenticate, requireSuperAdmin, async (req, res) => {
     const { id } = req.params;
-    const { modules_config } = req.body;
-    try {
-      await pool.query(
-        "UPDATE tenants SET modules_config = ?::jsonb, updated_at = NOW() WHERE id = ?",
-        [JSON.stringify(modules_config || {}), id]
-      );
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error updating tenant modules:', error);
-      res.status(500).json({ error: 'Error actualizando módulos del salón' });
+    const rawPayload = req.body?.modules_config !== undefined ? req.body.modules_config : req.body;
+    if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+      return res.status(400).json({ error: 'Se requiere un objeto válido de módulos', code: 'INVALID_MODULES_PAYLOAD' });
     }
-  });
 
-  // PUT /api/saas/tenants/:id/licensing - Actualizar límites de usuarios, sucursales y plan (PROTEGIDO SUPERADMIN)
-  router.put('/tenants/:id/licensing', authenticate, requireSuperAdmin, async (req, res) => {
-    const { id } = req.params;
-    const { plan_id, max_users, max_branches } = req.body;
+    const patch = {};
+    for (const [k, v] of Object.entries(rawPayload)) {
+      if (k === 'memberships' || k === 'loyalty_plans') {
+        return res.status(400).json({
+          error: 'El add-on de Suscripciones/Membresías debe gestionarse desde el endpoint independiente de add-ons.',
+          code: 'ADDON_SEPARATION_REQUIRED'
+        });
+      }
+      if (!ALLOWED_MODULE_KEYS.has(k)) {
+        return res.status(400).json({ error: `Módulo no permitido: ${k}`, code: 'INVALID_MODULE_KEY' });
+      }
+      if (typeof v !== 'boolean') {
+        return res.status(400).json({ error: `El valor para ${k} debe ser booleano`, code: 'INVALID_MODULE_VALUE' });
+      }
+      patch[k] = v;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'No se enviaron módulos válidos para actualizar' });
+    }
+
+    const conn = await pool.getConnection();
     try {
-      const parsedPlanId = parseInt(plan_id) || 1;
-      let modules_config = {};
-      if (parsedPlanId === 1) {
-        modules_config = {
-          pos: true, appointments: false, clients: true, services: true,
-          employees: true, inventory: true, cash_register: true, invoices: true,
-          dgii: true, commissions: true, payroll: false, expenses: true,
-          marketing: false, loyalty_plans: false, gift_cards: false, surveys: false,
-          attendance: false, reports: true, security: true
-        };
-      } else {
-        modules_config = {
-          pos: true, appointments: true, clients: true, services: true,
-          employees: true, inventory: true, cash_register: true, invoices: true,
-          dgii: true, commissions: true, payroll: true, expenses: true,
-          marketing: true, loyalty_plans: true, gift_cards: true, surveys: true,
-          attendance: true, reports: true, security: true
-        };
+      await conn.beginTransaction();
+      const [rows] = await conn.query('SELECT id, modules_config FROM tenants WHERE id = ? FOR UPDATE', [id]);
+      if (!rows || rows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Salón no encontrado' });
       }
 
-      await pool.query(
-        "UPDATE tenants SET plan_id = ?, max_users = ?, max_branches = ?, modules_config = ?::jsonb, updated_at = NOW() WHERE id = ?",
-        [parsedPlanId, parseInt(max_users) || 5, parseInt(max_branches) || 1, JSON.stringify(modules_config), id]
+      const existingModules = (rows[0].modules_config && typeof rows[0].modules_config === 'object')
+        ? rows[0].modules_config
+        : {};
+      const mergedModules = { ...existingModules, ...patch };
+
+      await conn.query(
+        'UPDATE tenants SET modules_config = ?::jsonb, updated_at = NOW() WHERE id = ?',
+        [JSON.stringify(mergedModules), id]
       );
-      res.json({ success: true, modules_config });
+
+      await logControlPlaneSecurityAccess(req, 'CONTROL_PLANE_UPDATE_TENANT_MODULES', `Tenant ${id}: ${JSON.stringify(patch)}`);
+      await conn.commit();
+      if (typeof entitlementsService?.invalidateTenantCache === 'function') {
+        entitlementsService.invalidateTenantCache(id);
+      }
+      res.json({ success: true, modules_config: mergedModules });
     } catch (error) {
-      console.error('Error updating tenant licensing:', error);
-      res.status(500).json({ error: 'Error actualizando licenciamiento del salón' });
+      await conn.rollback();
+      console.error('Error updating tenant modules:', error);
+      res.status(500).json({ error: 'Error actualizando módulos del salón' });
+    } finally {
+      conn.release();
     }
   });
 
-  // POST /api/saas/tenants - Crear nuevo salón (PROTEGIDO EXCLUSIVAMENTE POR SUPERADMIN)
+  // PUT /api/saas/tenants/:id/licensing - Actualizar límites de sucursales/asientos preservando plan y módulos
+  router.put('/tenants/:id/licensing', authenticate, requireSuperAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { licensed_branches, extra_user_seats, max_branches, max_users } = req.body || {};
+
+    const hasBranches = licensed_branches !== undefined || max_branches !== undefined;
+    const hasSeats = extra_user_seats !== undefined;
+    const hasMaxUsers = max_users !== undefined;
+
+    if (!hasBranches && !hasSeats && !hasMaxUsers) {
+      return res.status(400).json({ error: 'Debe especificar licensed_branches o extra_user_seats' });
+    }
+
+    const parsedBranches = hasBranches ? Number(licensed_branches ?? max_branches) : null;
+    const parsedExtraSeats = hasSeats ? Number(extra_user_seats) : null;
+    const parsedMaxUsersExplicit = hasMaxUsers ? Number(max_users) : null;
+
+    if (parsedBranches !== null && (!Number.isInteger(parsedBranches) || parsedBranches < 1 || parsedBranches > 500)) {
+      return res.status(400).json({ error: 'licensed_branches debe ser un entero entre 1 y 500' });
+    }
+    if (parsedExtraSeats !== null && (!Number.isInteger(parsedExtraSeats) || parsedExtraSeats < 0 || parsedExtraSeats > 2000)) {
+      return res.status(400).json({ error: 'extra_user_seats debe ser un entero entre 0 y 2000' });
+    }
+    if (parsedMaxUsersExplicit !== null && (!Number.isInteger(parsedMaxUsersExplicit) || parsedMaxUsersExplicit < 1 || parsedMaxUsersExplicit > 5000)) {
+      return res.status(400).json({ error: 'max_users debe ser un entero entre 1 y 5000' });
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.query(
+        `SELECT t.id, t.plan_id, t.licensed_branches, t.extra_user_seats, t.max_branches, t.max_users,
+                t.modules_config, t.has_memberships, COALESCE(sp.users_per_branch, 3) as users_per_branch
+         FROM tenants t
+         LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
+         LEFT JOIN saas_plans sp ON (
+           (ts.plan_code IS NOT NULL AND UPPER(sp.code) = UPPER(ts.plan_code))
+           OR (ts.plan_code IS NULL AND sp.id = t.plan_id)
+         )
+         WHERE t.id = ? FOR UPDATE OF t`,
+        [id]
+      );
+      if (!rows || rows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Salón no encontrado' });
+      }
+
+      const current = rows[0];
+      const nextBranches = parsedBranches !== null ? parsedBranches : (Number(current.licensed_branches || current.max_branches) || 1);
+      const nextExtraSeats = parsedExtraSeats !== null ? parsedExtraSeats : (Number(current.extra_user_seats) || 0);
+      const usersPerBranch = Number(current.users_per_branch) || 3;
+      const nextMaxUsers = parsedMaxUsersExplicit !== null
+        ? parsedMaxUsersExplicit
+        : (nextBranches * usersPerBranch) + nextExtraSeats;
+
+      await conn.query(
+        `UPDATE tenants
+         SET licensed_branches = ?, max_branches = ?, extra_user_seats = ?, max_users = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [nextBranches, nextBranches, nextExtraSeats, nextMaxUsers, id]
+      );
+
+      await logControlPlaneSecurityAccess(
+        req,
+        'CONTROL_PLANE_UPDATE_TENANT_LICENSING',
+        `Tenant ${id}: branches=${nextBranches}, extra_seats=${nextExtraSeats}, max_users=${nextMaxUsers}`
+      );
+      await conn.commit();
+
+      if (typeof entitlementsService?.invalidateTenantCache === 'function') {
+        entitlementsService.invalidateTenantCache(id);
+      }
+      res.json({
+        success: true,
+        licensed_branches: nextBranches,
+        max_branches: nextBranches,
+        extra_user_seats: nextExtraSeats,
+        max_users: nextMaxUsers,
+        plan_id: current.plan_id,
+        modules_config: current.modules_config,
+        has_memberships: current.has_memberships
+      });
+    } catch (error) {
+      await conn.rollback();
+      console.error('Error updating tenant licensing:', error);
+      res.status(500).json({ error: 'Error actualizando licenciamiento del salón' });
+    } finally {
+      conn.release();
+    }
+  });
+
+  // POST /api/saas/tenants - Crear nuevo salón (Contrato único transaccional Control Plane)
   router.post('/tenants', authenticate, requireSuperAdmin, async (req, res) => {
     const {
       business_name,
@@ -203,101 +399,106 @@ function createSaasRouter(pool, options = {}) {
       owner_email,
       owner_phone,
       admin_password,
-      plan_id = 1,
       rnc,
       address,
-      max_users,
-      max_branches,
-      modules_config,
+      licensed_branches = 1,
+      extra_user_seats = 0,
       status = 'active'
-    } = req.body;
+    } = req.body || {};
 
     if (!business_name || !owner_email || !admin_password) {
       return res.status(400).json({ error: 'Nombre del salón, email y contraseña del administrador son obligatorios' });
     }
+    if (String(admin_password).length < 6) {
+      return res.status(400).json({ error: 'La contraseña del administrador debe tener al menos 6 caracteres' });
+    }
+    const branchesNum = Number(licensed_branches);
+    const extraSeatsNum = Number(extra_user_seats);
+    if (!Number.isInteger(branchesNum) || branchesNum < 1 || branchesNum > 500) {
+      return res.status(400).json({ error: 'licensed_branches debe ser un entero entre 1 y 500' });
+    }
+    if (!Number.isInteger(extraSeatsNum) || extraSeatsNum < 0 || extraSeatsNum > 2000) {
+      return res.status(400).json({ error: 'extra_user_seats debe ser un entero entre 0 y 2000' });
+    }
+
+    const initialStatus = status === 'pending' ? 'pending' : 'active';
+    const cleanBusinessName = String(business_name).trim();
+    const cleanEmail = String(owner_email).trim().toLowerCase();
+    const cleanOwnerName = String(owner_name || 'Propietario').trim();
+    const cleanSlug = (slug || cleanBusinessName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    if (!cleanSlug) {
+      return res.status(400).json({ error: 'El identificador (slug) del salón no es válido' });
+    }
 
     const conn = await pool.getConnection();
-
     try {
-      const cleanSlug = (slug || business_name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-
       const [existingSlug] = await conn.query("SELECT id FROM tenants WHERE slug = ?", [cleanSlug]);
       if (existingSlug.length > 0) {
         return res.status(400).json({ error: 'El identificador (slug) del salón ya está en uso' });
       }
 
-      const [existingEmail] = await conn.query("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", [owner_email.trim()]);
+      const [existingEmail] = await conn.query("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", [cleanEmail]);
       if (existingEmail.length > 0) {
         return res.status(400).json({ error: 'El correo electrónico ya está registrado en la plataforma' });
       }
 
-      let parsedPlanId = parseInt(plan_id) || 1;
-      const [planRows] = await conn.query("SELECT * FROM saas_plans WHERE id = ? LIMIT 1", [parsedPlanId]);
-      const selectedPlan = planRows[0] || { id: 1, max_users: 5, max_branches: 1 };
+      const [planRows] = await conn.query("SELECT * FROM saas_plans WHERE UPPER(code) = 'PRINCIPAL' LIMIT 1");
+      const principalPlan = planRows[0] || { id: 3, users_per_branch: 3 };
+      const usersPerBranch = Number(principalPlan.users_per_branch) || 3;
+      const finalMaxUsers = (branchesNum * usersPerBranch) + extraSeatsNum;
+      const finalModules = { ...CANONICAL_PLAN_FEATURES.PRINCIPAL, memberships: false };
 
       const tenantId = crypto.randomUUID();
       const branchId = crypto.randomUUID();
       const userId = crypto.randomUUID();
-      const passwordHash = await bcrypt.hash(admin_password, 12);
+      const subscriptionId = crypto.randomUUID();
+      const passwordHash = await bcrypt.hash(String(admin_password), 12);
+      const actorId = String(req.auth?.userId || 'superadmin');
 
-      const defaultModules = parsedPlanId === 1 ? {
-        pos: true, appointments: false, clients: true, services: true,
-        employees: true, inventory: true, cash_register: true, invoices: true,
-        dgii: true, commissions: true, payroll: false, expenses: true,
-        marketing: false, loyalty_plans: false, gift_cards: false, surveys: false,
-        attendance: false, reports: true, security: true
-      } : {
-        pos: true, appointments: true, clients: true, services: true,
-        employees: true, inventory: true, cash_register: true, invoices: true,
-        dgii: true, commissions: true, payroll: true, expenses: true,
-        marketing: true, loyalty_plans: true, gift_cards: true, surveys: true,
-        attendance: true, reports: true, security: true
-      };
-
-      const finalMaxUsers = max_users ? parseInt(max_users) : (parseInt(selectedPlan.max_users) || 5);
-      const finalMaxBranches = max_branches ? parseInt(max_branches) : (parseInt(selectedPlan.max_branches) || 1);
-      const finalModules = modules_config ? modules_config : (selectedPlan.included_features || defaultModules);
-      const initialStatus = status === 'pending' ? 'pending' : 'active';
-
-      // Transacción atómica estricta usando conexión dedicada
       await conn.beginTransaction();
       try {
         await conn.query(`
-          INSERT INTO tenants (id, business_name, slug, email, phone, owner_name, owner_email, owner_phone, rnc, address, plan_id, status, max_users, max_branches, modules_config)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+          INSERT INTO tenants (
+            id, business_name, slug, email, phone, owner_name, owner_email, owner_phone,
+            rnc, address, plan_id, status, licensed_branches, max_branches, extra_user_seats, max_users,
+            has_memberships, modules_config
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false, ?::jsonb)
         `, [
-          tenantId, business_name, cleanSlug, owner_email.trim(), owner_phone || '', owner_name || 'Propietario', owner_email.trim(), owner_phone || '',
-          rnc || '', address || '', parsedPlanId, initialStatus,
-          finalMaxUsers, finalMaxBranches, JSON.stringify(finalModules)
+          tenantId, cleanBusinessName, cleanSlug, cleanEmail, owner_phone || '',
+          cleanOwnerName, cleanEmail, owner_phone || '',
+          rnc || '', address || '', principalPlan.id, initialStatus,
+          branchesNum, branchesNum, extraSeatsNum, finalMaxUsers, JSON.stringify(finalModules)
         ]);
 
         await conn.query(`
           INSERT INTO branches (id, tenant_id, name, address, phone, is_main, is_active)
           VALUES (?, ?, ?, ?, ?, true, true)
-        `, [branchId, tenantId, `${business_name} - Principal`, address || 'Sucursal Principal', owner_phone || '']);
+        `, [branchId, tenantId, `${cleanBusinessName} - Principal`, address || 'Sucursal Principal', owner_phone || '']);
 
         await conn.query(`
           INSERT INTO salons (id, name, address, phone, status, tenant_id)
           VALUES (?, ?, ?, ?, 'Active', ?)
-        `, [branchId, `${business_name} - Principal`, address || 'Sucursal Principal', owner_phone || '', tenantId]);
+        `, [branchId, `${cleanBusinessName} - Principal`, address || 'Sucursal Principal', owner_phone || '', tenantId]);
 
         await conn.query(`
           INSERT INTO users (id, tenant_id, branch_id, name, nombre, email, password_hash, role, is_active, estado)
           VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', true, 'Activo')
-        `, [userId, tenantId, branchId, owner_name || 'Administrador', owner_name || 'Administrador', owner_email.trim(), passwordHash]);
+        `, [userId, tenantId, branchId, cleanOwnerName, cleanOwnerName, cleanEmail, passwordHash]);
 
-        // Inicializar planes B2C base para este nuevo tenant
-        const defaultTenantPlans = [
-          ['silver', 'Plan Silver', 1500, '4 lavados y secados al mes', JSON.stringify(['4 Lavados mensuales', 'Secado incluido'])],
-          ['gold', 'Plan Beauty Pro', 1950, '4 lavados profundos + hidratación', JSON.stringify(['4 Lavados mensuales', '15% desc. en servicios extra'])],
-          ['black', 'Plan VIP Black', 3200, 'Lavados ilimitados + manicure', JSON.stringify(['Lavados ilimitados', '20% desc. en servicios extra'])]
-        ];
-        for (const [pId, pName, pPrice, pDesc, pFeatures] of defaultTenantPlans) {
-          await conn.query(
-            `INSERT INTO plans (tenant_id, id, name, title, price, description, features) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb) ON CONFLICT DO NOTHING`,
-            [tenantId, pId, pName, pName, pPrice, pDesc, pFeatures]
-          );
-        }
+        await conn.query(`
+          INSERT INTO tenant_subscriptions (
+            id, tenant_id, saas_plan_id, plan_code, status, billing_cycle, currency, started_at, current_period_start, current_period_end
+          )
+          VALUES (?, ?, ?, 'PRINCIPAL', ?, 'monthly', 'USD', NOW(), NOW(), NOW() + INTERVAL '30 days')
+        `, [subscriptionId, tenantId, principalPlan.id, initialStatus]);
+
+        await conn.query(`
+          INSERT INTO tenant_subscription_events (
+            tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id
+          )
+          VALUES (?, NULL, 'PRINCIPAL', NULL, ?, ?, ?)
+        `, [tenantId, initialStatus, 'Alta de salón desde Control Plane (Plan Principal sin add-on)', actorId]);
 
         await conn.commit();
       } catch (txError) {
@@ -311,38 +512,91 @@ function createSaasRouter(pool, options = {}) {
         tenant_id: tenantId,
         branch_id: branchId,
         user_id: userId,
+        subscription_id: subscriptionId,
+        plan_code: 'PRINCIPAL',
+        has_memberships: false,
         status: initialStatus
       });
     } catch (error) {
-      console.error('Error creating tenant:', error);
-      res.status(500).json({ error: 'Error creando nuevo salón: ' + error.message });
+      console.error('Error creating tenant:', error.message);
+      res.status(500).json({ error: 'Error interno al crear el nuevo salón' });
     } finally {
       conn.release();
     }
   });
 
-  // PUT /api/saas/tenants/:id/status - Suspender o activar salón (PROTEGIDO SUPERADMIN)
+  // PUT /api/saas/tenants/:id/status - Máquina de estados explícita + sincronización transaccional + auditoría
   router.put('/tenants/:id/status', authenticate, requireSuperAdmin, async (req, res) => {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, reason } = req.body || {};
+    const nextStatus = typeof status === 'string' ? status.trim().toLowerCase() : '';
+    const allowedTargets = new Set(['pending', 'active', 'past_due', 'suspended', 'cancelled', 'expired']);
+
+    if (!allowedTargets.has(nextStatus)) {
+      return res.status(400).json({ error: `Estado comercial inválido: ${status}`, code: 'INVALID_TENANT_STATUS' });
+    }
+
+    const conn = await pool.getConnection();
     try {
-      await pool.query("UPDATE tenants SET status = ?, updated_at = NOW() WHERE id = ?", [status, id]);
-      res.json({ success: true });
+      await conn.beginTransaction();
+      const [tenantRows] = await conn.query('SELECT id, status FROM tenants WHERE id = ? FOR UPDATE', [id]);
+      if (!tenantRows || tenantRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Salón no encontrado' });
+      }
+
+      const [subRows] = await conn.query('SELECT id, plan_code, status FROM tenant_subscriptions WHERE tenant_id = ? FOR UPDATE', [id]);
+      const currentTenantStatus = String(tenantRows[0].status || 'pending').toLowerCase();
+      const currentSubStatus = subRows[0] ? String(subRows[0].status || currentTenantStatus).toLowerCase() : currentTenantStatus;
+      const canonicalCurrent = currentSubStatus;
+
+      if (canonicalCurrent !== nextStatus) {
+        const validNext = STATUS_TRANSITIONS[canonicalCurrent] || [];
+        if (!validNext.includes(nextStatus)) {
+          await conn.rollback();
+          return res.status(400).json({
+            error: `Transición de estado no permitida: ${canonicalCurrent} -> ${nextStatus}`,
+            code: 'INVALID_STATUS_TRANSITION'
+          });
+        }
+      }
+
+      await conn.query('UPDATE tenants SET status = ?, updated_at = NOW() WHERE id = ?', [nextStatus, id]);
+      if (subRows[0]) {
+        await conn.query('UPDATE tenant_subscriptions SET status = ?, updated_at = NOW() WHERE tenant_id = ?', [nextStatus, id]);
+      }
+
+      const actorId = String(req.auth?.userId || 'superadmin');
+      const cleanReason = typeof reason === 'string' && reason.trim() ? reason.trim() : `Cambio de estado administrativo (${canonicalCurrent} -> ${nextStatus})`;
+      await conn.query(
+        `INSERT INTO tenant_subscription_events (tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, subRows[0]?.plan_code || 'PRINCIPAL', subRows[0]?.plan_code || 'PRINCIPAL', canonicalCurrent, nextStatus, cleanReason, actorId]
+      );
+
+      await conn.commit();
+      if (typeof entitlementsService?.invalidateTenantCache === 'function') {
+        entitlementsService.invalidateTenantCache(id);
+      }
+      res.json({ success: true, tenant_id: id, previous_status: canonicalCurrent, status: nextStatus });
     } catch (error) {
+      await conn.rollback();
       console.error('Error updating tenant status:', error);
       res.status(500).json({ error: 'Error actualizando estado del salón' });
+    } finally {
+      conn.release();
     }
   });
 
   // PATCH /api/saas/tenants/:tenantId/subscription - Cambiar manualmente el plan SaaS de un tenant (PROTEGIDO SUPERADMIN)
   router.patch('/tenants/:tenantId/subscription', authenticate, requireSuperAdmin, async (req, res) => {
     const { tenantId } = req.params;
-    const { plan, reason } = req.body;
-    const actorId = req.auth?.id || req.headers['x-user-id'] || 'superadmin';
+    const { plan, reason } = req.body || {};
+    const actorId = req.auth?.userId || 'superadmin';
 
     if (!isValidPlanCode(plan)) {
       return res.status(400).json({
-        error: 'Código de plan inválido. Solo se permite BASE o PRO.',
+        error: 'Código de plan inválido. Solo se permite el plan comercial vigente (PRINCIPAL).',
         code: 'INVALID_PLAN_CODE'
       });
     }
@@ -722,6 +976,95 @@ function createSaasRouter(pool, options = {}) {
       res.status(500).json({ error: 'Error actualizando plan SaaS: ' + error.message });
     } finally {
       conn.release();
+    }
+  });
+
+  // === CONTROL PLANE SECURITY ENDPOINTS (SuperAdmin únicamente, sin datos operativos de salones) ===
+  const logControlPlaneSecurityAccess = async (req, action, details) => {
+    try {
+      const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+      const userAgent = req.headers['user-agent'] || 'Unknown';
+      await pool.query(
+        `INSERT INTO security_audit_logs (user_id, user_name, action, details, ip_address, user_agent, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+        [String(req.auth?.userId || 'superadmin'), req.auth?.name || req.auth?.email || 'SuperAdmin', action, details, ip, userAgent]
+      );
+    } catch (e) {
+      console.error('[CONTROL PLANE AUDIT LOG ERROR]:', e.message);
+    }
+  };
+
+  router.get('/security/login-attempts', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 200);
+      const [attempts] = await pool.query(
+        'SELECT id, email_or_cedula, ip_address, status, attempted_at, created_at FROM login_attempts ORDER BY id DESC LIMIT ?',
+        [limit]
+      );
+      const [blockedIps] = await pool.query(
+        'SELECT id, ip_address, reason, blocked_until, created_at FROM blocked_ips WHERE blocked_until IS NULL OR blocked_until > NOW() ORDER BY id DESC'
+      );
+      const [blockedAccounts] = await pool.query(
+        'SELECT id, account_identifier, reason, blocked_until, created_at, attempts_count, strike_count, last_ip FROM account_lockouts WHERE blocked_until IS NULL OR blocked_until > NOW() ORDER BY id DESC'
+      );
+      await logControlPlaneSecurityAccess(req, 'CONTROL_PLANE_VIEW_LOGIN_ATTEMPTS', `Consulta global de intentos/bloqueos (${attempts.length} registros)`);
+      res.json({ attempts, blockedIps, blockedAccounts });
+    } catch (err) {
+      console.error('[CONTROL PLANE LOGIN ATTEMPTS ERROR]:', err.message);
+      res.status(500).json({ error: 'Error consultando seguridad de plataforma' });
+    }
+  });
+
+  router.post('/security/unblock-ip', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { ip_address } = req.body || {};
+      if (!ip_address || typeof ip_address !== 'string') {
+        return res.status(400).json({ error: 'ip_address es requerido' });
+      }
+      const cleanIp = ip_address.trim();
+      await pool.query('DELETE FROM blocked_ips WHERE ip_address = ?', [cleanIp]);
+      await pool.query("DELETE FROM login_attempts WHERE ip_address = ? AND status = 'failed'", [cleanIp]);
+      await logControlPlaneSecurityAccess(req, 'CONTROL_PLANE_UNBLOCK_IP', `IP desbloqueada desde Control Plane: ${cleanIp}`);
+      res.json({ success: true, message: `IP ${cleanIp} desbloqueada correctamente.` });
+    } catch (err) {
+      console.error('[CONTROL PLANE UNBLOCK IP ERROR]:', err.message);
+      res.status(500).json({ error: 'Error desbloqueando IP' });
+    }
+  });
+
+  router.post('/security/unblock-account', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { account_identifier } = req.body || {};
+      if (!account_identifier || typeof account_identifier !== 'string') {
+        return res.status(400).json({ error: 'account_identifier es requerido' });
+      }
+      const cleanAccount = account_identifier.trim();
+      await pool.query('DELETE FROM account_lockouts WHERE LOWER(account_identifier) = LOWER(?)', [cleanAccount]);
+      await pool.query("DELETE FROM login_attempts WHERE LOWER(email_or_cedula) = LOWER(?) AND status = 'failed'", [cleanAccount]);
+      await logControlPlaneSecurityAccess(req, 'CONTROL_PLANE_UNBLOCK_ACCOUNT', `Cuenta desbloqueada desde Control Plane: ${cleanAccount}`);
+      res.json({ success: true, message: `Cuenta ${cleanAccount} desbloqueada correctamente.` });
+    } catch (err) {
+      console.error('[CONTROL PLANE UNBLOCK ACCOUNT ERROR]:', err.message);
+      res.status(500).json({ error: 'Error desbloqueando cuenta' });
+    }
+  });
+
+  router.get('/security/audit-logs', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 300);
+      const [rows] = await pool.query(
+        `SELECT id, user_id, user_name, action, details, ip_address, created_at
+         FROM security_audit_logs
+         WHERE tenant_id IS NULL
+         ORDER BY id DESC
+         LIMIT ?`,
+        [limit]
+      );
+      await logControlPlaneSecurityAccess(req, 'CONTROL_PLANE_VIEW_PLATFORM_AUDIT', `Consulta de logs de plataforma (${rows.length} registros)`);
+      res.json(rows);
+    } catch (err) {
+      console.error('[CONTROL PLANE AUDIT LOGS ERROR]:', err.message);
+      res.status(500).json({ error: 'Error consultando logs del Control Plane' });
     }
   });
 

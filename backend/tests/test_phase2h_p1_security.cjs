@@ -18,6 +18,8 @@
 
 'use strict';
 
+process.env.ENABLE_TEST_ROUTES = 'true';
+
 const assert = require('assert');
 const { createInMemoryTestApp } = require('./helpers/create_in_memory_test_app.cjs');
 const { signAuthToken } = require('../middleware/auth.middleware');

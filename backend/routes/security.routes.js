@@ -25,12 +25,10 @@ function getClientIp(req) {
 function createSecurityRouter(pool) {
   const router = express.Router();
 
-  // Helper middleware to strictly require verified tenant context
+  // Helper middleware to strictly require verified tenant context (Control Plane roles blocked at app.js)
   const requireTenant = (req, res, next) => {
-    // Gateway endpoints like /login-attempts, /unblock-ip can be accessed by SuperAdmin without tenantId
-    const isSuperAdmin = req.auth?.isSuperAdmin;
     const tenantId = req.tenantId || req.auth?.tenantId;
-    if (!tenantId && !isSuperAdmin) {
+    if (!tenantId) {
       return res.status(401).json({ error: 'Contexto de tenant requerido para operaciones de seguridad.' });
     }
     req.verifiedTenantId = tenantId;
@@ -410,109 +408,97 @@ function createSecurityRouter(pool) {
   });
 
   // 7. Auditoría de Actividad y Trazabilidad (Scoped by tenant_id)
-  router.get('/audit-logs', async (req, res) => {
+  router.get('/audit-logs', requireRole('propietario', 'admin'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
-      const isSuperAdmin = req.auth?.isSuperAdmin;
-      const limit = parseInt(req.query.limit) || 150;
+      if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 150, 1), 500);
 
-      let query = 'SELECT * FROM security_audit_logs';
-      const params = [];
-
-      if (!isSuperAdmin || tenantId) {
-        query += ' WHERE tenant_id = ?';
-        params.push(tenantId);
-      }
-
-      query += ' ORDER BY id DESC LIMIT ?';
-      params.push(limit);
-
-      const [rows] = await pool.query(query, params);
+      const [rows] = await pool.query(
+        'SELECT id, user_id, user_name, action, details, ip_address, user_agent, created_at, tenant_id FROM security_audit_logs WHERE tenant_id = ? ORDER BY id DESC LIMIT ?',
+        [tenantId, limit]
+      );
       res.json(rows);
     } catch (err) {
       console.error('[SECURITY AUDIT LOGS ERROR]:', err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Error consultando registros de auditoría de seguridad' });
     }
   });
 
-  // 8. Intentos de Entrada y Bloqueos (Gateway Level)
-  router.get('/login-attempts', async (req, res) => {
+  // 8. Intentos de Entrada y Bloqueos de Usuarios del Tenant (Scoped by tenant_id)
+  router.get('/login-attempts', requireRole('propietario', 'admin'), async (req, res) => {
     try {
+      const tenantId = req.verifiedTenantId;
+      if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
+
       const [attempts] = await pool.query(`
-        SELECT * FROM login_attempts 
-        ORDER BY id DESC 
+        SELECT la.id, la.email_or_cedula, la.ip_address, la.status, la.attempted_at, la.created_at
+        FROM login_attempts la
+        WHERE LOWER(la.email_or_cedula) IN (
+          SELECT LOWER(u.email) FROM users u WHERE u.tenant_id = ? AND u.email IS NOT NULL
+        )
+        ORDER BY la.id DESC
         LIMIT 100
-      `);
-      const [blockedIps] = await pool.query(`
-        SELECT * FROM blocked_ips 
-        WHERE blocked_until IS NULL OR blocked_until > NOW()
-        ORDER BY id DESC
-      `);
+      `, [tenantId]);
+
       const [blockedAccounts] = await pool.query(`
-        SELECT * FROM account_lockouts 
-        WHERE blocked_until IS NULL OR blocked_until > NOW()
-        ORDER BY id DESC
-      `);
-      res.json({ attempts, blockedIps, blockedAccounts });
+        SELECT al.id, al.account_identifier, al.reason, al.blocked_until, al.created_at, al.attempts_count, al.strike_count, al.last_ip
+        FROM account_lockouts al
+        WHERE (al.blocked_until IS NULL OR al.blocked_until > NOW())
+          AND LOWER(al.account_identifier) IN (
+            SELECT LOWER(u.email) FROM users u WHERE u.tenant_id = ? AND u.email IS NOT NULL
+          )
+        ORDER BY al.id DESC
+      `, [tenantId]);
+
+      res.json({ attempts, blockedIps: [], blockedAccounts });
     } catch (err) {
       console.error('[SECURITY LOGIN ATTEMPTS ERROR]:', err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Error consultando intentos de acceso del salón' });
     }
   });
 
-  // 9. Desbloqueo Manual de IP o Cuenta (Gateway Level)
-  router.post('/unblock-ip', async (req, res) => {
-    try {
-      const { ip_address, account_identifier } = req.body;
-      if (!ip_address && !account_identifier) return res.status(400).json({ error: 'IP o Cuenta requerida' });
-
-      if (ip_address) {
-        await pool.query('DELETE FROM blocked_ips WHERE ip_address = ?', [ip_address]);
-        await pool.query('DELETE FROM login_attempts WHERE ip_address = ? AND status = ?', [ip_address, 'failed']);
-      }
-      if (account_identifier) {
-        await pool.query('DELETE FROM account_lockouts WHERE account_identifier = ?', [account_identifier]);
-        await pool.query('DELETE FROM login_attempts WHERE email_or_cedula = ? AND status = ?', [account_identifier, 'failed']);
-      }
-
-      const target = account_identifier || ip_address;
-      await logSecurityAudit(
-        req.headers['x-user-id'] || 'admin', 
-        req.headers['x-user-name'] || 'Administrador', 
-        'SECURITY_UNBLOCKED_MANUALLY', 
-        `Desbloqueo manual aplicado para: ${target}`, 
-        req,
-        req.verifiedTenantId
-      );
-
-      res.json({ success: true, message: `Desbloqueo para ${target} realizado correctamente.` });
-    } catch (err) {
-      console.error('[SECURITY UNBLOCK ERROR]:', err.message);
-      res.status(500).json({ error: err.message });
-    }
+  // 9. Desbloqueo Manual de IP (Exclusivo de Control Plane)
+  router.post('/unblock-ip', requireRole('propietario', 'admin'), async (_req, res) => {
+    return res.status(403).json({
+      error: 'El desbloqueo de direcciones IP globales corresponde exclusivamente al Control Plane.',
+      code: 'CONTROL_PLANE_ONLY'
+    });
   });
 
-  router.post('/unblock-account', async (req, res) => {
+  router.post('/unblock-account', requireRole('propietario', 'admin'), async (req, res) => {
     try {
-      const { account_identifier } = req.body;
+      const tenantId = req.verifiedTenantId;
+      if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
+
+      const { account_identifier } = req.body || {};
       if (!account_identifier) return res.status(400).json({ error: 'Identificador de cuenta requerido' });
 
-      await pool.query('DELETE FROM account_lockouts WHERE account_identifier = ?', [account_identifier]);
-      await pool.query('DELETE FROM login_attempts WHERE email_or_cedula = ? AND status = ?', [account_identifier, 'failed']);
+      const [tenantUsers] = await pool.query(
+        'SELECT id, email FROM users WHERE LOWER(email) = LOWER(?) AND tenant_id = ? LIMIT 1',
+        [String(account_identifier).trim(), tenantId]
+      );
+      if (!tenantUsers || tenantUsers.length === 0) {
+        return res.status(404).json({ error: 'Cuenta no encontrada en este salón', code: 'ACCOUNT_NOT_IN_TENANT' });
+      }
+
+      const canonicalEmail = tenantUsers[0].email;
+      await pool.query('DELETE FROM account_lockouts WHERE LOWER(account_identifier) = LOWER(?)', [canonicalEmail]);
+      await pool.query("DELETE FROM login_attempts WHERE LOWER(email_or_cedula) = LOWER(?) AND status = 'failed'", [canonicalEmail]);
 
       await logSecurityAudit(
-        req.headers['x-user-id'] || 'admin', 
-        req.headers['x-user-name'] || 'Administrador', 
-        'ACCOUNT_UNBLOCKED_MANUALLY', 
-        `Cuenta desbloqueada manualmente: ${account_identifier}`, 
+        req.auth?.userId || 'owner',
+        req.auth?.name || req.auth?.email || 'Propietario',
+        'ACCOUNT_UNBLOCKED_MANUALLY',
+        `Cuenta desbloqueada manualmente: ${canonicalEmail}`,
         req,
-        req.verifiedTenantId
+        tenantId
       );
 
-      res.json({ success: true, message: `Cuenta ${account_identifier} desbloqueada correctamente.` });
+      res.json({ success: true, message: `Cuenta ${canonicalEmail} desbloqueada correctamente.` });
     } catch (err) {
       console.error('[SECURITY UNBLOCK ACCOUNT ERROR]:', err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: 'Error desbloqueando cuenta' });
     }
   });
 
@@ -559,10 +545,9 @@ function createSecurityRouter(pool) {
   });
 
   // 11. Guardar Configuración de Seguridad & PIN (Scoped by tenant_id)
-  router.post('/settings', requireRole('propietario', 'superadmin'), async (req, res) => {
+  router.post('/settings', requireRole('propietario', 'admin'), async (req, res) => {
     try {
-      const isSuperAdmin = (req.auth?.role || req.headers['x-user-role'] || '').toLowerCase() === 'superadmin' || Boolean(req.auth?.isSuperAdmin);
-      const tenantId = req.verifiedTenantId || req.tenantId || req.auth?.tenantId || (isSuperAdmin ? req.targetTenantId || req.body?.tenant_id : null);
+      const tenantId = req.verifiedTenantId || req.tenantId || req.auth?.tenantId;
       if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
 
       const {
@@ -590,50 +575,29 @@ function createSecurityRouter(pool) {
           });
         }
 
-        // Si es SuperAdmin, NUNCA puede cambiar el PIN silenciosamente: requiere ticket y motivo formal
-        if (isSuperAdmin) {
-          const { support_ticket_id, support_reason } = req.body;
-          if (!support_ticket_id || !support_reason || String(support_reason).trim().length < 10) {
+        // Si ya existe un PIN configurado, exigir current_pin del propietario
+        if (existingPin) {
+          if (!current_pin || String(current_pin).trim() === '') {
             return res.status(400).json({
-              error: 'SuperAdmin requiere obligatoriamente un número de ticket de soporte (support_ticket_id) y motivo justificado (support_reason, mín 10 caracteres) para modificar el PIN.',
-              code: 'SUPPORT_AUTHORIZATION_REQUIRED'
+              error: 'Debes ingresar el PIN actual para autorizar el cambio de clave.',
+              code: 'CURRENT_PIN_REQUIRED'
             });
           }
 
-          // Auditoría inmutable de soporte técnico (nunca expone el PIN)
-          await logSecurityAudit(
-            req.headers['x-user-id'] || req.auth?.userId || 'superadmin',
-            req.headers['x-user-name'] || req.auth?.name || 'SuperAdmin Support',
-            'SUPERADMIN_PIN_SUPPORT_OVERRIDE',
-            `Modificación de PIN por soporte técnico bajo Ticket: ${support_ticket_id}. Motivo: ${String(support_reason).trim()}`,
-            req,
-            tenantId
-          );
-        } else {
-          // Si es Propietario y ya existe un PIN configurado, exigir current_pin
-          if (existingPin) {
-            if (!current_pin || String(current_pin).trim() === '') {
-              return res.status(400).json({
-                error: 'Debes ingresar el PIN actual para autorizar el cambio de clave.',
-                code: 'CURRENT_PIN_REQUIRED'
-              });
-            }
+          let isCurrentMatch = false;
+          if (String(existingPin).startsWith('$2')) {
+            const verifyRes = await verifyPin(current_pin, existingPin);
+            isCurrentMatch = verifyRes.matched;
+          } else {
+            // Soporte para rotación de PIN legacy previo
+            isCurrentMatch = verifyLegacyPinForRotation(current_pin, existingPin);
+          }
 
-            let isCurrentMatch = false;
-            if (String(existingPin).startsWith('$2')) {
-              const verifyRes = await verifyPin(current_pin, existingPin);
-              isCurrentMatch = verifyRes.matched;
-            } else {
-              // Soporte para rotación de PIN legacy previo
-              isCurrentMatch = verifyLegacyPinForRotation(current_pin, existingPin);
-            }
-
-            if (!isCurrentMatch) {
-              return res.status(401).json({
-                error: 'El PIN actual ingresado es incorrecto.',
-                code: 'INVALID_CURRENT_PIN'
-              });
-            }
+          if (!isCurrentMatch) {
+            return res.status(401).json({
+              error: 'El PIN actual ingresado es incorrecto.',
+              code: 'INVALID_CURRENT_PIN'
+            });
           }
         }
 

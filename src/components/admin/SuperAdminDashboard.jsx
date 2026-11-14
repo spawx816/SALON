@@ -10,7 +10,7 @@ import { dataService } from '../../utils/dataService';
 
 export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState(initialTab || 'tenants'); // 'tenants' | 'plans'
+  const [activeTab, setActiveTab] = useState(initialTab || 'tenants'); // 'tenants' | 'plans' | 'invoices' | 'branches' | 'contacts'
 
   useEffect(() => {
     if (initialTab) {
@@ -18,18 +18,37 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     }
   }, [initialTab]);
   const [metrics, setMetrics] = useState({
-    totalTenants: 0,
-    activeTenants: 0,
-    totalBranches: 0,
-    totalUsers: 0,
-    activePlans: 0,
-    estimatedMrr: 0
+    total_tenants: 0,
+    active_tenants: 0,
+    suspended_tenants: 0,
+    total_branches: 0,
+    total_users: 0,
+    mrr: 0,
+    mrr_by_currency: {}
   });
   const [tenants, setTenants] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [invoices, setInvoices] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [contactMessages, setContactMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [search, setSearch] = useState('');
   const [actionMessage, setActionMessage] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  // Filtros y paginación
+  const [tenantPage, setTenantPage] = useState(1);
+  const [subStatusFilter, setSubStatusFilter] = useState('all');
+  const [invStatusFilter, setInvStatusFilter] = useState('all');
+  const [billingSearch, setBillingSearch] = useState('');
+  const [subPage, setSubPage] = useState(1);
+  const [invPage, setInvPage] = useState(1);
+  const [branchPage, setBranchPage] = useState(1);
+  const [contactSearch, setContactSearch] = useState('');
+  const [contactPage, setContactPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   // Modales
   const [isNewTenantModalOpen, setIsNewTenantModalOpen] = useState(false);
@@ -38,6 +57,8 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const [editingPlan, setEditingPlan] = useState(null);
   const [selectedTenantForLicense, setSelectedTenantForLicense] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null); // { title, description, requireReason, reason, onConfirm }
+  const [graceModal, setGraceModal] = useState(null); // { tenantId, businessName, additionalDays, reason }
 
   // Formulario nuevo salón
   const [tenantFormData, setTenantFormData] = useState({
@@ -84,18 +105,45 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
   const fetchData = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
-      const [m, t, p] = await Promise.all([
-        dataService.getSaasMetrics().catch(() => ({})),
-        dataService.getSaasTenants().catch(() => []),
-        dataService.getSaasPlans(false).catch(() => [])
+      const [mRes, tRes, pRes, sRes, iRes, bRes, cRes] = await Promise.allSettled([
+        dataService.getSaasMetrics(),
+        dataService.getSaasTenants(),
+        dataService.getSaasPlans(false),
+        dataService.getSaasPlatformSubscriptions(),
+        dataService.getSaasPlatformInvoices(),
+        dataService.getSaasBranches(),
+        dataService.getContactMessages()
       ]);
 
-      if (m) setMetrics(m);
-      if (Array.isArray(t)) setTenants(t);
-      if (Array.isArray(p)) setPlans(p);
+      const failures = [];
+      if (mRes.status === 'fulfilled' && mRes.value) setMetrics(mRes.value);
+      else if (mRes.status === 'rejected') failures.push(`Métricas: ${mRes.reason?.message}`);
+
+      if (tRes.status === 'fulfilled' && Array.isArray(tRes.value)) setTenants(tRes.value);
+      else if (tRes.status === 'rejected') failures.push(`Salones: ${tRes.reason?.message}`);
+
+      if (pRes.status === 'fulfilled' && Array.isArray(pRes.value)) setPlans(pRes.value);
+      else if (pRes.status === 'rejected') failures.push(`Planes: ${pRes.reason?.message}`);
+
+      if (sRes.status === 'fulfilled') setSubscriptions(Array.isArray(sRes.value?.subscriptions) ? sRes.value.subscriptions : []);
+      else if (sRes.status === 'rejected') failures.push(`Suscripciones: ${sRes.reason?.message}`);
+
+      if (iRes.status === 'fulfilled') setInvoices(Array.isArray(iRes.value?.invoices) ? iRes.value.invoices : []);
+      else if (iRes.status === 'rejected') failures.push(`Facturas: ${iRes.reason?.message}`);
+
+      if (bRes.status === 'fulfilled') setBranches(Array.isArray(bRes.value?.branches) ? bRes.value.branches : []);
+      else if (bRes.status === 'rejected') failures.push(`Sedes: ${bRes.reason?.message}`);
+
+      if (cRes.status === 'fulfilled') setContactMessages(Array.isArray(cRes.value) ? cRes.value : (cRes.value?.messages || []));
+      else if (cRes.status === 'rejected') failures.push(`Contactos: ${cRes.reason?.message}`);
+
+      if (failures.length > 0) {
+        setLoadError(failures.join(' | '));
+      }
     } catch (err) {
-      console.error('Error al cargar datos de SaaS:', err);
+      setLoadError(err.message || 'Error al cargar datos de SaaS');
     } finally {
       setLoading(false);
     }
@@ -106,70 +154,101 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   }, []);
 
   const showNotification = (msg) => {
+    setErrorMessage(null);
     setActionMessage(msg);
-    setTimeout(() => setActionMessage(null), 3500);
+    setTimeout(() => setActionMessage(null), 4000);
   };
 
-  // Toggle Add-on Module
-  const handleToggleModule = async (tenantId, currentModules, moduleName) => {
-    try {
-      const updatedValue = !currentModules[moduleName];
-      if (moduleName === 'has_memberships') {
-        await dataService.setTenantAddon(tenantId, 'memberships', {
-          enabled: updatedValue,
-          reason: updatedValue ? 'Activación desde panel SuperAdmin' : 'Desactivación desde panel SuperAdmin',
-          source: 'commercial_addon'
+  const showError = (msg) => {
+    setErrorMessage(msg);
+    setTimeout(() => setErrorMessage(null), 6000);
+  };
+
+  // Toggle Add-on / Module
+  const handleToggleModule = (tenantId, currentTenant, moduleName) => {
+    const updatedValue = !currentTenant[moduleName];
+    if (moduleName === 'has_memberships') {
+      setConfirmModal({
+        title: updatedValue ? 'Activar Add-on Suscripciones/Membresías' : 'Desactivar Add-on Suscripciones/Membresías',
+        description: updatedValue
+          ? `Se habilitará el add-on B2C (US$99/mes por sucursal habilitada) para "${currentTenant.business_name}".`
+          : `Se desactivará el add-on B2C para "${currentTenant.business_name}".`,
+        requireReason: true,
+        reason: updatedValue ? 'Activación comercial desde Control Plane' : 'Desactivación desde Control Plane',
+        onConfirm: async (reason) => {
+          await dataService.setTenantAddon(tenantId, 'memberships', {
+            enabled: updatedValue,
+            reason: reason || 'Cambio desde Control Plane',
+            source: 'commercial_addon'
+          });
+          showNotification(`Add-on de Membresías ${updatedValue ? 'activado' : 'desactivado'}.`);
+          fetchData();
+        }
+      });
+      return;
+    }
+
+    (async () => {
+      try {
+        await dataService.updateTenantModules(tenantId, {
+          modules_config: { dgii_ecf: updatedValue }
         });
+        showNotification(`Módulo "${moduleName}" actualizado.`);
+        setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, [moduleName]: updatedValue } : t));
+      } catch (err) {
+        showError(`Error al actualizar módulo: ${err.message}`);
       }
-      await dataService.updateTenantModules(tenantId, { [moduleName]: updatedValue });
-      showNotification(`Módulo "${moduleName}" actualizado.`);
-      setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, [moduleName]: updatedValue } : t));
-    } catch (err) {
-      alert(`Error al actualizar módulo: ${err.message}`);
-    }
+    })();
   };
 
-  // Toggle Tenant Status
-  const handleToggleStatus = async (tenantId, currentStatus) => {
+  // Toggle Tenant Status with Confirmation Modal
+  const handleToggleStatus = (tenantId, currentStatus, businessName) => {
     const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
-    try {
-      await dataService.updateTenantStatus(tenantId, newStatus);
-      showNotification(`Estado del salón cambiado a "${newStatus}".`);
-      setTenants(prev => prev.map(t => t.id === tenantId ? { ...t, status: newStatus } : t));
-    } catch (err) {
-      alert(`Error: ${err.message}`);
-    }
+    setConfirmModal({
+      title: newStatus === 'suspended' ? `Suspender a "${businessName || 'Salón'}"` : `Reactivar a "${businessName || 'Salón'}"`,
+      description: newStatus === 'suspended'
+        ? 'La suscripción pasará a estado suspendido y bloqueará el acceso operativo del salón.'
+        : 'La suscripción volverá a estado activo.',
+      requireReason: true,
+      reason: newStatus === 'suspended' ? 'Suspensión administrativa desde Control Plane' : 'Reactivación administrativa desde Control Plane',
+      onConfirm: async (reason) => {
+        await dataService.updateTenantStatus(tenantId, newStatus, reason);
+        showNotification(`Estado del salón cambiado a "${newStatus}".`);
+        fetchData();
+      }
+    });
   };
 
   // Ajuste rápido de sucursales autorizadas
   const handleAdjustBranches = async (tenant, delta) => {
-    const newBranches = Math.max(1, (parseInt(tenant.licensed_branches) || 1) + delta);
+    const newBranches = Math.max(1, (parseInt(tenant.licensed_branches, 10) || 1) + delta);
     try {
-      await dataService.updateTenantLicensing(tenant.id, { licensed_branches: newBranches });
+      const res = await dataService.updateTenantLicensing(tenant.id, { licensed_branches: newBranches });
       showNotification(`Licencias de sucursal de "${tenant.business_name}" actualizadas a ${newBranches}.`);
-      setTenants(prev => prev.map(t => t.id === tenant.id ? { 
-        ...t, 
-        licensed_branches: newBranches,
-        max_allowed_users: (newBranches * (parseInt(t.plan_users_per_branch) || 3)) + (parseInt(t.extra_user_seats) || 0)
+      setTenants(prev => prev.map(t => t.id === tenant.id ? {
+        ...t,
+        licensed_branches: res.licensed_branches ?? newBranches,
+        max_branches: res.max_branches ?? newBranches,
+        max_users: res.max_users ?? ((newBranches * (parseInt(t.plan_users_per_branch, 10) || 3)) + (parseInt(t.extra_user_seats, 10) || 0))
       } : t));
     } catch (err) {
-      alert(`Error al ajustar sucursales: ${err.message}`);
+      showError(`Error al ajustar sucursales: ${err.message}`);
     }
   };
 
   // Ajuste rápido de asientos extra de usuarios
   const handleAdjustSeats = async (tenant, delta) => {
-    const newSeats = Math.max(0, (parseInt(tenant.extra_user_seats) || 0) + delta);
+    const newSeats = Math.max(0, (parseInt(tenant.extra_user_seats, 10) || 0) + delta);
     try {
-      await dataService.updateTenantLicensing(tenant.id, { extra_user_seats: newSeats });
+      const res = await dataService.updateTenantLicensing(tenant.id, { extra_user_seats: newSeats });
       showNotification(`Asientos adicionales de "${tenant.business_name}" actualizados a ${newSeats}.`);
-      setTenants(prev => prev.map(t => t.id === tenant.id ? { 
-        ...t, 
-        extra_user_seats: newSeats,
-        max_allowed_users: ((parseInt(t.licensed_branches) || 1) * (parseInt(t.plan_users_per_branch) || 3)) + newSeats
+      setTenants(prev => prev.map(t => t.id === tenant.id ? {
+        ...t,
+        extra_user_seats: res.extra_user_seats ?? newSeats,
+        max_users: res.max_users ?? (((parseInt(t.licensed_branches, 10) || 1) * (parseInt(t.plan_users_per_branch, 10) || 3)) + newSeats)
       } : t));
     } catch (err) {
-      alert(`Error al ajustar asientos: ${err.message}`);
+      showError(`Error al ajustar asientos: ${err.message}`);
     }
   };
 
@@ -198,7 +277,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         return t;
       }));
     } catch (err) {
-      alert(`Error al cambiar plan: ${err.message}`);
+      showError(`Error al cambiar plan: ${err.message}`);
     }
   };
 
@@ -214,7 +293,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       );
       setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, is_public: newPublicState } : p));
     } catch (err) {
-      alert(`Error al cambiar disponibilidad del plan: ${err.message}`);
+      showError(`Error al cambiar disponibilidad del plan: ${err.message}`);
     }
   };
 
@@ -222,7 +301,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const handleSavePlan = async (e) => {
     e.preventDefault();
     if (!planFormData.name || !planFormData.code) {
-      alert('Nombre y código único son requeridos.');
+      showError('Nombre y código único son requeridos.');
       return;
     }
 
@@ -239,54 +318,75 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       setEditingPlan(null);
       fetchData();
     } catch (err) {
-      alert(`Error al guardar plan: ${err.message}`);
+      showError(`Error al guardar plan: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Crear Nuevo Salón
+  // Crear Nuevo Salón (Contrato canónico alineado con backend)
   const handleCreateTenant = async (e) => {
     e.preventDefault();
-    if (!tenantFormData.business_name || !tenantFormData.slug || !tenantFormData.email) {
-      alert('Por favor complete el nombre comercial, el slug y el email.');
+    if (!tenantFormData.business_name || !tenantFormData.email || !tenantFormData.owner_password) {
+      showError('Por favor complete el nombre comercial, el correo electrónico y la contraseña.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/saas/tenants', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tenantFormData)
+      await dataService.createSaasTenant({
+        business_name: tenantFormData.business_name,
+        slug: tenantFormData.slug || undefined,
+        owner_name: tenantFormData.owner_name || 'Propietario',
+        owner_email: tenantFormData.email,
+        owner_phone: tenantFormData.phone || '',
+        admin_password: tenantFormData.owner_password,
+        rnc: tenantFormData.rnc || '',
+        licensed_branches: parseInt(tenantFormData.licensed_branches, 10) || 1,
+        extra_user_seats: parseInt(tenantFormData.extra_user_seats, 10) || 0,
+        status: 'active'
       });
-
-      const data = await res.json();
-      if (res.ok) {
-        showNotification('¡Salón creado exitosamente con sus licencias base!');
-        setIsNewTenantModalOpen(false);
-        setTenantFormData({
-          business_name: '',
-          legal_name: '',
-          rnc: '',
-          slug: '',
-          email: '',
-          phone: '',
-          currency: 'DOP',
-          plan_id: '',
-          licensed_branches: 1,
-          extra_user_seats: 0,
-          has_memberships: false,
-          has_dgii_ecf: false,
-          owner_name: '',
-          owner_password: ''
-        });
-        fetchData();
-      } else {
-        alert(`Error al crear salón: ${data.error || 'Datos inválidos'}`);
-      }
+      showNotification('¡Salón creado exitosamente con Plan Principal!');
+      setIsNewTenantModalOpen(false);
+      setTenantFormData({
+        business_name: '',
+        legal_name: '',
+        rnc: '',
+        slug: '',
+        email: '',
+        phone: '',
+        currency: 'DOP',
+        plan_id: '',
+        licensed_branches: 1,
+        extra_user_seats: 0,
+        has_memberships: false,
+        has_dgii_ecf: false,
+        owner_name: '',
+        owner_password: ''
+      });
+      fetchData();
     } catch (err) {
-      alert(`Error de red: ${err.message}`);
+      showError(`Error al crear salón: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmitGraceExtension = async (e) => {
+    e.preventDefault();
+    if (!graceModal) return;
+    setIsSubmitting(true);
+    try {
+      await dataService.extendSaasGracePeriod({
+        tenantId: graceModal.tenantId,
+        additionalDays: parseInt(graceModal.additionalDays, 10) || 5,
+        reason: graceModal.reason
+      });
+      showNotification(`Período de gracia extendido para "${graceModal.businessName}".`);
+      setGraceModal(null);
+      fetchData();
+    } catch (err) {
+      showError(`Error al extender gracia: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -502,6 +602,54 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         </div>
       )}
 
+      {errorMessage && (
+        <div style={{
+          background: '#fef2f2',
+          border: '1px solid #fecaca',
+          color: '#b91c1c',
+          padding: '0.9rem 1.25rem',
+          borderRadius: '12px',
+          marginBottom: '1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.6rem',
+          fontWeight: '600',
+          fontSize: '0.9rem'
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <AlertCircle size={18} color="#dc2626" />
+            {errorMessage}
+          </span>
+          <button onClick={() => setErrorMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', fontWeight: '800' }}>✕</button>
+        </div>
+      )}
+
+      {loadError && (
+        <div style={{
+          background: '#fffbeb',
+          border: '1px solid #fde68a',
+          color: '#92400e',
+          padding: '0.9rem 1.25rem',
+          borderRadius: '12px',
+          marginBottom: '1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.75rem',
+          fontSize: '0.85rem',
+          fontWeight: '600'
+        }}>
+          <span>Advertencia al cargar módulos del panel: {loadError}</span>
+          <button
+            onClick={fetchData}
+            style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', padding: '0.4rem 0.85rem', cursor: 'pointer', fontWeight: '700' }}
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
       {/* KPI Cards Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
         
@@ -513,7 +661,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <Building2 size={18} color="#2563eb" strokeWidth={2.5} />
             </div>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a' }}>{metrics.totalTenants}</div>
+          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a' }}>{metrics.total_tenants ?? 0}</div>
           <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>Base Multi-tenant</div>
         </div>
 
@@ -525,15 +673,15 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <CheckCircle2 size={18} color="#059669" strokeWidth={2.5} />
             </div>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#059669' }}>{metrics.activeTenants}</div>
-          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>Sin suspensión</div>
+          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#059669' }}>{metrics.active_tenants ?? 0}</div>
+          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>Sin suspensión ({metrics.suspended_tenants ?? 0} suspendidos)</div>
         </div>
 
-        {/* Card 3: Sucursales Conectadas */}
+        {/* Card 3: Sucursales Conectadas (Control Plane) */}
         <div 
-          onClick={() => navigate('/sucursales')}
+          onClick={() => setActiveTab('branches')}
           style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.35rem', boxShadow: '0 4px 16px rgba(0,0,0,0.03)', cursor: 'pointer' }}
-          title="Ver sucursales físicas"
+          title="Ver directorio global de sedes físicas"
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
             <span style={{ fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b' }}>Sedes Físicas</span>
@@ -541,8 +689,8 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <Store size={18} color="#d97706" strokeWidth={2.5} />
             </div>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a' }}>{metrics.totalBranches}</div>
-          <div style={{ fontSize: '0.75rem', color: '#d97706', marginTop: '0.2rem', fontWeight: '700' }}>Sedes autorizadas →</div>
+          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a' }}>{metrics.total_branches ?? 0}</div>
+          <div style={{ fontSize: '0.75rem', color: '#d97706', marginTop: '0.2rem', fontWeight: '700' }}>Ver sedes globales →</div>
         </div>
 
         {/* Card 4: Usuarios en Plataforma */}
@@ -553,45 +701,50 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <Users size={18} color="#7c3aed" strokeWidth={2.5} />
             </div>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a' }}>{metrics.totalUsers}</div>
+          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a' }}>{metrics.total_users ?? 0}</div>
           <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>Dueños, cajeros y estilistas</div>
         </div>
 
-        {/* Card 5: MRR Estimado */}
+        {/* Card 5: MRR Recurrente por Moneda */}
         <div style={{ background: 'linear-gradient(135deg, #064e3b, #047857)', borderRadius: '16px', padding: '1.35rem', color: '#ffffff', boxShadow: '0 4px 16px rgba(6,78,59,0.2)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', color: '#a7f3d0' }}>MRR Estimado</span>
+            <span style={{ fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', color: '#a7f3d0' }}>MRR Recurrente</span>
             <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <DollarSign size={18} color="#ffffff" strokeWidth={2.5} />
             </div>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: '900', color: '#ffffff' }}>${metrics.estimatedMrr || 0}</div>
-          <div style={{ fontSize: '0.75rem', color: '#d1fae5', marginTop: '0.2rem' }}>Planes + Sedes + Add-ons</div>
+          <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#ffffff', lineHeight: 1.2 }}>
+            {Object.keys(metrics.mrr_by_currency || {}).length > 0
+              ? Object.entries(metrics.mrr_by_currency).map(([curr, val]) => (
+                  <div key={curr}>{curr === 'USD' ? 'US$' : `${curr} `}{Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                ))
+              : `US$${Number(metrics.mrr || 0).toFixed(2)}`}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#d1fae5', marginTop: '0.25rem' }}>Plan + Sedes + Asientos + Add-ons</div>
         </div>
 
       </div>
 
       {/* Tabs Selector Bar */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
         <button
           onClick={() => { setActiveTab('tenants'); navigate('/saas/salones'); }}
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '0.5rem',
-            padding: '0.75rem 1.5rem',
+            padding: '0.7rem 1.25rem',
             borderRadius: '10px',
             border: 'none',
-            fontSize: '0.95rem',
+            fontSize: '0.9rem',
             fontWeight: '800',
             cursor: 'pointer',
-            transition: 'all 0.2s',
             background: activeTab === 'tenants' ? '#0f172a' : 'transparent',
             color: activeTab === 'tenants' ? '#ffffff' : '#64748b'
           }}
         >
-          <Building2 size={18} />
-          Salones Inquilinos & Licenciamiento ({tenants.length})
+          <Building2 size={17} />
+          Salones ({tenants.length})
         </button>
 
         <button
@@ -600,19 +753,78 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             display: 'flex',
             alignItems: 'center',
             gap: '0.5rem',
-            padding: '0.75rem 1.5rem',
+            padding: '0.7rem 1.25rem',
             borderRadius: '10px',
             border: 'none',
-            fontSize: '0.95rem',
+            fontSize: '0.9rem',
             fontWeight: '800',
             cursor: 'pointer',
-            transition: 'all 0.2s',
             background: activeTab === 'plans' ? '#0f172a' : 'transparent',
             color: activeTab === 'plans' ? '#ffffff' : '#64748b'
           }}
         >
-          <Package size={18} />
-          Constructor de Planes SaaS & Grandfathering ({plans.length})
+          <Package size={17} />
+          Plan Comercial ({plans.length})
+        </button>
+
+        <button
+          onClick={() => { setActiveTab('invoices'); navigate('/saas/facturacion'); }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.7rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            background: activeTab === 'invoices' ? '#0f172a' : 'transparent',
+            color: activeTab === 'invoices' ? '#ffffff' : '#64748b'
+          }}
+        >
+          <FileText size={17} />
+          Facturación SaaS ({subscriptions.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('branches')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.7rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            background: activeTab === 'branches' ? '#0f172a' : 'transparent',
+            color: activeTab === 'branches' ? '#ffffff' : '#64748b'
+          }}
+        >
+          <Store size={17} />
+          Sedes Físicas ({branches.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('contacts')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.7rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            background: activeTab === 'contacts' ? '#0f172a' : 'transparent',
+            color: activeTab === 'contacts' ? '#ffffff' : '#64748b'
+          }}
+        >
+          <ShieldAlert size={17} />
+          Mensajes Contacto ({contactMessages.length})
         </button>
       </div>
 
@@ -679,13 +891,15 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     </td>
                   </tr>
                 ) : (
-                  filteredTenants.map((t) => {
-                    const currentBranches = parseInt(t.branch_count || 1);
-                    const licensedBranches = parseInt(t.licensed_branches || 1);
-                    const currentUsers = parseInt(t.user_count || 1);
-                    const maxAllowedUsers = parseInt(t.max_allowed_users || 3);
+                  filteredTenants.slice((tenantPage - 1) * PAGE_SIZE, tenantPage * PAGE_SIZE).map((t) => {
+                    const currentBranches = parseInt(t.branches_count ?? t.branch_count ?? 1, 10);
+                    const licensedBranches = parseInt(t.licensed_branches ?? t.max_branches ?? 1, 10);
+                    const currentUsers = parseInt(t.users_count ?? t.user_count ?? 1, 10);
+                    const usersPerBranch = parseInt(t.plan_users_per_branch || 3, 10);
+                    const maxAllowedUsers = parseInt(t.max_users ?? t.max_allowed_users ?? ((licensedBranches * usersPerBranch) + (parseInt(t.extra_user_seats, 10) || 0)), 10);
                     const isBranchesAtLimit = currentBranches >= licensedBranches;
                     const isUsersAtLimit = currentUsers >= maxAllowedUsers;
+                    const extraUserRate = t.plan_extra_user_price ? `US$${Number(t.plan_extra_user_price).toFixed(2)}/mes` : 'según tarifa vigente';
 
                     return (
                       <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -771,7 +985,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                             </div>
                           </div>
                           <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '0.25rem' }}>
-                            {licensedBranches} × 3 usuarios = {licensedBranches * 3} base
+                            {licensedBranches} × {usersPerBranch} usuarios = {licensedBranches * usersPerBranch} base
                           </div>
                         </td>
 
@@ -800,7 +1014,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                               </button>
                               <button
                                 onClick={() => handleAdjustSeats(t, 1)}
-                                title="Comprar 1 asiento adicional ($15/mes)"
+                                title={`Agregar 1 asiento adicional (${extraUserRate})`}
                                 style={{ width: '24px', height: '24px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#f8fafc', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
                               >
                                 +
@@ -881,7 +1095,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                         {/* Acciones */}
                         <td style={{ padding: '1.15rem 1.25rem', textAlign: 'right' }}>
                           <button
-                            onClick={() => handleToggleStatus(t.id, t.status)}
+                            onClick={() => handleToggleStatus(t.id, t.status, t.business_name)}
                             style={{
                               background: t.status === 'active' ? '#fff1f2' : '#ecfdf5',
                               border: `1px solid ${t.status === 'active' ? '#fecdd3' : '#a7f3d0'}`,
@@ -903,6 +1117,15 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               </tbody>
             </table>
           </div>
+          {filteredTenants.length > PAGE_SIZE && (
+            <div style={{ padding: '0.9rem 1.5rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', color: '#475569' }}>
+              <span>Mostrando página {tenantPage} de {Math.ceil(filteredTenants.length / PAGE_SIZE)} ({filteredTenants.length} salones)</span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button disabled={tenantPage <= 1} onClick={() => setTenantPage(p => Math.max(1, p - 1))} style={{ padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', cursor: tenantPage <= 1 ? 'not-allowed' : 'pointer' }}>Anterior</button>
+                <button disabled={tenantPage >= Math.ceil(filteredTenants.length / PAGE_SIZE)} onClick={() => setTenantPage(p => p + 1)} style={{ padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', cursor: tenantPage >= Math.ceil(filteredTenants.length / PAGE_SIZE) ? 'not-allowed' : 'pointer' }}>Siguiente</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1156,6 +1379,348 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: FACTURACIÓN SAAS & SUSCRIPCIONES DE PLATAFORMA (/saas/facturacion) */}
+      {/* ========================================================================= */}
+      {activeTab === 'invoices' && (() => {
+        const q = billingSearch.trim().toLowerCase();
+        const filteredSubs = subscriptions.filter((s) => {
+          const matchesStatus = subStatusFilter === 'all' || String(s.status).toLowerCase() === subStatusFilter;
+          const matchesSearch = !q || (s.business_name || s.salon_name || '').toLowerCase().includes(q) || (s.plan_code || '').toLowerCase().includes(q);
+          return matchesStatus && matchesSearch;
+        });
+        const filteredInvs = invoices.filter((inv) => {
+          const matchesStatus = invStatusFilter === 'all' || String(inv.status).toLowerCase() === invStatusFilter;
+          const matchesSearch = !q || (inv.business_name || '').toLowerCase().includes(q) || (inv.invoice_number || String(inv.id) || '').toLowerCase().includes(q);
+          return matchesStatus && matchesSearch;
+        });
+        const pagedSubs = filteredSubs.slice((subPage - 1) * PAGE_SIZE, subPage * PAGE_SIZE);
+        const pagedInvs = filteredInvs.slice((invPage - 1) * PAGE_SIZE, invPage * PAGE_SIZE);
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '14px', padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <div style={{ fontWeight: '800', color: '#1e3a8a', fontSize: '0.95rem' }}>Facturación B2B de Plataforma (Etereas → Salones)</div>
+                <div style={{ fontSize: '0.82rem', color: '#1e40af', marginTop: '0.15rem' }}>
+                  Separado de la facturación comercial interna de los salones. Las pasarelas reales permanecen desactivadas en este entorno.
+                </div>
+              </div>
+              <input
+                type="text"
+                placeholder="Buscar por salón, plan o factura..."
+                value={billingSearch}
+                onChange={(e) => { setBillingSearch(e.target.value); setSubPage(1); setInvPage(1); }}
+                style={{ padding: '0.55rem 0.9rem', borderRadius: '10px', border: '1px solid #93c5fd', background: '#fff', minWidth: '250px', fontSize: '0.85rem' }}
+              />
+            </div>
+
+            {/* Suscripciones SaaS */}
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+              <div style={{ padding: '1.15rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: '#0f172a' }}>Suscripciones SaaS ({filteredSubs.length})</h2>
+                <select
+                  value={subStatusFilter}
+                  onChange={(e) => { setSubStatusFilter(e.target.value); setSubPage(1); }}
+                  style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600' }}
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="active">Activas</option>
+                  <option value="past_due">Pago vencido (past_due)</option>
+                  <option value="suspended">Suspendidas</option>
+                  <option value="cancelled">Canceladas</option>
+                  <option value="pending">Pendientes</option>
+                </select>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
+                      <th style={{ padding: '0.85rem 1.25rem' }}>Salón</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Plan / Ciclo</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Estado Comercial</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Fin de Período</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Gracia Hasta</th>
+                      <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedSubs.length === 0 ? (
+                      <tr><td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>No hay suscripciones SaaS para los filtros seleccionados.</td></tr>
+                    ) : pagedSubs.map((s) => (
+                      <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#0f172a' }}>{s.business_name || s.salon_name || s.tenant_id}</td>
+                        <td style={{ padding: '0.85rem 1rem' }}>{s.plan_code} · {s.billing_cycle || 'monthly'} ({s.currency || 'USD'})</td>
+                        <td style={{ padding: '0.85rem 1rem' }}>
+                          <span style={{ padding: '0.2rem 0.6rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: '700', background: s.status === 'active' ? '#ecfdf5' : '#fef3c7', color: s.status === 'active' ? '#047857' : '#b45309' }}>
+                            {s.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{s.current_period_end ? new Date(s.current_period_end).toLocaleDateString() : '—'}</td>
+                        <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{s.grace_period_until ? new Date(s.grace_period_until).toLocaleDateString() : '—'}</td>
+                        <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
+                          <button
+                            onClick={() => setGraceModal({ tenantId: s.tenant_id, businessName: s.business_name || s.salon_name || s.tenant_id, additionalDays: 5, reason: '' })}
+                            style={{ padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', cursor: 'pointer', fontWeight: '700', fontSize: '0.78rem' }}
+                          >
+                            Extender gracia
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {filteredSubs.length > PAGE_SIZE && (
+                <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                  <span>Página {subPage} de {Math.ceil(filteredSubs.length / PAGE_SIZE)}</span>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button disabled={subPage <= 1} onClick={() => setSubPage(p => p - 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Anterior</button>
+                    <button disabled={subPage >= Math.ceil(filteredSubs.length / PAGE_SIZE)} onClick={() => setSubPage(p => p + 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Siguiente</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Facturas SaaS */}
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+              <div style={{ padding: '1.15rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800', color: '#0f172a' }}>Facturas SaaS de Plataforma ({filteredInvs.length})</h2>
+                <select
+                  value={invStatusFilter}
+                  onChange={(e) => { setInvStatusFilter(e.target.value); setInvPage(1); }}
+                  style={{ padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem', fontWeight: '600' }}
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="paid">Pagadas</option>
+                  <option value="open">Pendientes (open)</option>
+                  <option value="past_due">Vencidas</option>
+                  <option value="void">Anuladas</option>
+                </select>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
+                      <th style={{ padding: '0.85rem 1.25rem' }}>Factura #</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Salón</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Monto</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Estado</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Emisión</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedInvs.length === 0 ? (
+                      <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Aún no existen facturas SaaS emitidas para los filtros seleccionados.</td></tr>
+                    ) : pagedInvs.map((inv) => (
+                      <tr key={inv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700' }}>{inv.invoice_number || inv.id}</td>
+                        <td style={{ padding: '0.85rem 1rem' }}>{inv.business_name || inv.tenant_id}</td>
+                        <td style={{ padding: '0.85rem 1rem', fontWeight: '700' }}>{inv.currency || 'USD'} {Number(inv.total_amount ?? inv.amount ?? 0).toFixed(2)}</td>
+                        <td style={{ padding: '0.85rem 1rem' }}>{inv.status}</td>
+                        <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {filteredInvs.length > PAGE_SIZE && (
+                <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                  <span>Página {invPage} de {Math.ceil(filteredInvs.length / PAGE_SIZE)}</span>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button disabled={invPage <= 1} onClick={() => setInvPage(p => p - 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Anterior</button>
+                    <button disabled={invPage >= Math.ceil(filteredInvs.length / PAGE_SIZE)} onClick={() => setInvPage(p => p + 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Siguiente</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ========================================================================= */}
+      {/* TAB 4: SEDES FÍSICAS GLOBALES (CONTROL PLANE) */}
+      {/* ========================================================================= */}
+      {activeTab === 'branches' && (() => {
+        const pagedBranches = branches.slice((branchPage - 1) * PAGE_SIZE, branchPage * PAGE_SIZE);
+        return (
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0' }}>
+              <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>Directorio Global de Sedes Físicas ({branches.length})</h2>
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>Vista administrativa de Control Plane para verificar sedes por inquilino sin acceso operativo interno.</p>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
+                    <th style={{ padding: '0.85rem 1.25rem' }}>Salón Inquilino</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Sede</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Dirección</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Tipo</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedBranches.length === 0 ? (
+                    <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>No hay sedes físicas registradas.</td></tr>
+                  ) : pagedBranches.map((b) => (
+                    <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#0f172a' }}>{b.tenant_name}</td>
+                      <td style={{ padding: '0.85rem 1rem' }}>{b.name}</td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{b.address || '—'}</td>
+                      <td style={{ padding: '0.85rem 1rem' }}>{b.is_main ? 'Principal' : 'Sucursal'}</td>
+                      <td style={{ padding: '0.85rem 1rem' }}>{b.is_active ? 'Activa' : 'Inactiva'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {branches.length > PAGE_SIZE && (
+              <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                <span>Página {branchPage} de {Math.ceil(branches.length / PAGE_SIZE)}</span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button disabled={branchPage <= 1} onClick={() => setBranchPage(p => p - 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Anterior</button>
+                  <button disabled={branchPage >= Math.ceil(branches.length / PAGE_SIZE)} onClick={() => setBranchPage(p => p + 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Siguiente</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ========================================================================= */}
+      {/* TAB 5: BANDEJA DE MENSAJES DE CONTACTO */}
+      {/* ========================================================================= */}
+      {activeTab === 'contacts' && (() => {
+        const cq = contactSearch.trim().toLowerCase();
+        const filteredContacts = contactMessages.filter((m) => !cq || (m.name || '').toLowerCase().includes(cq) || (m.email || '').toLowerCase().includes(cq) || (m.message || '').toLowerCase().includes(cq));
+        const pagedContacts = filteredContacts.slice((contactPage - 1) * PAGE_SIZE, contactPage * PAGE_SIZE);
+        return (
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>Bandeja de Mensajes de Contacto ({filteredContacts.length})</h2>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>Consultas comerciales enviadas desde el landing de Etereas.</p>
+              </div>
+              <input
+                type="text"
+                placeholder="Buscar por nombre, correo o mensaje..."
+                value={contactSearch}
+                onChange={(e) => { setContactSearch(e.target.value); setContactPage(1); }}
+                style={{ padding: '0.55rem 0.9rem', borderRadius: '10px', border: '1px solid #cbd5e1', minWidth: '250px', fontSize: '0.85rem' }}
+              />
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
+                    <th style={{ padding: '0.85rem 1.25rem' }}>Remitente</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Correo / Teléfono</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Mensaje</th>
+                    <th style={{ padding: '0.85rem 1rem' }}>Fecha</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedContacts.length === 0 ? (
+                    <tr><td colSpan={4} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>No hay mensajes de contacto registrados.</td></tr>
+                  ) : pagedContacts.map((m) => (
+                    <tr key={m.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '0.85rem 1.25rem', fontWeight: '700', color: '#0f172a' }}>{m.name || 'Sin nombre'}</td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#475569' }}>{m.email || '—'} {m.phone ? `· ${m.phone}` : ''}</td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#334155', maxWidth: '420px' }}>{m.message}</td>
+                      <td style={{ padding: '0.85rem 1rem', color: '#64748b' }}>{m.created_at ? new Date(m.created_at).toLocaleString() : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {filteredContacts.length > PAGE_SIZE && (
+              <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                <span>Página {contactPage} de {Math.ceil(filteredContacts.length / PAGE_SIZE)}</span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button disabled={contactPage <= 1} onClick={() => setContactPage(p => p - 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Anterior</button>
+                  <button disabled={contactPage >= Math.ceil(filteredContacts.length / PAGE_SIZE)} onClick={() => setContactPage(p => p + 1)} style={{ padding: '0.3rem 0.7rem', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}>Siguiente</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* MODAL DE CONFIRMACIÓN PARA ACCIONES CRÍTICAS */}
+      {confirmModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div style={{ background: '#fff', borderRadius: '16px', maxWidth: '440px', width: '100%', padding: '1.5rem', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>{confirmModal.title}</h3>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.88rem', color: '#475569', lineHeight: 1.5 }}>{confirmModal.description}</p>
+            {confirmModal.requireReason && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>Motivo de auditoría</label>
+                <input
+                  type="text"
+                  value={confirmModal.reason || ''}
+                  onChange={(e) => setConfirmModal(prev => ({ ...prev, reason: e.target.value }))}
+                  style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.88rem' }}
+                />
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+              <button onClick={() => setConfirmModal(null)} style={{ padding: '0.55rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: '700' }}>Cancelar</button>
+              <button
+                onClick={async () => {
+                  const fn = confirmModal.onConfirm;
+                  const r = confirmModal.reason;
+                  setConfirmModal(null);
+                  try { await fn(r); } catch (err) { showError(err.message); }
+                }}
+                style={{ padding: '0.55rem 1rem', borderRadius: '8px', border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontWeight: '700' }}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EXTENDER PERÍODO DE GRACIA */}
+      {graceModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <form onSubmit={handleSubmitGraceExtension} style={{ background: '#fff', borderRadius: '16px', maxWidth: '440px', width: '100%', padding: '1.5rem', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.15rem', fontWeight: '800', color: '#0f172a' }}>Extender Gracia — {graceModal.businessName}</h3>
+            <div style={{ marginBottom: '0.85rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.3rem' }}>Días adicionales (1 - 90)</label>
+              <input
+                type="number"
+                min={1}
+                max={90}
+                required
+                value={graceModal.additionalDays}
+                onChange={(e) => setGraceModal(prev => ({ ...prev, additionalDays: e.target.value }))}
+                style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+              />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.3rem' }}>Motivo obligatorio</label>
+              <input
+                type="text"
+                required
+                minLength={3}
+                placeholder="Ej: Acuerdo de pago confirmado"
+                value={graceModal.reason}
+                onChange={(e) => setGraceModal(prev => ({ ...prev, reason: e.target.value }))}
+                style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
+              <button type="button" onClick={() => setGraceModal(null)} style={{ padding: '0.55rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: '700' }}>Cancelar</button>
+              <button type="submit" disabled={isSubmitting} style={{ padding: '0.55rem 1rem', borderRadius: '8px', border: 'none', background: '#059669', color: '#fff', cursor: 'pointer', fontWeight: '700' }}>
+                {isSubmitting ? 'Guardando...' : 'Extender Gracia'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

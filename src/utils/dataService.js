@@ -1,5 +1,25 @@
 const API_URL = '/api';
 
+const saasFetch = async (path, options = {}) => {
+  const headers = { ...(options.headers || {}) };
+  if (options.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const res = await fetch(`${API_URL}${path}`, {
+    credentials: 'include',
+    ...options,
+    headers
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Error del servidor (${res.status})`);
+    err.status = res.status;
+    err.code = data.code;
+    throw err;
+  }
+  return data;
+};
+
 // In-memory cache for plans catalog (CL-12)
 let _plansCache = null;
 let _plansCacheExpiry = 0;
@@ -2259,17 +2279,6 @@ export const dataService = {
     }
   },
 
-  getContactMessages: async () => {
-    try {
-      const res = await fetch(`${API_URL}/contact-messages`);
-      if (res.ok) return await res.json();
-      return [];
-    } catch (e) {
-      console.error('Error getting contact messages:', e);
-      return [];
-    }
-  },
-
   // DGII Notas de Crédito
   getCreditNotes: async () => {
     try {
@@ -3187,79 +3196,64 @@ export const dataService = {
   },
 
   // === MÓDULO SAAS MULTI-TENANT & PERSONALIZACIÓN DE SALÓN ===
-  getSaasMetrics: async () => {
-    const res = await fetch(`${API_URL}/saas/metrics`);
-    if (!res.ok) throw new Error('Error al cargar métricas SaaS');
-    return await res.json();
-  },
+  getSaasMetrics: async () => saasFetch('/saas/metrics'),
 
-  getSaasTenants: async () => {
-    const res = await fetch(`${API_URL}/saas/tenants`);
-    if (!res.ok) throw new Error('Error al cargar salones inquilinos');
-    return await res.json();
-  },
+  getSaasTenants: async () => saasFetch('/saas/tenants'),
+
+  getSaasBranches: async () => saasFetch('/saas/branches'),
+
+  getSaasPlatformSubscriptions: async () => saasFetch('/saas/subscriptions'),
+
+  getSaasPlatformInvoices: async () => saasFetch('/saas/invoices'),
+
+  extendSaasGracePeriod: async ({ tenantId, additionalDays, reason }) =>
+    saasFetch('/saas/billing/admin/extend-grace', {
+      method: 'POST',
+      body: JSON.stringify({ tenantId, additionalDays, reason })
+    }),
+
+  getContactMessages: async () => saasFetch('/contact-messages'),
+
+  createSaasTenant: async (tenantData) =>
+    saasFetch('/saas/tenants', {
+      method: 'POST',
+      body: JSON.stringify(tenantData)
+    }),
 
   getSaasPlans: async (publicOnly = false) => {
     const query = publicOnly ? '?public_only=true' : '';
-    const res = await fetch(`${API_URL}/saas/plans${query}`);
-    if (!res.ok) throw new Error('Error al cargar planes SaaS');
-    return await res.json();
+    return saasFetch(`/saas/plans${query}`);
   },
 
-  createSaasPlan: async (planData) => {
-    const res = await fetch(`${API_URL}/saas/plans`, {
+  createSaasPlan: async (planData) =>
+    saasFetch('/saas/plans', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(planData)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al crear plan SaaS');
-    return data;
-  },
+    }),
 
-  updateSaasPlan: async (planId, planData) => {
-    const res = await fetch(`${API_URL}/saas/plans/${planId}`, {
+  updateSaasPlan: async (planId, planData) =>
+    saasFetch(`/saas/plans/${planId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(planData)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al actualizar plan SaaS');
-    return data;
-  },
+    }),
 
-  updateTenantModules: async (tenantId, modulesData) => {
-    const res = await fetch(`${API_URL}/saas/tenants/${tenantId}/modules`, {
+  updateTenantModules: async (tenantId, modulesData) =>
+    saasFetch(`/saas/tenants/${encodeURIComponent(tenantId)}/modules`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(modulesData)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al actualizar módulos del salón');
-    return data;
-  },
+    }),
 
-  updateTenantLicensing: async (tenantId, licensingData) => {
-    const res = await fetch(`${API_URL}/saas/tenants/${tenantId}/licensing`, {
+  updateTenantLicensing: async (tenantId, licensingData) =>
+    saasFetch(`/saas/tenants/${encodeURIComponent(tenantId)}/licensing`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(licensingData)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al actualizar licencias del salón');
-    return data;
-  },
+    }),
 
-  updateTenantStatus: async (tenantId, status) => {
-    const res = await fetch(`${API_URL}/saas/tenants/${tenantId}/status`, {
+  updateTenantStatus: async (tenantId, status, reason = '') =>
+    saasFetch(`/saas/tenants/${encodeURIComponent(tenantId)}/status`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al actualizar estado del salón');
-    return data;
-  },
+      body: JSON.stringify({ status, reason })
+    }),
 
   getTenantProfile: async (targetTenantId = null) => {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;
@@ -3802,16 +3796,11 @@ export const dataService = {
     return resData;
   },
 
-  setTenantAddon: async (tenantId, addonCode, { enabled, reason, source = 'commercial_addon' }) => {
-    const res = await fetch(`${API_URL}/saas/tenants/${encodeURIComponent(tenantId)}/addons/${encodeURIComponent(addonCode)}`, {
+  setTenantAddon: async (tenantId, addonCode, { enabled, reason, source = 'commercial_addon' }) =>
+    saasFetch(`/saas/tenants/${encodeURIComponent(tenantId)}/addons/${encodeURIComponent(addonCode)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled, reason, source })
-    });
-    const resData = await res.json();
-    if (!res.ok) throw new Error(resData.error || 'Error al actualizar add-on del salón');
-    return resData;
-  },
+    }),
 
   getSaasInvoices: async () => {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('salon_pro_user') : null;

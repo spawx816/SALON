@@ -513,7 +513,7 @@ function createApp(dependencies = {}) {
     pool
   }));
 
-  app.use('/api/security', rejectClientRoleOnStaffRoutes, createSecurityRouter(pool));
+  app.use('/api/security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createSecurityRouter(pool));
   app.use('/api/salons', rejectControlPlaneRoleOnTenantRoutes, createSalonsRouter(pool, { entitlementsService }));
   app.use('/api/clients', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('clients'), createClientsRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders, entitlementsService }));
   app.use('/api/inventory', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createInventoryRouter({
@@ -621,7 +621,9 @@ function createApp(dependencies = {}) {
   const attendanceRouter = createAttendanceRouter(pool);
   app.use('/api/attendance', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, attendanceRouter);
 
-  app.use('/api/test', createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
+  if (process.env.NODE_ENV === 'test' && process.env.ENABLE_TEST_ROUTES === 'true') {
+    app.use('/api/test', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
+  }
 
   app.use('/api', (req, res) => {
     return res.status(404).json({
