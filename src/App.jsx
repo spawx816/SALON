@@ -134,7 +134,7 @@ const AppContent = () => {
   const isAccountant = user?.role?.toLowerCase() === 'contador' || user?.role_name?.toLowerCase() === 'contador';
 
   // Dynamic Entitlements State from SaaS Engine
-  const { hasMembershipsAddon, isSuspended, hasFeature } = useEntitlements();
+  const { hasMembershipsAddon, membershipsAddon, isSuspended, hasFeature } = useEntitlements();
 
   // Plan Principal único + Add-on independiente Suscripciones/Membresías B2C
   const hasProPlan = Boolean(!isSuperAdmin && !isSuspended && (hasMembershipsAddon || hasFeature('memberships')));
@@ -420,7 +420,11 @@ const AppContent = () => {
                     color: isSuperAdmin ? '#60a5fa' : (hasProPlan ? '#fbbf24' : '#cbd5e1'),
                     border: `1px solid ${isSuperAdmin ? 'rgba(59,130,246,0.4)' : (hasProPlan ? 'rgba(212,175,55,0.4)' : 'rgba(148,163,184,0.3)')}`
                   }}>
-                    {isSuperAdmin ? 'CONTROL PLANE SAAS' : (hasProPlan ? 'PLAN PRINCIPAL + MEMBRESÍAS' : 'PLAN PRINCIPAL')}
+                    {isSuperAdmin
+                      ? 'CONTROL PLANE SAAS'
+                      : hasProPlan
+                        ? (membershipsAddon?.isLegacyTransition ? 'PLAN PRINCIPAL · TRANSICIÓN MEMBRESÍAS' : 'PLAN PRINCIPAL + MEMBRESÍAS')
+                        : 'PLAN PRINCIPAL'}
                   </span>
                 )}
               </div>

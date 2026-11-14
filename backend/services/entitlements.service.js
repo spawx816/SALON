@@ -95,10 +95,20 @@ class EntitlementsService {
       const appliedOverrides = {};
       for (const ov of overrides) {
         baseFeatures[ov.feature_key] = Boolean(ov.is_enabled);
+        let parsedBranches = null;
+        if (Array.isArray(ov.enabled_branch_ids)) {
+          parsedBranches = ov.enabled_branch_ids.map(String);
+        } else if (typeof ov.enabled_branch_ids === 'string') {
+          try {
+            const p = JSON.parse(ov.enabled_branch_ids);
+            if (Array.isArray(p)) parsedBranches = p.map(String);
+          } catch { /* ignore malformed */ }
+        }
         appliedOverrides[ov.feature_key] = {
           is_enabled: Boolean(ov.is_enabled),
           reason: ov.reason,
-          expires_at: ov.expires_at
+          expires_at: ov.expires_at,
+          enabled_branch_ids: parsedBranches
         };
       }
 
@@ -107,9 +117,18 @@ class EntitlementsService {
         ? { ...DEFAULT_PLAN_LIMITS[planCode] }
         : { users: 0, branches: 0 };
 
-      // Add-on Suscripciones/Membresías B2C (separado del plan principal y con procedencia auditable)
+      // Sucursales activas del tenant (para resolución canónica de alcance por sucursal)
+      const activeBranches = typeof this.entitlementsRepo?.findActiveBranchesByTenantId === 'function'
+        ? await this.entitlementsRepo.findActiveBranchesByTenantId(tenantId)
+        : null;
+
+      // Conteo actual de recursos
+      const usersUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'users');
+      const branchesUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'branches');
+
+      // Add-on Suscripciones/Membresías B2C (separado del plan principal, con procedencia y sucursales habilitadas)
       const membershipsOv = appliedOverrides[SAAS_FEATURES.MEMBERSHIPS];
-      const membershipsActive = Boolean(isSubscriptionActive && baseFeatures[SAAS_FEATURES.MEMBERSHIPS]);
+      let membershipsActive = Boolean(isSubscriptionActive && baseFeatures[SAAS_FEATURES.MEMBERSHIPS]);
       let membershipsSource = 'none';
       if (membershipsOv && membershipsOv.is_enabled) {
         const r = String(membershipsOv.reason || '');
@@ -122,9 +141,34 @@ class EntitlementsService {
         }
       }
 
-      // Conteo actual de recursos
-      const usersUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'users');
-      const branchesUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'branches');
+      let resolvedBranchIds = [];
+      let resolvedBranches = [];
+      if (membershipsActive) {
+        const rawBranchIds = membershipsOv?.enabled_branch_ids;
+        if (Array.isArray(rawBranchIds)) {
+          if (Array.isArray(activeBranches)) {
+            const branchMap = new Map(activeBranches.map(b => [String(b.id), b]));
+            resolvedBranchIds = [...new Set(rawBranchIds.filter(id => branchMap.has(String(id))))];
+            resolvedBranches = resolvedBranchIds.map(id => ({ id, name: branchMap.get(id).name }));
+          } else {
+            resolvedBranchIds = [...new Set(rawBranchIds)];
+            resolvedBranches = resolvedBranchIds.map(id => ({ id, name: id }));
+          }
+          if (resolvedBranchIds.length === 0) {
+            membershipsActive = false;
+            baseFeatures[SAAS_FEATURES.MEMBERSHIPS] = false;
+          }
+        } else {
+          resolvedBranchIds = Array.isArray(activeBranches) ? activeBranches.map(b => String(b.id)) : null;
+          resolvedBranches = Array.isArray(activeBranches) ? activeBranches.map(b => ({ id: String(b.id), name: b.name })) : [];
+        }
+      } else if (Object.prototype.hasOwnProperty.call(baseFeatures, SAAS_FEATURES.MEMBERSHIPS)) {
+        baseFeatures[SAAS_FEATURES.MEMBERSHIPS] = false;
+      }
+
+      const enabledBranchCount = membershipsActive
+        ? (Array.isArray(resolvedBranchIds) ? resolvedBranchIds.length : (branchesUsage || 0))
+        : 0;
 
       return {
         hasSubscription: true,
@@ -145,6 +189,10 @@ class EntitlementsService {
             source: membershipsActive ? membershipsSource : 'none',
             reason: membershipsOv?.reason || null,
             expiresAt: membershipsOv?.expires_at || null,
+            branchIds: membershipsActive ? resolvedBranchIds : [],
+            branches: membershipsActive ? resolvedBranches : [],
+            enabledBranchCount,
+            isLegacyTransition: membershipsActive && membershipsSource === 'legacy_pro_transition'
           }
         },
         overrides: appliedOverrides,
@@ -168,7 +216,11 @@ class EntitlementsService {
     }
   }
 
-  async hasFeature(tenantId, featureKey) {
+  invalidateTenantCache(_tenantId) {
+    // La resolución lee estado vigente en PostgreSQL sin caché en memoria obsoleta.
+  }
+
+  async hasFeature(tenantId, featureKey, options = {}) {
     if (!tenantId) {
       return { allowed: false, reason: 'TENANT_REQUIRED', code: 'TENANT_REQUIRED' };
     }
@@ -212,6 +264,20 @@ class EntitlementsService {
         feature: featureKey,
         currentPlan: entitlements.plan
       };
+    }
+
+    if (featureKey === SAAS_FEATURES.MEMBERSHIPS && options?.branchId) {
+      const enabledBranchIds = entitlements.addons?.[SAAS_ADDONS.MEMBERSHIPS]?.branchIds;
+      if (Array.isArray(enabledBranchIds) && !enabledBranchIds.includes(String(options.branchId))) {
+        return {
+          allowed: false,
+          reason: 'El add-on de Suscripciones/Membresías B2C no está habilitado para esta sucursal.',
+          code: 'FEATURE_NOT_INCLUDED',
+          feature: featureKey,
+          branchId: String(options.branchId),
+          currentPlan: entitlements.plan
+        };
+      }
     }
 
     return {
@@ -331,7 +397,7 @@ class EntitlementsService {
     return sub;
   }
 
-  async setAddonStatus(tenantId, addonCode, { enabled, source = 'commercial_addon', reason, actorId = 'superadmin', expiresAt = null } = {}) {
+  async setAddonStatus(tenantId, addonCode, { enabled, source = 'commercial_addon', reason, actorId = 'superadmin', expiresAt = null, branchIds } = {}) {
     if (!tenantId) throw new Error('tenantId es obligatorio');
     if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
       const err = new Error(`Add-on inválido: ${addonCode}`);
@@ -339,17 +405,154 @@ class EntitlementsService {
       throw err;
     }
 
+    const enabledBool = Boolean(enabled);
     const prefix = source === 'legacy_pro_transition' ? 'legacy_pro_transition' : 'commercial_addon';
-    const fullReason = reason && String(reason).startsWith(prefix)
-      ? reason
-      : `${prefix}: ${reason || (enabled ? 'Add-on Suscripciones/Membresías B2C habilitado' : 'Add-on Suscripciones/Membresías B2C desactivado')}`;
+    const baseReason = reason && String(reason).trim().startsWith(prefix)
+      ? String(reason).trim()
+      : `${prefix}: ${(reason && String(reason).trim()) || (enabledBool ? 'Add-on Suscripciones/Membresías B2C habilitado' : 'Add-on Suscripciones/Membresías B2C desactivado')}`;
 
+    const pool = this.entitlementsRepo?.pool;
+    if (pool && typeof pool.connect === 'function') {
+      const client = await pool.connect();
+
+      try {
+        await client.query('BEGIN');
+
+        const tenantRes = await client.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+        if (!tenantRes.rows || tenantRes.rows.length === 0) {
+          const err = new Error('Salón no encontrado');
+          err.code = 'TENANT_NOT_FOUND';
+          throw err;
+        }
+
+        const branchRes = await client.query(
+          'SELECT id::text as id, name, COALESCE(is_active, true) as is_active FROM branches WHERE tenant_id = $1 ORDER BY is_main DESC, name ASC',
+          [tenantId]
+        );
+        const tenantBranches = branchRes.rows || [];
+        const branchMap = new Map(tenantBranches.map(b => [b.id, b]));
+
+        let normalizedBranchIds = [];
+        if (enabledBool) {
+          if (Array.isArray(branchIds)) {
+            const cleaned = [...new Set(branchIds.map(id => String(id).trim()).filter(Boolean))];
+            if (cleaned.length === 0 && tenantBranches.length > 0) {
+              const err = new Error('Debes seleccionar al menos una sucursal para activar el add-on.');
+              err.code = 'BRANCH_SELECTION_REQUIRED';
+              throw err;
+            }
+            const invalid = cleaned.find(id => !branchMap.has(id));
+            if (invalid) {
+              const err = new Error('Una o más sucursales seleccionadas no pertenecen a este salón.');
+              err.code = 'INVALID_BRANCH_SELECTION';
+              throw err;
+            }
+            normalizedBranchIds = cleaned;
+          } else if (branchIds !== undefined && branchIds !== null) {
+            const err = new Error('Formato inválido de sucursales para el add-on.');
+            err.code = 'INVALID_BRANCH_SELECTION';
+            throw err;
+          } else {
+            const activeOnly = tenantBranches.filter(b => b.is_active).map(b => b.id);
+            normalizedBranchIds = activeOnly.length > 0 ? activeOnly : tenantBranches.map(b => b.id);
+          }
+        }
+
+        const existingRes = await client.query(
+          'SELECT is_enabled, reason, enabled_branch_ids FROM tenant_feature_overrides WHERE tenant_id = $1 AND feature_key = $2 FOR UPDATE',
+          [tenantId, SAAS_FEATURES.MEMBERSHIPS]
+        );
+        const existing = existingRes.rows[0] || null;
+        const existingBranches = Array.isArray(existing?.enabled_branch_ids)
+          ? [...new Set(existing.enabled_branch_ids.map(String))].sort()
+          : [];
+        const targetBranchesSorted = [...normalizedBranchIds].sort();
+        const sameBranches = existingBranches.length === targetBranchesSorted.length
+          && existingBranches.every((v, i) => v === targetBranchesSorted[i]);
+        const existingPrefix = String(existing?.reason || '').startsWith('legacy_pro_transition')
+          ? 'legacy_pro_transition'
+          : 'commercial_addon';
+
+        if (existing && Boolean(existing.is_enabled) === enabledBool && (!enabledBool || (sameBranches && existingPrefix === prefix))) {
+          await client.query(
+            'UPDATE tenants SET has_memberships = $1 WHERE id = $2 AND has_memberships IS DISTINCT FROM $1',
+            [enabledBool, tenantId]
+          );
+          await client.query('COMMIT');
+          this.invalidateTenantCache(tenantId);
+          const entitlements = await this.getTenantEntitlements(tenantId);
+          return {
+            ...(entitlements.addons?.[SAAS_ADDONS.MEMBERSHIPS] || {}),
+            entitlements,
+            idempotent: true
+          };
+        }
+
+        const branchNames = normalizedBranchIds.map(id => branchMap.get(id)?.name || id);
+        const scopeSuffix = enabledBool
+          ? (branchNames.length > 0 ? ` [Sucursales: ${branchNames.join(', ')}]` : ' [Sin sucursales]')
+          : ' [Alcance: 0 sucursales]';
+        const fullReason = `${baseReason}${scopeSuffix}`;
+
+        await this.entitlementsRepo.upsertOverride(tenantId, {
+          feature_key: SAAS_FEATURES.MEMBERSHIPS,
+          is_enabled: enabledBool,
+          reason: fullReason,
+          actor_id: actorId,
+          expires_at: expiresAt,
+          enabled_branch_ids: normalizedBranchIds
+        }, client);
+
+        await client.query(
+          'UPDATE tenants SET has_memberships = $1 WHERE id = $2',
+          [enabledBool, tenantId]
+        );
+
+        const subRes = await client.query(
+          'SELECT plan_code, status FROM tenant_subscriptions WHERE tenant_id = $1 LIMIT 1',
+          [tenantId]
+        );
+        const currentSub = subRes.rows[0] || null;
+        await client.query(
+          `INSERT INTO tenant_subscription_events (
+            tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+          [
+            tenantId,
+            currentSub?.plan_code || SAAS_PLANS.PRINCIPAL,
+            currentSub?.plan_code || SAAS_PLANS.PRINCIPAL,
+            currentSub?.status || 'active',
+            currentSub?.status || 'active',
+            fullReason,
+            String(actorId)
+          ]
+        );
+
+        await client.query('COMMIT');
+        this.invalidateTenantCache(tenantId);
+        const entitlements = await this.getTenantEntitlements(tenantId);
+        return {
+          ...(entitlements.addons?.[SAAS_ADDONS.MEMBERSHIPS] || {}),
+          entitlements,
+          idempotent: false
+        };
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
+    // Fallback para mocks en memoria (pruebas unitarias sin PostgreSQL)
+    const mockBranches = Array.isArray(branchIds) ? [...new Set(branchIds.map(String))] : null;
     const override = await this.entitlementsRepo.upsertOverride(tenantId, {
       feature_key: SAAS_FEATURES.MEMBERSHIPS,
-      is_enabled: Boolean(enabled),
-      reason: fullReason,
+      is_enabled: enabledBool,
+      reason: baseReason,
       actor_id: actorId,
-      expires_at: expiresAt
+      expires_at: expiresAt,
+      enabled_branch_ids: enabledBool ? mockBranches : []
     });
 
     const currentSub = await this.subscriptionRepo.findByTenantId(tenantId);
@@ -359,7 +562,7 @@ class EntitlementsService {
       new_plan: currentSub?.plan_code || SAAS_PLANS.PRINCIPAL,
       previous_status: currentSub?.status || 'active',
       new_status: currentSub?.status || 'active',
-      reason: fullReason,
+      reason: baseReason,
       actor_id: actorId
     });
 

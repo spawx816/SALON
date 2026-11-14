@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 
 const EntitlementsContext = createContext(null);
@@ -36,6 +36,7 @@ export const EntitlementsProvider = ({ children }) => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const lastFetchedAtRef = useRef(0);
 
   const fetchEntitlements = useCallback(async () => {
     if (!user || user.isSuperAdmin) {
@@ -46,7 +47,10 @@ export const EntitlementsProvider = ({ children }) => {
     try {
       setLoading(true);
       setError(null);
+      lastFetchedAtRef.current = Date.now();
       const res = await fetch('/api/tenant/entitlements', {
+        cache: 'no-store',
+        credentials: 'include',
         headers: {
           'Accept': 'application/json'
         }
@@ -69,6 +73,22 @@ export const EntitlementsProvider = ({ children }) => {
   useEffect(() => {
     fetchEntitlements();
   }, [fetchEntitlements]);
+
+  useEffect(() => {
+    if (!user || user.isSuperAdmin) return undefined;
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (Date.now() - lastFetchedAtRef.current >= 5000) {
+        fetchEntitlements();
+      }
+    };
+    window.addEventListener('focus', handleRevalidate);
+    document.addEventListener('visibilitychange', handleRevalidate);
+    return () => {
+      window.removeEventListener('focus', handleRevalidate);
+      document.removeEventListener('visibilitychange', handleRevalidate);
+    };
+  }, [user, fetchEntitlements]);
 
   const hasFeature = useCallback((featureKey) => {
     if (user?.isSuperAdmin || user?.role?.toLowerCase() === 'superadmin') return true;

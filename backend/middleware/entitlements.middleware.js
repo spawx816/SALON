@@ -27,7 +27,13 @@ function createEntitlementsMiddleware(entitlementsService) {
           });
         }
 
-        const check = await entitlementsService.hasFeature(tenantId, featureKey);
+        const targetBranchId = featureKey === 'memberships'
+          ? (req.body?.branch_id || req.body?.branchId || req.query?.branch_id || req.query?.branchId || req.headers?.['x-branch-id'] || req.auth?.branchId || req.user?.branch_id || null)
+          : null;
+
+        const check = await entitlementsService.hasFeature(tenantId, featureKey, {
+          branchId: targetBranchId ? String(targetBranchId) : null
+        });
 
         if (!check.allowed) {
           return res.status(403).json({

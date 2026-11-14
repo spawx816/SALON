@@ -106,12 +106,17 @@ function createSaasRouter(pool, options = {}) {
         const extraSeats = Number(row.extra_seats) || 0;
         const planUnitCents = Math.round(Number(row.plan_price_per_branch || 0) * 100);
         const extraUnitCents = Math.round(Number(row.extra_user_price || 0) * 100);
-        const addonUnitCents = row.has_memberships ? Math.round(Number(MEMBERSHIPS_ADDON_DEFAULT_USD || 99) * 100) : 0;
 
-        let monthlyCents = (planUnitCents * branches) + (extraUnitCents * extraSeats) + (addonUnitCents * branches);
+        const ent = await entitlementsService.getTenantEntitlements(row.id);
+        const membershipsAddon = ent?.addons?.memberships;
+        const isPaidAddon = Boolean(membershipsAddon?.active && membershipsAddon?.source !== 'legacy_pro_transition');
+        const addonBranchCount = isPaidAddon ? Math.max(0, Number(membershipsAddon?.enabledBranchCount ?? branches)) : 0;
+        const addonUnitCents = isPaidAddon ? Math.round(Number(MEMBERSHIPS_ADDON_DEFAULT_USD || 99) * 100) : 0;
+
+        let monthlyCents = (planUnitCents * branches) + (extraUnitCents * extraSeats) + (addonUnitCents * addonBranchCount);
         if (String(row.billing_cycle).toLowerCase() === 'yearly' && Number(row.plan_price_yearly) > 0) {
           const yearlyPlanCents = Math.round(Number(row.plan_price_yearly) * 100) * branches;
-          monthlyCents = Math.round(yearlyPlanCents / 12) + (extraUnitCents * extraSeats) + (addonUnitCents * branches);
+          monthlyCents = Math.round(yearlyPlanCents / 12) + (extraUnitCents * extraSeats) + (addonUnitCents * addonBranchCount);
         }
         mrrCentsByCurrency[curr] = (mrrCentsByCurrency[curr] || 0) + monthlyCents;
       }
@@ -164,7 +169,39 @@ function createSaasRouter(pool, options = {}) {
         )
         ORDER BY t.created_at DESC
       `);
-      res.json(tenants);
+
+      const enrichedTenants = await Promise.all((tenants || []).map(async (row) => {
+        const [ent, tenantBranches] = await Promise.all([
+          entitlementsService.getTenantEntitlements(row.id),
+          entitlementsService?.entitlementsRepo?.findActiveBranchesByTenantId
+            ? entitlementsService.entitlementsRepo.findActiveBranchesByTenantId(row.id)
+            : Promise.resolve([])
+        ]);
+        const addon = ent?.addons?.memberships || {
+          active: false,
+          source: 'none',
+          reason: null,
+          expiresAt: null,
+          branchIds: [],
+          branches: [],
+          enabledBranchCount: 0,
+          isLegacyTransition: false
+        };
+        return {
+          ...row,
+          has_memberships: Boolean(addon.active),
+          memberships_source: addon.source || 'none',
+          memberships_reason: addon.reason || null,
+          memberships_expires_at: addon.expiresAt || null,
+          memberships_branch_ids: Array.isArray(addon.branchIds) ? addon.branchIds : [],
+          memberships_branches: Array.isArray(addon.branches) ? addon.branches : [],
+          memberships_enabled_branch_count: Number(addon.enabledBranchCount || 0),
+          memberships_is_legacy_transition: Boolean(addon.isLegacyTransition),
+          tenant_branches: Array.isArray(tenantBranches) ? tenantBranches : []
+        };
+      }));
+
+      res.json(enrichedTenants);
     } catch (error) {
       console.error('Error fetching tenants:', error);
       res.status(500).json({ error: 'Error listando salones' });
@@ -725,18 +762,39 @@ function createSaasRouter(pool, options = {}) {
   router.put('/tenants/:tenantId/addons/:addonCode', authenticate, requireSuperAdmin, async (req, res) => {
     try {
       const { tenantId, addonCode } = req.params;
-      const { enabled, reason, source } = req.body || {};
+      const { enabled, reason, source, branchIds } = req.body || {};
       const result = await entitlementsService.setAddonStatus(tenantId, addonCode, {
         enabled: Boolean(enabled),
         source: source === 'legacy_pro_transition' ? 'legacy_pro_transition' : 'commercial_addon',
         reason,
-        actorId: req.user?.id || 'superadmin',
+        branchIds,
+        actorId: req.auth?.userId || req.user?.id || 'superadmin',
       });
-      res.json({ success: true, addon: result });
+      res.json({
+        success: true,
+        tenantId,
+        has_memberships: Boolean(result.active),
+        addon: {
+          active: Boolean(result.active),
+          source: result.source || 'none',
+          reason: result.reason || null,
+          expiresAt: result.expiresAt || null,
+          branchIds: Array.isArray(result.branchIds) ? result.branchIds : [],
+          branches: Array.isArray(result.branches) ? result.branches : [],
+          enabledBranchCount: Number(result.enabledBranchCount || 0),
+          isLegacyTransition: Boolean(result.isLegacyTransition)
+        },
+        entitlements: result.entitlements || null,
+        idempotent: Boolean(result.idempotent)
+      });
     } catch (err) {
-      if (err.code === 'INVALID_ADDON_CODE') {
+      if (err.code === 'INVALID_ADDON_CODE' || err.code === 'INVALID_BRANCH_SELECTION' || err.code === 'BRANCH_SELECTION_REQUIRED') {
         return res.status(400).json({ error: err.message, code: err.code });
       }
+      if (err.code === 'TENANT_NOT_FOUND') {
+        return res.status(404).json({ error: err.message, code: err.code });
+      }
+      console.error('Error actualizando add-on del salón:', err);
       res.status(500).json({ error: 'Error actualizando add-on del salón' });
     }
   });
@@ -848,18 +906,18 @@ function createSaasRouter(pool, options = {}) {
         : parseOptionalPrice(existing.price_per_branch ?? existing.price);
       const nextPricePerBranch = parsedPerBranch !== null ? parsedPerBranch : 0;
       const nextPriceMonthly = body.price_monthly !== undefined
-        ?parseOptionalPrice(body.price_monthly)
+        ? parseOptionalPrice(body.price_monthly)
         : (body.price_per_branch !== undefined
-        ? parsedPerBranch
-        : parseOptionalPrice(existing.price_monthly ?? existing.price_per_branch ?? existing.price));
+          ? parsedPerBranch
+          : parseOptionalPrice(existing.price_monthly ?? existing.price_per_branch ?? existing.price));
       const nextPriceYearly = body.price_yearly !== undefined
-          ? (parseOptionalPrice(body.price_yearly) ?? 0)
-          : Number(existing.price_yearly ?? 0);
+        ? (parseOptionalPrice(body.price_yearly) ?? 0)
+        : Number(existing.price_yearly ?? 0);
       const nextUsersPerBranch = body.users_per_branch !== undefined
         ? (parseInt(body.users_per_branch, 10) || 1)
         : Number(existing.users_per_branch ?? 3);
       const nextExtraUserPrice = body.extra_user_price !== undefined
-        ?parseOptionalPrice(body.extra_user_price)
+        ? parseOptionalPrice(body.extra_user_price)
         : parseOptionalPrice(existing.extra_user_price);
       const nextMaxBranches = body.max_branches !== undefined
         ? (parseInt(body.max_branches, 10) || 1)

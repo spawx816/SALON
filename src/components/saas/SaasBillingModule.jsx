@@ -498,7 +498,7 @@ export default function SaasBillingModule() {
               <span className={`sb-badge ${hasMembershipsAddon ? 'sb-badge-active' : 'sb-badge-neutral'}`}>
                 {hasMembershipsAddon
                   ? isLegacyTransition
-                    ? 'Activo (Transición)'
+                    ? 'Activo (Transición heredada)'
                     : 'Activo'
                   : 'No contratado'}
               </span>
@@ -506,6 +506,19 @@ export default function SaasBillingModule() {
             <p className="sb-meta-text" style={{ margin: '4px 0 0' }}>
               Módulo adicional para ofrecer planes mensuales, contratos digitales y cobros recurrentes a los clientes de tu salón.
             </p>
+            {hasMembershipsAddon && isLegacyTransition && (
+              <p className="sb-meta-text" style={{ margin: '4px 0 0', color: '#92400e', fontWeight: 600 }}>
+                Procedencia: {membershipsAddon?.reason || 'Permiso heredado de transición'} · Vigencia:{' '}
+                {membershipsAddon?.expiresAt
+                  ? new Date(membershipsAddon.expiresAt).toLocaleDateString('es-DO')
+                  : 'Sin fecha de expiración definida'} (no corresponde a contratación pagada adicional).
+              </p>
+            )}
+            {hasMembershipsAddon && Array.isArray(membershipsAddon?.branches) && membershipsAddon.branches.length > 0 && (
+              <p className="sb-meta-text" style={{ margin: '4px 0 0', color: '#047857', fontWeight: 600 }}>
+                Sucursales habilitadas ({membershipsAddon.branches.length}): {membershipsAddon.branches.map(b => b.name).join(', ')}
+              </p>
+            )}
             <p className="sb-meta-text" style={{ margin: '4px 0 0', fontWeight: 600, color: '#0f172a' }}>
               {subPricing?.addons?.memberships?.pricingDisplay ||
                 entPricing?.addons?.memberships?.pricingDisplay ||

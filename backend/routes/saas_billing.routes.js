@@ -55,11 +55,11 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       if (pool && typeof pool.query === 'function') {
         try {
           const [rows] = await pool.query(
-            'SELECT id, name FROM salons WHERE tenant_id = ? ORDER BY id ASC',
+            'SELECT id::text as id, name FROM branches WHERE tenant_id = ? AND COALESCE(is_active, true) = true ORDER BY is_main DESC, name ASC',
             [tenantId]
           );
           if (Array.isArray(rows)) {
-            branches = rows.map((r) => ({ id: r.id, name: r.name }));
+            branches = rows.map((r) => ({ id: String(r.id), name: r.name }));
           }
         } catch (branchErr) {
           console.warn('[SAAS BILLING] No se pudieron listar sucursales:', branchErr?.message || branchErr);
@@ -90,17 +90,17 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       }
 
       const requestedIds = Array.isArray(req.body?.branchIds)
-        ? [...new Set(req.body.branchIds.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))]
+        ? [...new Set(req.body.branchIds.map((id) => String(id).trim()).filter(Boolean))]
         : [];
 
       let tenantBranches = [];
       if (pool && typeof pool.query === 'function') {
         const [rows] = await pool.query(
-          'SELECT id, name FROM salons WHERE tenant_id = ? ORDER BY id ASC',
+          'SELECT id::text as id, name FROM branches WHERE tenant_id = ? AND COALESCE(is_active, true) = true ORDER BY is_main DESC, name ASC',
           [tenantId]
         );
         if (Array.isArray(rows)) {
-          tenantBranches = rows.map((r) => ({ id: Number(r.id), name: r.name }));
+          tenantBranches = rows.map((r) => ({ id: String(r.id), name: r.name }));
         }
       }
 
@@ -339,7 +339,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       if (pool && pool.query) {
         try {
           await pool.query("UPDATE tenants SET status = ? WHERE id = ?", ['active', tenantId]);
-        } catch (e) {}
+        } catch (e) { }
       }
 
       res.json({

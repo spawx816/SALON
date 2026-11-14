@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Building2, Users, Layers, ShieldCheck, Plus, CheckCircle2, 
-  XCircle, ToggleLeft, ToggleRight, Search, RefreshCw, Sparkles, 
+import {
+  Building2, Users, Layers, ShieldCheck, Plus, CheckCircle2,
+  XCircle, ToggleLeft, ToggleRight, Search, RefreshCw, Sparkles,
   Store, AlertCircle, FileText, Database, ArrowUpRight, DollarSign,
   Package, Crown, Check, X, Edit3, Settings, ShieldAlert, ChevronRight
 } from 'lucide-react';
@@ -168,21 +168,49 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const handleToggleModule = (tenantId, currentTenant, moduleName) => {
     const updatedValue = !currentTenant[moduleName];
     if (moduleName === 'has_memberships') {
+      const tenantBranches = Array.isArray(currentTenant.tenant_branches) ? currentTenant.tenant_branches : [];
+      const activeBranches = tenantBranches.filter(b => b.is_active !== false);
+      const defaultSelectedIds = activeBranches.length > 0
+        ? activeBranches.map(b => b.id)
+        : tenantBranches.map(b => b.id);
+
       setConfirmModal({
         title: updatedValue ? 'Activar Add-on Suscripciones/Membresías' : 'Desactivar Add-on Suscripciones/Membresías',
         description: updatedValue
           ? `Se habilitará el add-on B2C (US$99/mes por sucursal habilitada) para "${currentTenant.business_name}".`
-          : `Se desactivará el add-on B2C para "${currentTenant.business_name}".`,
+          : `Se desactivará el add-on B2C para "${currentTenant.business_name}". Los datos e historial se conservarán intactos.`,
         requireReason: true,
         reason: updatedValue ? 'Activación comercial desde Control Plane' : 'Desactivación desde Control Plane',
-        onConfirm: async (reason) => {
-          await dataService.setTenantAddon(tenantId, 'memberships', {
+        branchOptions: updatedValue ? tenantBranches : null,
+        selectedBranchIds: updatedValue ? defaultSelectedIds : [],
+        onConfirm: async (reason, selectedBranchIds) => {
+          const payload = {
             enabled: updatedValue,
             reason: reason || 'Cambio desde Control Plane',
-            source: 'commercial_addon'
-          });
-          showNotification(`Add-on de Membresías ${updatedValue ? 'activado' : 'desactivado'}.`);
-          fetchData();
+            source: 'commercial_addon',
+          };
+          if (updatedValue && Array.isArray(tenantBranches) && tenantBranches.length > 0) {
+            payload.branchIds = selectedBranchIds;
+          }
+          const res = await dataService.setTenantAddon(tenantId, 'memberships', payload);
+          const addon = res?.addon || {};
+          setTenants(prev => prev.map(row => (
+            row.id === tenantId
+              ? {
+                  ...row,
+                  has_memberships: Boolean(addon.active ?? updatedValue),
+                  memberships_source: addon.source || (updatedValue ? 'commercial_addon' : 'none'),
+                  memberships_reason: addon.reason || null,
+                  memberships_expires_at: addon.expiresAt || null,
+                  memberships_branch_ids: Array.isArray(addon.branchIds) ? addon.branchIds : [],
+                  memberships_branches: Array.isArray(addon.branches) ? addon.branches : [],
+                  memberships_enabled_branch_count: Number(addon.enabledBranchCount || 0),
+                  memberships_is_legacy_transition: Boolean(addon.isLegacyTransition)
+                }
+              : row
+          )));
+          showNotification(`Add-on de Membresías ${addon.active ? 'activado' : 'desactivado'}.`);
+          await fetchData();
         }
       });
       return;
@@ -287,8 +315,8 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     try {
       await dataService.updateSaasPlan(plan.id, { is_public: newPublicState });
       showNotification(
-        newPublicState 
-          ? `Plan "${plan.name}" ahora está PÚBLICO para nuevos clientes.` 
+        newPublicState
+          ? `Plan "${plan.name}" ahora está PÚBLICO para nuevos clientes.`
           : `Plan "${plan.name}" RETIRADO (Grandfathered). Los salones que ya lo contrataron lo conservan intacto.`
       );
       setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, is_public: newPublicState } : p));
@@ -455,7 +483,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     setIsPlanModalOpen(true);
   };
 
-  const filteredTenants = tenants.filter(t => 
+  const filteredTenants = tenants.filter(t =>
     t.business_name?.toLowerCase().includes(search.toLowerCase()) ||
     t.slug?.toLowerCase().includes(search.toLowerCase()) ||
     t.email?.toLowerCase().includes(search.toLowerCase())
@@ -463,13 +491,13 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1440px', margin: '0 auto', color: '#1e293b' }}>
-      
+
       {/* Executive Hero Header */}
-      <div style={{ 
-        background: 'linear-gradient(135deg, #090d16 0%, #1e293b 100%)', 
-        borderRadius: '20px', 
-        padding: '2rem 2.25rem', 
-        color: '#ffffff', 
+      <div style={{
+        background: 'linear-gradient(135deg, #090d16 0%, #1e293b 100%)',
+        borderRadius: '20px',
+        padding: '2rem 2.25rem',
+        color: '#ffffff',
         marginBottom: '2rem',
         boxShadow: '0 10px 30px -5px rgba(15, 23, 42, 0.35)',
         display: 'flex',
@@ -481,24 +509,24 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
-            <span style={{ 
-              background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', 
-              color: '#ffffff', 
-              padding: '0.25rem 0.65rem', 
-              borderRadius: '6px', 
-              fontSize: '0.72rem', 
+            <span style={{
+              background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+              color: '#ffffff',
+              padding: '0.25rem 0.65rem',
+              borderRadius: '6px',
+              fontSize: '0.72rem',
               fontWeight: '800',
-              letterSpacing: '0.05em' 
+              letterSpacing: '0.05em'
             }}>
               SUPERADMIN PLATAFORMA SAAS
             </span>
-            <span style={{ 
-              display: 'inline-flex', 
-              alignItems: 'center', 
-              gap: '0.4rem', 
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
               background: 'rgba(16,185,129,0.15)',
               border: '1px solid rgba(16,185,129,0.3)',
-              color: '#34d399', 
+              color: '#34d399',
               fontSize: '0.78rem',
               fontWeight: '700',
               padding: '0.2rem 0.6rem',
@@ -517,13 +545,13 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button 
-            onClick={fetchData} 
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              background: 'rgba(255,255,255,0.08)', 
+          <button
+            onClick={fetchData}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: 'rgba(255,255,255,0.08)',
               border: '1px solid rgba(255,255,255,0.2)',
               color: '#ffffff',
               borderRadius: '10px',
@@ -537,14 +565,14 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             Refrescar
           </button>
-          
-          <button 
+
+          <button
             onClick={openNewPlanModal}
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              background: 'linear-gradient(135deg, #3b82f6, #2563eb)', 
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
               border: 'none',
               color: '#ffffff',
               borderRadius: '10px',
@@ -559,13 +587,13 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             Crear Plan SaaS
           </button>
 
-          <button 
+          <button
             onClick={() => setIsNewTenantModalOpen(true)}
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.5rem', 
-              background: 'linear-gradient(135deg, #10b981, #059669)', 
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: 'linear-gradient(135deg, #10b981, #059669)',
               border: 'none',
               color: '#ffffff',
               borderRadius: '10px',
@@ -583,12 +611,12 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       </div>
 
       {actionMessage && (
-        <div style={{ 
-          background: '#ecfdf5', 
-          border: '1px solid #10b981', 
-          color: '#065f46', 
-          padding: '0.9rem 1.25rem', 
-          borderRadius: '12px', 
+        <div style={{
+          background: '#ecfdf5',
+          border: '1px solid #10b981',
+          color: '#065f46',
+          padding: '0.9rem 1.25rem',
+          borderRadius: '12px',
           marginBottom: '2rem',
           display: 'flex',
           alignItems: 'center',
@@ -652,7 +680,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
       {/* KPI Cards Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
-        
+
         {/* Card 1: Salones Registrados */}
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.35rem', boxShadow: '0 4px 16px rgba(0,0,0,0.03)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -678,7 +706,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         </div>
 
         {/* Card 3: Sucursales Conectadas (Control Plane) */}
-        <div 
+        <div
           onClick={() => setActiveTab('branches')}
           style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.35rem', boxShadow: '0 4px 16px rgba(0,0,0,0.03)', cursor: 'pointer' }}
           title="Ver directorio global de sedes físicas"
@@ -716,8 +744,8 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#ffffff', lineHeight: 1.2 }}>
             {Object.keys(metrics.mrr_by_currency || {}).length > 0
               ? Object.entries(metrics.mrr_by_currency).map(([curr, val]) => (
-                  <div key={curr}>{curr === 'USD' ? 'US$' : `${curr} `}{Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                ))
+                <div key={curr}>{curr === 'USD' ? 'US$' : `${curr} `}{Number(val).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              ))
               : `US$${Number(metrics.mrr || 0).toFixed(2)}`}
           </div>
           <div style={{ fontSize: '0.75rem', color: '#d1fae5', marginTop: '0.25rem' }}>Plan + Sedes + Asientos + Add-ons</div>
@@ -845,7 +873,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
             <div style={{ position: 'relative', width: '320px' }}>
               <Search size={17} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-              <input 
+              <input
                 type="text"
                 placeholder="Buscar por nombre, slug o correo..."
                 value={search}
@@ -903,7 +931,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
                     return (
                       <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        
+
                         {/* Salón */}
                         <td style={{ padding: '1.15rem 1.25rem' }}>
                           <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '0.95rem' }}>
@@ -955,7 +983,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                         {/* Sedes Licenciadas */}
                         <td style={{ padding: '1.15rem 1rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ 
+                            <span style={{
                               background: isBranchesAtLimit ? '#fef3c7' : '#ecfdf5',
                               border: `1px solid ${isBranchesAtLimit ? '#fde68a' : '#a7f3d0'}`,
                               color: isBranchesAtLimit ? '#b45309' : '#047857',
@@ -992,7 +1020,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                         {/* Asientos de Usuarios */}
                         <td style={{ padding: '1.15rem 1rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ 
+                            <span style={{
                               background: isUsersAtLimit ? '#fef2f2' : '#f0fdf4',
                               border: `1px solid ${isUsersAtLimit ? '#fecaca' : '#bbf7d0'}`,
                               color: isUsersAtLimit ? '#b91c1c' : '#15803d',
@@ -1028,26 +1056,47 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
                         {/* Switch Membresías (Add-on) */}
                         <td style={{ padding: '1.15rem 1rem', textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleToggleModule(t.id, t, 'has_memberships')}
-                            title={t.has_memberships ? 'Desactivar Add-on de Membresías B2C' : 'Activar Add-on de Membresías B2C'}
-                            style={{
-                              background: t.has_memberships ? '#ecfdf5' : '#f8fafc',
-                              border: `1.5px solid ${t.has_memberships ? '#10b981' : '#cbd5e1'}`,
-                              color: t.has_memberships ? '#047857' : '#64748b',
-                              padding: '0.35rem 0.75rem',
-                              borderRadius: '20px',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.4rem',
-                              fontSize: '0.78rem',
-                              fontWeight: '700'
-                            }}
-                          >
-                            {t.has_memberships ? <ToggleRight size={17} color="#10b981" /> : <ToggleLeft size={17} color="#94a3b8" />}
-                            {t.has_memberships ? 'Activo' : 'No contratado'}
-                          </button>
+                          {(() => {
+                            const isLegacy = Boolean(t.has_memberships && t.memberships_source === 'legacy_pro_transition');
+                            const branchCount = Number(t.memberships_enabled_branch_count || 0);
+                            const label = !t.has_memberships
+                              ? 'No contratado'
+                              : isLegacy
+                                ? 'Transición PRO'
+                                : branchCount > 0
+                                  ? `Activo (${branchCount} ${branchCount === 1 ? 'sede' : 'sedes'})`
+                                  : 'Activo';
+                            const tooltip = !t.has_memberships
+                              ? 'Activar Add-on de Membresías B2C'
+                              : isLegacy
+                                ? `${t.memberships_reason || 'Permiso heredado de transición'} · Clic para desactivar`
+                                : `${(t.memberships_branches || []).map(b => b.name).join(', ') || 'Add-on activo'} · Clic para desactivar`;
+
+                            return (
+                              <button
+                                onClick={() => handleToggleModule(t.id, t, 'has_memberships')}
+                                title={tooltip}
+                                style={{
+                                  background: !t.has_memberships ? '#f8fafc' : isLegacy ? '#fffbeb' : '#ecfdf5',
+                                  border: `1.5px solid ${!t.has_memberships ? '#cbd5e1' : isLegacy ? '#f59e0b' : '#10b981'}`,
+                                  color: !t.has_memberships ? '#64748b' : isLegacy ? '#b45309' : '#047857',
+                                  padding: '0.35rem 0.75rem',
+                                  borderRadius: '20px',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.4rem',
+                                  fontSize: '0.78rem',
+                                  fontWeight: '700'
+                                }}
+                              >
+                                {t.has_memberships
+                                  ? <ToggleRight size={17} color={isLegacy ? '#f59e0b' : '#10b981'} />
+                                  : <ToggleLeft size={17} color="#94a3b8" />}
+                                {label}
+                              </button>
+                            );
+                          })()}
                         </td>
 
                         {/* Switch DGII e-CF */}
@@ -1185,12 +1234,12 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           {/* Cards Grid de Planes */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
             {plans.map((p) => {
-              const features = typeof p.included_features === 'object' && p.included_features !== null 
-                ? p.included_features 
+              const features = typeof p.included_features === 'object' && p.included_features !== null
+                ? p.included_features
                 : {};
 
               return (
-                <div 
+                <div
                   key={p.id}
                   style={{
                     background: '#ffffff',
@@ -1274,7 +1323,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                       <div style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', color: '#94a3b8', marginBottom: '0.65rem' }}>
                         Módulos Incluidos en este Plan
                       </div>
-                      
+
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem', fontSize: '0.78rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: features.pos ? '#0f172a' : '#94a3b8' }}>
                           {features.pos ? <Check size={14} color="#10b981" /> : <X size={14} color="#cbd5e1" />}
@@ -1315,10 +1364,10 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                       </div>
 
                       {/* Membresías Add-on Callout */}
-                      <div style={{ 
-                        marginTop: '0.75rem', 
-                        padding: '0.5rem 0.75rem', 
-                        borderRadius: '8px', 
+                      <div style={{
+                        marginTop: '0.75rem',
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '8px',
                         background: features.memberships ? '#fdf2f8' : '#f8fafc',
                         border: `1px solid ${features.memberships ? '#fbcfe8' : '#e2e8f0'}`,
                         fontSize: '0.75rem',
@@ -1667,14 +1716,46 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 />
               </div>
             )}
+            {Array.isArray(confirmModal.branchOptions) && confirmModal.branchOptions.length > 0 && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
+                  Sucursales habilitadas (US$99/mes por sucursal)
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '140px', overflowY: 'auto', padding: '0.5rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                  {confirmModal.branchOptions.map(b => {
+                    const checked = (confirmModal.selectedBranchIds || []).includes(b.id);
+                    return (
+                      <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.84rem', color: '#0f172a', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            setConfirmModal(prev => {
+                              const current = Array.isArray(prev.selectedBranchIds) ? prev.selectedBranchIds : [];
+                              const next = isChecked
+                                ? [...new Set([...current, b.id])]
+                                : current.filter(id => id !== b.id);
+                              return { ...prev, selectedBranchIds: next };
+                            });
+                          }}
+                        />
+                        <span>{b.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.6rem' }}>
               <button onClick={() => setConfirmModal(null)} style={{ padding: '0.55rem 1rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: '700' }}>Cancelar</button>
               <button
                 onClick={async () => {
                   const fn = confirmModal.onConfirm;
                   const r = confirmModal.reason;
+                  const selectedIds = confirmModal.selectedBranchIds;
                   setConfirmModal(null);
-                  try { await fn(r); } catch (err) { showError(err.message); }
+                  try { await fn(r, selectedIds); } catch (err) { showError(err.message); }
                 }}
                 style={{ padding: '0.55rem 1rem', borderRadius: '8px', border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontWeight: '700' }}
               >
@@ -1761,7 +1842,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                   Define el precio por sucursal, asientos base y activa/desactiva módulos específicos.
                 </p>
               </div>
-              <button 
+              <button
                 onClick={() => setIsPlanModalOpen(false)}
                 style={{ background: '#f1f5f9', border: 'none', color: '#64748b', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', fontWeight: 'bold' }}
               >
@@ -1982,7 +2063,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                   Registra un salón y asígnale su plan base comercial y licencias de sucursal.
                 </p>
               </div>
-              <button 
+              <button
                 onClick={() => setIsNewTenantModalOpen(false)}
                 style={{ background: '#f1f5f9', border: 'none', color: '#64748b', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', fontWeight: 'bold' }}
               >
@@ -2104,7 +2185,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.825rem', color: '#334155' }}>
-                    <input 
+                    <input
                       type="checkbox"
                       checked={tenantFormData.has_memberships}
                       onChange={(e) => setTenantFormData({ ...tenantFormData, has_memberships: e.target.checked })}
@@ -2113,7 +2194,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     <span>🎟️ Activar Add-on Suscripciones/Membresías B2C</span>
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer', fontSize: '0.825rem', color: '#334155' }}>
-                    <input 
+                    <input
                       type="checkbox"
                       checked={tenantFormData.has_dgii_ecf}
                       onChange={(e) => setTenantFormData({ ...tenantFormData, has_dgii_ecf: e.target.checked })}

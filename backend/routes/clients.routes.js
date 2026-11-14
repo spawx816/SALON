@@ -20,7 +20,10 @@ function createClientsRouter(pool, options = {}) {
   async function tenantHasMemberships(req) {
     if (!entitlementsService || !req.tenantId) return false;
     try {
-      const check = await entitlementsService.hasFeature(req.tenantId, 'memberships');
+      const targetBranchId = req.body?.branch_id || req.body?.branchId || req.query?.branch_id || req.query?.branchId || req.headers?.['x-branch-id'] || req.auth?.branchId || req.user?.branch_id || null;
+      const check = await entitlementsService.hasFeature(req.tenantId, 'memberships', {
+        branchId: targetBranchId ? String(targetBranchId) : null
+      });
       return Boolean(check && check.allowed);
     } catch {
       return false;

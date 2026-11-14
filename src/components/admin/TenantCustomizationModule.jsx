@@ -8,6 +8,7 @@ import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import { useTenantBranding } from '../../context/TenantBrandingContext';
+import { useEntitlements } from '../../context/EntitlementsContext';
 
 function parseHex(hex) {
   let cleaned = (hex || '').replace('#', '').trim();
@@ -47,6 +48,7 @@ export default function TenantCustomizationModule() {
   const { showNotification } = useNotification();
   const { user } = useAuth();
   const { branding, updateBranding, resetBranding } = useTenantBranding();
+  const { hasMembershipsAddon } = useEntitlements();
   const fileInputRef = useRef(null);
 
   const isSuperAdmin = user?.role?.toLowerCase() === 'superadmin' || user?.role_name?.toLowerCase()?.includes('superadmin');
@@ -473,9 +475,9 @@ export default function TenantCustomizationModule() {
               <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '800' }}>
                 PLAN: {profileData.plan_name || 'Plan Principal'}
               </span>
-              {profileData.has_memberships && (
+              {hasMembershipsAddon && (
                 <span style={{ background: '#fdf2f8', color: '#db2777', border: '1px solid #fbcfe8', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '800' }}>
-                  💎 Clientes & Suscripciones Activos
+                  💎 Suscripciones & Membresías Activos
                 </span>
               )}
             </div>
