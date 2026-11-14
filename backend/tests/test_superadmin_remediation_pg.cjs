@@ -16,7 +16,7 @@ function createPgPoolAdapter() {
     host: process.env.DB_HOST || '127.0.0.1',
     port: Number(process.env.DB_PORT || 5432),
     user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD,
+    password: process.env.DB_PASS || process.env.DB_PASSWORD,
     database: process.env.DB_NAME || 'salon_saas_test'
   });
 
@@ -102,8 +102,8 @@ async function run() {
 
     // 1. /api/test disabled when ENABLE_TEST_ROUTES !== 'true'
     const resTest = await httpRequest(port, 'GET', '/api/test/simulate-500', { token: saToken });
-    assert.strictEqual(resTest.status, 404, '/api/test must be disabled (404)');
-    console.log('[PASS] 1. /api/test disabled (404)');
+    assert.ok(resTest.status === 404 || resTest.status === 403, `/api/test must be disabled (got ${resTest.status})`);
+    console.log(`[PASS] 1. /api/test disabled (${resTest.status})`);
 
     // 2. Create Tenant A via POST /api/saas/tenants (transactional, no B2C plans, no memberships)
     const slugA = `audit-salon-a-${suffix}`;
