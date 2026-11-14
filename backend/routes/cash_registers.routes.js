@@ -34,7 +34,7 @@ function createCashRegistersRouter(pool) {
       let query = `
         SELECT cr.*,
                COALESCE(b.name, 'Sede Principal') as salon_name,
-               COALESCE(cr.employee_name, cr.opened_by, 'Principal') as employee_name
+               COALESCE(cr.employee_name, cr.opened_by_name, 'Principal') as employee_name
         FROM cash_registers cr
         LEFT JOIN branches b ON b.id::text = cr.branch_id::text AND b.tenant_id = cr.tenant_id
         WHERE cr.tenant_id = ?
