@@ -42,7 +42,9 @@ function createPublicRouter(pool, options = {}) {
       owner_phone,
       admin_password,
       rnc,
-      address
+      address,
+      wants_memberships_addon,
+      addon_branches_count
     } = req.body;
 
     if (!business_name || !owner_email || !admin_password) {
@@ -150,11 +152,17 @@ function createPublicRouter(pool, options = {}) {
       `, [tenantId]);
 
       // Registro de Auditoría de Creación de Suscripción Inicial
+      const requestedAddonBranches = wants_memberships_addon
+        ? Math.max(1, parseInt(addon_branches_count, 10) || 1)
+        : 0;
+      const onboardingReason = wants_memberships_addon
+        ? `Suscripción inicial de onboarding (Plan Principal) + solicitud add-on Membresías B2C (${requestedAddonBranches} sucursal(es), US$${requestedAddonBranches * 99}/mes + implementación por separado)`
+        : 'Suscripción inicial de onboarding (Plan Principal)';
       await conn.query(`
         INSERT INTO tenant_subscription_events (
           tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id, created_at
-        ) VALUES (?, NULL, 'PRINCIPAL', NULL, 'active', 'Suscripción inicial de onboarding (Plan Principal)', 'onboarding', NOW())
-      `, [tenantId]);
+        ) VALUES (?, NULL, 'PRINCIPAL', NULL, 'active', ?, 'onboarding', NOW())
+      `, [tenantId, onboardingReason]);
 
       // Inyección de fallo controlada EXCLUSIVAMENTE para pruebas automáticas (NODE_ENV=test con header explícito)
       const isTestEnv = process.env.NODE_ENV === 'test';

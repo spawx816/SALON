@@ -15,8 +15,7 @@ import {
   Plus,
   Minus,
   Menu,
-  ChevronRight,
-  Lock
+  ChevronRight
 } from 'lucide-react';
 import { validateName, cleanPhone } from '../utils/formUtils';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
@@ -142,11 +141,13 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [chartPeriod, setChartPeriod] = useState('week');
   const [activeBarIdx, setActiveBarIdx] = useState(null);
 
-  // Plans & configurator state (strictly BASE & PRO from canonical catalog)
+  // Plans & configurator state (Plan Principal + Add-on Membresías B2C)
   const [saasPlans, setSaasPlans] = useState(CANONICAL_FALLBACK_PLANS);
-  const [selectedPlanCode, setSelectedPlanCode] = useState('base');
+  const [selectedPlanCode, setSelectedPlanCode] = useState('principal');
   const [branchesCount, setBranchesCount] = useState(1);
   const [extraUsersCount, setExtraUsersCount] = useState(0);
+  const [wantsMembershipsAddon, setWantsMembershipsAddon] = useState(false);
+  const [addonBranchesCount, setAddonBranchesCount] = useState(1);
   const [planDetailsOpen, setPlanDetailsOpen] = useState(false);
 
   // Hero login form state (real AuthContext login)
@@ -397,7 +398,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
           admin_password: ownerPassword,
           rnc: rnc.trim() || null,
           address: 'Principal',
-          requested_plan: selectedPlanCode
+          requested_plan: selectedPlanCode,
+          wants_memberships_addon: wantsMembershipsAddon,
+          addon_branches_count: wantsMembershipsAddon ? Math.min(addonBranchesCount, branchesCount) : 0
         })
       });
       const data = await res.json();
@@ -497,20 +500,31 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     ? Number(activePlan.extra_user_price)
     : null;
   const usersPerBranch = Number(activePlan.users_included || 3);
+  const effectiveAddonBranches = wantsMembershipsAddon
+    ? Math.max(1, Math.min(addonBranchesCount, branchesCount))
+    : 0;
+  const addonMonthlySubtotal = effectiveAddonBranches * 99;
   const monthlySubtotal =
     unitPrice !== null
       ? branchesCount * unitPrice + extraUsersCount * (extraUserPrice || 0)
       : null;
+  const totalEstimatedMonthly =
+    monthlySubtotal !== null
+      ? monthlySubtotal + addonMonthlySubtotal
+      : wantsMembershipsAddon
+      ? addonMonthlySubtotal
+      : null;
 
   const planFeaturesList = [
-    { label: 'POS, ventas y cierres de caja', included: true },
-    { label: 'Directorio y fichas de Clientes (CRM)', included: true },
-    { label: 'Inventario avanzado multisucursal, compras y proveedores', included: true },
-    { label: 'Automatizaciones de Marketing, Encuestas y Gift Cards', included: true },
-    { label: 'Control de asistencia, comisiones y nómina', included: true },
-    { label: 'Comprobantes NCF y reportes DGII (606, 607, IT-1)', included: true },
+    { label: 'Facturación electrónica e-CF y POS', included: true },
+    { label: 'Clientes / CRM y fichas técnicas', included: true },
+    { label: 'Recursos humanos', included: true },
+    { label: 'Control de asistencia facial', included: true },
+    { label: 'Nómina y comisiones', included: true },
+    { label: 'Inventario avanzado multisucursal', included: true },
+    { label: 'Contabilidad y reportes DGII (606, 607, IT-1)', included: true },
     { label: `${usersPerBranch} usuarios incluidos por sucursal`, included: true },
-    { label: 'Suscripciones y Membresías B2C + Contratos (Add-on independiente)', included: false }
+    { label: 'Soporte en línea', included: true }
   ];
 
   const activeChart = CHART_DATA[chartPeriod];
@@ -909,69 +923,37 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
             <div className="et-pricing-card">
               <div className="et-pricing-left">
                 <p className="et-eyebrow" style={{ marginBottom: '6px' }}>
-                  PLAN ETEREAS PRINCIPAL
+                  PLAN ETEREAS
                 </p>
                 <h3 className="et-plan-name">
-                  PLAN PRINCIPAL
+                  ETEREAS
                 </h3>
 
                 <div className="et-price-row">
                   {unitPrice !== null ? (
                     <>
-                      <span className="et-price-big">US${unitPrice}</span>
+                      <span className="et-price-big" style={{ color: '#2563eb' }}>US${unitPrice}</span>
                       <span className="et-price-unit">/ mes por sucursal</span>
                     </>
                   ) : (
-                    <span className="et-price-big" style={{ fontSize: '26px' }}>
+                    <span className="et-price-big" style={{ fontSize: '28px', color: '#2563eb' }}>
                       Tarifa a consultar
                     </span>
                   )}
                 </div>
 
-                <p className="et-plan-desc">{activePlan.description}</p>
+                <p className="et-plan-desc" style={{ marginBottom: '18px' }}>
+                  Todo lo que conecta tu operación.
+                </p>
 
                 <ul className="et-check-list">
                   {planFeaturesList.map((item) => (
-                    <li key={item.label} className={item.included ? '' : 'excluded'}>
-                      {item.included ? (
-                        <Check size={15} color="#2563eb" style={{ flexShrink: 0, marginTop: 2 }} />
-                      ) : (
-                        <Lock size={14} color="#94a3b8" style={{ flexShrink: 0, marginTop: 2 }} />
-                      )}
+                    <li key={item.label}>
+                      <Check size={15} color="#2563eb" style={{ flexShrink: 0, marginTop: 2 }} />
                       <span>{item.label}</span>
                     </li>
                   ))}
                 </ul>
-
-                <div
-                  style={{
-                    marginTop: '14px',
-                    marginBottom: '14px',
-                    padding: '12px 14px',
-                    borderRadius: '10px',
-                    border: '1px solid #dbeafe',
-                    background: '#f8fafc',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      letterSpacing: '0.06em',
-                      color: '#2563eb',
-                      textTransform: 'uppercase',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    Módulo adicional opcional · Suscripciones y Membresías B2C
-                  </div>
-                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
-                    US$99/mes por sucursal + implementación e integración con pasarela de pago
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#475569', marginTop: '3px' }}>
-                    Se contrata únicamente por sucursal habilitada. La implementación se cotiza por separado.
-                  </div>
-                </div>
 
                 <button
                   type="button"
@@ -986,16 +968,15 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       transition: 'transform 0.15s ease'
                     }}
                   />
-                  Ver qué incluye el plan y el add-on
+                  Ver qué incluye el plan
                 </button>
 
                 {planDetailsOpen && (
                   <div className="et-details-box">
                     El Plan Principal incluye POS, cajas, Clientes/CRM, inventario avanzado multisucursal,
                     asistencia facial, nómina, comisiones, marketing y reportes DGII (606, 607, IT-1).
-                    El módulo adicional de Suscripciones y Membresías B2C (planes de clientes, contratos digitales
-                    y cobros recurrentes) tiene un costo de US$99/mes por sucursal + implementación e integración
-                    con pasarela de pago (cotización por separado).
+                    El módulo adicional de Suscripciones y Membresías B2C tiene un costo de US$99/mes por
+                    sucursal + implementación e integración con pasarela de pago (cotización por separado).
                   </div>
                 )}
 
@@ -1023,7 +1004,11 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         className="et-stepper-btn"
                         aria-label="Disminuir sucursales"
                         disabled={branchesCount <= 1}
-                        onClick={() => setBranchesCount((b) => Math.max(1, b - 1))}
+                        onClick={() => {
+                          const next = Math.max(1, branchesCount - 1);
+                          setBranchesCount(next);
+                          setAddonBranchesCount((prev) => Math.min(prev, next));
+                        }}
                       >
                         −
                       </button>
@@ -1071,16 +1056,129 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       </div>
                     )}
                   </div>
+
+                  <div
+                    style={{
+                      marginTop: '16px',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      border: wantsMembershipsAddon ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
+                      background: wantsMembershipsAddon ? '#eff6ff' : '#ffffff',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={wantsMembershipsAddon}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setWantsMembershipsAddon(checked);
+                          if (checked) {
+                            setAddonBranchesCount((prev) => Math.max(1, Math.min(prev, branchesCount)));
+                          }
+                        }}
+                        style={{ marginTop: '3px', flexShrink: 0 }}
+                      />
+                      <span style={{ flex: 1 }}>
+                        <span style={{ display: 'block', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                          Agregar Suscripciones y Membresías B2C
+                        </span>
+                        <span style={{ display: 'block', fontSize: '12px', color: '#2563eb', fontWeight: 700, marginTop: '2px' }}>
+                          US$99/mes por sucursal + implementación e integración con pasarela de pago
+                        </span>
+                        <span style={{ display: 'block', fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                          Implementación cotizada por separado.
+                        </span>
+                      </span>
+                    </label>
+
+                    {wantsMembershipsAddon && (
+                      <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #bfdbfe' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
+                            Sucursales con Membresías B2C
+                          </span>
+                          <div className="et-stepper" style={{ margin: 0 }}>
+                            <button
+                              type="button"
+                              className="et-stepper-btn"
+                              aria-label="Disminuir sucursales con membresías"
+                              disabled={effectiveAddonBranches <= 1}
+                              onClick={() => setAddonBranchesCount((n) => Math.max(1, n - 1))}
+                            >
+                              −
+                            </button>
+                            <span className="et-stepper-val">{effectiveAddonBranches}</span>
+                            <button
+                              type="button"
+                              className="et-stepper-btn"
+                              aria-label="Aumentar sucursales con membresías"
+                              disabled={effectiveAddonBranches >= branchesCount}
+                              onClick={() =>
+                                setAddonBranchesCount((n) => Math.min(branchesCount, n + 1))
+                              }
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
-                  <div className="et-subtotal-row">
-                    <span className="et-subtotal-label">
-                      Plan Principal ({branchesCount} {branchesCount === 1 ? 'sucursal' : 'sucursales'})
-                    </span>
-                    <span className="et-subtotal-val">
-                      {monthlySubtotal !== null ? `US$${monthlySubtotal}/mes` : 'A consultar'}
-                    </span>
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '14px', marginBottom: '12px' }}>
+                    <div className="et-subtotal-row" style={{ marginBottom: '6px' }}>
+                      <span className="et-subtotal-label">
+                        Plan Principal ({branchesCount} {branchesCount === 1 ? 'sucursal' : 'sucursales'})
+                      </span>
+                      <span className="et-subtotal-val">
+                        {monthlySubtotal !== null ? `US$${monthlySubtotal}/mes` : 'A consultar'}
+                      </span>
+                    </div>
+
+                    {wantsMembershipsAddon && (
+                      <>
+                        <div className="et-subtotal-row" style={{ marginBottom: '6px' }}>
+                          <span className="et-subtotal-label">
+                            Membresías B2C ({effectiveAddonBranches} {effectiveAddonBranches === 1 ? 'sucursal' : 'sucursales'} × US$99)
+                          </span>
+                          <span className="et-subtotal-val" style={{ color: '#2563eb' }}>
+                            US${addonMonthlySubtotal}/mes
+                          </span>
+                        </div>
+                        <div className="et-subtotal-row" style={{ marginBottom: '8px', fontSize: '12px' }}>
+                          <span className="et-subtotal-label">
+                            Implementación e integración pasarela
+                          </span>
+                          <span className="et-subtotal-val" style={{ fontSize: '12px', color: '#475569' }}>
+                            Por separado
+                          </span>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="et-subtotal-row" style={{ paddingTop: '8px', borderTop: '1px dashed #cbd5e1' }}>
+                      <span className="et-subtotal-label" style={{ fontWeight: 700, color: '#0f172a' }}>
+                        Total mensual estimado
+                      </span>
+                      <span className="et-subtotal-val" style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>
+                        {monthlySubtotal !== null
+                          ? `US$${totalEstimatedMonthly}/mes`
+                          : wantsMembershipsAddon
+                          ? `Plan a consultar + US$${addonMonthlySubtotal}/mes`
+                          : 'A consultar'}
+                      </span>
+                    </div>
                   </div>
 
                   <button
@@ -1295,7 +1393,10 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         <strong>Propietario:</strong> {ownerName} ({regEmail})
                       </div>
                       <div>
-                        <strong>Plan inicial:</strong> Plan Principal (sin adicionales contratados)
+                        <strong>Plan inicial:</strong>{' '}
+                        {wantsMembershipsAddon
+                          ? `Plan Principal + Add-on Membresías B2C (${effectiveAddonBranches} sucursal(es) · US$${addonMonthlySubtotal}/mes + implementación por separado)`
+                          : 'Plan Principal (sin adicionales contratados)'}
                       </div>
                       <div>
                         <strong>Configuración solicitada:</strong> {branchesCount} sucursal(es),{' '}
