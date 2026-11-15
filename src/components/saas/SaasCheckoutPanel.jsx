@@ -128,7 +128,7 @@ export async function executeCardnetCheckout({
       }
     });
 
-    PWCheckout.Bind('onClose', () => {
+    PWCheckout.Bind('closed', () => {
       if (!isVerifying && onCheckoutClosed) {
         onCheckoutClosed();
       }
