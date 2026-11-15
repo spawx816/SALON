@@ -9,6 +9,20 @@ function createFxError(message, statusCode = 400, code = 'FX_RATE_ERROR') {
   return err;
 }
 
+function mapFxStorageError(err) {
+  if (
+    err?.code === '42P01' ||
+    /relation\s+"?(?:[\w.]+\.)?saas_fx_rate/i.test(String(err?.message || ''))
+  ) {
+    return createFxError(
+      'La migración de tasas de cambio USD → DOP (20261115_saas_fx_rates) no ha sido aplicada en la base de datos.',
+      503,
+      'FX_MIGRATION_MISSING'
+    );
+  }
+  return err;
+}
+
 /**
  * Parses and validates a positive decimal FX rate with up to 4 decimal places.
  * Never uses floating point for scaling.
@@ -114,59 +128,21 @@ function mapHistoryRow(row) {
 class SaasFxRateService {
   constructor({ pool }) {
     this.pool = pool;
-    this._schemaPromise = null;
-  }
-
-  async ensureSchema() {
-    if (!this._schemaPromise) {
-      this._schemaPromise = (async () => {
-        await this.pool.query(`
-          CREATE TABLE IF NOT EXISTS saas_fx_rates (
-            id SERIAL PRIMARY KEY,
-            pair VARCHAR(16) NOT NULL UNIQUE,
-            rate NUMERIC(14, 4) NOT NULL CHECK (rate > 0),
-            rate_scaled_10000 BIGINT NOT NULL CHECK (rate_scaled_10000 > 0),
-            updated_by_user_id INTEGER,
-            updated_by_email VARCHAR(255),
-            reason TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-          );
-
-          CREATE TABLE IF NOT EXISTS saas_fx_rate_history (
-            id SERIAL PRIMARY KEY,
-            pair VARCHAR(16) NOT NULL,
-            previous_rate NUMERIC(14, 4),
-            new_rate NUMERIC(14, 4) NOT NULL CHECK (new_rate > 0),
-            previous_rate_scaled_10000 BIGINT,
-            new_rate_scaled_10000 BIGINT NOT NULL CHECK (new_rate_scaled_10000 > 0),
-            actor_user_id INTEGER,
-            actor_email VARCHAR(255),
-            reason TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-          );
-
-          CREATE INDEX IF NOT EXISTS idx_saas_fx_rate_history_pair_created
-            ON saas_fx_rate_history (pair, created_at DESC, id DESC);
-        `);
-      })().catch((err) => {
-        this._schemaPromise = null;
-        throw err;
-      });
-    }
-    return this._schemaPromise;
   }
 
   async getCurrentRate(pair = DEFAULT_FX_PAIR) {
-    await this.ensureSchema();
-    const res = await this.pool.query(
-      `SELECT id, pair, rate, rate_scaled_10000, updated_by_user_id, updated_by_email, reason, created_at, updated_at
-       FROM saas_fx_rates
-       WHERE pair = $1
-       LIMIT 1`,
-      [pair]
-    );
-    return mapRateRow(res.rows[0]);
+    try {
+      const res = await this.pool.query(
+        `SELECT id, pair, rate, rate_scaled_10000, updated_by_user_id, updated_by_email, reason, created_at, updated_at
+         FROM saas_fx_rates
+         WHERE pair = $1
+         LIMIT 1`,
+        [pair]
+      );
+      return mapRateRow(res.rows[0]);
+    } catch (err) {
+      throw mapFxStorageError(err);
+    }
   }
 
   async requireCurrentRate(pair = DEFAULT_FX_PAIR) {
@@ -182,28 +158,30 @@ class SaasFxRateService {
   }
 
   async getRateWithHistory(pair = DEFAULT_FX_PAIR, limit = 30) {
-    await this.ensureSchema();
     const safeLimit = Math.min(100, Math.max(1, Number(limit) || 30));
-    const [current, histRes] = await Promise.all([
-      this.getCurrentRate(pair),
-      this.pool.query(
-        `SELECT id, pair, previous_rate, new_rate, previous_rate_scaled_10000, new_rate_scaled_10000,
-                actor_user_id, actor_email, reason, created_at
-         FROM saas_fx_rate_history
-         WHERE pair = $1
-         ORDER BY created_at DESC, id DESC
-         LIMIT $2`,
-        [pair, safeLimit]
-      ),
-    ]);
-    return {
-      current,
-      history: histRes.rows.map(mapHistoryRow),
-    };
+    try {
+      const [current, histRes] = await Promise.all([
+        this.getCurrentRate(pair),
+        this.pool.query(
+          `SELECT id, pair, previous_rate, new_rate, previous_rate_scaled_10000, new_rate_scaled_10000,
+                  actor_user_id, actor_email, reason, created_at
+           FROM saas_fx_rate_history
+           WHERE pair = $1
+           ORDER BY created_at DESC, id DESC
+           LIMIT $2`,
+          [pair, safeLimit]
+        ),
+      ]);
+      return {
+        current,
+        history: histRes.rows.map(mapHistoryRow),
+      };
+    } catch (err) {
+      throw mapFxStorageError(err);
+    }
   }
 
   async updateRate({ pair = DEFAULT_FX_PAIR, rate, reason = null, actorUserId = null, actorEmail = null }) {
-    await this.ensureSchema();
     const parsed = parseAndScaleRate(rate);
     const cleanReason = reason ? String(reason).trim().slice(0, 500) : null;
 
@@ -268,7 +246,7 @@ class SaasFxRateService {
       };
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
-      throw err;
+      throw mapFxStorageError(err);
     } finally {
       client.release();
     }

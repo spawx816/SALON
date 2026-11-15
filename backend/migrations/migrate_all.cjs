@@ -31,6 +31,7 @@ const { up: upP2P3Extensions } = require('./20261110_phase3b_p2p3_extensions.cjs
 const { up: upClientsInBasePlan } = require('./20261111_phase3c_clients_in_base_plan.cjs');
 const { up: upUnifyCatalogInventory } = require('./20261114_unify_catalog_inventory.cjs');
 const { up: upCatalogCategoriesAndAlerts } = require('./20261114_catalog_categories_and_inventory_alerts.cjs');
+const { up: upSaasFxRates } = require('./20261115_saas_fx_rates.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -221,6 +222,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Vincula services.commission_category_id a commission_categories y agrega configuración/overrides/estado de alertas de inventario',
     execute: async (targetPool, targetSchema) => {
       return upCatalogCategoriesAndAlerts(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261115_saas_fx_rates',
+    description: 'Tablas globales saas_fx_rates y saas_fx_rate_history para tasa manual USD -> DOP',
+    execute: async (targetPool, targetSchema) => {
+      return upSaasFxRates(targetPool, targetSchema);
     }
   }
 ];

@@ -55,7 +55,7 @@ async function generateMatrix() {
     const hasIdx = idxMap.has(tName);
     const fk = fkMap.get(tName);
 
-    if (['tenants', 'saas_plans', 'schema_migrations', 'pending_tenant_reconciliations', 'login_attempts', 'blocked_ips', 'account_lockouts', 'contact_messages', 'billing_codes'].includes(tName)) {
+    if (['tenants', 'saas_plans', 'saas_fx_rates', 'saas_fx_rate_history', 'schema_migrations', 'pending_tenant_reconciliations', 'login_attempts', 'blocked_ips', 'account_lockouts', 'contact_messages', 'billing_codes'].includes(tName)) {
       matrix.push({
         table: tName,
         tenant_id: 'N/A',

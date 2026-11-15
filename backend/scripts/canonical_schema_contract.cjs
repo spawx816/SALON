@@ -26,10 +26,11 @@ const CANONICAL_MIGRATIONS = [
   '20261110_job_nonces_and_strict_idempotency',
   '20261110_phase3b_storage_and_portability',
   '20261110_phase3b_p2p3_extensions',
-  '20261111_phase3c_clients_in_base_plan'
+  '20261111_phase3c_clients_in_base_plan',
+  '20261115_saas_fx_rates'
 ];
 
-// 13 Global / Control Plane / System Tables
+// Global / Control Plane / System Tables
 const GLOBAL_SYSTEM_TABLES = [
   'account_lockouts',
   'billing_codes',
@@ -40,6 +41,8 @@ const GLOBAL_SYSTEM_TABLES = [
   'login_attempts',
   'pending_tenant_reconciliations',
   'saas_features',
+  'saas_fx_rate_history',
+  'saas_fx_rates',
   'saas_plan_features',
   'saas_plans',
   'schema_migrations',

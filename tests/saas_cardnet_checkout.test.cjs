@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { CardNetHostedCheckoutProvider } = require('../backend/services/cardnet_hosted_checkout.provider');
 const { CardNetTokenizationProvider } = require('../backend/services/cardnet_tokenization.provider');
 const { SaasCheckoutService, ORDER_STATUS } = require('../backend/services/saas_checkout.service');
-const { parseAndScaleRate, convertUsdMinorToDopMinor, createFxError } = require('../backend/services/saas_fx_rate.service');
+const { SaasFxRateService, parseAndScaleRate, convertUsdMinorToDopMinor, createFxError } = require('../backend/services/saas_fx_rate.service');
 
 function createFxRateServiceStub(initialRate = '60.0000') {
   let currentRate = initialRate;
@@ -852,6 +852,54 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
         currency: 'DOP',
       }),
       { code: 'PAYMENT_AMOUNT_MISMATCH', statusCode: 409 }
+    );
+  });
+
+  it('12. Redondeo financiero BigInt: empates exactos (.5000) y residuos (.4999 / .5001 / .0000 / .9999)', () => {
+    // 1 USD cent (1n) * 0.5000 (5000n) -> producto 5000n -> empate exacto 0.5 centavos -> half-up = 1n
+    assert.equal(convertUsdMinorToDopMinor(1n, parseAndScaleRate('0.5000').rateScaledBigInt), 1n);
+    // 100 USD cents ($1.00) * 60.0050 (600050n) -> 60005000n -> residuo 5000n exacto -> 6001n (RD$60.01)
+    assert.equal(convertUsdMinorToDopMinor(100n, parseAndScaleRate('60.0050').rateScaledBigInt), 6001n);
+    // 100 USD cents ($1.00) * 60.0049 (600049n) -> 60004900n -> residuo 4900n < 5000n -> 6000n (RD$60.00)
+    assert.equal(convertUsdMinorToDopMinor(100n, parseAndScaleRate('60.0049').rateScaledBigInt), 6000n);
+    // 1 USD cent * 60.4999 (604999n) -> residuo 4999n < 5000n -> 60n
+    assert.equal(convertUsdMinorToDopMinor(1n, parseAndScaleRate('60.4999').rateScaledBigInt), 60n);
+    // 1 USD cent * 60.5000 (605000n) -> residuo 5000n exacto -> 61n
+    assert.equal(convertUsdMinorToDopMinor(1n, parseAndScaleRate('60.5000').rateScaledBigInt), 61n);
+    // 1 USD cent * 60.5001 (605001n) -> residuo 5001n > 5000n -> 61n
+    assert.equal(convertUsdMinorToDopMinor(1n, parseAndScaleRate('60.5001').rateScaledBigInt), 61n);
+    // 1 USD cent * 60.9999 (609999n) -> residuo 9999n -> 61n
+    assert.equal(convertUsdMinorToDopMinor(1n, parseAndScaleRate('60.9999').rateScaledBigInt), 61n);
+    // 0 USD cents -> 0n
+    assert.equal(convertUsdMinorToDopMinor(0n, parseAndScaleRate('60.5000').rateScaledBigInt), 0n);
+  });
+
+  it('13. SaasFxRateService devuelve error controlado FX_MIGRATION_MISSING (503) si falta la migración', async () => {
+    const missingTablePool = {
+      async query() {
+        const err = new Error('relation "saas_fx_rates" does not exist');
+        err.code = '42P01';
+        throw err;
+      },
+      async connect() {
+        return {
+          async query(sql) {
+            if (sql === 'BEGIN' || sql === 'ROLLBACK') return { rows: [] };
+            const err = new Error('relation "saas_fx_rates" does not exist');
+            err.code = '42P01';
+            throw err;
+          },
+          release() {},
+        };
+      },
+    };
+
+    const fxService = new SaasFxRateService({ pool: missingTablePool });
+    await assert.rejects(() => fxService.getCurrentRate(), { code: 'FX_MIGRATION_MISSING', statusCode: 503 });
+    await assert.rejects(() => fxService.getRateWithHistory(), { code: 'FX_MIGRATION_MISSING', statusCode: 503 });
+    await assert.rejects(
+      () => fxService.updateRate({ rate: '60.0000', actorUserId: 1, actorEmail: 'sa@etereas.com' }),
+      { code: 'FX_MIGRATION_MISSING', statusCode: 503 }
     );
   });
 });
