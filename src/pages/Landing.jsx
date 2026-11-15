@@ -1459,7 +1459,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                             },
                             onActivated: () => {
                               setCheckoutVerifying(false);
-                              window.location.href = '/dashboard';
+                              window.location.href = '/';
                             },
                             onError: (msg) => {
                               setCheckoutVerifying(false);

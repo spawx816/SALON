@@ -284,6 +284,112 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     }
   });
 
+  // 6b. Comprobante comercial SaaS descargable (Anti-IDOR, distinto de e-CF/NCF DGII)
+  router.get('/invoices/:id/receipt', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      }
+      const invoice = await billingRepo.getInvoiceById(tenantId, req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Factura no encontrada', code: 'INVOICE_NOT_FOUND' });
+      }
+
+      const serialized = serializeInvoice(invoice);
+      const fx = serialized.fx_snapshot || null;
+      const fmtMinor = (val, cur = serialized.currency || 'DOP') => {
+        const num = Number(val || 0) / 100;
+        const prefix = cur === 'USD' ? 'US$' : 'RD$';
+        return `${prefix}${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      };
+
+      const receipt = {
+        document_type: 'COMMERCIAL_SAAS_RECEIPT',
+        fiscal_notice: 'Comprobante comercial de suscripción SaaS — No es comprobante fiscal e-CF / NCF.',
+        invoice_number: serialized.invoice_number,
+        order_number: serialized.order_number || null,
+        status: serialized.status,
+        currency: serialized.currency || 'DOP',
+        subtotal_minor: serialized.subtotal_minor,
+        tax_minor: serialized.tax_minor,
+        total_minor: serialized.total_minor,
+        amount_paid_minor: serialized.amount_paid_minor,
+        total_formatted: fmtMinor(serialized.total_minor, serialized.currency || 'DOP'),
+        usd_original_minor: fx?.usd?.total_minor || null,
+        usd_original_formatted: fx?.usd?.total_minor ? fmtMinor(fx.usd.total_minor, 'USD') : null,
+        fx_rate_formatted: fx?.rate_formatted || (fx?.rate ? Number(fx.rate).toFixed(4) : null),
+        authorization_code: serialized.cardnet_authorization_code || serialized.payment_reference || null,
+        masked_card: serialized.masked_card || null,
+        period_start: serialized.period_start || null,
+        period_end: serialized.period_end || null,
+        paid_at: serialized.paid_at || null,
+        items: serialized.items || [],
+        payments: (serialized.payments || []).map((p) => ({
+          id: p.id,
+          amount_minor: String(p.amount_minor || 0),
+          currency: p.currency,
+          gateway_reference: p.gateway_reference,
+          status: p.status,
+          created_at: p.created_at,
+        })),
+      };
+
+      if (String(req.query.download || '') === '1' || String(req.query.format || '').toLowerCase() === 'html') {
+        const esc = (s) =>
+          String(s ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const rowsHtml = (receipt.items || [])
+          .map(
+            (it) =>
+              `<tr><td>${esc(it.description)}</td><td style="text-align:right">${esc(
+                fmtMinor(it.amount_minor, receipt.currency)
+              )}</td></tr>`
+          )
+          .join('');
+        const html = `<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>Comprobante ${esc(receipt.invoice_number)}</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;max-width:680px;margin:32px auto;padding:24px;color:#0f172a;border:1px solid #e2e8f0;border-radius:12px}
+h1{font-size:20px;margin:0 0 4px} .muted{color:#64748b;font-size:13px} .badge{display:inline-block;padding:3px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:700;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:left;font-size:14px}
+.notice{margin-top:20px;padding:10px 12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;color:#475569}</style></head>
+<body>
+<div style="display:flex;justify-content:space-between;align-items:flex-start">
+  <div><h1>Comprobante Comercial SaaS</h1><div class="muted">Factura ${esc(receipt.invoice_number)}${receipt.order_number ? ` · Orden #${esc(receipt.order_number)}` : ''}</div></div>
+  <span class="badge">${esc(String(receipt.status || '').toUpperCase())}</span>
+</div>
+<table>
+  <thead><tr><th>Concepto</th><th style="text-align:right">Importe</th></tr></thead>
+  <tbody>${rowsHtml}</tbody>
+  <tfoot>
+    ${receipt.usd_original_formatted ? `<tr><td>Precio original (USD)</td><td style="text-align:right">${esc(receipt.usd_original_formatted)}</td></tr>` : ''}
+    ${receipt.fx_rate_formatted ? `<tr><td>Tasa FX aplicada (USD → DOP)</td><td style="text-align:right">${esc(receipt.fx_rate_formatted)}</td></tr>` : ''}
+    <tr><td>Impuestos</td><td style="text-align:right">${esc(fmtMinor(receipt.tax_minor, receipt.currency))}</td></tr>
+    <tr><th>Total cobrado</th><th style="text-align:right">${esc(receipt.total_formatted)}</th></tr>
+  </tfoot>
+</table>
+<div class="muted">
+  <div><strong>Autorización / Referencia:</strong> ${esc(receipt.authorization_code || 'N/D')}</div>
+  ${receipt.masked_card ? `<div><strong>Tarjeta:</strong> ${esc(receipt.masked_card)}</div>` : ''}
+  <div><strong>Fecha de pago:</strong> ${esc(receipt.paid_at ? new Date(receipt.paid_at).toLocaleString('es-DO') : 'N/D')}</div>
+</div>
+<div class="notice">${esc(receipt.fiscal_notice)}</div>
+</body></html>`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="comprobante-${receipt.invoice_number.replace(/[^a-zA-Z0-9_-]/g, '')}.html"`);
+        return res.send(html);
+      }
+
+      return res.json({ receipt });
+    } catch (err) {
+      res.status(500).json({ error: err.message, code: 'INTERNAL_ERROR' });
+    }
+  });
+
   // 7. Pagar factura pendiente
   router.post('/invoices/:id/pay', async (req, res) => {
     try {
@@ -631,6 +737,24 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         error: err.message,
         code: err.code || 'CARDNET_INITIATE_FAILED',
         requirements: err.requirements || undefined,
+      });
+    }
+  });
+
+  router.post('/checkout/orders/:orderId/reconcile', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      const result = await checkoutService.reconcileApprovedOrder({
+        orderId: req.params.orderId,
+        tenantId,
+        actorUserId: req.auth?.userId || null,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        error: err.message,
+        code: err.code || 'RECONCILE_FAILED',
       });
     }
   });

@@ -79,6 +79,7 @@ const { EntitlementsService } = require('./services/entitlements.service');
 const { createEntitlementsMiddleware } = require('./middleware/entitlements.middleware');
 const { createSaasBillingRouter } = require('./routes/saas_billing.routes');
 const { InMemorySaasBillingRepository } = require('./repositories/fakes/in_memory_saas_billing.repository');
+const { PgSaasBillingRepository } = require('./repositories/pg_saas_billing.repository');
 const { FakePaymentGatewayAdapter } = require('./services/fakes/fake_payment_gateway.adapter');
 const { SubscriptionLifecycleService } = require('./services/subscription_lifecycle.service');
 const { SaasBillingService } = require('./services/saas_billing.service');
@@ -511,7 +512,12 @@ function createApp(dependencies = {}) {
     inventoryRepo
   });
 
-  const saasBillingRepo = repos.saasBillingRepo || new InMemorySaasBillingRepository();
+  const isInMemoryDb = !pool || pool.isInMemory || pool.constructor?.name === 'InMemoryDbMock' || process.env.NODE_ENV === 'demo';
+  const saasBillingRepo = repos.saasBillingRepo || (
+    isInMemoryDb
+      ? new InMemorySaasBillingRepository()
+      : new PgSaasBillingRepository(pool)
+  );
   const paymentGateway = dependencies.paymentGateway || new FakePaymentGatewayAdapter();
 
   const saasLifecycleService = srvs.saasLifecycleService || new SubscriptionLifecycleService({
@@ -531,7 +537,6 @@ function createApp(dependencies = {}) {
     clock: dependencies.clock
   });
 
-  const isInMemoryDb = !pool || pool.isInMemory || pool.constructor?.name === 'InMemoryDbMock' || process.env.NODE_ENV === 'demo';
   const tenantBrandingRepo = repos.tenantBrandingRepo || (
     isInMemoryDb
       ? new InMemoryTenantBrandingRepository()

@@ -293,6 +293,35 @@ export default function SaasBillingModule() {
 
   const defaultPm = paymentMethods.find((pm) => pm.isDefault) || paymentMethods[0] || null;
   const isLegacyTransition = membershipsAddon?.source === 'legacy_pro_transition';
+  const hasOpenInvoice = invoices.some((inv) => inv.status === 'open' || inv.status === 'past_due');
+  const hasOpenCheckoutOrder = checkoutOrders.some(
+    (o) =>
+      ['pending_payment', 'processing', 'unknown_timeout'].includes(o.status) ||
+      (o.status === 'approved' && !o.activated_at)
+  );
+  const showCreateOrderButton = status !== 'active' || hasOpenInvoice || hasOpenCheckoutOrder;
+  const latestApprovedOrder = checkoutOrders.find((o) => o.status === 'approved') || null;
+
+  const handleDownloadReceipt = async (invoice) => {
+    if (!invoice?.id) return;
+    try {
+      const res = await fetch(`/api/saas/billing/invoices/${invoice.id}/receipt?download=1`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('No se pudo descargar el comprobante.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `comprobante-${invoice.invoice_number || invoice.id}.html`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || 'Error al descargar el comprobante.');
+    }
+  };
 
   if (loading && !subscription && invoices.length === 0) {
     return (
@@ -429,7 +458,9 @@ export default function SaasBillingModule() {
             <p className="sb-meta-text" style={{ marginTop: '4px' }}>
               {cancelAtPeriodEnd || status === 'canceled' || status === 'cancelled'
                 ? 'Renovación automática desactivada.'
-                : 'Suscripción activa.'}
+                : subscription?.auto_renew_enabled
+                  ? 'Suscripción activa · Renovación automática habilitada.'
+                  : 'Suscripción activa · Renovación automática desactivada (cobro manual).'}
             </p>
           </div>
         </section>
@@ -502,17 +533,28 @@ export default function SaasBillingModule() {
             </div>
 
             {defaultPm ? (
-              <div className="sb-pm-box">
-                <span className="sb-pm-brand">{defaultPm.brand || 'CARD'}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>
-                    {String(defaultPm.brand || 'Tarjeta').toUpperCase()} •••• {defaultPm.last4}
+              <div>
+                <div className="sb-pm-box">
+                  <span className="sb-pm-brand">{defaultPm.brand || 'CARD'}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>
+                      {String(defaultPm.brand || 'Tarjeta').toUpperCase()} •••• {defaultPm.last4}
+                    </div>
+                    <div className="sb-meta-text" style={{ margin: 0 }}>
+                      {defaultPm.expMonth && defaultPm.expYear
+                        ? `Vence ${String(defaultPm.expMonth).padStart(2, '0')}/${defaultPm.expYear}`
+                        : 'Método registrado en pasarela'}
+                    </div>
                   </div>
-                  <div className="sb-meta-text" style={{ margin: 0 }}>
-                    Vence {String(defaultPm.expMonth).padStart(2, '0')}/{defaultPm.expYear}
-                  </div>
+                  <span className="sb-badge sb-badge-active">Principal</span>
                 </div>
-                <span className="sb-badge sb-badge-active">Principal</span>
+                <p className="sb-meta-text" style={{ marginTop: '8px', fontSize: '12px' }}>
+                  Tarjeta guardada con la pasarela. No hay cobro recurrente automático activo.
+                </p>
+              </div>
+            ) : latestApprovedOrder ? (
+              <div className="sb-empty-box" style={{ textAlign: 'left', fontSize: '13px' }}>
+                El pago anterior se realizó con un token de un solo uso ({latestApprovedOrder.masked_card || 'CardNet'}). No hay método guardado reutilizable ni cobro automático activo.
               </div>
             ) : (
               <div className="sb-empty-box">
@@ -600,20 +642,24 @@ export default function SaasBillingModule() {
 
       {/* Row 3b: Checkout seguro con CardNet */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-          <button
-            type="button"
-            className="sb-btn-primary"
-            disabled={creatingOrder}
-            onClick={handleCreatePlanOrder}
-          >
-            <CreditCard size={15} />
-            {creatingOrder ? 'Generando orden...' : 'Generar orden de pago del plan (CardNet)'}
-          </button>
-        </div>
+        {showCreateOrderButton && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <button
+              type="button"
+              className="sb-btn-primary"
+              disabled={creatingOrder}
+              onClick={handleCreatePlanOrder}
+            >
+              <CreditCard size={15} />
+              {creatingOrder ? 'Generando orden...' : 'Generar orden de pago del plan (CardNet)'}
+            </button>
+          </div>
+        )}
         <SaasCheckoutPanel
           orders={checkoutOrders}
+          invoices={invoices}
           gatewayStatus={gatewayStatus}
+          onViewInvoice={(inv) => setSelectedInvoice(inv)}
           onOrderUpdated={async () => {
             await Promise.all([loadBillingData(), refetchEntitlements()]);
           }}
@@ -1078,22 +1124,63 @@ export default function SaasBillingModule() {
                 <span className="sb-kv-label">Comprobante</span>
                 <span className="sb-kv-value">{selectedInvoice.invoice_number || selectedInvoice.id}</span>
               </div>
+              {selectedInvoice.order_number && (
+                <div className="sb-kv-row">
+                  <span className="sb-kv-label">Orden</span>
+                  <span className="sb-kv-value">#{selectedInvoice.order_number}</span>
+                </div>
+              )}
               <div className="sb-kv-row">
                 <span className="sb-kv-label">Fecha</span>
-                <span className="sb-kv-value">{formatDateEs(selectedInvoice.created_at) || '—'}</span>
+                <span className="sb-kv-value">{formatDateEs(selectedInvoice.paid_at || selectedInvoice.created_at) || '—'}</span>
               </div>
               <div className="sb-kv-row">
                 <span className="sb-kv-label">Concepto</span>
                 <span className="sb-kv-value">
-                  Etereas {selectedInvoice.plan_code} ({selectedInvoice.billing_cycle === 'annual' ? 'anual' : 'mensual'})
+                  {selectedInvoice.items?.[0]?.description ||
+                    `Etereas ${selectedInvoice.plan_code} (${selectedInvoice.billing_cycle === 'annual' ? 'anual' : 'mensual'})`}
+                </span>
+              </div>
+              {selectedInvoice.fx_snapshot?.usd?.total_minor && (
+                <div className="sb-kv-row">
+                  <span className="sb-kv-label">Precio original (USD)</span>
+                  <span className="sb-kv-value">
+                    {formatMinor(selectedInvoice.fx_snapshot.usd.total_minor, 'USD')}
+                  </span>
+                </div>
+              )}
+              {selectedInvoice.fx_snapshot?.rate_formatted && (
+                <div className="sb-kv-row">
+                  <span className="sb-kv-label">Tasa FX aplicada</span>
+                  <span className="sb-kv-value">RD$ {selectedInvoice.fx_snapshot.rate_formatted} / US$1</span>
+                </div>
+              )}
+              <div className="sb-kv-row">
+                <span className="sb-kv-label">Impuestos</span>
+                <span className="sb-kv-value">
+                  {formatMinor(selectedInvoice.tax_minor || 0, selectedInvoice.currency)}
                 </span>
               </div>
               <div className="sb-kv-row">
-                <span className="sb-kv-label">Importe</span>
-                <span className="sb-kv-value">
+                <span className="sb-kv-label">Total cobrado</span>
+                <span className="sb-kv-value" style={{ fontWeight: 700 }}>
                   {formatMinor(selectedInvoice.total_minor, selectedInvoice.currency)}
                 </span>
               </div>
+              {(selectedInvoice.cardnet_authorization_code || selectedInvoice.payment_reference) && (
+                <div className="sb-kv-row">
+                  <span className="sb-kv-label">Autorización / Ref.</span>
+                  <span className="sb-kv-value">
+                    {selectedInvoice.cardnet_authorization_code || selectedInvoice.payment_reference}
+                  </span>
+                </div>
+              )}
+              {selectedInvoice.masked_card && (
+                <div className="sb-kv-row">
+                  <span className="sb-kv-label">Tarjeta</span>
+                  <span className="sb-kv-value">{selectedInvoice.masked_card}</span>
+                </div>
+              )}
               <div className="sb-kv-row">
                 <span className="sb-kv-label">Estado</span>
                 <span className="sb-kv-value">
@@ -1102,7 +1189,18 @@ export default function SaasBillingModule() {
               </div>
             </div>
 
+            <p className="sb-meta-text" style={{ marginTop: 12, fontSize: 12 }}>
+              Comprobante comercial de suscripción SaaS — No es comprobante fiscal e-CF / NCF.
+            </p>
+
             <div className="sb-modal-footer">
+              <button
+                type="button"
+                className="sb-btn"
+                onClick={() => handleDownloadReceipt(selectedInvoice)}
+              >
+                Descargar comprobante
+              </button>
               <button
                 type="button"
                 className="sb-btn sb-btn-primary"

@@ -756,8 +756,14 @@ class SaasCheckoutService {
 
     // Ya pagada y activada: respuesta idempotente sin volver a consultar/cobrar
     if (order.status === ORDER_STATUS.APPROVED && order.activated_at) {
+      let currentOrder = order;
+      if (!order.invoice_id && this.billingRepo) {
+        await this._syncOrderFinancialRecords(order, actorUserId);
+        const [refreshed] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
+        if (refreshed[0]) currentOrder = refreshed[0];
+      }
       return {
-        order: sanitizeOrderForClient(order),
+        order: sanitizeOrderForClient(currentOrder),
         activated: true,
         alreadyProcessed: true,
       };
@@ -913,13 +919,8 @@ class SaasCheckoutService {
         });
       }
 
-      // 3. Si era pago de factura pendiente, marcarla pagada
-      if (order.invoice_id && this.billingRepo && typeof this.billingRepo.markInvoicePaid === 'function') {
-        await this.billingRepo.markInvoicePaid(order.invoice_id, {
-          amountPaidMinor: BigInt(order.total_minor),
-          externalReference: order.cardnet_authorization_code || order.order_number,
-        });
-      }
+      // 3. Conciliar método de pago, factura comercial SaaS y registro de pago (idempotente, usando snapshot de la orden)
+      await this._syncOrderFinancialRecords(order, actorUserId);
 
       await this.pool.query(
         `UPDATE saas_checkout_orders
@@ -949,6 +950,223 @@ class SaasCheckoutService {
         needsReconciliation: true,
       };
     }
+  }
+
+  /**
+   * Concilia una orden ya aprobada con método de pago, factura comercial SaaS y pago
+   * sin volver a cobrar en CardNet.
+   */
+  async reconcileApprovedOrder({ orderId, tenantId, actorUserId = null }) {
+    const [rows] = await this.pool.query(
+      'SELECT * FROM saas_checkout_orders WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [orderId, tenantId]
+    );
+    if (rows.length === 0) {
+      const err = new Error('Orden de pago no encontrada.');
+      err.code = 'ORDER_NOT_FOUND';
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const order = rows[0];
+    if (order.status !== ORDER_STATUS.APPROVED) {
+      const err = new Error('Solo se pueden conciliar órdenes con pago aprobado.');
+      err.code = 'ORDER_NOT_APPROVED';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    if (!order.activated_at) {
+      return this._activateAfterPayment(order, actorUserId);
+    }
+
+    const financial = await this._syncOrderFinancialRecords(order, actorUserId);
+    const [refreshed] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
+    return {
+      order: sanitizeOrderForClient(refreshed[0] || order),
+      activated: true,
+      reconciled: true,
+      invoice: financial.invoice || null,
+      paymentMethod: financial.paymentMethod
+        ? {
+            id: financial.paymentMethod.id,
+            brand: financial.paymentMethod.brand,
+            last4: financial.paymentMethod.last4,
+            expMonth: financial.paymentMethod.exp_month,
+            expYear: financial.paymentMethod.exp_year,
+            isDefault: financial.paymentMethod.is_default,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Sincroniza de forma idempotente:
+   * 1) Método de pago reutilizable desde CardNet (si existe PaymentProfile).
+   * 2) Factura comercial SaaS + ítem(s) + registro de pago con la instantánea exacta de la orden.
+   */
+  async _syncOrderFinancialRecords(order, actorUserId = null) {
+    let savedPaymentMethod = null;
+
+    // 1. Persistir método de pago reutilizable si CardNet devolvió PaymentProfiles
+    if (
+      this.billingRepo &&
+      typeof this.billingRepo.savePaymentMethod === 'function' &&
+      this.tokenizationProvider &&
+      typeof this.tokenizationProvider.getCustomerProfile === 'function' &&
+      order.cardnet_session_key
+    ) {
+      try {
+        const profile = await this.tokenizationProvider.getCustomerProfile(order.cardnet_session_key);
+        const candidates = Array.isArray(profile?.paymentProfiles) ? profile.paymentProfiles : [];
+        const chosen = candidates.find((p) => p.enabled) || candidates[0];
+        if (chosen && (chosen.token || chosen.paymentProfileId)) {
+          savedPaymentMethod = await this.billingRepo.savePaymentMethod({
+            tenant_id: order.tenant_id,
+            gateway_type: 'cardnet',
+            token_reference: chosen.token || chosen.paymentProfileId,
+            provider_customer_id: profile.customerId || String(order.cardnet_session_key),
+            last4: chosen.last4,
+            brand: chosen.brand,
+            exp_month: chosen.expMonth,
+            exp_year: chosen.expYear,
+            is_default: true,
+          });
+
+          if (!order.masked_card && chosen.brand && chosen.last4) {
+            const masked = `${chosen.brand} ****${chosen.last4}`;
+            await this.pool.query(
+              `UPDATE saas_checkout_orders SET masked_card = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+              [masked, order.id, order.tenant_id]
+            );
+          }
+        }
+      } catch (pmErr) {
+        console.warn('[SAAS_CHECKOUT] No se pudo consultar PaymentProfiles de CardNet (se conserva pago):', pmErr.message);
+      }
+    }
+
+    if (!this.billingRepo) {
+      return { invoice: null, paymentMethod: savedPaymentMethod };
+    }
+
+    const totalMinor = BigInt(order.total_minor || 0);
+    const subtotalMinor = BigInt(order.subtotal_minor ?? totalMinor);
+    const taxMinor = BigInt(order.tax_minor || 0);
+    const currency = String(order.currency || 'DOP').trim().toUpperCase();
+    const gatewayRef = order.cardnet_authorization_code || order.cardnet_reference || order.order_number;
+    const paymentIdempKey = `pay_ord_${order.id}`;
+
+    let invoice = null;
+    if (order.invoice_id && typeof this.billingRepo.getInvoiceById === 'function') {
+      invoice = await this.billingRepo.getInvoiceById(order.tenant_id, order.invoice_id);
+      if (invoice && invoice.status !== 'paid' && typeof this.billingRepo.markInvoicePaid === 'function') {
+        await this.billingRepo.markInvoicePaid(invoice.id, {
+          amountPaidMinor: totalMinor,
+          externalReference: gatewayRef,
+        });
+      }
+    }
+
+    if (!invoice && typeof this.billingRepo.createInvoice === 'function') {
+      let subscriptionId = null;
+      let periodStart = order.paid_at || order.created_at || new Date().toISOString();
+      let periodEnd = new Date(new Date(periodStart).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      try {
+        const [subRows] = await this.pool.query(
+          `SELECT id, current_period_start, current_period_end FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1`,
+          [order.tenant_id]
+        );
+        if (subRows[0]) {
+          subscriptionId = subRows[0].id || null;
+          if (subRows[0].current_period_start) periodStart = subRows[0].current_period_start;
+          if (subRows[0].current_period_end) periodEnd = subRows[0].current_period_end;
+        }
+      } catch (_) {
+        // Fallback a fechas derivadas de la orden
+      }
+
+      const branches = Number(order.branches_count || 1);
+      const extraUsers = Number(order.extra_users_count || 0);
+      const parts = [`Plan Principal (${branches} ${branches === 1 ? 'sucursal' : 'sucursales'})`];
+      if (extraUsers > 0) parts.push(`${extraUsers} usuario${extraUsers === 1 ? '' : 's'} adicional${extraUsers === 1 ? '' : 'es'}`);
+      if (order.memberships_addon_enabled) parts.push('Add-on Membresías B2C');
+
+      const meta = typeof order.metadata === 'object' && order.metadata ? order.metadata : {};
+      const fx = meta.fx_snapshot || null;
+      const itemDesc = fx?.rate_formatted
+        ? `${parts.join(' + ')} · Orden #${order.order_number} (Tasa ${fx.rate_formatted})`
+        : `${parts.join(' + ')} · Orden #${order.order_number}`;
+
+      invoice = await this.billingRepo.createInvoice(
+        {
+          tenant_id: order.tenant_id,
+          subscription_id: subscriptionId,
+          plan_code: order.plan_code || SAAS_PLANS.PRINCIPAL,
+          billing_cycle: 'monthly',
+          price_book_version: meta.price_book_version || 'v1_2026',
+          period_start: periodStart,
+          period_end: periodEnd,
+          subtotal_minor: subtotalMinor,
+          tax_minor: taxMinor,
+          total_minor: totalMinor,
+          amount_paid_minor: totalMinor,
+          amount_due_minor: 0n,
+          amount_refunded_minor: 0n,
+          currency,
+          status: 'paid',
+          due_date: order.paid_at || order.created_at || new Date().toISOString(),
+          paid_at: order.paid_at || new Date().toISOString(),
+        },
+        [
+          {
+            description: itemDesc,
+            item_type: 'PLAN_FEE',
+            amount_minor: subtotalMinor,
+          },
+        ]
+      );
+
+      await this.pool.query(
+        `UPDATE saas_checkout_orders SET invoice_id = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+        [invoice.id, order.id, order.tenant_id]
+      );
+    }
+
+    if (invoice && typeof this.billingRepo.recordPayment === 'function') {
+      await this.billingRepo.recordPayment({
+        tenant_id: order.tenant_id,
+        invoice_id: invoice.id,
+        amount_minor: totalMinor,
+        currency,
+        gateway_reference: gatewayRef,
+        status: 'success',
+        idempotency_key: paymentIdempKey,
+      });
+
+      if (typeof this.billingRepo.recordBillingEvent === 'function') {
+        await this.billingRepo.recordBillingEvent({
+          tenant_id: order.tenant_id,
+          event_type: 'SAAS_CHECKOUT_RECONCILED',
+          payload: {
+            order_id: order.id,
+            order_number: order.order_number,
+            invoice_id: invoice.id,
+            invoice_number: invoice.invoice_number,
+            total_minor: totalMinor.toString(),
+            currency,
+            actor: actorUserId || order.created_by_user_id || 'system',
+          },
+          idempotency_key: `rec_ord_${order.id}`,
+        });
+      }
+
+      if (typeof this.billingRepo.getInvoiceById === 'function') {
+        invoice = await this.billingRepo.getInvoiceById(order.tenant_id, invoice.id);
+      }
+    }
+
+    return { invoice, paymentMethod: savedPaymentMethod };
   }
 }
 

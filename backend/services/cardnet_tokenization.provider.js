@@ -193,6 +193,43 @@ class CardNetTokenizationProvider {
     };
   }
 
+  async getCustomerProfile(customerId) {
+    this.assertReadyForCheckout();
+    const safeId = encodeURIComponent(String(customerId || '').trim());
+    if (!safeId) return null;
+    const res = await this._fetchJson(`${this.baseUrl}/api/Customer/${safeId}`, {
+      method: 'GET',
+      headers: this._authHeaders(),
+    });
+    const customer = res.data?.Response || res.data;
+    if (!customer) return null;
+    const rawProfiles = Array.isArray(customer.PaymentProfiles) ? customer.PaymentProfiles : [];
+    const paymentProfiles = rawProfiles
+      .map((p) => {
+        const expRaw = String(p.Expiration || '').trim();
+        let expYear = null;
+        let expMonth = null;
+        if (/^\d{6}$/.test(expRaw)) {
+          expYear = Number(expRaw.slice(0, 4));
+          expMonth = Number(expRaw.slice(4, 6));
+        }
+        return {
+          paymentProfileId: p.PaymentProfileId ? String(p.PaymentProfileId) : null,
+          brand: p.Brand ? String(p.Brand).trim().toUpperCase() : null,
+          last4: p.Last4 ? String(p.Last4).slice(-4) : null,
+          expMonth,
+          expYear,
+          token: p.Token ? String(p.Token) : null,
+          enabled: p.Enabled !== false,
+        };
+      })
+      .filter((p) => p.token || p.paymentProfileId);
+    return {
+      customerId: String(customer.CustomerId || customerId),
+      paymentProfiles,
+    };
+  }
+
   async purchaseWithToken({ trxToken, orderNumber, totalMinor, taxMinor = 0, currency = 'USD', description, clientIp }) {
     this.assertReadyForCheckout();
     if (!trxToken || typeof trxToken !== 'string') {

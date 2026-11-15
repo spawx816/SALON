@@ -226,13 +226,21 @@ export async function executeCardnetCheckout({
 
 export default function SaasCheckoutPanel({
   orders = [],
+  invoices = [],
   gatewayStatus = null,
   onOrderUpdated,
+  onViewInvoice,
   initiateEndpointBuilder,
   verifyEndpointBuilder,
 }) {
   const [busyOrderId, setBusyOrderId] = useState(null);
   const [panelError, setPanelError] = useState(null);
+  const hasPendingOrders = orders.some(
+    (o) =>
+      ['pending_payment', 'processing', 'unknown_timeout'].includes(o.status) ||
+      (o.status === 'approved' && !o.activated_at)
+  );
+  const isCompletedSummary = !hasPendingOrders && orders.length > 0 && orders[0].status === 'approved' && Boolean(orders[0].activated_at);
   const [missingReqs, setMissingReqs] = useState([]);
 
   const handlePayWithCardnet = async (order) => {
@@ -306,14 +314,16 @@ export default function SaasCheckoutPanel({
       <div className="sb-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <h3 className="sb-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ShieldCheck size={18} color="#2563eb" />
-            Checkout seguro con CardNet
+            {isCompletedSummary ? <CheckCircle2 size={18} color="#15803d" /> : <ShieldCheck size={18} color="#2563eb" />}
+            {isCompletedSummary ? 'Último pago confirmado' : 'Checkout seguro con CardNet'}
           </h3>
           <p className="sb-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
-            Pago alojado en CardNet (3D Secure). Etereas no captura ni almacena los datos de tu tarjeta.
+            {isCompletedSummary
+              ? 'Tu suscripción está activa y el último pago fue conciliado con éxito.'
+              : 'Pago alojado en CardNet (3D Secure). Etereas no captura ni almacena los datos de tu tarjeta.'}
           </p>
         </div>
-        {gatewayStatus && (
+        {gatewayStatus && !isCompletedSummary && (
           <span className={`sb-badge ${gatewayStatus.configured ? 'sb-badge-active' : 'sb-badge-warning'}`}>
             {gatewayStatus.configured
               ? `CardNet ${gatewayStatus.environment === 'production' ? 'Producción' : 'Sandbox'} listo`
@@ -336,7 +346,7 @@ export default function SaasCheckoutPanel({
         </div>
       )}
 
-      {gatewayStatus?.environment === 'production' && (
+      {hasPendingOrders && gatewayStatus?.environment === 'production' && (
         <div
           role="note"
           style={{
@@ -391,64 +401,80 @@ export default function SaasCheckoutPanel({
                       <span className="sb-badge sb-badge-warning">Pendiente de activar</span>
                     )}
                   </div>
-            {order.status === 'approved' && (
-                    <div style={{ fontSize: 12, color: '#15803d', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {order.status === 'approved' && (
+                    <div style={{ fontSize: 12, color: '#15803d', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <CheckCircle2 size={14} />
                       <span>
                         Autorización: {order.cardnet_authorization_code || 'Verificada'}
                         {order.masked_card ? ` · Tarjeta ${order.masked_card}` : ''}
+                        {order.total_minor !== undefined && order.total_minor !== null
+                          ? ` · ${(Number(order.total_minor) / 100).toLocaleString('es-DO', { style: 'currency', currency: order.currency || 'DOP' })}`
+                          : ''}
                       </span>
                     </div>
                   )}
-                    {['declined', 'cancelled', 'expired'].includes(order.status) && order.cardnet_response_message && (
-                      <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <XCircle size={14} />
-                        <span>{order.cardnet_response_message}</span>
-                      </div>
-                    )}
-                    {order.last_error && order.status !== 'approved' && (
-                      <div style={{ fontSize: 12, color: '#b45309', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Clock size={14} />
-                        <span>{order.last_error}</span>
-                      </div>
-                    )}
-                  </div>
+                  {['declined', 'cancelled', 'expired'].includes(order.status) && order.cardnet_response_message && (
+                    <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <XCircle size={14} />
+                      <span>{order.cardnet_response_message}</span>
+                    </div>
+                  )}
+                  {order.last_error && order.status !== 'approved' && (
+                    <div style={{ fontSize: 12, color: '#b45309', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Clock size={14} />
+                      <span>{order.last_error}</span>
+                    </div>
+                  )}
+                </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {isPayable && (
-              <button
-                type="button"
-                className="sb-btn-primary"
-                disabled={isBusy}
-                onClick={() => handlePayWithCardnet(order)}
-              >
-                <CreditCard size={15} />
-                {isBusy
-                  ? 'Conectando...'
-                  : order.status === 'processing'
-                    ? 'Retomar pago CardNet'
-                    : 'Pagar con CardNet'}
-                <ExternalLink size={13} />
-              </button>
-            )}
-            {canReconcile && (
-              <button
-                type="button"
-                className="sb-btn-secondary"
-                disabled={isBusy}
-                onClick={() => handleReconcile(order)}
-              >
-                <RefreshCw size={14} />
-                {order.status === 'approved' ? 'Completar activación' : 'Conciliar estado'}
-              </button>
-            )}
-          </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {isPayable && (
+                    <button
+                      type="button"
+                      className="sb-btn-primary"
+                      disabled={isBusy}
+                      onClick={() => handlePayWithCardnet(order)}
+                    >
+                      <CreditCard size={15} />
+                      {isBusy
+                        ? 'Conectando...'
+                        : order.status === 'processing'
+                          ? 'Retomar pago CardNet'
+                          : 'Pagar con CardNet'}
+                      <ExternalLink size={13} />
+                    </button>
+                  )}
+                  {order.status === 'approved' && order.activated_at && onViewInvoice && (() => {
+                    const matchedInv = invoices.find((inv) => inv.id === order.invoice_id || inv.order_number === order.order_number);
+                    if (!matchedInv) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="sb-btn"
+                        onClick={() => onViewInvoice(matchedInv)}
+                      >
+                        Ver comprobante
+                      </button>
+                    );
+                  })()}
+                  {canReconcile && (
+                    <button
+                      type="button"
+                      className="sb-btn-secondary"
+                      disabled={isBusy}
+                      onClick={() => handleReconcile(order)}
+                    >
+                      <RefreshCw size={14} />
+                      {order.status === 'approved' ? 'Completar activación' : 'Conciliar estado'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      );
-            })}
-    </div>
-  )
-}
-      </div >
-    );
+      )
+      }
+    </div >
+  );
 }
