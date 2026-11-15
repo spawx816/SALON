@@ -14,7 +14,7 @@ if (!BigInt.prototype.toJSON) {
   };
 }
 
-function createSaasBillingRouter({ billingService, lifecycleService, billingRepo, pool }) {
+function createSaasBillingRouter({ billingService, lifecycleService, billingRepo, checkoutService, cardnetCheckoutProvider, pool }) {
   const router = express.Router();
 
   // Financial Idempotency Guard (upgrade, downgrade, pay-debt, payment methods)
@@ -457,6 +457,145 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       });
     } catch (err) {
       res.status(err.statusCode || 400).json({ error: err.message, code: 'EXTEND_GRACE_FAILED' });
+    }
+  });
+
+  // === CARDNET HOSTED CHECKOUT PARA CONTRATACIÓN Y PAGO SAAS ===
+  router.get('/checkout/config', (req, res) => {
+    const gateway = cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false };
+    res.json({
+      gateway,
+      pricing: getConfiguredPricing(),
+    });
+  });
+
+  router.get('/checkout/orders', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const orders = await checkoutService.listOrdersForTenant(tenantId);
+      res.json({ orders });
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'INTERNAL_ERROR' });
+    }
+  });
+
+  router.post('/checkout/orders', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const {
+        branchesCount,
+        extraUsersCount,
+        wantsMembershipsAddon,
+        addonBranchesCount,
+        source,
+        invoiceId,
+        idempotencyKey,
+      } = req.body || {};
+
+      const order = await checkoutService.createOrder({
+        tenantId,
+        actorUserId: req.user?.id || req.auth?.userId || null,
+        source: ['debt_payment', 'subscription_renewal'].includes(source) ? source : 'self_service',
+        invoiceId: invoiceId || null,
+        branchesCount,
+        extraUsersCount,
+        wantsMembershipsAddon,
+        addonBranchesCount,
+        idempotencyKey: idempotencyKey || req.headers['idempotency-key'] || null,
+      });
+
+      res.status(201).json({ order });
+    } catch (err) {
+      res.status(err.statusCode || 400).json({ error: err.message, code: err.code || 'CHECKOUT_ORDER_FAILED' });
+    }
+  });
+
+  router.get('/checkout/orders/:orderId', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const order = await checkoutService.getOrderForTenant(req.params.orderId, tenantId);
+      if (!order) return res.status(404).json({ error: 'Orden de pago no encontrada', code: 'ORDER_NOT_FOUND' });
+      res.json({ order });
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'INTERNAL_ERROR' });
+    }
+  });
+
+  router.post('/checkout/orders/:orderId/initiate-cardnet', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const origin = req.headers.origin || (req.headers.host ? `${req.protocol}://${req.headers.host}` : null);
+      const result = await checkoutService.initiateCardnetCheckout({
+        orderId: req.params.orderId,
+        tenantId,
+        clientIp: req.ip,
+        returnBaseUrl: origin,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        error: err.message,
+        code: err.code || 'CARDNET_INITIATE_FAILED',
+        requirements: err.requirements || undefined,
+      });
+    }
+  });
+
+  router.post('/checkout/orders/:orderId/verify', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const cancelledByUser = Boolean(req.body?.cancelled);
+      const result = await checkoutService.verifyAndFinalizeOrder({
+        orderId: req.params.orderId,
+        tenantId,
+        cancelledByUser,
+        actorUserId: req.user?.id || req.auth?.userId || null,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({ error: err.message, code: err.code || 'CARDNET_VERIFY_FAILED' });
+    }
+  });
+
+  // Enlace de pago generado por SuperAdmin (aislado al tenant propietario)
+  router.get('/payment-links/:token', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const order = await checkoutService.getOrderByTokenForTenant(req.params.token, tenantId);
+      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado o no pertenece a tu cuenta', code: 'PAYMENT_LINK_NOT_FOUND' });
+      const gateway = cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false };
+      res.json({ order, gateway });
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'INTERNAL_ERROR' });
+    }
+  });
+
+  router.post('/payment-links/:token/initiate-cardnet', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const order = await checkoutService.getOrderByTokenForTenant(req.params.token, tenantId);
+      if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado', code: 'PAYMENT_LINK_NOT_FOUND' });
+      const origin = req.headers.origin || (req.headers.host ? `${req.protocol}://${req.headers.host}` : null);
+      const result = await checkoutService.initiateCardnetCheckout({
+        orderId: order.id,
+        tenantId,
+        clientIp: req.ip,
+        returnBaseUrl: origin,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        error: err.message,
+        code: err.code || 'CARDNET_INITIATE_FAILED',
+        requirements: err.requirements || undefined,
+      });
     }
   });
 

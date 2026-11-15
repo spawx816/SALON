@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useEntitlements } from '../../context/EntitlementsContext';
+import SaasCheckoutPanel from './SaasCheckoutPanel';
 import './SaasBillingModule.css';
 
 const STATUS_META = {
@@ -94,15 +95,20 @@ export default function SaasBillingModule() {
   const [savingCard, setSavingCard] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [canceling, setCanceling] = useState(false);
+  const [checkoutOrders, setCheckoutOrders] = useState([]);
+  const [gatewayStatus, setGatewayStatus] = useState(null);
+  const [creatingOrder, setCreatingOrder] = useState(false);
 
   const loadBillingData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [subRes, invRes, pmRes] = await Promise.all([
+      const [subRes, invRes, pmRes, ordersRes, cfgRes] = await Promise.all([
         dataService.getSaasSubscription(),
         dataService.getSaasInvoices(),
         dataService.getSaasPaymentMethods(),
+        fetch('/api/saas/billing/checkout/orders', { credentials: 'include' }).then((r) => (r.ok ? r.json() : { orders: [] })).catch(() => ({ orders: [] })),
+        fetch('/api/saas/billing/checkout/config', { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
 
       setSubscription(subRes?.subscription || null);
@@ -110,6 +116,8 @@ export default function SaasBillingModule() {
       setBranches(Array.isArray(subRes?.branches) ? subRes.branches : []);
       setInvoices(Array.isArray(invRes?.invoices) ? invRes.invoices : []);
       setPaymentMethods(Array.isArray(pmRes?.paymentMethods) ? pmRes.paymentMethods : []);
+      setCheckoutOrders(Array.isArray(ordersRes?.orders) ? ordersRes.orders : []);
+      setGatewayStatus(cfgRes?.gateway || null);
     } catch (err) {
       setError(err.message || 'Error al cargar la información de suscripción');
     } finally {
@@ -154,15 +162,56 @@ export default function SaasBillingModule() {
     }
   };
 
+  const handleCreatePlanOrder = async () => {
+    try {
+      setCreatingOrder(true);
+      setError(null);
+      const res = await fetch('/api/saas/billing/checkout/orders', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'self_service',
+          branchesCount: Math.max(1, branches.length || 1),
+          extraUsersCount: 0,
+          wantsMembershipsAddon: Boolean(hasMembershipsAddon),
+          addonBranchesCount: hasMembershipsAddon ? Math.max(1, branches.length || 1) : 0,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo generar la orden de pago.');
+      }
+      setSuccessMsg(`Orden #${data.order?.order_number} creada. Presiona "Pagar con CardNet" para completar el pago.`);
+      await loadBillingData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
+
   const handlePayInvoice = async (invoiceId) => {
     try {
       setPayingInvoiceId(invoiceId);
       setError(null);
-      const res = await dataService.paySaasInvoice(invoiceId);
-      setSuccessMsg(res?.message || 'Factura pagada exitosamente.');
-      await Promise.all([loadBillingData(), refetchEntitlements()]);
+      const res = await fetch('/api/saas/billing/checkout/orders', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'debt_payment',
+          invoiceId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo generar la orden de pago para esta factura.');
+      }
+      setSuccessMsg(`Orden #${data.order?.order_number} lista para pago seguro con CardNet.`);
+      await loadBillingData();
     } catch (err) {
-      setError(err.message || 'No se pudo procesar el pago de la factura.');
+      setError(err.message || 'No se pudo iniciar el pago de la factura.');
     } finally {
       setPayingInvoiceId(null);
     }
@@ -548,6 +597,28 @@ export default function SaasBillingModule() {
           )}
         </div>
       </section>
+
+      {/* Row 3b: Checkout seguro con CardNet */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+          <button
+            type="button"
+            className="sb-btn-primary"
+            disabled={creatingOrder}
+            onClick={handleCreatePlanOrder}
+          >
+            <CreditCard size={15} />
+            {creatingOrder ? 'Generando orden...' : 'Generar orden de pago del plan (CardNet)'}
+          </button>
+        </div>
+        <SaasCheckoutPanel
+          orders={checkoutOrders}
+          gatewayStatus={gatewayStatus}
+          onOrderUpdated={async () => {
+            await Promise.all([loadBillingData(), refetchEntitlements()]);
+          }}
+        />
+      </div>
 
       {/* Row 4: Historial de facturas */}
       <section className="sb-card sb-card-mb" aria-labelledby="sb-invoices-title">

@@ -1347,7 +1347,7 @@ return (
             <h2 id="reg-modal-title">Registro completado</h2>
             <p className="et-login-subtitle" style={{ marginBottom: 18 }}>
               Ya puedes iniciar sesión con <strong>{regEmail}</strong> y la contraseña que
-              definiste.
+              definiste para completar el pago seguro de tu plan con CardNet en <strong>Mi Suscripción</strong>.
             </p>
             <button
               type="button"

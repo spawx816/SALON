@@ -169,6 +169,45 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     setTimeout(() => setErrorMessage(null), 6000);
   };
 
+  const [generatedPaymentLink, setGeneratedPaymentLink] = useState(null);
+  const [generatingPaymentLinkId, setGeneratingPaymentLinkId] = useState(null);
+
+  const handleGeneratePaymentLink = async (tenant) => {
+    setGeneratingPaymentLinkId(tenant.id);
+    try {
+      const res = await fetch(`/api/saas/tenants/${tenant.id}/payment-links`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branchesCount: Math.max(1, Number(tenant.branch_count || 1)),
+          extraUsersCount: 0,
+          wantsMembershipsAddon: Boolean(tenant.has_memberships && tenant.memberships_source !== 'legacy_pro_transition'),
+          addonBranchesCount: Number(tenant.memberships_enabled_branch_count || 0),
+          note: 'Enlace de pago generado desde consola SuperAdmin',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo generar el enlace de pago');
+      }
+      const fullUrl = `${window.location.origin}${data.paymentPath}`;
+      setGeneratedPaymentLink({
+        tenantName: data.tenantName || tenant.business_name,
+        ownerEmail: data.ownerEmail || tenant.owner_email,
+        orderNumber: data.order?.order_number,
+        totalMinor: data.order?.total_minor,
+        currency: data.order?.currency || 'USD',
+        url: fullUrl,
+      });
+      showNotification(`Enlace de pago generado para ${tenant.business_name}.`);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setGeneratingPaymentLinkId(null);
+    }
+  };
+
   // Toggle Add-on / Module
   const handleToggleModule = (tenantId, currentTenant, moduleName) => {
     const updatedValue = !currentTenant[moduleName];
@@ -632,6 +671,68 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         }}>
           <CheckCircle2 size={20} color="#10b981" />
           {actionMessage}
+        </div>
+      )}
+
+      {generatedPaymentLink && (
+        <div style={{
+          background: '#eff6ff',
+          border: '1px solid #93c5fd',
+          color: '#1e3a8a',
+          padding: '1rem 1.25rem',
+          borderRadius: '12px',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ fontSize: '0.88rem' }}>
+            <div style={{ fontWeight: '700' }}>
+              Enlace de pago generado para {generatedPaymentLink.tenantName} (Orden #{generatedPaymentLink.orderNumber})
+            </div>
+            <div style={{ marginTop: '4px', wordBreak: 'break-all' }}>
+              <code>{generatedPaymentLink.url}</code>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(generatedPaymentLink.url);
+                showNotification('Enlace copiado al portapapeles.');
+              }}
+              style={{
+                background: '#2563eb',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.45rem 0.9rem',
+                fontWeight: '700',
+                fontSize: '0.8rem',
+                cursor: 'pointer'
+              }}
+            >
+              Copiar enlace
+            </button>
+            <button
+              type="button"
+              onClick={() => setGeneratedPaymentLink(null)}
+              style={{
+                background: '#ffffff',
+                color: '#334155',
+                border: '1px solid #cbd5e1',
+                borderRadius: '8px',
+                padding: '0.45rem 0.75rem',
+                fontWeight: '600',
+                fontSize: '0.8rem',
+                cursor: 'pointer'
+              }}
+            >
+              Cerrar
+            </button>
+          </div>
         </div>
       )}
 
@@ -1167,21 +1268,40 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
                         {/* Acciones */}
                         <td style={{ padding: '1.15rem 1.25rem', textAlign: 'right' }}>
-                          <button
-                            onClick={() => handleToggleStatus(t.id, t.status, t.business_name)}
-                            style={{
-                              background: t.status === 'active' ? '#fff1f2' : '#ecfdf5',
-                              border: `1px solid ${t.status === 'active' ? '#fecdd3' : '#a7f3d0'}`,
-                              color: t.status === 'active' ? '#e11d48' : '#059669',
-                              borderRadius: '8px',
-                              padding: '0.35rem 0.75rem',
-                              cursor: 'pointer',
-                              fontSize: '0.75rem',
-                              fontWeight: '700'
-                            }}
-                          >
-                            {t.status === 'active' ? 'Suspender' : 'Reactivar'}
-                          </button>
+                          <div style={{ display: 'inline-flex', gap: '0.45rem', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleGeneratePaymentLink(t)}
+                              disabled={generatingPaymentLinkId === t.id}
+                              style={{
+                                background: '#eff6ff',
+                                border: '1px solid #bfdbfe',
+                                color: '#1d4ed8',
+                                borderRadius: '8px',
+                                padding: '0.35rem 0.7rem',
+                                cursor: 'pointer',
+                                fontSize: '0.75rem',
+                                fontWeight: '700'
+                              }}
+                            >
+                              {generatingPaymentLinkId === t.id ? 'Generando...' : 'Enlace de pago'}
+                            </button>
+                            <button
+                              onClick={() => handleToggleStatus(t.id, t.status, t.business_name)}
+                              style={{
+                                background: t.status === 'active' ? '#fff1f2' : '#ecfdf5',
+                                border: `1px solid ${t.status === 'active' ? '#fecdd3' : '#a7f3d0'}`,
+                                color: t.status === 'active' ? '#e11d48' : '#059669',
+                                borderRadius: '8px',
+                                padding: '0.35rem 0.75rem',
+                                cursor: 'pointer',
+                                fontSize: '0.75rem',
+                                fontWeight: '700'
+                              }}
+                            >
+                              {t.status === 'active' ? 'Suspender' : 'Reactivar'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

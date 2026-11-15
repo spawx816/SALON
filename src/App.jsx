@@ -44,6 +44,8 @@ const DigitalContract = lazyWithRetry(() => import('./components/contracts/Digit
 const ServiceManagement = lazyWithRetry(() => import('./components/services/ServiceManagement'), 'ServiceManagement');
 const InventoryModule = lazyWithRetry(() => import('./components/inventory/InventoryModule'), 'InventoryModule');
 const SaasBillingModule = lazyWithRetry(() => import('./components/saas/SaasBillingModule'), 'SaasBillingModule');
+const SaasCheckoutReturnPage = lazyWithRetry(() => import('./pages/SaasCheckoutReturnPage'), 'SaasCheckoutReturnPage');
+const SaasPaymentLinkPage = lazyWithRetry(() => import('./pages/SaasPaymentLinkPage'), 'SaasPaymentLinkPage');
 const CommissionManagement = lazyWithRetry(() => import('./components/commissions/CommissionManagement'), 'CommissionManagement');
 const Payments = lazyWithRetry(() => import('./components/admin/Payments'), 'Payments');
 const PlansModule = lazyWithRetry(() => import('./components/admin/PlansModule'), 'PlansModule');
@@ -274,6 +276,17 @@ const AppContent = () => {
         </Routes>
       );
     }
+
+    if (location.pathname.startsWith('/pago-saas/') || location.pathname === '/saas-checkout/retorno') {
+      return (
+        <Suspense fallback={<WorkspaceSkeleton />}>
+          <Routes>
+            <Route path="/pago-saas/:token" element={<SaasPaymentLinkPage />} />
+            <Route path="/saas-checkout/retorno" element={<SaasCheckoutReturnPage />} />
+          </Routes>
+        </Suspense>
+      );
+    }
     
     if (location.pathname === '/login') {
       return <Landing initialIsLogin={true} initialAuthModal={true} />;
@@ -323,6 +336,17 @@ const AppContent = () => {
       <Suspense fallback={<WorkspaceSkeleton />}>
         <Routes>
           <Route path="/asistencia" element={<AttendanceKiosk />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
+  if (location.pathname.startsWith('/pago-saas/') || location.pathname === '/saas-checkout/retorno') {
+    return (
+      <Suspense fallback={<WorkspaceSkeleton />}>
+        <Routes>
+          <Route path="/pago-saas/:token" element={<SaasPaymentLinkPage />} />
+          <Route path="/saas-checkout/retorno" element={<SaasCheckoutReturnPage />} />
         </Routes>
       </Suspense>
     );
@@ -1088,6 +1112,7 @@ const AppContent = () => {
                   <Route path="/inventory" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <InventoryModule />)} />
                   <Route path="/billing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isOwner ? <SaasBillingModule /> : <Navigate to="/" replace />)} />
                   <Route path="/facturacion-saas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isOwner ? <SaasBillingModule /> : <Navigate to="/" replace />)} />
+                  <Route path="/mi-suscripcion" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isOwner ? <SaasBillingModule /> : <Navigate to="/" replace />)} />
                   <Route path="/comisiones" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <CommissionManagement />)} />
                   <Route path="/encuesta" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || (user?.permissions && user.permissions.manage_surveys)) ? <AdminSurveys /> : <SatisfactionSurvey />)} />
                   <Route path="/regalos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <AdminGiftCards /> : <GiftCertificates />)} />

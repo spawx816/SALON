@@ -1196,6 +1196,55 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
+  // POST /api/saas/tenants/:tenantId/payment-links - Generar enlace de pago SaaS para el Owner (SIN capturar tarjeta en SuperAdmin)
+  router.post('/tenants/:tenantId/payment-links', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const saasCheckoutService = options.saasCheckoutService;
+      if (!saasCheckoutService) {
+        return res.status(503).json({ error: 'Servicio de checkout SaaS no disponible' });
+      }
+
+      const { tenantId } = req.params;
+      const {
+        branchesCount = 1,
+        extraUsersCount = 0,
+        wantsMembershipsAddon = false,
+        addonBranchesCount = 0,
+        note = '',
+      } = req.body || {};
+
+      const [tenantRows] = await pool.query(
+        'SELECT id, business_name, name, owner_email FROM tenants WHERE id::text = ? LIMIT 1',
+        [String(tenantId)]
+      );
+      if (!tenantRows || tenantRows.length === 0) {
+        return res.status(404).json({ error: 'Salón / tenant no encontrado' });
+      }
+
+      const result = await saasCheckoutService.createSuperAdminPaymentLink({
+        tenantId: tenantRows[0].id,
+        actorUserId: req.auth?.userId || req.user?.id || 'superadmin',
+        branchesCount,
+        extraUsersCount,
+        wantsMembershipsAddon,
+        addonBranchesCount,
+        note,
+      });
+
+      res.status(201).json({
+        success: true,
+        tenantName: tenantRows[0].business_name || tenantRows[0].name,
+        ownerEmail: tenantRows[0].owner_email || null,
+        ...result,
+      });
+    } catch (error) {
+      res.status(error.statusCode || 400).json({
+        error: error.message || 'No se pudo generar el enlace de pago',
+        code: error.code || 'PAYMENT_LINK_FAILED',
+      });
+    }
+  });
+
   return router;
 }
 

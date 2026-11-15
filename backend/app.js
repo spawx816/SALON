@@ -82,6 +82,8 @@ const { InMemorySaasBillingRepository } = require('./repositories/fakes/in_memor
 const { FakePaymentGatewayAdapter } = require('./services/fakes/fake_payment_gateway.adapter');
 const { SubscriptionLifecycleService } = require('./services/subscription_lifecycle.service');
 const { SaasBillingService } = require('./services/saas_billing.service');
+const { CardNetHostedCheckoutProvider } = require('./services/cardnet_hosted_checkout.provider');
+const { SaasCheckoutService } = require('./services/saas_checkout.service');
 const { ZeroTaxPolicy } = require('./services/tax_policy');
 const { createAuthMiddleware } = require('./middleware/auth.middleware');
 const { TenantBrandingRepository, InMemoryTenantBrandingRepository } = require('./repositories/tenant_branding.repository');
@@ -507,11 +509,22 @@ function createApp(dependencies = {}) {
     repository: tenantBrandingRepo
   });
 
+  const cardnetCheckoutProvider = srvs.cardnetCheckoutProvider || new CardNetHostedCheckoutProvider();
+  const saasCheckoutService = srvs.saasCheckoutService || new SaasCheckoutService({
+    pool,
+    cardnetProvider: cardnetCheckoutProvider,
+    entitlementsService,
+    lifecycleService: saasLifecycleService,
+    billingRepo: saasBillingRepo,
+  });
+
   // Mount Modular Routers
   app.use('/api/saas/billing', createSaasBillingRouter({
     billingService: saasBillingService,
     lifecycleService: saasLifecycleService,
     billingRepo: saasBillingRepo,
+    checkoutService: saasCheckoutService,
+    cardnetCheckoutProvider,
     pool
   }));
 
@@ -614,7 +627,7 @@ function createApp(dependencies = {}) {
       environment: process.env.NODE_ENV || 'production'
     });
   });
-  app.use('/api/saas', createSaasRouter(pool, { entitlementsService }));
+  app.use('/api/saas', createSaasRouter(pool, { entitlementsService, saasCheckoutService, cardnetCheckoutProvider }));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
   app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
