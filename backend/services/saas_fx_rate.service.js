@@ -125,6 +125,11 @@ function mapHistoryRow(row) {
   };
 }
 
+function extractRows(res) {
+  if (Array.isArray(res)) return Array.isArray(res[0]) ? res[0] : [];
+  return Array.isArray(res?.rows) ? res.rows : [];
+}
+
 class SaasFxRateService {
   constructor({ pool }) {
     this.pool = pool;
@@ -139,7 +144,8 @@ class SaasFxRateService {
          LIMIT 1`,
         [pair]
       );
-      return mapRateRow(res.rows[0]);
+      const rows = extractRows(res);
+      return mapRateRow(rows[0]);
     } catch (err) {
       throw mapFxStorageError(err);
     }
@@ -172,9 +178,10 @@ class SaasFxRateService {
           [pair, safeLimit]
         ),
       ]);
+      const histRows = extractRows(histRes);
       return {
         current,
-        history: histRes.rows.map(mapHistoryRow),
+        history: histRows.map(mapHistoryRow),
       };
     } catch (err) {
       throw mapFxStorageError(err);
@@ -184,10 +191,17 @@ class SaasFxRateService {
   async updateRate({ pair = DEFAULT_FX_PAIR, rate, reason = null, actorUserId = null, actorEmail = null }) {
     const parsed = parseAndScaleRate(rate);
     const cleanReason = reason ? String(reason).trim().slice(0, 500) : null;
+    const cleanActorId = actorUserId !== null && actorUserId !== undefined ? String(actorUserId).slice(0, 100) : null;
 
-    const client = await this.pool.connect();
+    const client = typeof this.pool.getConnection === 'function'
+      ? await this.pool.getConnection()
+      : await this.pool.connect();
     try {
-      await client.query('BEGIN');
+      if (typeof client.beginTransaction === 'function') {
+        await client.beginTransaction();
+      } else {
+        await client.query('BEGIN');
+      }
 
       const existingRes = await client.query(
         `SELECT id, pair, rate, rate_scaled_10000
@@ -196,7 +210,7 @@ class SaasFxRateService {
          FOR UPDATE`,
         [pair]
       );
-      const existing = existingRes.rows[0] || null;
+      const existing = extractRows(existingRes)[0] || null;
 
       const upsertRes = await client.query(
         `INSERT INTO saas_fx_rates (
@@ -214,7 +228,7 @@ class SaasFxRateService {
           pair,
           parsed.rateStr,
           parsed.rateScaledBigInt.toString(),
-          actorUserId ?? null,
+          cleanActorId,
           actorEmail ? String(actorEmail).slice(0, 255) : null,
           cleanReason,
         ]
@@ -233,19 +247,27 @@ class SaasFxRateService {
           parsed.rateStr,
           existing ? existing.rate_scaled_10000 : null,
           parsed.rateScaledBigInt.toString(),
-          actorUserId ?? null,
+          cleanActorId,
           actorEmail ? String(actorEmail).slice(0, 255) : null,
           cleanReason,
         ]
       );
 
-      await client.query('COMMIT');
+      if (typeof client.commit === 'function') {
+        await client.commit();
+      } else {
+        await client.query('COMMIT');
+      }
       return {
-        current: mapRateRow(upsertRes.rows[0]),
-        historyEntry: mapHistoryRow(histRes.rows[0]),
+        current: mapRateRow(extractRows(upsertRes)[0]),
+        historyEntry: mapHistoryRow(extractRows(histRes)[0]),
       };
     } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
+      if (typeof client.rollback === 'function') {
+        await client.rollback().catch(() => {});
+      } else {
+        await client.query('ROLLBACK').catch(() => {});
+      }
       throw mapFxStorageError(err);
     } finally {
       client.release();
