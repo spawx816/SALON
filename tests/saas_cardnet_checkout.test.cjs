@@ -3,6 +3,35 @@ const assert = require('node:assert/strict');
 const { CardNetHostedCheckoutProvider } = require('../backend/services/cardnet_hosted_checkout.provider');
 const { CardNetTokenizationProvider } = require('../backend/services/cardnet_tokenization.provider');
 const { SaasCheckoutService, ORDER_STATUS } = require('../backend/services/saas_checkout.service');
+const { parseAndScaleRate, convertUsdMinorToDopMinor, createFxError } = require('../backend/services/saas_fx_rate.service');
+
+function createFxRateServiceStub(initialRate = '60.0000') {
+  let currentRate = initialRate;
+  return {
+    setRate(nextRate) {
+      currentRate = nextRate;
+    },
+    async getCurrentRate() {
+      if (!currentRate) return null;
+      const parsed = parseAndScaleRate(currentRate);
+      return {
+        id: 1,
+        pair: 'USD_DOP',
+        rate: parsed.rateNumber,
+        rateFormatted: parsed.rateStr,
+        rateScaled10000: parsed.rateScaledBigInt.toString(),
+        updatedAt: new Date('2026-11-15T12:00:00Z'),
+      };
+    },
+    async requireCurrentRate() {
+      const r = await this.getCurrentRate();
+      if (!r) {
+        throw createFxError('No hay una tasa de cambio USD → DOP válida configurada.', 409, 'FX_RATE_NOT_CONFIGURED');
+      }
+      return r;
+    },
+  };
+}
 
 /**
  * Pool en memoria mínimo para simular saas_checkout_orders y tenant_subscriptions
@@ -78,7 +107,7 @@ function createInMemoryCheckoutPool() {
           activated_at: null,
           reconcile_attempts: 0,
           last_error: null,
-          metadata,
+          metadata: typeof metadata === 'string' ? JSON.parse(metadata) : metadata,
           created_at: new Date(),
           updated_at: new Date(),
         });
@@ -265,8 +294,8 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
         if (url.endsWith('/sessions') && init.method === 'POST') {
           createCalls += 1;
           const body = JSON.parse(init.body);
-          assert.equal(body.Amount, '19800'); // 1 sucursal US$99 + 1 add-on US$99 = US$198.00 (nunca US$149)
-          assert.equal(body.CurrencyCode, '840');
+          assert.equal(body.Amount, '1188000'); // (1 sucursal US$99 + 1 add-on US$99) * 60 = RD$11,880.00
+          assert.equal(body.CurrencyCode, '214');
           return {
             ok: true,
             status: 200,
@@ -285,8 +314,8 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
               RetrievalReferenceNumber: 'RRN999',
               OrdenId: o.order_number,
               MerchantNumber: '349000001',
-              Amount: '19800',
-              CurrencyCode: '840',
+              Amount: '1188000',
+              CurrencyCode: '214',
               CreditCardNumber: '411111******1111',
             }),
           };
@@ -298,6 +327,7 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
     const service = new SaasCheckoutService({
       pool,
       cardnetProvider: provider,
+      fxRateService: createFxRateServiceStub('60.0000'),
       entitlementsService: {
         async setAddonStatus(tenantId, addonCode, opts) {
           capturedAddonArgs = { tenantId, addonCode, opts };
@@ -313,7 +343,8 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
       idempotencyKey: 'idem-1',
     });
 
-    assert.equal(order.total_minor, '19800');
+    assert.equal(order.total_minor, '1188000');
+    assert.equal(order.currency, 'DOP');
     assert.equal(order.status, ORDER_STATUS.PENDING_PAYMENT);
     assert.equal(order.cardnet_session_key, undefined);
 
@@ -356,14 +387,14 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
             ResponseMessage: 'Fondos insuficientes',
             OrdenId: o.order_number,
             MerchantNumber: '349000001',
-            Amount: '9900',
-            CurrencyCode: '840',
+            Amount: '594000',
+            CurrencyCode: '214',
           }),
         };
       },
     });
 
-    const service = new SaasCheckoutService({ pool, cardnetProvider: provider });
+    const service = new SaasCheckoutService({ pool, cardnetProvider: provider, fxRateService: createFxRateServiceStub('60.0000') });
     const order = await service.createOrder({ tenantId: 'tenant-2', branchesCount: 1, idempotencyKey: 'idem-dec' });
     await service.initiateCardnetCheckout({ orderId: order.id, tenantId: 'tenant-2' });
 
@@ -389,13 +420,13 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
             OrdenId: o.order_number,
             MerchantNumber: '349000001',
             Amount: '100', // Importe manipulado!
-            CurrencyCode: '840',
+            CurrencyCode: '214',
           }),
         };
       },
     });
 
-    const service = new SaasCheckoutService({ pool, cardnetProvider: provider });
+    const service = new SaasCheckoutService({ pool, cardnetProvider: provider, fxRateService: createFxRateServiceStub('60.0000') });
     const order = await service.createOrder({ tenantId: 'tenant-a', branchesCount: 1, idempotencyKey: 'idem-a' });
     await service.initiateCardnetCheckout({ orderId: order.id, tenantId: 'tenant-a' });
 
@@ -436,8 +467,8 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
             AuthorizationCode: 'AUTH_REC',
             OrdenId: o.order_number,
             MerchantNumber: '349000001',
-            Amount: '9900',
-            CurrencyCode: '840',
+            Amount: '594000',
+            CurrencyCode: '214',
           }),
         };
       },
@@ -446,6 +477,7 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
     const service = new SaasCheckoutService({
       pool,
       cardnetProvider: provider,
+      fxRateService: createFxRateServiceStub('60.0000'),
       lifecycleService: {
         async activateOrRenewAfterPayment({ tenantId, planCode }) {
           if (shouldFailLifecycle) throw new Error('DB deadlock transitorio');
@@ -507,7 +539,8 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
         if (url.endsWith('/api/Purchase')) {
           purchaseCalls += 1;
           const body = JSON.parse(init.body);
-          assert.equal(body.Amount, 9900);
+          assert.equal(body.Amount, 594000);
+          assert.equal(body.Currency, 'DOP');
           assert.equal(body.TrxToken, 'trx_one_time_ok');
           return {
             ok: true,
@@ -532,6 +565,7 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
       pool,
       cardnetProvider: new CardNetHostedCheckoutProvider({ env: {} }),
       tokenizationProvider: tokProvider,
+      fxRateService: createFxRateServiceStub('60.0000'),
       lifecycleService: {
         async activateOrRenewAfterPayment({ tenantId, planCode }) {
           pool.subscriptions.set(tenantId, { tenant_id: tenantId, plan_code: planCode, status: 'active' });
@@ -621,6 +655,7 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
       pool,
       cardnetProvider: new CardNetHostedCheckoutProvider({ env: {} }),
       tokenizationProvider: tokProvider,
+      fxRateService: createFxRateServiceStub('60.0000'),
     });
 
     const ordTimeout = await service.createOrder({ tenantId: 'tenant-to', branchesCount: 1 });
@@ -642,5 +677,181 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
     assert.equal(decRes.declined, true);
     assert.equal(decRes.order.status, ORDER_STATUS.DECLINED);
     assert.equal(pool.subscriptions.has('tenant-dec'), false);
+  });
+
+  it('8. Conversión exacta BigInt USD→DOP (US$99 × 60 = RD$5,940), redondeo decimal y resistencia a manipulación', async () => {
+    const fxStub = createFxRateServiceStub('60');
+    const service = new SaasCheckoutService({
+      pool,
+      cardnetProvider: new CardNetHostedCheckoutProvider({ env: {} }),
+      fxRateService: fxStub,
+    });
+
+    // Caso base: US$99 × 60 = RD$5,940.00 (594000 centavos) e ignora manipulación de metadata
+    const order60 = await service.createOrder({
+      tenantId: 'tenant-fx-1',
+      branchesCount: 1,
+      idempotencyKey: 'fx-1',
+      metadata: {
+        rate: 1,
+        fx_snapshot: { rate: 1 },
+        total_minor: 100,
+        currency: 'USD',
+      },
+    });
+    assert.equal(order60.currency, 'DOP');
+    assert.equal(order60.total_minor, '594000');
+    assert.equal(order60.metadata.fx_snapshot.rate_formatted, '60.0000');
+    assert.equal(order60.metadata.fx_snapshot.usd.total_minor, '9900');
+    assert.equal(order60.metadata.fx_snapshot.dop.total_minor, '594000');
+
+    // Redondeo exacto con 4 decimales: US$99 (9900) × 60.1234 -> 595221.66 -> 595222
+    const parsedA = parseAndScaleRate('60.1234');
+    assert.equal(convertUsdMinorToDopMinor(9900n, parsedA.rateScaledBigInt), 595222n);
+    // Redondeo half-down cuando < 0.5: US$99 (9900) × 58.1255 -> 575442.45 -> 575442
+    const parsedB = parseAndScaleRate('58.1255');
+    assert.equal(convertUsdMinorToDopMinor(9900n, parsedB.rateScaledBigInt), 575442n);
+
+    // Multi-sucursal + Add-on Membresías: 2 sucursales ($198) + 2 add-ons ($198) = US$396 × 60.1234
+    fxStub.setRate('60.1234');
+    const orderMulti = await service.createOrder({
+      tenantId: 'tenant-fx-2',
+      branchesCount: 2,
+      wantsMembershipsAddon: true,
+      addonBranchesCount: 2,
+      idempotencyKey: 'fx-multi',
+    });
+    // 19800 * 601234 + 5000 = 11904438200 / 10000 = 1190443 por cada componente => 2380886
+    assert.equal(orderMulti.currency, 'DOP');
+    assert.equal(orderMulti.total_minor, '2380886');
+    assert.equal(orderMulti.metadata.fx_snapshot.usd.total_minor, '39600');
+    assert.equal(orderMulti.metadata.fx_snapshot.dop.branches_minor, '1190443');
+    assert.equal(orderMulti.metadata.fx_snapshot.dop.addon_minor, '1190443');
+  });
+
+  it('9. Validación de tasa FX: rechaza 0, negativos, >4 decimales y bloquea orden si falta tasa', async () => {
+    for (const bad of [null, undefined, '', '0', 0, -5, '-60.5', '60.12345', 'abc', Infinity]) {
+      assert.throws(() => parseAndScaleRate(bad), { code: 'INVALID_FX_RATE' });
+    }
+
+    const emptyFxStub = createFxRateServiceStub(null);
+    const service = new SaasCheckoutService({
+      pool,
+      cardnetProvider: new CardNetHostedCheckoutProvider({ env: {} }),
+      fxRateService: emptyFxStub,
+    });
+
+    await assert.rejects(
+      () => service.createOrder({ tenantId: 'tenant-nofx', branchesCount: 1 }),
+      { code: 'FX_RATE_NOT_CONFIGURED', statusCode: 409 }
+    );
+  });
+
+  it('10. Cambio de tasa aplica solo a órdenes futuras; reintentos conservan tasa e importe DOP original', async () => {
+    const fxStub = createFxRateServiceStub('60.0000');
+    const tokProvider = new CardNetTokenizationProvider({
+      env: {
+        CARDNET_BASE_URL: 'https://labservicios.cardnet.com.do/servicios/tokens/v1',
+        CARDNET_PUBLIC_KEY: 'pub_test_123',
+        CARDNET_PRIVATE_KEY: 'priv_secret_123',
+        CARDNET_MERCHANT_NUMBER: '349000001',
+        CARDNET_TERMINAL_ID: '10311240',
+        CARDNET_ENV: 'STAGING',
+      },
+      fetchImpl: async (url, init) => {
+        if (url.endsWith('/api/Customer')) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({
+              Response: { CustomerId: 888001, UniqueID: 'UI_fx_retry', CaptureURL: 'https://labservicios.cardnet.com.do/servicios/tokens/v1/Capture' },
+            }),
+          };
+        }
+        if (url.endsWith('/api/Purchase')) {
+          const body = JSON.parse(init.body);
+          // El reintento debe cobrar con la tasa original 60 (594000), NO con la nueva 62.5
+          assert.equal(body.Amount, 594000);
+          assert.equal(body.Currency, 'DOP');
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({
+              Response: {
+                ResponseCode: '00',
+                Transaction: { Status: 'Approved', TransactionId: 'TXN_FX_RETRY', Amount: 594000, Currency: 'DOP' },
+                AuthorizationCode: 'AUTH_FX',
+              },
+            }),
+          };
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    });
+
+    const service = new SaasCheckoutService({
+      pool,
+      cardnetProvider: new CardNetHostedCheckoutProvider({ env: {} }),
+      tokenizationProvider: tokProvider,
+      fxRateService: fxStub,
+    });
+
+    const oldOrder = await service.createOrder({ tenantId: 'tenant-hist', branchesCount: 1, idempotencyKey: 'hist-1' });
+    assert.equal(oldOrder.total_minor, '594000');
+
+    // SuperAdmin cambia la tasa a 62.5000
+    fxStub.setRate('62.5000');
+
+    // Orden existente no cambia y su reintento cobra RD$5,940.00
+    const reloadedOld = await service.getOrderForTenant(oldOrder.id, 'tenant-hist');
+    assert.equal(reloadedOld.total_minor, '594000');
+    assert.equal(reloadedOld.metadata.fx_snapshot.rate_formatted, '60.0000');
+
+    await service.initiateCardnetCheckout({ orderId: oldOrder.id, tenantId: 'tenant-hist', actorEmail: 'hist@empresa.com' });
+    const paidOld = await service.chargeOrderWithToken({ orderId: oldOrder.id, tenantId: 'tenant-hist', trxToken: 'tok_retry' });
+    assert.equal(paidOld.activated, true);
+
+    // Nueva orden sí toma la nueva tasa 62.5000 -> US$99 × 62.5 = RD$6,187.50 (618750 centavos)
+    const newOrder = await service.createOrder({ tenantId: 'tenant-hist', branchesCount: 1, idempotencyKey: 'hist-2' });
+    assert.equal(newOrder.total_minor, '618750');
+    assert.equal(newOrder.metadata.fx_snapshot.rate_formatted, '62.5000');
+  });
+
+  it('11. CardNet Tokenización rechaza discrepancia de moneda/importe en respuesta de Purchase', async () => {
+    const tokProvider = new CardNetTokenizationProvider({
+      env: {
+        CARDNET_BASE_URL: 'https://labservicios.cardnet.com.do/servicios/tokens/v1',
+        CARDNET_PUBLIC_KEY: 'pub_test_123',
+        CARDNET_PRIVATE_KEY: 'priv_secret_123',
+        CARDNET_MERCHANT_NUMBER: '349000001',
+        CARDNET_TERMINAL_ID: '10311240',
+        CARDNET_ENV: 'STAGING',
+      },
+      fetchImpl: async (url) => {
+        if (url.endsWith('/api/Purchase')) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({
+              Response: {
+                ResponseCode: '00',
+                Transaction: { Status: 'Approved', Amount: 9900, Currency: 'USD' },
+              },
+            }),
+          };
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    });
+
+    await assert.rejects(
+      () => tokProvider.purchaseWithToken({
+        trxToken: 'tok_mismatch',
+        orderNumber: 'ETMISMATCH1',
+        totalMinor: 594000,
+        currency: 'DOP',
+      }),
+      { code: 'PAYMENT_AMOUNT_MISMATCH', statusCode: 409 }
+    );
   });
 });

@@ -14,7 +14,7 @@ if (!BigInt.prototype.toJSON) {
   };
 }
 
-function createSaasBillingRouter({ billingService, lifecycleService, billingRepo, checkoutService, cardnetCheckoutProvider, pool }) {
+function createSaasBillingRouter({ billingService, lifecycleService, billingRepo, checkoutService, fxRateService, cardnetCheckoutProvider, pool }) {
   const router = express.Router();
 
   // Financial Idempotency Guard (upgrade, downgrade, pay-debt, payment methods)
@@ -461,13 +461,22 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   });
 
   // === CARDNET HOSTED CHECKOUT PARA CONTRATACIÓN Y PAGO SAAS ===
-  router.get('/checkout/config', (req, res) => {
+  router.get('/checkout/config', async (req, res) => {
     const gateway = checkoutService?.getGatewayStatus
       ? checkoutService.getGatewayStatus()
       : (cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false });
+    const fxRate = fxRateService
+      ? await fxRateService.getCurrentRate('USD_DOP').catch(() => null)
+      : null;
     res.json({
       gateway,
       pricing: getConfiguredPricing(),
+      fxRate: fxRate ? {
+        pair: fxRate.pair,
+        rate: fxRate.rate,
+        rateFormatted: fxRate.rateFormatted,
+        updatedAt: fxRate.updatedAt,
+      } : null,
     });
   });
 

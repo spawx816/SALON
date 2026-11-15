@@ -4,6 +4,10 @@ const {
   SAAS_ADDONS,
   getConfiguredPricing,
 } = require('./saas_catalog.constants');
+const {
+  convertUsdMinorToDopMinor,
+  parseAndScaleRate,
+} = require('./saas_fx_rate.service');
 
 const ORDER_STATUS = Object.freeze({
   PENDING_PAYMENT: 'pending_payment',
@@ -37,10 +41,11 @@ function sanitizeOrderForClient(order) {
 }
 
 class SaasCheckoutService {
-  constructor({ pool, cardnetProvider, tokenizationProvider = null, entitlementsService, lifecycleService, billingRepo }) {
+  constructor({ pool, cardnetProvider, tokenizationProvider = null, fxRateService = null, entitlementsService, lifecycleService, billingRepo }) {
     this.pool = pool;
     this.cardnetProvider = cardnetProvider;
     this.tokenizationProvider = tokenizationProvider;
+    this.fxRateService = fxRateService;
     this.entitlementsService = entitlementsService;
     this.lifecycleService = lifecycleService;
     this.billingRepo = billingRepo;
@@ -67,6 +72,7 @@ class SaasCheckoutService {
     extraUsersCount = 0,
     wantsMembershipsAddon = false,
     addonBranchesCount = 0,
+    fxRate = null,
   }) {
     const pricing = getConfiguredPricing();
     const unitUsd = pricing?.principal?.usd;
@@ -93,14 +99,66 @@ class SaasCheckoutService {
     }
 
     const addonUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
-    const branchMinor = BigInt(Math.round(Number(unitUsd) * 100)) * BigInt(safeBranches);
-    const extraUserMinor =
+    const branchUsdMinor = BigInt(Math.round(Number(unitUsd) * 100)) * BigInt(safeBranches);
+    const extraUserUsdMinor =
       safeExtraUsers > 0 ? BigInt(Math.round(Number(extraUserUsd || 0) * 100)) * BigInt(safeExtraUsers) : 0n;
-    const addonMinor = safeAddonEnabled ? BigInt(Math.round(addonUsd * 100)) * BigInt(safeAddonBranches) : 0n;
+    const addonUsdMinor = safeAddonEnabled ? BigInt(Math.round(addonUsd * 100)) * BigInt(safeAddonBranches) : 0n;
 
-    const subtotalMinor = branchMinor + extraUserMinor + addonMinor;
-    const taxMinor = 0n; // B2B SaaS export/digital services; extensible por política fiscal
-    const totalMinor = subtotalMinor + taxMinor;
+    const subtotalUsdMinor = branchUsdMinor + extraUserUsdMinor + addonUsdMinor;
+    const taxUsdMinor = 0n; // B2B SaaS export/digital services; extensible por política fiscal
+    const totalUsdMinor = subtotalUsdMinor + taxUsdMinor;
+
+    if (!fxRate) {
+      return {
+        planCode: SAAS_PLANS.PRINCIPAL,
+        branchesCount: safeBranches,
+        extraUsersCount: safeExtraUsers,
+        wantsMembershipsAddon: safeAddonEnabled,
+        addonBranchesCount: safeAddonBranches,
+        currency: 'USD',
+        billingCycle: 'monthly',
+        subtotalMinor: subtotalUsdMinor,
+        taxMinor: taxUsdMinor,
+        totalMinor: totalUsdMinor,
+        fxSnapshot: null,
+      };
+    }
+
+    const parsedRate = parseAndScaleRate(fxRate.rateFormatted ?? fxRate.rate);
+    const branchDopMinor = convertUsdMinorToDopMinor(branchUsdMinor, parsedRate.rateScaledBigInt);
+    const extraUserDopMinor = convertUsdMinorToDopMinor(extraUserUsdMinor, parsedRate.rateScaledBigInt);
+    const addonDopMinor = convertUsdMinorToDopMinor(addonUsdMinor, parsedRate.rateScaledBigInt);
+    const subtotalDopMinor = branchDopMinor + extraUserDopMinor + addonDopMinor;
+    const taxDopMinor = convertUsdMinorToDopMinor(taxUsdMinor, parsedRate.rateScaledBigInt);
+    const totalDopMinor = subtotalDopMinor + taxDopMinor;
+
+    const fxSnapshot = {
+      pair: fxRate.pair || 'USD_DOP',
+      rate: parsedRate.rateNumber,
+      rate_formatted: parsedRate.rateStr,
+      rate_scaled_10000: parsedRate.rateScaledBigInt.toString(),
+      rate_id: fxRate.id ?? null,
+      rate_updated_at: fxRate.updatedAt ?? fxRate.updated_at ?? null,
+      snapshot_at: new Date().toISOString(),
+      usd: {
+        currency: 'USD',
+        branches_minor: branchUsdMinor.toString(),
+        extra_users_minor: extraUserUsdMinor.toString(),
+        addon_minor: addonUsdMinor.toString(),
+        subtotal_minor: subtotalUsdMinor.toString(),
+        tax_minor: taxUsdMinor.toString(),
+        total_minor: totalUsdMinor.toString(),
+      },
+      dop: {
+        currency: 'DOP',
+        branches_minor: branchDopMinor.toString(),
+        extra_users_minor: extraUserDopMinor.toString(),
+        addon_minor: addonDopMinor.toString(),
+        subtotal_minor: subtotalDopMinor.toString(),
+        tax_minor: taxDopMinor.toString(),
+        total_minor: totalDopMinor.toString(),
+      },
+    };
 
     return {
       planCode: SAAS_PLANS.PRINCIPAL,
@@ -108,11 +166,12 @@ class SaasCheckoutService {
       extraUsersCount: safeExtraUsers,
       wantsMembershipsAddon: safeAddonEnabled,
       addonBranchesCount: safeAddonBranches,
-      currency: 'USD',
+      currency: 'DOP',
       billingCycle: 'monthly',
-      subtotalMinor,
-      taxMinor,
-      totalMinor,
+      subtotalMinor: subtotalDopMinor,
+      taxMinor: taxDopMinor,
+      totalMinor: totalDopMinor,
+      fxSnapshot,
     };
   }
 
@@ -174,24 +233,81 @@ class SaasCheckoutService {
         return sanitizeOrderForClient(pendingForInvoice[0]);
       }
 
-      calc = {
-        planCode: SAAS_PLANS.PRINCIPAL,
-        branchesCount: 1,
-        extraUsersCount: 0,
-        wantsMembershipsAddon: false,
-        addonBranchesCount: 0,
-        currency: String(invoice.currency || 'USD').toUpperCase(),
-        billingCycle: 'monthly',
-        subtotalMinor: dueMinor,
-        taxMinor: 0n,
-        totalMinor: dueMinor,
-      };
+      const invoiceCurrency = String(invoice.currency || 'USD').toUpperCase();
+      if (invoiceCurrency === 'USD') {
+        if (!this.fxRateService) {
+          const err = new Error('No hay una tasa de cambio USD → DOP configurada.');
+          err.code = 'FX_RATE_NOT_CONFIGURED';
+          err.statusCode = 409;
+          throw err;
+        }
+        const fxRate = await this.fxRateService.requireCurrentRate('USD_DOP');
+        const parsedRate = parseAndScaleRate(fxRate.rateFormatted ?? fxRate.rate);
+        const dopDueMinor = convertUsdMinorToDopMinor(dueMinor, parsedRate.rateScaledBigInt);
+        calc = {
+          planCode: SAAS_PLANS.PRINCIPAL,
+          branchesCount: 1,
+          extraUsersCount: 0,
+          wantsMembershipsAddon: false,
+          addonBranchesCount: 0,
+          currency: 'DOP',
+          billingCycle: 'monthly',
+          subtotalMinor: dopDueMinor,
+          taxMinor: 0n,
+          totalMinor: dopDueMinor,
+          fxSnapshot: {
+            pair: fxRate.pair || 'USD_DOP',
+            rate: parsedRate.rateNumber,
+            rate_formatted: parsedRate.rateStr,
+            rate_scaled_10000: parsedRate.rateScaledBigInt.toString(),
+            rate_id: fxRate.id ?? null,
+            rate_updated_at: fxRate.updatedAt ?? fxRate.updated_at ?? null,
+            snapshot_at: new Date().toISOString(),
+            usd: {
+              currency: 'USD',
+              subtotal_minor: dueMinor.toString(),
+              tax_minor: '0',
+              total_minor: dueMinor.toString(),
+            },
+            dop: {
+              currency: 'DOP',
+              subtotal_minor: dopDueMinor.toString(),
+              tax_minor: '0',
+              total_minor: dopDueMinor.toString(),
+            },
+          },
+        };
+      } else {
+        calc = {
+          planCode: SAAS_PLANS.PRINCIPAL,
+          branchesCount: 1,
+          extraUsersCount: 0,
+          wantsMembershipsAddon: false,
+          addonBranchesCount: 0,
+          currency: invoiceCurrency,
+          billingCycle: 'monthly',
+          subtotalMinor: dueMinor,
+          taxMinor: 0n,
+          totalMinor: dueMinor,
+          fxSnapshot: null,
+        };
+      }
     } else {
+      if (!this.fxRateService) {
+        const err = new Error(
+          'No hay una tasa de cambio USD → DOP válida configurada. El administrador debe configurarla antes de generar cobros.'
+        );
+        err.code = 'FX_RATE_NOT_CONFIGURED';
+        err.statusCode = 409;
+        throw err;
+      }
+      const fxRate = await this.fxRateService.requireCurrentRate('USD_DOP');
       calc = this.calculateCanonicalAmounts({
         branchesCount,
         extraUsersCount,
         wantsMembershipsAddon,
         addonBranchesCount,
+        fxRate,
       });
     }
 
@@ -200,6 +316,16 @@ class SaasCheckoutService {
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // Ventana oficial de 30 minutos de sesión CardNet
     const paymentLinkToken =
       source === 'superadmin_payment_link' ? crypto.randomBytes(24).toString('hex') : null;
+    const sanitizedMetadata = { ...(metadata || {}) };
+    delete sanitizedMetadata.fx_snapshot;
+    delete sanitizedMetadata.fxRate;
+    delete sanitizedMetadata.rate;
+    delete sanitizedMetadata.total_minor;
+    delete sanitizedMetadata.totalMinor;
+    delete sanitizedMetadata.currency;
+    if (calc.fxSnapshot) {
+      sanitizedMetadata.fx_snapshot = calc.fxSnapshot;
+    }
 
     await this.pool.query(
       `INSERT INTO saas_checkout_orders (
@@ -229,7 +355,7 @@ class SaasCheckoutService {
         ORDER_STATUS.PENDING_PAYMENT,
         effectiveIdempotencyKey,
         expiresAt,
-        JSON.stringify(metadata || {}),
+        JSON.stringify(sanitizedMetadata),
       ]
     );
 

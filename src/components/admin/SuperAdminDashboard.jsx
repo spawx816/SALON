@@ -104,6 +104,14 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     }
   });
 
+  // Tasa de cambio manual USD -> DOP (exclusivo SuperAdmin)
+  const [fxRateData, setFxRateData] = useState({ current: null, history: [] });
+  const [fxRateInput, setFxRateInput] = useState('');
+  const [fxReasonInput, setFxReasonInput] = useState('');
+  const [fxSaving, setFxSaving] = useState(false);
+  const [fxError, setFxError] = useState('');
+  const [fxSuccess, setFxSuccess] = useState('');
+
   const fetchData = async () => {
     setLoading(true);
     setLoadError(null);
@@ -144,6 +152,22 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       if (arRes.status === 'fulfilled') setAddonRequests(Array.isArray(arRes.value?.requests) ? arRes.value.requests : []);
       else if (arRes.status === 'rejected') failures.push(`Solicitudes Add-on: ${arRes.reason?.message}`);
 
+      try {
+        const fxRes = await fetch('/api/saas/fx-rate', { credentials: 'include' });
+        if (fxRes.ok) {
+          const fxJson = await fxRes.json();
+          setFxRateData({
+            current: fxJson.current || null,
+            history: Array.isArray(fxJson.history) ? fxJson.history : [],
+          });
+          if (fxJson.current?.rateFormatted) {
+            setFxRateInput(String(fxJson.current.rateFormatted));
+          }
+        }
+      } catch (_) {
+        // No bloquear el dashboard si el endpoint FX aún no está disponible
+      }
+
       if (failures.length > 0) {
         setLoadError(failures.join(' | '));
       }
@@ -171,6 +195,46 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
   const [generatedPaymentLink, setGeneratedPaymentLink] = useState(null);
   const [generatingPaymentLinkId, setGeneratingPaymentLinkId] = useState(null);
+
+  const handleSaveFxRate = async (e) => {
+    e.preventDefault();
+    setFxError('');
+    setFxSuccess('');
+    const normalized = String(fxRateInput || '').trim().replace(',', '.');
+    if (!/^\d+(?:\.\d{1,4})?$/.test(normalized) || Number(normalized) <= 0) {
+      setFxError('Ingresa una tasa positiva válida con hasta 4 decimales (ej. 60 o 60.2500).');
+      return;
+    }
+    setFxSaving(true);
+    try {
+      const res = await fetch('/api/saas/fx-rate', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rate: normalized,
+          reason: fxReasonInput.trim() || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo actualizar la tasa de cambio.');
+      }
+      setFxRateData((prev) => ({
+        current: data.current || prev.current,
+        history: data.historyEntry ? [data.historyEntry, ...(prev.history || [])] : prev.history,
+      }));
+      if (data.current?.rateFormatted) {
+        setFxRateInput(String(data.current.rateFormatted));
+      }
+      setFxReasonInput('');
+      setFxSuccess(`Tasa actualizada a RD$${data.current?.rateFormatted || normalized} por US$1.`);
+    } catch (err) {
+      setFxError(err.message || 'Error al guardar la tasa USD → DOP.');
+    } finally {
+      setFxSaving(false);
+    }
+  };
 
   const handleGeneratePaymentLink = async (tenant) => {
     setGeneratingPaymentLinkId(tenant.id);
@@ -241,16 +305,16 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           setTenants(prev => prev.map(row => (
             row.id === tenantId
               ? {
-                  ...row,
-                  has_memberships: Boolean(addon.active ?? updatedValue),
-                  memberships_source: addon.source || (updatedValue ? 'commercial_addon' : 'none'),
-                  memberships_reason: addon.reason || null,
-                  memberships_expires_at: addon.expiresAt || null,
-                  memberships_branch_ids: Array.isArray(addon.branchIds) ? addon.branchIds : [],
-                  memberships_branches: Array.isArray(addon.branches) ? addon.branches : [],
-                  memberships_enabled_branch_count: Number(addon.enabledBranchCount || 0),
-                  memberships_is_legacy_transition: Boolean(addon.isLegacyTransition)
-                }
+                ...row,
+                has_memberships: Boolean(addon.active ?? updatedValue),
+                memberships_source: addon.source || (updatedValue ? 'commercial_addon' : 'none'),
+                memberships_reason: addon.reason || null,
+                memberships_expires_at: addon.expiresAt || null,
+                memberships_branch_ids: Array.isArray(addon.branchIds) ? addon.branchIds : [],
+                memberships_branches: Array.isArray(addon.branches) ? addon.branches : [],
+                memberships_enabled_branch_count: Number(addon.enabledBranchCount || 0),
+                memberships_is_legacy_transition: Boolean(addon.isLegacyTransition)
+              }
               : row
           )));
           showNotification(`Add-on de Membresías ${addon.active ? 'activado' : 'desactivado'}.`);
@@ -1609,6 +1673,132 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 onChange={(e) => { setBillingSearch(e.target.value); setSubPage(1); setInvPage(1); }}
                 style={{ padding: '0.55rem 0.9rem', borderRadius: '10px', border: '1px solid #93c5fd', background: '#fff', minWidth: '250px', fontSize: '0.85rem' }}
               />
+            </div>
+
+            {/* Tasa de cambio manual USD -> DOP */}
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem 1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '800', color: '#0f172a' }}>
+                    Tasa de cambio USD → DOP
+                  </h2>
+                  <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '0.2rem' }}>
+                    Define manualmente el tipo de cambio aplicado a nuevos cobros SaaS en CardNet (pesos dominicanos). No afecta órdenes ni facturas previas.
+                  </div>
+                </div>
+                {fxRateData.current ? (
+                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '0.6rem 1rem', textAlign: 'right' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: '700', color: '#166534', textTransform: 'uppercase' }}>Tasa vigente</div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: '800', color: '#14532d' }}>
+                      RD${fxRateData.current.rateFormatted} / US$1
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: '#15803d', marginTop: '0.15rem' }}>
+                      Actualizada: {fxRateData.current.updatedAt ? new Date(fxRateData.current.updatedAt).toLocaleString('es-DO') : '—'}
+                      {fxRateData.current.updatedByEmail ? ` · por ${fxRateData.current.updatedByEmail}` : ''}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', padding: '0.6rem 1rem', color: '#991b1b', fontSize: '0.82rem', fontWeight: '700' }}>
+                    Sin tasa configurada — los nuevos cobros CardNet están bloqueados hasta definir una tasa válida.
+                  </div>
+                )}
+              </div>
+
+              <form onSubmit={handleSaveFxRate} style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div style={{ minWidth: '180px' }}>
+                  <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: '700', color: '#334155', marginBottom: '0.3rem' }}>
+                    Nueva tasa (RD$ por US$1)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="60.0000"
+                    value={fxRateInput}
+                    onChange={(e) => setFxRateInput(e.target.value)}
+                    style={{ width: '100%', padding: '0.55rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '700' }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: '700', color: '#334155', marginBottom: '0.3rem' }}>
+                    Motivo / referencia (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. Actualización semanal de referencia"
+                    value={fxReasonInput}
+                    onChange={(e) => setFxReasonInput(e.target.value)}
+                    style={{ width: '100%', padding: '0.55rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.88rem' }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={fxSaving}
+                  style={{
+                    padding: '0.6rem 1.15rem',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: '#0f172a',
+                    color: '#ffffff',
+                    fontWeight: '700',
+                    fontSize: '0.86rem',
+                    cursor: fxSaving ? 'not-allowed' : 'pointer',
+                    opacity: fxSaving ? 0.65 : 1,
+                  }}
+                >
+                  {fxSaving ? 'Guardando...' : 'Actualizar tasa'}
+                </button>
+              </form>
+
+              {fxError && (
+                <div style={{ marginTop: '0.75rem', padding: '0.55rem 0.85rem', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', fontSize: '0.82rem' }}>
+                  {fxError}
+                </div>
+              )}
+              {fxSuccess && (
+                <div style={{ marginTop: '0.75rem', padding: '0.55rem 0.85rem', borderRadius: '10px', background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', fontSize: '0.82rem' }}>
+                  {fxSuccess}
+                </div>
+              )}
+
+              {Array.isArray(fxRateData.history) && fxRateData.history.length > 0 && (
+                <div style={{ marginTop: '1rem', overflowX: 'auto', borderTop: '1px solid #f1f5f9', paddingTop: '0.85rem' }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+                    Historial de cambios ({fxRateData.history.length})
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '0.45rem 0.6rem' }}>Fecha</th>
+                        <th style={{ padding: '0.45rem 0.6rem' }}>Valor anterior</th>
+                        <th style={{ padding: '0.45rem 0.6rem' }}>Valor nuevo</th>
+                        <th style={{ padding: '0.45rem 0.6rem' }}>Administrador</th>
+                        <th style={{ padding: '0.45rem 0.6rem' }}>Motivo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fxRateData.history.slice(0, 10).map((h) => (
+                        <tr key={h.id} style={{ borderBottom: '1px solid #f8fafc', color: '#0f172a' }}>
+                          <td style={{ padding: '0.45rem 0.6rem', whiteSpace: 'nowrap' }}>
+                            {h.createdAt ? new Date(h.createdAt).toLocaleString('es-DO') : '—'}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.6rem', color: '#64748b' }}>
+                            {h.previousRateFormatted ? `RD$${h.previousRateFormatted}` : 'Inicial'}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.6rem', fontWeight: '700' }}>
+                            RD${h.newRateFormatted}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.6rem' }}>
+                            {h.actorEmail || (h.actorUserId ? `ID ${h.actorUserId}` : 'Sistema')}
+                          </td>
+                          <td style={{ padding: '0.45rem 0.6rem', color: '#475569' }}>
+                            {h.reason || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* Suscripciones SaaS */}

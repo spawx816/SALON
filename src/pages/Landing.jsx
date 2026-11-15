@@ -1363,19 +1363,34 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       ? 'Verificando la confirmación de tu pago con CardNet...'
                       : 'Tu cuenta está creada en espera de pago. No podrás ingresar al sistema operativo hasta confirmar tu pago seguro con CardNet.'}
                   </p>
-                  {pendingOrder && (
-                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 13 }}>
-                      <div><strong>Orden:</strong> #{pendingOrder.order_number}</div>
-                      <div>
-                        <strong>Plan Principal:</strong> {pendingOrder.branches_count} sucursal(es)
-                        {pendingOrder.extra_users_count > 0 ? ` · ${pendingOrder.extra_users_count} usuario(s) extra` : ''}
-                        {pendingOrder.memberships_addon_enabled ? ` · Add-on Membresías (${pendingOrder.addon_branches_count} suc.)` : ''}
+                  {pendingOrder && (() => {
+                    const fx = pendingOrder.metadata?.fx_snapshot || null;
+                    const hasTax = Number(pendingOrder.tax_minor || 0) > 0;
+                    return (
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 13 }}>
+                        <div><strong>Orden:</strong> #{pendingOrder.order_number}</div>
+                        <div>
+                          <strong>Plan Principal:</strong> {pendingOrder.branches_count} sucursal(es)
+                          {pendingOrder.extra_users_count > 0 ? ` · ${pendingOrder.extra_users_count} usuario(s) extra` : ''}
+                          {pendingOrder.memberships_addon_enabled ? ` · Add-on Membresías (${pendingOrder.addon_branches_count} suc.)` : ''}
+                        </div>
+                        {fx?.usd?.total_minor && (
+                          <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #e2e8f0', color: '#475569' }}>
+                            <div><strong>Importe en USD:</strong> {formatOrderMoney(fx.usd.total_minor, 'USD')} USD / mes</div>
+                            <div><strong>Tasa aplicada:</strong> RD${fx.rate_formatted || fx.rate} por US$1</div>
+                          </div>
+                        )}
+                        {hasTax && (
+                          <div style={{ color: '#475569' }}>
+                            <strong>Impuestos:</strong> {formatOrderMoney(pendingOrder.tax_minor, pendingOrder.currency)}
+                          </div>
+                        )}
+                        <div style={{ marginTop: 4, fontWeight: 700, color: '#0f172a', fontSize: 14 }}>
+                          Total exacto a cobrar: {formatOrderMoney(pendingOrder.total_minor, pendingOrder.currency)} ({pendingOrder.currency})
+                        </div>
                       </div>
-                      <div style={{ marginTop: 4, fontWeight: 700, color: '#0f172a' }}>
-                        Total a pagar: {formatOrderMoney(pendingOrder.total_minor, pendingOrder.currency)} ({pendingOrder.currency} / mes)
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {checkoutErr && (
                     <div className="et-alert-error" role="alert" style={{ marginBottom: 12 }}>
                       {checkoutErr}

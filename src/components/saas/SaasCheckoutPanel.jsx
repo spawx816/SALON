@@ -309,12 +309,23 @@ export default function SaasCheckoutPanel({
                     {order.memberships_addon_enabled ? ` · Add-on Membresías (${order.addon_branches_count} suc.)` : ''}
                     {` · Mensual`}
                   </div>
-                  <div style={{ fontSize: 13, color: '#0f172a', marginTop: 4, fontWeight: 600 }}>
-                    Total: {formatOrderMoney(order.total_minor, order.currency)} ({order.currency})
-                    {Number(order.tax_minor || 0) > 0
-                      ? ` · Impuestos: ${formatOrderMoney(order.tax_minor, order.currency)}`
-                      : ' · Impuestos: US$0'}
-                  </div>
+                  {(() => {
+                    const fx = order.metadata?.fx_snapshot || null;
+                    const hasTax = Number(order.tax_minor || 0) > 0;
+                    return (
+                      <div style={{ fontSize: 13, color: '#0f172a', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {fx?.usd?.total_minor && (
+                          <div style={{ color: '#475569', fontSize: 12 }}>
+                            Importe base: <strong>{formatOrderMoney(fx.usd.total_minor, 'USD')} USD</strong> · Tasa aplicada: <strong>RD${fx.rate_formatted || fx.rate} por US$1</strong>
+                          </div>
+                        )}
+                        <div style={{ fontWeight: 700 }}>
+                          Total a cobrar: {formatOrderMoney(order.total_minor, order.currency)} ({order.currency})
+                          {hasTax ? ` · Impuestos: ${formatOrderMoney(order.tax_minor, order.currency)}` : ''}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {order.status === 'approved' && (
                     <div style={{ fontSize: 12, color: '#15803d', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <CheckCircle2 size={14} />

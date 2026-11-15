@@ -29,6 +29,7 @@ function createSaasRouter(pool, options = {}) {
     entitlementsRepo: new EntitlementsRepository(pool),
     auditRepo: new SubscriptionAuditRepository(pool)
   });
+  const saasFxRateService = options.saasFxRateService || null;
 
   // Rate Limiter para creación de empresas públicos
   const onboardingLimiter = rateLimit({
@@ -693,6 +694,9 @@ function createSaasRouter(pool, options = {}) {
           } catch (_) { }
 
           const canonicalDefaults = CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL] || {};
+          const currentFxRate = saasFxRateService
+            ? await saasFxRateService.getCurrentRate('USD_DOP').catch(() => null)
+            : null;
           const addonCatalog = [
             {
               code: SAAS_ADDONS.MEMBERSHIPS,
@@ -746,7 +750,13 @@ function createSaasRouter(pool, options = {}) {
               users_per_branch: usersPerBranch,
               users_included: usersPerBranch,
               included_features: baseIncluded,
-              addons: addonCatalog
+              addons: addonCatalog,
+              fx_rate: currentFxRate ? {
+                pair: currentFxRate.pair,
+                rate: currentFxRate.rate,
+                rateFormatted: currentFxRate.rateFormatted,
+                updatedAt: currentFxRate.updatedAt,
+              } : null
             };
           }));
         }
@@ -758,6 +768,45 @@ function createSaasRouter(pool, options = {}) {
       res.json(CANONICAL_PLANS_CATALOG);
     } catch (error) {
       res.status(500).json({ error: 'Error obteniendo planes SaaS' });
+    }
+  });
+
+  // GET /api/saas/fx-rate - Tasa de cambio manual USD -> DOP e historial (SuperAdmin)
+  router.get('/fx-rate', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      if (!saasFxRateService) {
+        return res.status(503).json({ error: 'Servicio de tasa de cambio no disponible.' });
+      }
+      const limit = Number(req.query.limit) || 30;
+      const data = await saasFxRateService.getRateWithHistory('USD_DOP', limit);
+      res.json(data);
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ error: error.message || 'Error obteniendo tasa de cambio USD/DOP' });
+    }
+  });
+
+  // PUT /api/saas/fx-rate - Actualizar tasa de cambio manual USD -> DOP (exclusivo SuperAdmin)
+  router.put('/fx-rate', authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      if (!saasFxRateService) {
+        return res.status(503).json({ error: 'Servicio de tasa de cambio no disponible.' });
+      }
+      const { rate, reason } = req.body || {};
+      const actorUserId = req.auth?.userId ?? req.auth?.id ?? null;
+      const actorEmail = req.auth?.email ?? null;
+      const result = await saasFxRateService.updateRate({
+        pair: 'USD_DOP',
+        rate,
+        reason,
+        actorUserId,
+        actorEmail,
+      });
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({
+        error: error.message || 'Error actualizando tasa de cambio USD/DOP',
+        code: error.code || 'FX_RATE_UPDATE_ERROR',
+      });
     }
   });
 

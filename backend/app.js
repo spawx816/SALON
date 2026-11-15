@@ -85,6 +85,7 @@ const { SaasBillingService } = require('./services/saas_billing.service');
 const { CardNetHostedCheckoutProvider } = require('./services/cardnet_hosted_checkout.provider');
 const { CardNetTokenizationProvider } = require('./services/cardnet_tokenization.provider');
 const { SaasCheckoutService } = require('./services/saas_checkout.service');
+const { SaasFxRateService } = require('./services/saas_fx_rate.service');
 const { ZeroTaxPolicy } = require('./services/tax_policy');
 const { createAuthMiddleware } = require('./middleware/auth.middleware');
 const { TenantBrandingRepository, InMemoryTenantBrandingRepository } = require('./repositories/tenant_branding.repository');
@@ -543,10 +544,12 @@ function createApp(dependencies = {}) {
 
   const cardnetCheckoutProvider = srvs.cardnetCheckoutProvider || new CardNetHostedCheckoutProvider();
   const cardnetTokenizationProvider = srvs.cardnetTokenizationProvider || new CardNetTokenizationProvider();
+  const saasFxRateService = srvs.saasFxRateService || new SaasFxRateService({ pool });
   const saasCheckoutService = srvs.saasCheckoutService || new SaasCheckoutService({
     pool,
     cardnetProvider: cardnetCheckoutProvider,
     tokenizationProvider: cardnetTokenizationProvider,
+    fxRateService: saasFxRateService,
     entitlementsService,
     lifecycleService: saasLifecycleService,
     billingRepo: saasBillingRepo,
@@ -558,6 +561,7 @@ function createApp(dependencies = {}) {
     lifecycleService: saasLifecycleService,
     billingRepo: saasBillingRepo,
     checkoutService: saasCheckoutService,
+    fxRateService: saasFxRateService,
     cardnetCheckoutProvider,
     pool
   }));
@@ -661,7 +665,7 @@ function createApp(dependencies = {}) {
       environment: process.env.NODE_ENV || 'production'
     });
   });
-  app.use('/api/saas', createSaasRouter(pool, { entitlementsService, saasCheckoutService, cardnetCheckoutProvider }));
+  app.use('/api/saas', createSaasRouter(pool, { entitlementsService, saasCheckoutService, saasFxRateService, cardnetCheckoutProvider }));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
   app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));

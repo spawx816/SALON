@@ -271,6 +271,22 @@ class CardNetTokenizationProvider {
       raw.RetrievalReferenceNumber ||
       null;
 
+    const returnedCurrency = raw.Currency || raw.Transaction?.Currency || null;
+    const returnedAmountRaw = raw.Amount ?? raw.Transaction?.Amount ?? null;
+    const currencyMatches =
+      !returnedCurrency || String(returnedCurrency).toUpperCase() === payload.Currency;
+    const amountMatches =
+      returnedAmountRaw === null ||
+      returnedAmountRaw === undefined ||
+      Math.round(Number(returnedAmountRaw)) === payload.Amount;
+
+    if (isApproved && (!currencyMatches || !amountMatches)) {
+      const err = new Error('El monto o moneda confirmados por CardNet no coinciden con la orden.');
+      err.code = 'PAYMENT_AMOUNT_MISMATCH';
+      err.statusCode = 409;
+      throw err;
+    }
+
     return {
       approved: Boolean(isApproved),
       pending: false,
