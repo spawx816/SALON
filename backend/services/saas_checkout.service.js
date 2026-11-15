@@ -186,6 +186,7 @@ class SaasCheckoutService {
     addonBranchesCount = 0,
     idempotencyKey = null,
     metadata = {},
+    dbConn = null,
   }) {
     if (!tenantId) {
       const err = new Error('Tenant requerido');
@@ -194,11 +195,12 @@ class SaasCheckoutService {
       throw err;
     }
 
+    const queryRunner = dbConn || this.pool;
     const effectiveIdempotencyKey =
       String(idempotencyKey || '').trim() || `chk_${tenantId}_${crypto.randomUUID()}`;
 
     // Idempotencia por clave
-    const [existingRows] = await this.pool.query(
+    const [existingRows] = await queryRunner.query(
       'SELECT * FROM saas_checkout_orders WHERE tenant_id = ? AND idempotency_key = ? LIMIT 1',
       [tenantId, effectiveIdempotencyKey]
     );
@@ -327,7 +329,7 @@ class SaasCheckoutService {
       sanitizedMetadata.fx_snapshot = calc.fxSnapshot;
     }
 
-    await this.pool.query(
+    await queryRunner.query(
       `INSERT INTO saas_checkout_orders (
         id, order_number, tenant_id, invoice_id, created_by_user_id, source, payment_link_token,
         plan_code, branches_count, extra_users_count, memberships_addon_enabled, addon_branches_count,
@@ -359,7 +361,7 @@ class SaasCheckoutService {
       ]
     );
 
-    const [createdRows] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [orderId]);
+    const [createdRows] = await queryRunner.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [orderId]);
     return sanitizeOrderForClient(createdRows[0]);
   }
 
@@ -611,6 +613,28 @@ class SaasCheckoutService {
       throw err;
     }
 
+    if (order.status === ORDER_STATUS.UNKNOWN_TIMEOUT) {
+      const err = new Error('El intento anterior quedó pendiente de confirmación con CardNet. Concilia la orden antes de reintentar.');
+      err.code = 'RECONCILIATION_REQUIRED';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const [claimRes] = await this.pool.query(
+      `UPDATE saas_checkout_orders
+       SET status = ?, cardnet_response_code = 'CHARGING', updated_at = NOW()
+       WHERE id = ? AND tenant_id = ?
+         AND status IN ('pending_payment', 'processing')
+         AND COALESCE(cardnet_response_code, '') <> 'CHARGING'`,
+      [ORDER_STATUS.PROCESSING, order.id, tenantId]
+    );
+    if (!claimRes?.affectedRows) {
+      const err = new Error('El pago de esta orden ya se está procesando. Espera la confirmación antes de reintentar.');
+      err.code = 'PAYMENT_IN_PROGRESS';
+      err.statusCode = 409;
+      throw err;
+    }
+
     let result;
     try {
       result = await this.tokenizationProvider.purchaseWithToken({
@@ -629,6 +653,13 @@ class SaasCheckoutService {
            SET status = ?, reconcile_attempts = reconcile_attempts + 1, last_error = ?, cardnet_response_code = ?, updated_at = NOW()
            WHERE id = ? AND tenant_id = ? AND status IN ('pending_payment', 'processing', 'unknown_timeout')`,
           [ORDER_STATUS.UNKNOWN_TIMEOUT, err.message, 'TIMEOUT', order.id, tenantId]
+        );
+      } else {
+        await this.pool.query(
+          `UPDATE saas_checkout_orders
+           SET cardnet_response_code = NULL, last_error = ?, updated_at = NOW()
+           WHERE id = ? AND tenant_id = ? AND cardnet_response_code = 'CHARGING'`,
+          [err.message, order.id, tenantId]
         );
       }
       throw err;

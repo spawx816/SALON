@@ -64,6 +64,138 @@ function createPublicRouter(pool, options = {}) {
     try {
       await conn.beginTransaction();
 
+      const normalizedEmail = owner_email.trim().toLowerCase();
+      const [existingUsers] = await conn.query(
+        `SELECT u.id AS user_id, u.tenant_id, u.branch_id, u.name, u.email, u.password_hash,
+                t.business_name, t.status AS tenant_status
+         FROM users u
+         LEFT JOIN tenants t ON t.id = u.tenant_id
+         WHERE LOWER(u.email) = ?
+         LIMIT 1`,
+        [normalizedEmail]
+      );
+
+      if (existingUsers.length > 0) {
+        const existing = existingUsers[0];
+        if (existing.tenant_status !== 'pending' || !existing.tenant_id) {
+          const err = new Error('Ya existe una cuenta registrada con este correo. Inicia sesión para continuar.');
+          err.statusCode = 409;
+          err.code = 'EMAIL_ALREADY_REGISTERED';
+          throw err;
+        }
+        const passwordOk = await bcrypt.compare(String(admin_password), String(existing.password_hash || ''));
+        if (!passwordOk) {
+          const err = new Error('Ya existe un registro pendiente con este correo. Inicia sesión con tu contraseña para completar el pago.');
+          err.statusCode = 409;
+          err.code = 'PENDING_EMAIL_EXISTS';
+          throw err;
+        }
+
+        const requestedAddonBranches = wants_memberships_addon
+          ? Math.max(1, parseInt(addon_branches_count, 10) || 1)
+          : 0;
+
+        let reusableOrder = null;
+        if (options.saasCheckoutService) {
+          const [openOrders] = await conn.query(
+            `SELECT * FROM saas_checkout_orders
+             WHERE tenant_id = ? AND status IN ('pending_payment', 'processing') AND expires_at > NOW()
+             ORDER BY created_at DESC LIMIT 1`,
+            [existing.tenant_id]
+          );
+          if (openOrders.length > 0) {
+            const { cardnet_session_key: _hidden, ...safeOrder } = openOrders[0];
+            reusableOrder = {
+              ...safeOrder,
+              subtotal_minor: String(safeOrder.subtotal_minor ?? 0),
+              tax_minor: String(safeOrder.tax_minor ?? 0),
+              total_minor: String(safeOrder.total_minor ?? 0),
+            };
+          } else {
+            reusableOrder = await options.saasCheckoutService.createOrder({
+              tenantId: existing.tenant_id,
+              actorUserId: existing.user_id,
+              source: 'self_service',
+              branchesCount: branches_count || 1,
+              extraUsersCount: extra_users_count || 0,
+              wantsMembershipsAddon: Boolean(wants_memberships_addon),
+              addonBranchesCount: requestedAddonBranches,
+              metadata: { onboarding: true, retried: true },
+              dbConn: conn,
+            });
+          }
+        }
+
+        await conn.commit();
+
+        const sessionId = crypto.randomBytes(24).toString('hex');
+        const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+        const userAgent = req.headers['user-agent'] || 'unknown';
+        await pool.query(`
+          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
+          VALUES (?, ?, ?, 'owner', ?, ?, ?, 1, NOW(), NOW(), ?)
+        `, [
+          sessionId,
+          String(existing.user_id),
+          existing.name || owner_name || 'Propietario',
+          String(existing.branch_id),
+          clientIp,
+          userAgent,
+          existing.tenant_id,
+        ]);
+        const token = signAuthToken({
+          sub: String(existing.user_id),
+          id: String(existing.user_id),
+          email: existing.email,
+          name: existing.name || owner_name || 'Propietario',
+          role: 'owner',
+          tenantId: existing.tenant_id,
+          branchId: existing.branch_id,
+          sessionId,
+          isSuperAdmin: false,
+          tokenVersion: 1,
+        });
+
+        res.cookie('auth_token', token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 24 * 60 * 60 * 1000,
+        });
+
+        return res.status(200).json({
+          success: true,
+          reused: true,
+          paymentRequired: true,
+          message: 'Registro pendiente recuperado. Completa el pago con CardNet para activar tu acceso.',
+          tenant_id: existing.tenant_id,
+          branch_id: existing.branch_id,
+          user_id: existing.user_id,
+          status: 'pending',
+          order: reusableOrder,
+          user: {
+            id: existing.user_id,
+            tenant_id: existing.tenant_id,
+            branch_id: existing.branch_id,
+            name: existing.name || owner_name || 'Propietario',
+            nombre: existing.name || owner_name || 'Propietario',
+            email: existing.email,
+            role: 'owner',
+            rol: 'owner',
+            salon_id: existing.branch_id,
+            salon_name: `${existing.business_name} - Principal`,
+            tenant: {
+              id: existing.tenant_id,
+              business_name: existing.business_name,
+              status: 'pending',
+              subscription_status: 'pending_payment',
+            },
+            sessionId,
+          },
+        });
+      }
+
       // 1. Obtener límites oficiales del Plan Principal en BD
       const [plans] = await conn.query(
         "SELECT * FROM saas_plans WHERE UPPER(code) IN ('PRINCIPAL', 'BASE') OR id = 1 ORDER BY CASE WHEN UPPER(code) = 'PRINCIPAL' THEN 0 ELSE 1 END LIMIT 1"
@@ -162,9 +294,7 @@ function createPublicRouter(pool, options = {}) {
         throw new Error('INTENTIONAL_TEST_FAILURE: Forzando rollback a mitad de transacción');
       }
 
-      await conn.commit();
-
-      // Crear orden de checkout pendiente para permitir pago inmediato desde el Landing con CardNet
+      // Crear orden de checkout pendiente dentro de la misma transacción para garantizar atomicidad (sin tenants huérfanos)
       let checkoutOrder = null;
       if (options.saasCheckoutService) {
         checkoutOrder = await options.saasCheckoutService.createOrder({
@@ -176,8 +306,11 @@ function createPublicRouter(pool, options = {}) {
           wantsMembershipsAddon: Boolean(wants_memberships_addon),
           addonBranchesCount: requestedAddonBranches,
           metadata: { onboarding: true },
+          dbConn: conn,
         });
       }
+
+      await conn.commit();
 
       // Emitir sesión restringida al flujo de pago (todas las rutas operativas quedan bloqueadas con 402 hasta aprobar pago)
       const sessionId = crypto.randomBytes(24).toString('hex');
@@ -247,7 +380,17 @@ function createPublicRouter(pool, options = {}) {
       });
     } catch (txError) {
       await conn.rollback();
-      console.error('[ONBOARDING ROLLBACK]:', txError.message);
+      console.error('[ONBOARDING ROLLBACK]:', {
+        correlationId: req.correlationId || null,
+        code: txError.code || null,
+        message: txError.message,
+      });
+      if (txError.statusCode && txError.statusCode >= 400 && txError.statusCode < 500) {
+        return res.status(txError.statusCode).json({
+          error: txError.message,
+          code: txError.code || 'ONBOARDING_VALIDATION_ERROR',
+        });
+      }
       // NUNCA devolver mensajes internos ni detalles de base de datos al cliente
       res.status(500).json({ error: 'Ocurrió un error procesando el registro. Por favor intente más tarde.' });
     } finally {

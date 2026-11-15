@@ -1380,17 +1380,31 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                             <div><strong>Tasa aplicada:</strong> RD${fx.rate_formatted || fx.rate} por US$1</div>
                           </div>
                         )}
-                        {hasTax && (
-                          <div style={{ color: '#475569' }}>
-                            <strong>Impuestos:</strong> {formatOrderMoney(pendingOrder.tax_minor, pendingOrder.currency)}
-                          </div>
-                        )}
-                        <div style={{ marginTop: 4, fontWeight: 700, color: '#0f172a', fontSize: 14 }}>
+                        <div style={{ color: '#475569', marginTop: 4 }}>
+                          <strong>Impuestos aplicables:</strong>{' '}
+                          {hasTax ? formatOrderMoney(pendingOrder.tax_minor, pendingOrder.currency) : `${formatOrderMoney(0, pendingOrder.currency)} (Exento)`}
+                        </div>
+                        <div style={{ marginTop: 6, fontWeight: 700, color: '#0f172a', fontSize: 14 }}>
                           Total exacto a cobrar: {formatOrderMoney(pendingOrder.total_minor, pendingOrder.currency)} ({pendingOrder.currency})
                         </div>
                       </div>
                     );
                   })()}
+                  <div
+                    role="note"
+                    style={{
+                      background: '#fffbeb',
+                      border: '1px solid #fcd34d',
+                      color: '#92400e',
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      marginBottom: 14,
+                      fontSize: 13,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Pago real. Se realizará un cargo a tu tarjeta.
+                  </div>
                   {checkoutErr && (
                     <div className="et-alert-error" role="alert" style={{ marginBottom: 12 }}>
                       {checkoutErr}

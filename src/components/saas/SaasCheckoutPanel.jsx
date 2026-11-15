@@ -252,6 +252,24 @@ export async function executeCardnetCheckout({
           )}
         </div>
 
+        {gatewayStatus?.environment === 'production' && (
+          <div
+            role="note"
+            style={{
+              background: '#fffbeb',
+              border: '1px solid #fcd34d',
+              color: '#92400e',
+              borderRadius: 8,
+              padding: '8px 12px',
+              margin: '10px 0',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            Pago real. Se realizará un cargo a tu tarjeta.
+          </div>
+        )}
+
         {panelError && (
           <div className="sb-alert sb-alert-danger" style={{ margin: '12px 0' }}>
             <AlertTriangle size={16} />
