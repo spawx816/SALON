@@ -636,6 +636,13 @@ class SaasCheckoutService {
     }
 
     let result;
+    console.info('[SAAS CHECKOUT] CARDNET_PURCHASE_STARTED', {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      tenantId,
+      currency: order.currency,
+      totalMinor: String(order.total_minor),
+    });
     try {
       result = await this.tokenizationProvider.purchaseWithToken({
         trxToken,
@@ -647,6 +654,13 @@ class SaasCheckoutService {
         clientIp,
       });
     } catch (err) {
+      console.error('[SAAS CHECKOUT] CARDNET_PURCHASE_ERROR', {
+        orderId: order.id,
+        orderNumber: order.order_number,
+        tenantId,
+        code: err.code || null,
+        message: err.message,
+      });
       if (err.code === 'CARDNET_TIMEOUT') {
         await this.pool.query(
           `UPDATE saas_checkout_orders
@@ -666,6 +680,14 @@ class SaasCheckoutService {
     }
 
     if (result.approved) {
+      console.info('[SAAS CHECKOUT] CARDNET_PURCHASE_APPROVED', {
+        orderId: order.id,
+        orderNumber: order.order_number,
+        tenantId,
+        responseCode: result.responseCode,
+        authorizationCode: result.authorizationCode,
+        maskedCard: result.maskedCard,
+      });
       await this.pool.query(
         `UPDATE saas_checkout_orders
          SET status = ?,
@@ -693,6 +715,14 @@ class SaasCheckoutService {
       const [approvedRows] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
       return this._activateAfterPayment(approvedRows[0], actorUserId);
     }
+
+    console.warn('[SAAS CHECKOUT] CARDNET_PURCHASE_DECLINED', {
+      orderId: order.id,
+      orderNumber: order.order_number,
+      tenantId,
+      responseCode: result.responseCode,
+      responseMessage: result.responseMessage,
+    });
 
     await this.pool.query(
       `UPDATE saas_checkout_orders

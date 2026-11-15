@@ -279,10 +279,13 @@ function createAuthMiddleware(pool) {
                 cleanPath === '/api/tenant/subscription' ||
                 cleanPath === '/api/saas/subscription'
               )) ||
-              // 2. Facturas de suscripción, recibos propios y órdenes de checkout CardNet
+              // 2. Facturas de suscripción, recibos propios, configuración de checkout, métodos de pago y órdenes CardNet
               (method === 'GET' && (
                 cleanPath === '/api/saas/billing/invoices' ||
+                cleanPath === '/api/saas/billing/payment-methods' ||
+                cleanPath === '/api/saas/billing/checkout/config' ||
                 cleanPath === '/api/saas/billing/checkout/orders' ||
+                /^\/api\/saas\/billing\/checkout\/orders\/by-token\/[^/]+$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/checkout\/orders\/[^/]+$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/invoices\/[^/]+\/receipt$/.test(cleanPath)
               )) ||

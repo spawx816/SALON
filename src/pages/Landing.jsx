@@ -1360,7 +1360,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   <h2 id="reg-modal-title">Completa el pago para activar tu empresa</h2>
                   <p className="et-login-subtitle" style={{ marginBottom: 14 }}>
                     {checkoutVerifying
-                      ? 'Verificando la confirmación de tu pago con CardNet...'
+                      ? 'Tarjeta registrada en CardNet. Procesando cobro y esperando confirmación...'
                       : 'Tu cuenta está creada en espera de pago. No podrás ingresar al sistema operativo hasta confirmar tu pago seguro con CardNet.'}
                   </p>
                   {pendingOrder && (() => {

@@ -60,6 +60,43 @@ export function submitCardnetHostedPost({ authorizeUrl, sessionId }) {
  * Ejecuta el checkout seguro de CardNet (PWCheckout iframe o Hosted POST) sin capturar PAN/CVC en Etereas.
  * Implementa transición limpia: Resumen -> Checkout CardNet (capa única) -> Verificación -> Resultado.
  */
+function ensureCardnetHiddenForm(formId = 'etereas_saas_checkout_form') {
+  let form = document.forms?.[formId] || document.getElementById(formId);
+  if (!form) {
+    form = document.createElement('form');
+    form.id = formId;
+    form.name = formId;
+    form.style.display = 'none';
+    form.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(form);
+  }
+  // Limpiar inputs ocultos previos (PWToken/PWBin) para evitar residuos entre intentos
+  form.innerHTML = '';
+  return form;
+}
+
+function patchCardnetIframeClose(PWCheckout) {
+  if (!PWCheckout?.Iframe?.Close || PWCheckout.Iframe.__etereasClosePatched) return;
+  const originalClose = PWCheckout.Iframe.Close;
+  PWCheckout.Iframe.Close = function safeClose() {
+    const frame = document.getElementById(PWCheckout.Iframe.frameId);
+    const modal = document.getElementById(PWCheckout.Iframe.modalId);
+    if (!frame && !modal) {
+      return;
+    }
+    if (!frame || !modal) {
+      if (frame?.parentNode) frame.parentNode.removeChild(frame);
+      if (modal?.parentNode) modal.parentNode.removeChild(modal);
+      if (typeof PWCheckout.Iframe.Closed === 'function') {
+        PWCheckout.Iframe.Closed();
+      }
+      return;
+    }
+    return originalClose.apply(this, arguments);
+  };
+  PWCheckout.Iframe.__etereasClosePatched = true;
+}
+
 export async function executeCardnetCheckout({
   orderId,
   order = null,
@@ -73,6 +110,20 @@ export async function executeCardnetCheckout({
 }) {
   if (checkout?.mode === 'pwcheckout_iframe' && checkout?.uniqueId && checkout?.captureUrl && checkout?.publicKey) {
     const PWCheckout = await loadCardNetScript(checkout.publicKey, checkout.captureUrl);
+    const formId = 'etereas_saas_checkout_form';
+    ensureCardnetHiddenForm(formId);
+    patchCardnetIframeClose(PWCheckout);
+
+    if (typeof PWCheckout.Unbind === 'function') {
+      try {
+        PWCheckout.Unbind('tokenCreated');
+        PWCheckout.Unbind('closed');
+        PWCheckout.Unbind('opened');
+      } catch {
+        // ignore if event was not bound yet
+      }
+    }
+
     let handled = false;
     let isVerifying = false;
 
@@ -80,7 +131,7 @@ export async function executeCardnetCheckout({
       if (handled) return;
       handled = true;
       isVerifying = true;
-      if (onVerifying) onVerifying();
+      if (onVerifying) onVerifying('Tarjeta registrada en CardNet. Procesando cobro...');
 
       const trxToken =
         tokenPayload?.TokenId ||
@@ -285,23 +336,23 @@ export default function SaasCheckoutPanel({
         </div>
       )}
 
-        {gatewayStatus?.environment === 'production' && (
-          <div
-            role="note"
-            style={{
-              background: '#fffbeb',
-              border: '1px solid #fcd34d',
-              color: '#92400e',
-              borderRadius: 8,
-              padding: '8px 12px',
-              margin: '10px 0',
-              fontSize: 13,
-              fontWeight: 600,
-            }}
-          >
-            Pago real. Se realizará un cargo a tu tarjeta.
-          </div>
-        )}
+      {gatewayStatus?.environment === 'production' && (
+        <div
+          role="note"
+          style={{
+            background: '#fffbeb',
+            border: '1px solid #fcd34d',
+            color: '#92400e',
+            borderRadius: 8,
+            padding: '8px 12px',
+            margin: '10px 0',
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          Pago real. Se realizará un cargo a tu tarjeta.
+        </div>
+      )}
 
       {orders.length === 0 ? (
         <p className="sb-muted" style={{ marginTop: 12, fontSize: 13 }}>
