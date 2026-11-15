@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { validateName, cleanPhone } from '../utils/formUtils';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
-import { submitCardnetHostedPost, formatOrderMoney } from '../components/saas/SaasCheckoutPanel';
+import { executeCardnetCheckout, formatOrderMoney } from '../components/saas/SaasCheckoutPanel';
 import './LandingEtereas.css';
 
 const CANONICAL_FALLBACK_PLANS = [
@@ -1394,11 +1394,14 @@ return (
                     if (!res.ok) {
                       throw new Error(data.error || 'No se pudo iniciar el checkout con CardNet.');
                     }
-                    if (data?.checkout?.authorizeUrl && data?.checkout?.sessionId) {
-                      submitCardnetHostedPost(data.checkout);
-                      return;
-                    }
-                    throw new Error('Respuesta incompleta de CardNet.');
+                    await executeCardnetCheckout({
+                      orderId: pendingOrder.id,
+                      checkout: data.checkout,
+                      onActivated: () => {
+                        window.location.href = '/dashboard';
+                      },
+                      onError: (msg) => setCheckoutErr(msg),
+                    });
                   } catch (err) {
                     setCheckoutErr(err.message);
                   } finally {

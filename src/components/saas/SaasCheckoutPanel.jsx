@@ -9,6 +9,7 @@ import {
   ExternalLink,
   XCircle,
 } from 'lucide-react';
+import { loadCardNetScript } from '../../utils/cardnetScriptLoader';
 
 const ORDER_STATUS_META = {
   pending_payment: { label: 'Pendiente de pago', badge: 'sb-badge-warning' },
@@ -55,6 +56,80 @@ export function submitCardnetHostedPost({ authorizeUrl, sessionId }) {
   form.submit();
 }
 
+/**
+ * Ejecuta el checkout seguro de CardNet (PWCheckout iframe o Hosted POST) sin capturar PAN/CVC en Etereas.
+ */
+export async function executeCardnetCheckout({ orderId, checkout, onActivated, onError }) {
+  if (checkout?.mode === 'pwcheckout_iframe' && checkout?.uniqueId && checkout?.captureUrl && checkout?.publicKey) {
+    const PWCheckout = await loadCardNetScript(checkout.publicKey, checkout.captureUrl);
+    let handled = false;
+
+    PWCheckout.Bind('tokenCreated', async (tokenPayload) => {
+      if (handled) return;
+      handled = true;
+      const trxToken =
+        tokenPayload?.TokenId ||
+        tokenPayload?.Token ||
+        tokenPayload?.trxToken ||
+        (typeof tokenPayload === 'string' ? tokenPayload : null);
+
+      if (!trxToken) {
+        if (onError) onError('CardNet no devolvió un token de transacción válido.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/saas/billing/checkout/orders/${encodeURIComponent(orderId)}/charge-token`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trxToken }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'No se pudo procesar el cobro con CardNet.');
+        }
+        if (data.activated) {
+          try {
+            const rawUser = localStorage.getItem('salon_pro_user');
+            if (rawUser) {
+              const parsed = JSON.parse(rawUser);
+              if (parsed?.tenant) {
+                parsed.tenant.status = 'active';
+                localStorage.setItem('salon_pro_user', JSON.stringify(parsed));
+              }
+            }
+          } catch {
+            // ignore storage errors
+          }
+          if (onActivated) await onActivated(data);
+          return;
+        }
+        if (data.declined) {
+          throw new Error(data.message || 'Pago rechazado por CardNet.');
+        }
+        throw new Error('No se pudo confirmar la activación del pago.');
+      } catch (err) {
+        if (onError) onError(err.message);
+      }
+    });
+
+    const cleanCaptureUrl = checkout.captureUrl.endsWith('/') ? checkout.captureUrl : `${checkout.captureUrl}/`;
+    PWCheckout.OpenIframeCustom(
+      `${cleanCaptureUrl}?key=${encodeURIComponent(checkout.publicKey)}&session_id=${encodeURIComponent(checkout.uniqueId)}`,
+      checkout.uniqueId
+    );
+    return;
+  }
+
+  if (checkout?.authorizeUrl && checkout?.sessionId) {
+    submitCardnetHostedPost(checkout);
+    return;
+  }
+
+  throw new Error('Respuesta incompleta de CardNet al iniciar sesión.');
+}
+
 export default function SaasCheckoutPanel({
   orders = [],
   gatewayStatus = null,
@@ -86,11 +161,17 @@ export default function SaasCheckoutPanel({
         }
         throw new Error(data.error || 'No se pudo iniciar el checkout con CardNet.');
       }
-      if (data?.checkout?.authorizeUrl && data?.checkout?.sessionId) {
-        submitCardnetHostedPost(data.checkout);
-        return;
-      }
-      throw new Error('Respuesta incompleta de CardNet al iniciar sesión.');
+      await executeCardnetCheckout({
+        orderId: order.id,
+        checkout: data.checkout,
+        onActivated: async (activatedData) => {
+          if (onOrderUpdated) {
+            await onOrderUpdated(activatedData);
+          }
+          window.location.href = '/dashboard';
+        },
+        onError: (msg) => setPanelError(msg),
+      });
     } catch (err) {
       setPanelError(err.message);
     } finally {

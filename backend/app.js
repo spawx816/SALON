@@ -83,6 +83,7 @@ const { FakePaymentGatewayAdapter } = require('./services/fakes/fake_payment_gat
 const { SubscriptionLifecycleService } = require('./services/subscription_lifecycle.service');
 const { SaasBillingService } = require('./services/saas_billing.service');
 const { CardNetHostedCheckoutProvider } = require('./services/cardnet_hosted_checkout.provider');
+const { CardNetTokenizationProvider } = require('./services/cardnet_tokenization.provider');
 const { SaasCheckoutService } = require('./services/saas_checkout.service');
 const { ZeroTaxPolicy } = require('./services/tax_policy');
 const { createAuthMiddleware } = require('./middleware/auth.middleware');
@@ -541,9 +542,11 @@ function createApp(dependencies = {}) {
   });
 
   const cardnetCheckoutProvider = srvs.cardnetCheckoutProvider || new CardNetHostedCheckoutProvider();
+  const cardnetTokenizationProvider = srvs.cardnetTokenizationProvider || new CardNetTokenizationProvider();
   const saasCheckoutService = srvs.saasCheckoutService || new SaasCheckoutService({
     pool,
     cardnetProvider: cardnetCheckoutProvider,
+    tokenizationProvider: cardnetTokenizationProvider,
     entitlementsService,
     lifecycleService: saasLifecycleService,
     billingRepo: saasBillingRepo,

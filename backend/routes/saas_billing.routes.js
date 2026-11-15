@@ -534,12 +534,35 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
         tenantId,
         clientIp: req.ip,
         returnBaseUrl: origin,
+        actorEmail: req.user?.email || req.auth?.email || null,
       });
       res.json(result);
     } catch (err) {
       res.status(err.statusCode || 400).json({
         error: err.message,
         code: err.code || 'CARDNET_INITIATE_FAILED',
+        requirements: err.requirements || undefined,
+      });
+    }
+  });
+
+  router.post('/checkout/orders/:orderId/charge-token', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      const trxToken = req.body?.trxToken || req.body?.TokenId || req.body?.token;
+      const result = await checkoutService.chargeOrderWithToken({
+        orderId: req.params.orderId,
+        tenantId,
+        trxToken,
+        clientIp: req.ip,
+        actorUserId: req.user?.id || req.auth?.userId || null,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(err.statusCode || 400).json({
+        error: err.message,
+        code: err.code || 'CARDNET_PURCHASE_FAILED',
         requirements: err.requirements || undefined,
       });
     }

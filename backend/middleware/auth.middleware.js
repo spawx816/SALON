@@ -291,7 +291,7 @@ function createAuthMiddleware(pool) {
                 cleanPath === '/api/saas/billing/payment-methods' ||
                 cleanPath === '/api/saas/billing/pay-debt' ||
                 cleanPath === '/api/saas/billing/checkout/orders' ||
-                /^\/api\/saas\/billing\/checkout\/orders\/[^/]+\/(initiate-cardnet|verify-cardnet)$/.test(cleanPath) ||
+                /^\/api\/saas\/billing\/checkout\/orders\/[^/]+\/(initiate-cardnet|verify-cardnet|verify|charge-token)$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/invoices\/[^/]+\/pay$/.test(cleanPath)
               )) ||
               // 4. Cierre de sesión y soporte técnico

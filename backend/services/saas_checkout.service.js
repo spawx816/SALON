@@ -37,12 +37,22 @@ function sanitizeOrderForClient(order) {
 }
 
 class SaasCheckoutService {
-  constructor({ pool, cardnetProvider, entitlementsService, lifecycleService, billingRepo }) {
+  constructor({ pool, cardnetProvider, tokenizationProvider = null, entitlementsService, lifecycleService, billingRepo }) {
     this.pool = pool;
     this.cardnetProvider = cardnetProvider;
+    this.tokenizationProvider = tokenizationProvider;
     this.entitlementsService = entitlementsService;
     this.lifecycleService = lifecycleService;
     this.billingRepo = billingRepo;
+  }
+
+  _shouldUseTokenization() {
+    if (!this.tokenizationProvider) return false;
+    const tokStatus = this.tokenizationProvider.getConfigurationStatus();
+    if (tokStatus.configured || tokStatus.blockedInProduction) return true;
+    const hostedStatus = this.cardnetProvider?.getConfigurationStatus?.();
+    if (hostedStatus?.configured) return false;
+    return Boolean(this.tokenizationProvider.publicKey || this.tokenizationProvider.privateKey);
   }
 
   calculateCanonicalAmounts({
@@ -293,7 +303,7 @@ class SaasCheckoutService {
     return rows.length > 0 ? sanitizeOrderForClient(rows[0]) : null;
   }
 
-  async initiateCardnetCheckout({ orderId, tenantId, clientIp = null, returnBaseUrl = null }) {
+  async initiateCardnetCheckout({ orderId, tenantId, clientIp = null, returnBaseUrl = null, actorEmail = null }) {
     const [rows] = await this.pool.query(
       'SELECT * FROM saas_checkout_orders WHERE id = ? AND tenant_id = ? LIMIT 1',
       [orderId, tenantId]
@@ -320,6 +330,41 @@ class SaasCheckoutService {
       throw err;
     }
 
+    // Modo 1: CardNet Tokenización / PWCheckout (servicios/tokens/v1)
+    if (this._shouldUseTokenization()) {
+      let customerEmail = actorEmail ? String(actorEmail).trim() : '';
+      if (!customerEmail) {
+        const [uRows] = await this.pool.query(
+          "SELECT email FROM users WHERE tenant_id = ? AND role IN ('owner', 'propietario') ORDER BY id ASC LIMIT 1",
+          [tenantId]
+        );
+        customerEmail = uRows?.[0]?.email || `owner-${tenantId}@etereasapp.com`;
+      }
+
+      const session = await this.tokenizationProvider.createCustomerSession({ email: customerEmail });
+      const newExpiry = new Date(Date.now() + 30 * 60 * 1000);
+      await this.pool.query(
+        `UPDATE saas_checkout_orders
+         SET status = ?, cardnet_session_id = ?, cardnet_session_key = ?, expires_at = ?, updated_at = NOW()
+         WHERE id = ? AND tenant_id = ? AND status IN ('pending_payment', 'processing', 'unknown_timeout')`,
+        [ORDER_STATUS.PROCESSING, session.uniqueId, session.customerId, newExpiry, order.id, tenantId]
+      );
+
+      const [updatedRows] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
+      return {
+        order: sanitizeOrderForClient(updatedRows[0]),
+        checkout: {
+          mode: 'pwcheckout_iframe',
+          uniqueId: session.uniqueId,
+          customerId: session.customerId,
+          captureUrl: session.captureUrl,
+          publicKey: session.publicKey,
+          reusedSession: false,
+        },
+      };
+    }
+
+    // Modo 2: CardNet Hosted Checkout (ecommerce.cardnet.com.do/sessions + /authorize)
     // Si ya tiene una sesión CardNet activa y no expirada, reutilizarla para evitar cobros duplicados por doble clic
     if (
       order.status === ORDER_STATUS.PROCESSING &&
@@ -329,6 +374,7 @@ class SaasCheckoutService {
       return {
         order: sanitizeOrderForClient(order),
         checkout: {
+          mode: 'hosted_post',
           authorizeUrl: `${this.cardnetProvider.baseUrl}/authorize`,
           sessionId: order.cardnet_session_id,
           reusedSession: true,
@@ -363,10 +409,125 @@ class SaasCheckoutService {
     return {
       order: sanitizeOrderForClient(updatedRows[0]),
       checkout: {
+        mode: 'hosted_post',
         authorizeUrl: session.authorizeUrl,
         sessionId: session.sessionId,
         reusedSession: false,
       },
+    };
+  }
+
+  async chargeOrderWithToken({ orderId, tenantId, trxToken, clientIp = null, actorUserId = null }) {
+    if (!this.tokenizationProvider) {
+      const err = new Error('Proveedor CardNet Tokenización no inicializado.');
+      err.code = 'CARDNET_PROVIDER_UNAVAILABLE';
+      err.statusCode = 503;
+      throw err;
+    }
+
+    const [rows] = await this.pool.query(
+      'SELECT * FROM saas_checkout_orders WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [orderId, tenantId]
+    );
+    if (rows.length === 0) {
+      const err = new Error('Orden de pago no encontrada.');
+      err.code = 'ORDER_NOT_FOUND';
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const order = rows[0];
+
+    if (order.status === ORDER_STATUS.APPROVED && order.activated_at) {
+      return {
+        order: sanitizeOrderForClient(order),
+        activated: true,
+        alreadyProcessed: true,
+      };
+    }
+
+    if (order.status === ORDER_STATUS.APPROVED && !order.activated_at) {
+      return this._activateAfterPayment(order, actorUserId);
+    }
+
+    if ([ORDER_STATUS.CANCELLED, ORDER_STATUS.DECLINED, ORDER_STATUS.EXPIRED].includes(order.status)) {
+      const err = new Error('Esta orden ya fue cerrada; inicia una nueva orden de pago.');
+      err.code = 'ORDER_NOT_PAYABLE';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    let result;
+    try {
+      result = await this.tokenizationProvider.purchaseWithToken({
+        trxToken,
+        orderNumber: order.order_number,
+        totalMinor: order.total_minor,
+        taxMinor: order.tax_minor,
+        currency: order.currency,
+        description: `Suscripción Etereas (${order.order_number})`,
+        clientIp,
+      });
+    } catch (err) {
+      if (err.code === 'CARDNET_TIMEOUT') {
+        await this.pool.query(
+          `UPDATE saas_checkout_orders
+           SET status = ?, cardnet_response_message = ?, updated_at = NOW()
+           WHERE id = ? AND tenant_id = ? AND status IN ('pending_payment', 'processing', 'unknown_timeout')`,
+          [ORDER_STATUS.UNKNOWN_TIMEOUT, err.message, order.id, tenantId]
+        );
+      }
+      throw err;
+    }
+
+    if (result.approved) {
+      await this.pool.query(
+        `UPDATE saas_checkout_orders
+         SET status = ?,
+             cardnet_response_code = ?,
+             cardnet_response_message = ?,
+             cardnet_authorization_code = ?,
+             cardnet_transaction_id = ?,
+             cardnet_retrieval_ref = ?,
+             card_brand = ?,
+             masked_card = ?,
+             paid_at = NOW(),
+             updated_at = NOW()
+         WHERE id = ? AND tenant_id = ?`,
+        [
+          ORDER_STATUS.APPROVED,
+          result.responseCode,
+          result.responseMessage,
+          result.authorizationCode,
+          result.transactionId,
+          result.retrievalReferenceNumber,
+          result.cardBrand,
+          result.maskedCard,
+          order.id,
+          tenantId,
+        ]
+      );
+
+      const [approvedRows] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
+      return this._activateAfterPayment(approvedRows[0], actorUserId);
+    }
+
+    await this.pool.query(
+      `UPDATE saas_checkout_orders
+       SET status = ?,
+           cardnet_response_code = ?,
+           cardnet_response_message = ?,
+           updated_at = NOW()
+       WHERE id = ? AND tenant_id = ? AND status IN ('pending_payment', 'processing', 'unknown_timeout')`,
+      [ORDER_STATUS.DECLINED, result.responseCode, result.responseMessage, order.id, tenantId]
+    );
+
+    const [declinedRows] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
+    return {
+      order: sanitizeOrderForClient(declinedRows[0]),
+      activated: false,
+      declined: true,
+      message: result.responseMessage,
     };
   }
 
