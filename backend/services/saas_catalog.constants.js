@@ -80,12 +80,15 @@ function readConfiguredPrice(envKey) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+const PRINCIPAL_PLAN_DEFAULT_USD = 99;
+const PRINCIPAL_PLAN_REFERENCE_USD = 149;
 const MEMBERSHIPS_ADDON_DEFAULT_USD = 99;
 const MEMBERSHIPS_ADDON_PRICING_DISPLAY =
   'US$99/mes por sucursal + implementación e integración con pasarela de pago';
 
 function getConfiguredPricing() {
-  const principalUsd = readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD');
+  const principalUsd =
+    readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD') ?? PRINCIPAL_PLAN_DEFAULT_USD;
   const principalDop = readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_DOP');
   const extraUserUsd = readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD');
   const extraUserDop = readConfiguredPrice('SAAS_EXTRA_USER_PRICE_DOP');
@@ -97,6 +100,7 @@ function getConfiguredPricing() {
     principal: {
       usd: principalUsd,
       dop: principalDop,
+      referenceUsd: PRINCIPAL_PLAN_REFERENCE_USD,
       extraUserUsd,
       extraUserDop,
       isConfigured: principalUsd !== null || principalDop !== null,
@@ -118,14 +122,15 @@ const CANONICAL_PLANS_CATALOG = Object.freeze([
   {
     code: SAAS_PLANS.PRINCIPAL,
     name: 'Plan Principal',
-    price_monthly: readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD'),
+    price_monthly: readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD') ?? PRINCIPAL_PLAN_DEFAULT_USD,
     price_monthly_dop: readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_DOP'),
-    price_per_branch: readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD'),
+    price_per_branch: readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD') ?? PRINCIPAL_PLAN_DEFAULT_USD,
+    reference_price_monthly: PRINCIPAL_PLAN_REFERENCE_USD,
     users_included: 3,
     extra_user_price: readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD'),
     branches_included: 1,
     description:
-      'Operación integral del salón: POS, cajas, comprobantes DGII e-CF, Clientes/CRM, inventario avanzado multisucursal, compras y proveedores, asistencia facial, nómina, comisiones, marketing y reportes.',
+      'Operación integral del salón: POS, cajas, comprobantes DGII e-CF, Clientes/CRM, inventario avanzado multisucursal, compras y proveedores, control de asistencia facial, nómina, comisiones, marketing y reportes.',
     features: CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL],
     limits: DEFAULT_PLAN_LIMITS[SAAS_PLANS.PRINCIPAL],
   },
@@ -189,6 +194,8 @@ module.exports = {
   DEFAULT_PLAN_LIMITS,
   CANONICAL_PLANS_CATALOG,
   ADDONS_CATALOG,
+  PRINCIPAL_PLAN_DEFAULT_USD,
+  PRINCIPAL_PLAN_REFERENCE_USD,
   MEMBERSHIPS_ADDON_DEFAULT_USD,
   getConfiguredPricing,
   normalizePlanCode,

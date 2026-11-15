@@ -27,6 +27,7 @@ const CANONICAL_FALLBACK_PLANS = [
     code: 'principal',
     name: 'Plan Principal',
     price_monthly: null,
+    reference_price_monthly: 149,
     extra_user_price: null,
     users_included: 3,
     branches_included: 1,
@@ -130,7 +131,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   useDocumentMetadata({
     title: 'ETEREAS — Toda tu empresa. Una sola plataforma.',
     description:
-      'Plataforma SaaS Multi-Tenant de gestión empresarial: facturación POS, asistencia facial, nómina automática, CRM de clientes y membresías.',
+      'Plataforma SaaS Multi-Tenant de gestión empresarial: facturación POS, control de asistencia facial, nómina automática, CRM de clientes y membresías.',
     canonicalUrl: canonicalOrigin,
     robots: isStagingHost ? 'noindex, nofollow' : 'index, follow'
   });
@@ -248,6 +249,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               ...p,
               code: String(p.code).toLowerCase(),
               price_monthly: parseNullablePrice(rawPrice),
+              reference_price_monthly: parseNullablePrice(p.reference_price_monthly) ?? 149,
               extra_user_price: parseNullablePrice(p.extra_user_price),
               users_included: Number(p.users_per_branch ?? p.users_included ?? 3),
               branches_included: Number(p.branches_included ?? p.max_branches ?? 1),
@@ -517,6 +519,17 @@ const activePlan =
 const unitPrice = activePlan.price_monthly !== null && activePlan.price_monthly !== undefined && Number(activePlan.price_monthly) > 0
   ? Number(activePlan.price_monthly)
   : null;
+const referenceUnitPrice =
+  unitPrice !== null &&
+  activePlan.reference_price_monthly !== null &&
+  activePlan.reference_price_monthly !== undefined &&
+  Number(activePlan.reference_price_monthly) > unitPrice
+    ? Number(activePlan.reference_price_monthly)
+    : null;
+const savingsPerMonth =
+  referenceUnitPrice !== null && unitPrice !== null
+    ? Number((referenceUnitPrice - unitPrice).toFixed(2))
+    : null;
 const extraUserPrice = activePlan.extra_user_price !== null && activePlan.extra_user_price !== undefined && Number(activePlan.extra_user_price) > 0
   ? Number(activePlan.extra_user_price)
   : null;
@@ -640,7 +653,7 @@ return (
               </span>
             </h1>
             <p className="et-hero-lead">
-              Facturación, asistencia facial, CRM de clientes y nómina conectadas. Menos trabajo
+              Facturación, control de asistencia facial, CRM de clientes y nómina conectadas. Menos trabajo
               manual. Más control de tu negocio.
             </p>
 
@@ -937,7 +950,7 @@ return (
           <div className="et-pricing-head">
             <p className="et-eyebrow">ELIGE TU ALCANCE. CONECTA TU EMPRESA.</p>
             <h2 id="pricing-heading" className="et-section-h2">
-              Un solo plan claro.
+              Un solo plan.
               <br />
               Toda tu operación.
             </h2>
@@ -955,6 +968,13 @@ return (
               <h3 className="et-plan-name">
                 ETEREAS
               </h3>
+
+              {!plansLoading && !plansError && unitPrice !== null && referenceUnitPrice !== null && savingsPerMonth > 0 && (
+                <div className="et-price-compare-row">
+                  <span className="et-price-strike">US${referenceUnitPrice} / mes</span>
+                  <span className="et-price-save-badge">Ahorra US${savingsPerMonth} / mes</span>
+                </div>
+              )}
 
               <div className="et-price-row">
                 {plansLoading ? (
@@ -1026,7 +1046,7 @@ return (
             {planDetailsOpen && (
               <div className="et-details-box">
                 El Plan Principal incluye POS, cajas, Clientes/CRM, inventario avanzado multisucursal,
-                asistencia facial, nómina, comisiones, marketing y reportes DGII (606, 607, IT-1).
+                control de asistencia facial, nómina, comisiones, marketing y reportes DGII (606, 607, IT-1).
                 El módulo adicional de Suscripciones y Membresías B2C tiene un costo de US$99/mes por
                 sucursal + implementación e integración con pasarela de pago (cotización por separado).
               </div>

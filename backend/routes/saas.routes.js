@@ -8,6 +8,7 @@ const {
   SAAS_ADDONS,
   CANONICAL_PLAN_FEATURES,
   CANONICAL_PLANS_CATALOG,
+  PRINCIPAL_PLAN_REFERENCE_USD,
   MEMBERSHIPS_ADDON_DEFAULT_USD,
   normalizePlanCode,
   isValidPlanCode
@@ -739,6 +740,8 @@ function createSaasRouter(pool, options = {}) {
               price: canonicalPerBranch,
               price_per_branch: canonicalPerBranch,
               price_monthly: canonicalMonthly,
+              reference_price_monthly:
+                parseOptionalPrice(p.reference_price_monthly) ?? PRINCIPAL_PLAN_REFERENCE_USD,
               extra_user_price: canonicalExtraUser,
               users_per_branch: usersPerBranch,
               users_included: usersPerBranch,
