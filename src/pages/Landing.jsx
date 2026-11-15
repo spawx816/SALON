@@ -1431,6 +1431,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                           if (data?.order) setPendingOrder(data.order);
                           await executeCardnetCheckout({
                             orderId: pendingOrder.id,
+                            order: data.order || pendingOrder,
                             checkout: data.checkout,
                             onCheckoutOpening: () => {
                               // Desmontar el modal/backdrop de Landing antes de abrir el iframe de CardNet (capa modal única)

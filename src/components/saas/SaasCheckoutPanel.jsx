@@ -62,195 +62,228 @@ export function submitCardnetHostedPost({ authorizeUrl, sessionId }) {
  */
 export async function executeCardnetCheckout({
   orderId,
-    checkout,
-    onCheckoutOpening,
-    onVerifying,
-    onCheckoutClosed,
-    onActivated,
-    onError,
-  }) {
-    if (checkout?.mode === 'pwcheckout_iframe' && checkout?.uniqueId && checkout?.captureUrl && checkout?.publicKey) {
-      const PWCheckout = await loadCardNetScript(checkout.publicKey, checkout.captureUrl);
-      let handled = false;
-      let isVerifying = false;
+  order = null,
+  customerEmail = '',
+  checkout,
+  onCheckoutOpening,
+  onVerifying,
+  onCheckoutClosed,
+  onActivated,
+  onError,
+}) {
+  if (checkout?.mode === 'pwcheckout_iframe' && checkout?.uniqueId && checkout?.captureUrl && checkout?.publicKey) {
+    const PWCheckout = await loadCardNetScript(checkout.publicKey, checkout.captureUrl);
+    let handled = false;
+    let isVerifying = false;
 
-      PWCheckout.Bind('tokenCreated', async (tokenPayload) => {
-        if (handled) return;
-        handled = true;
-        isVerifying = true;
-        if (onVerifying) onVerifying();
+    PWCheckout.Bind('tokenCreated', async (tokenPayload) => {
+      if (handled) return;
+      handled = true;
+      isVerifying = true;
+      if (onVerifying) onVerifying();
 
-        const trxToken =
-          tokenPayload?.TokenId ||
-          tokenPayload?.Token ||
-          tokenPayload?.trxToken ||
-          (typeof tokenPayload === 'string' ? tokenPayload : null);
+      const trxToken =
+        tokenPayload?.TokenId ||
+        tokenPayload?.Token ||
+        tokenPayload?.trxToken ||
+        (typeof tokenPayload === 'string' ? tokenPayload : null);
 
-        if (!trxToken) {
-          isVerifying = false;
-          if (onError) onError('CardNet no devolvió un token de transacción válido.');
+      if (!trxToken) {
+        isVerifying = false;
+        if (onError) onError('CardNet no devolvió un token de transacción válido.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/saas/billing/checkout/orders/${encodeURIComponent(orderId)}/charge-token`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trxToken }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'No se pudo procesar el cobro con CardNet.');
+        }
+        if (data.activated) {
+          try {
+            const rawUser = localStorage.getItem('salon_pro_user');
+            if (rawUser) {
+              const parsed = JSON.parse(rawUser);
+              if (parsed?.tenant) {
+                parsed.tenant.status = 'active';
+                localStorage.setItem('salon_pro_user', JSON.stringify(parsed));
+              }
+            }
+          } catch {
+            // ignore storage errors
+          }
+          if (onActivated) await onActivated(data);
           return;
         }
-
-        try {
-          const res = await fetch(`/api/saas/billing/checkout/orders/${encodeURIComponent(orderId)}/charge-token`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ trxToken }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            throw new Error(data.error || 'No se pudo procesar el cobro con CardNet.');
-          }
-          if (data.activated) {
-            try {
-              const rawUser = localStorage.getItem('salon_pro_user');
-              if (rawUser) {
-                const parsed = JSON.parse(rawUser);
-                if (parsed?.tenant) {
-                  parsed.tenant.status = 'active';
-                  localStorage.setItem('salon_pro_user', JSON.stringify(parsed));
-                }
-              }
-            } catch {
-              // ignore storage errors
-            }
-            if (onActivated) await onActivated(data);
-            return;
-          }
-          if (data.declined) {
-            throw new Error(data.message || 'Pago rechazado por CardNet.');
-          }
-          throw new Error('No se pudo confirmar la activación del pago.');
-        } catch (err) {
-          if (onError) onError(err.message);
+        if (data.declined) {
+          throw new Error(data.message || 'Pago rechazado por CardNet.');
         }
-      });
-
-      PWCheckout.Bind('closed', () => {
-        if (!isVerifying && onCheckoutClosed) {
-          onCheckoutClosed();
-        }
-      });
-
-      // Cerrar/desmontar cualquier modal previo antes de abrir CardNet para evitar superposición
-      if (onCheckoutOpening) {
-        onCheckoutOpening();
+        throw new Error('No se pudo confirmar la activación del pago.');
+      } catch (err) {
+        if (onError) onError(err.message);
       }
+    });
 
-      const cleanCaptureUrl = checkout.captureUrl.endsWith('/') ? checkout.captureUrl : `${checkout.captureUrl}/`;
-      PWCheckout.OpenIframeCustom(
-        `${cleanCaptureUrl}?key=${encodeURIComponent(checkout.publicKey)}&session_id=${encodeURIComponent(checkout.uniqueId)}`,
-        checkout.uniqueId
-      );
-      return;
+    PWCheckout.Bind('closed', () => {
+      if (!isVerifying && onCheckoutClosed) {
+        onCheckoutClosed();
+      }
+    });
+
+    if (typeof PWCheckout.SetProperties === 'function') {
+      PWCheckout.SetProperties({
+        name: 'Etereas',
+        email: customerEmail || '',
+        button_label: order?.total_minor ? `Pagar ${formatOrderMoney(order.total_minor, order.currency || 'DOP')}` : 'Confirmar pago',
+        description: order?.order_number ? `Orden #${order.order_number}` : 'Suscripción Etereas',
+        currency: order?.currency || 'DOP',
+        amount: String(order?.total_minor || '0'),
+        lang: 'ESP',
+        form_id: 'etereas_saas_checkout_form',
+        checkout_card: '1',
+        session_id: checkout.uniqueId,
+        autoSubmit: 'false',
+      });
     }
 
-    if (checkout?.authorizeUrl && checkout?.sessionId) {
-      submitCardnetHostedPost(checkout);
-      return;
+    // Cerrar/desmontar cualquier modal previo antes de abrir CardNet para evitar superposición
+    if (onCheckoutOpening) {
+      onCheckoutOpening();
     }
 
-    throw new Error('Respuesta incompleta de CardNet al iniciar sesión.');
+    const cleanCaptureUrl = checkout.captureUrl.endsWith('/') ? checkout.captureUrl : `${checkout.captureUrl}/`;
+    PWCheckout.OpenIframeCustom(
+      `${cleanCaptureUrl}?key=${encodeURIComponent(checkout.publicKey)}&session_id=${encodeURIComponent(checkout.uniqueId)}`,
+      checkout.uniqueId
+    );
+    return;
   }
 
-  export default function SaasCheckoutPanel({
-    orders = [],
-    gatewayStatus = null,
-    onOrderUpdated,
-    initiateEndpointBuilder,
-    verifyEndpointBuilder,
-  }) {
-    const [busyOrderId, setBusyOrderId] = useState(null);
-    const [panelError, setPanelError] = useState(null);
-    const [missingReqs, setMissingReqs] = useState([]);
+  if (checkout?.authorizeUrl && checkout?.sessionId) {
+    submitCardnetHostedPost(checkout);
+    return;
+  }
 
-    const handlePayWithCardnet = async (order) => {
-      setBusyOrderId(order.id);
-      setPanelError(null);
-      setMissingReqs([]);
-      try {
-        const url = initiateEndpointBuilder
-          ? initiateEndpointBuilder(order)
-          : `/api/saas/billing/checkout/orders/${order.id}/initiate-cardnet`;
-        const res = await fetch(url, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          if (data?.requirements?.missingCredentials?.length) {
-            setMissingReqs(data.requirements.missingCredentials);
+  throw new Error('Respuesta incompleta de CardNet al iniciar sesión.');
+}
+
+export default function SaasCheckoutPanel({
+  orders = [],
+  gatewayStatus = null,
+  onOrderUpdated,
+  initiateEndpointBuilder,
+  verifyEndpointBuilder,
+}) {
+  const [busyOrderId, setBusyOrderId] = useState(null);
+  const [panelError, setPanelError] = useState(null);
+  const [missingReqs, setMissingReqs] = useState([]);
+
+  const handlePayWithCardnet = async (order) => {
+    setBusyOrderId(order.id);
+    setPanelError(null);
+    setMissingReqs([]);
+    try {
+      const url = initiateEndpointBuilder
+        ? initiateEndpointBuilder(order)
+        : `/api/saas/billing/checkout/orders/${order.id}/initiate-cardnet`;
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data?.requirements?.missingCredentials?.length) {
+          setMissingReqs(data.requirements.missingCredentials);
+        }
+        throw new Error(data.error || 'No se pudo iniciar el checkout con CardNet.');
+      }
+      await executeCardnetCheckout({
+        orderId: order.id,
+        order: data.order || order,
+        checkout: data.checkout,
+        onActivated: async (activatedData) => {
+          if (onOrderUpdated) {
+            await onOrderUpdated(activatedData);
           }
-          throw new Error(data.error || 'No se pudo iniciar el checkout con CardNet.');
-        }
-        await executeCardnetCheckout({
-          orderId: order.id,
-          checkout: data.checkout,
-          onActivated: async (activatedData) => {
-            if (onOrderUpdated) {
-              await onOrderUpdated(activatedData);
-            }
-            window.location.href = '/dashboard';
-          },
-          onError: (msg) => setPanelError(msg),
-        });
-      } catch (err) {
-        setPanelError(err.message);
-      } finally {
-        setBusyOrderId(null);
-      }
-    };
+          window.location.href = '/dashboard';
+        },
+        onError: (msg) => setPanelError(msg),
+      });
+    } catch (err) {
+      setPanelError(err.message);
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
 
-    const handleReconcile = async (order) => {
-      setBusyOrderId(order.id);
-      setPanelError(null);
-      try {
-        const url = verifyEndpointBuilder
-          ? verifyEndpointBuilder(order)
-          : `/api/saas/billing/checkout/orders/${order.id}/verify`;
-        const res = await fetch(url, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data.error || 'No se pudo verificar el estado de la orden.');
-        }
-        if (onOrderUpdated) {
-          await onOrderUpdated(data);
-        }
-      } catch (err) {
-        setPanelError(err.message);
-      } finally {
-        setBusyOrderId(null);
+  const handleReconcile = async (order) => {
+    setBusyOrderId(order.id);
+    setPanelError(null);
+    try {
+      const url = verifyEndpointBuilder
+        ? verifyEndpointBuilder(order)
+        : `/api/saas/billing/checkout/orders/${order.id}/verify`;
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo verificar el estado de la orden.');
       }
-    };
+      if (onOrderUpdated) {
+        await onOrderUpdated(data);
+      }
+    } catch (err) {
+      setPanelError(err.message);
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
 
-    return (
-      <div className="sb-card" style={{ marginTop: 16 }}>
-        <div className="sb-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <h3 className="sb-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ShieldCheck size={18} color="#2563eb" />
-              Checkout seguro con CardNet
-            </h3>
-            <p className="sb-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
-              Pago alojado en CardNet (3D Secure). Etereas no captura ni almacena los datos de tu tarjeta.
-            </p>
-          </div>
-          {gatewayStatus && (
-            <span className={`sb-badge ${gatewayStatus.configured ? 'sb-badge-active' : 'sb-badge-warning'}`}>
-              {gatewayStatus.configured
-                ? `CardNet ${gatewayStatus.environment === 'production' ? 'Producción' : 'Sandbox'} listo`
-                : 'Pendiente de credenciales CardNet'}
-            </span>
-          )}
+  return (
+    <div className="sb-card" style={{ marginTop: 16 }}>
+      <div className="sb-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <h3 className="sb-card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShieldCheck size={18} color="#2563eb" />
+            Checkout seguro con CardNet
+          </h3>
+          <p className="sb-muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+            Pago alojado en CardNet (3D Secure). Etereas no captura ni almacena los datos de tu tarjeta.
+          </p>
         </div>
+        {gatewayStatus && (
+          <span className={`sb-badge ${gatewayStatus.configured ? 'sb-badge-active' : 'sb-badge-warning'}`}>
+            {gatewayStatus.configured
+              ? `CardNet ${gatewayStatus.environment === 'production' ? 'Producción' : 'Sandbox'} listo`
+              : 'Pendiente de credenciales CardNet'}
+          </span>
+        )}
+      </div>
+
+      {panelError && (
+        <div className="sb-alert sb-alert-danger" style={{ margin: '12px 0' }}>
+          <AlertTriangle size={16} />
+          <div>
+            <div>{panelError}</div>
+            {missingReqs.length > 0 && (
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                Variables requeridas: {missingReqs.join(', ')}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
         {gatewayStatus?.environment === 'production' && (
           <div
@@ -270,35 +303,21 @@ export async function executeCardnetCheckout({
           </div>
         )}
 
-        {panelError && (
-          <div className="sb-alert sb-alert-danger" style={{ margin: '12px 0' }}>
-            <AlertTriangle size={16} />
-            <div>
-              <div>{panelError}</div>
-              {missingReqs.length > 0 && (
-                <div style={{ fontSize: 12, marginTop: 4 }}>
-                  Variables requeridas: {missingReqs.join(', ')}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+      {orders.length === 0 ? (
+        <p className="sb-muted" style={{ marginTop: 12, fontSize: 13 }}>
+          No hay órdenes de checkout registradas para esta cuenta.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          {orders.map((order) => {
+            const meta = ORDER_STATUS_META[order.status] || { label: order.status, badge: 'sb-badge-neutral' };
+            const isPayable = ['pending_payment', 'processing', 'unknown_timeout'].includes(order.status);
+            const canReconcile =
+              ['processing', 'unknown_timeout'].includes(order.status) ||
+              (order.status === 'approved' && !order.activated_at);
+            const isBusy = busyOrderId === order.id;
 
-        {orders.length === 0 ? (
-          <p className="sb-muted" style={{ marginTop: 12, fontSize: 13 }}>
-            No hay órdenes de checkout registradas para esta cuenta.
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
-            {orders.map((order) => {
-              const meta = ORDER_STATUS_META[order.status] || { label: order.status, badge: 'sb-badge-neutral' };
-              const isPayable = ['pending_payment', 'processing', 'unknown_timeout'].includes(order.status);
-              const canReconcile =
-                ['processing', 'unknown_timeout'].includes(order.status) ||
-                (order.status === 'approved' && !order.activated_at);
-              const isBusy = busyOrderId === order.id;
-
-              return (
+            return (
               <div
                 key={order.id}
                 style={{
@@ -321,30 +340,7 @@ export async function executeCardnetCheckout({
                       <span className="sb-badge sb-badge-warning">Pendiente de activar</span>
                     )}
                   </div>
-                  <div style={{ fontSize: 13, color: '#475569', marginTop: 6 }}>
-                    Plan Principal ({order.branches_count} sucursal{order.branches_count === 1 ? '' : 'es'})
-                    {order.extra_users_count > 0 ? ` · ${order.extra_users_count} usuario(s) extra` : ''}
-                    {order.memberships_addon_enabled ? ` · Add-on Membresías (${order.addon_branches_count} suc.)` : ''}
-                    {` · Mensual`}
-                  </div>
-                  {(() => {
-                    const fx = order.metadata?.fx_snapshot || null;
-                    const hasTax = Number(order.tax_minor || 0) > 0;
-                    return (
-                      <div style={{ fontSize: 13, color: '#0f172a', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        {fx?.usd?.total_minor && (
-                          <div style={{ color: '#475569', fontSize: 12 }}>
-                            Importe base: <strong>{formatOrderMoney(fx.usd.total_minor, 'USD')} USD</strong> · Tasa aplicada: <strong>RD${fx.rate_formatted || fx.rate} por US$1</strong>
-                          </div>
-                        )}
-                        <div style={{ fontWeight: 700 }}>
-                          Total a cobrar: {formatOrderMoney(order.total_minor, order.currency)} ({order.currency})
-                          {hasTax ? ` · Impuestos: ${formatOrderMoney(order.tax_minor, order.currency)}` : ''}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  {order.status === 'approved' && (
+            {order.status === 'approved' && (
                     <div style={{ fontSize: 12, color: '#15803d', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <CheckCircle2 size={14} />
                       <span>
@@ -367,40 +363,41 @@ export async function executeCardnetCheckout({
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {isPayable && (
-                      <button
-                        type="button"
-                        className="sb-btn-primary"
-                        disabled={isBusy}
-                        onClick={() => handlePayWithCardnet(order)}
-                      >
-                        <CreditCard size={15} />
-                        {isBusy
-                          ? 'Conectando...'
-                          : order.status === 'processing'
-                            ? 'Retomar pago CardNet'
-                            : 'Pagar con CardNet'}
-                        <ExternalLink size={13} />
-                      </button>
-                    )}
-                    {canReconcile && (
-                      <button
-                        type="button"
-                        className="sb-btn-secondary"
-                        disabled={isBusy}
-                        onClick={() => handleReconcile(order)}
-                      >
-                        <RefreshCw size={14} />
-                        {order.status === 'approved' ? 'Completar activación' : 'Conciliar estado'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {isPayable && (
+              <button
+                type="button"
+                className="sb-btn-primary"
+                disabled={isBusy}
+                onClick={() => handlePayWithCardnet(order)}
+              >
+                <CreditCard size={15} />
+                {isBusy
+                  ? 'Conectando...'
+                  : order.status === 'processing'
+                    ? 'Retomar pago CardNet'
+                    : 'Pagar con CardNet'}
+                <ExternalLink size={13} />
+              </button>
+            )}
+            {canReconcile && (
+              <button
+                type="button"
+                className="sb-btn-secondary"
+                disabled={isBusy}
+                onClick={() => handleReconcile(order)}
+              >
+                <RefreshCw size={14} />
+                {order.status === 'approved' ? 'Completar activación' : 'Conciliar estado'}
+              </button>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      );
+            })}
+    </div>
+  )
+}
+      </div >
     );
-  }
+}

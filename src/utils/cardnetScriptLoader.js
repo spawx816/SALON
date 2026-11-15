@@ -8,7 +8,7 @@ export const loadCardNetScript = (publicKey, captureUrl) => {
     if (window.PWCheckout) {
       const currentScript = document.querySelector('script[src*="PWCheckout.js"]');
       const isSessionProd = captureUrl.includes("servicios.cardnet.com.do") && !captureUrl.includes("labservicios");
-      const isScriptProd = currentScript && currentScript.src.includes("servicios.cardnet.com.do") && !currentScript.src.includes("labservicios");
+      const isScriptProd = currentScript && (currentScript.src.includes("tr-tsp.gtp-seglan.com") || (currentScript.src.includes("servicios.cardnet.com.do") && !currentScript.src.includes("labservicios")));
 
       // Si el script ya cargado coincide con el entorno actual, resolver
       if (isSessionProd === isScriptProd) {
@@ -20,10 +20,11 @@ export const loadCardNetScript = (publicKey, captureUrl) => {
       console.warn("[CARDNET SDK] Conflicto de entorno. Recargando la librería para el entorno correcto...");
     }
 
-    // Extraer URL base del SDK a partir de la URL de captura del backend
-    // Ejemplo captureUrl: "https://servicios.cardnet.com.do/servicios/tokens/v1/Capture"
-    // Queremos obtener: "https://servicios.cardnet.com.do/servicios/tokens/v1"
-    const baseUrl = captureUrl.split('/Capture')[0] || "https://labservicios.cardnet.com.do/servicios/tokens/v1";
+    // En producción CardNet requiere cargar PWCheckout.js desde su dominio oficial TR-TSP (tr-tsp.gtp-seglan.com)
+    const isProdCapture = captureUrl.includes("servicios.cardnet.com.do") && !captureUrl.includes("labservicios");
+    const baseUrl = isProdCapture
+      ? "https://tr-tsp.gtp-seglan.com/tr-tsp-mw-cardnet/v1"
+      : (captureUrl.split('/Capture')[0] || "https://labservicios.cardnet.com.do/servicios/tokens/v1");
     const scriptUrl = `${baseUrl}/Scripts/PWCheckout.js?key=${publicKey}`;
 
     console.log("[CARDNET SDK] Iniciando carga dinámica:", scriptUrl);
