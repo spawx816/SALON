@@ -271,7 +271,7 @@ export default function SaasCheckoutPanel({
           if (onOrderUpdated) {
             await onOrderUpdated(activatedData);
           }
-          window.location.href = '/dashboard';
+          window.location.href = '/';
         },
         onError: (msg) => setPanelError(msg),
       });

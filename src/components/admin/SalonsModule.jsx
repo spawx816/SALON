@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MapPin, Plus, Trash2, Building, ArrowRight, Sparkles, Phone, 
-  ExternalLink, Edit2, Users, DollarSign, CheckCircle2, Store, X, Save
+  ExternalLink, Edit2, Users, DollarSign, CheckCircle2, Store, X, Save,
+  CreditCard, ShieldCheck, AlertCircle, Calendar, Clock, RefreshCw, AlertTriangle
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
+import { executeCardnetCheckout } from '../saas/SaasCheckoutPanel';
 
 const SalonsModule = () => {
   const [salons, setSalons] = useState([]);
@@ -13,6 +15,17 @@ const SalonsModule = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingSalon, setEditingSalon] = useState(null);
   const [formData, setFormData] = useState({ name: '', address: '', phone: '', maps_url: '' });
+  
+  // Estado de cotización y contratación de sucursales adicionales
+  const [licensingStatus, setLicensingStatus] = useState(null);
+  const [quote, setQuote] = useState(null);
+  const [loadingQuote, setLoadingQuote] = useState(false);
+  const [quoteError, setQuoteError] = useState(null);
+  const [wantsMembershipsAddon, setWantsMembershipsAddon] = useState(false);
+  const [paymentMethodChoice, setPaymentMethodChoice] = useState('saved_card');
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+  const [checkoutVerifyingMsg, setCheckoutVerifyingMsg] = useState(null);
+
   const { showNotification } = useNotification();
 
   useEffect(() => {
@@ -22,8 +35,14 @@ const SalonsModule = () => {
   const loadSalons = async () => {
     setLoading(true);
     try {
-      const data = await dataService.getSalons();
-      setSalons(data || []);
+      const [salonsData, licensingData] = await Promise.all([
+        dataService.getSalons(),
+        dataService.getBranchLicensingStatus().catch(() => null)
+      ]);
+      setSalons(salonsData || []);
+      if (licensingData) {
+        setLicensingStatus(licensingData);
+      }
     } catch (e) {
       console.error('Error cargando sucursales:', e);
       showNotification('Error al cargar la lista de sucursales', 'error');
@@ -32,7 +51,31 @@ const SalonsModule = () => {
     }
   };
 
-  const openForm = (empresa = null) => {
+  const fetchQuote = useCallback(async (withAddon = false) => {
+    setLoadingQuote(true);
+    setQuoteError(null);
+    try {
+      const res = await dataService.quoteAddBranch({ wantsMembershipsAddon: withAddon });
+      setQuote(res.quote);
+      if (res.defaultPaymentMethod) {
+        setPaymentMethodChoice('saved_card');
+      } else {
+        setPaymentMethodChoice('cardnet');
+      }
+    } catch (err) {
+      console.error('Error al generar cotización:', err);
+      setQuoteError(err.message || 'Error al calcular la cotización de la sucursal.');
+    } finally {
+      setLoadingQuote(false);
+    }
+  }, []);
+
+  const openForm = async (empresa = null) => {
+    setQuoteError(null);
+    setWantsMembershipsAddon(false);
+    setSubmittingPayment(false);
+    setCheckoutVerifyingMsg(null);
+
     if (empresa) {
       setEditingSalon(empresa);
       setFormData({
@@ -41,34 +84,130 @@ const SalonsModule = () => {
         phone: empresa.phone || '',
         maps_url: empresa.maps_url || ''
       });
+      setShowModal(true);
     } else {
       setEditingSalon(null);
       setFormData({ name: '', address: '', phone: '', maps_url: '' });
+
+      // Consultar estado de licencias antes de abrir el modal
+      try {
+        const lic = await dataService.getBranchLicensingStatus();
+        setLicensingStatus(lic);
+        if (lic.canCreateWithoutPayment) {
+          setQuote(null);
+        } else {
+          await fetchQuote(false);
+        }
+      } catch (err) {
+        console.warn('No se pudo precargar licencias:', err.message);
+      }
+      setShowModal(true);
     }
-    setShowModal(true);
+  };
+
+  const handleToggleAddon = async (checked) => {
+    setWantsMembershipsAddon(checked);
+    await fetchQuote(checked);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      showNotification('El nombre de la empresa es obligatorio', 'warning');
+      showNotification('El nombre de la sucursal es obligatorio', 'warning');
       return;
     }
 
-    try {
-      if (editingSalon) {
+    // 1. Edición de sucursal existente
+    if (editingSalon) {
+      try {
         await dataService.updateSalon(editingSalon.id, formData);
         showNotification('Sucursal actualizada con éxito', 'success');
-      } else {
-        await dataService.saveSalon(formData);
-        showNotification('Nueva sucursal registrada con éxito', 'success');
+        setShowModal(false);
+        setFormData({ name: '', address: '', phone: '', maps_url: '' });
+        await loadSalons();
+      } catch (err) {
+        showNotification('Error al actualizar sucursal: ' + err.message, 'error');
       }
-      setShowModal(false);
-      setFormData({ name: '', address: '', phone: '', maps_url: '' });
-      await loadSalons();
-    } catch (err) {
-      showNotification('Error al guardar sucursal: ' + err.message, 'error');
+      return;
     }
+
+    // 2. Creación con licencia pagada ya disponible (sin cobro)
+    if (licensingStatus?.canCreateWithoutPayment || quote?.canCreateWithoutPayment) {
+      try {
+        const res = await dataService.contractBranch({
+          branchData: formData,
+          wantsMembershipsAddon: false,
+          paymentMethodChoice: 'saved_card'
+        });
+        showNotification(res.message || 'Sucursal activada con éxito sin costo adicional.', 'success');
+        setShowModal(false);
+        setFormData({ name: '', address: '', phone: '', maps_url: '' });
+        await loadSalons();
+      } catch (err) {
+        showNotification('Error al registrar sucursal: ' + err.message, 'error');
+      }
+      return;
+    }
+
+    // 3. Contratación pagada con cotización y confirmación personal del Owner
+    setSubmittingPayment(true);
+    try {
+      const res = await dataService.contractBranch({
+        branchData: formData,
+        wantsMembershipsAddon,
+        paymentMethodChoice
+      });
+
+      // Caso A: Cobro exitoso inmediato con tarjeta guardada
+      if (res.paid && res.activated) {
+        showNotification('¡Pago aprobado y sucursal activada con éxito!', 'success');
+        setShowModal(false);
+        setFormData({ name: '', address: '', phone: '', maps_url: '' });
+        await loadSalons();
+        return;
+      }
+
+      // Caso B: Requiere checkout interactivo en CardNet
+      if (res.needsCheckout && res.checkout && res.order) {
+        setCheckoutVerifyingMsg('Abriendo checkout seguro de CardNet...');
+        await executeCardnetCheckout({
+          orderId: res.order.id,
+          order: res.order,
+          checkout: res.checkout,
+          onVerifying: (msg) => setCheckoutVerifyingMsg(msg),
+          onActivated: async () => {
+            showNotification('¡Pago CardNet verificado y sucursal activada!', 'success');
+            setShowModal(false);
+            setFormData({ name: '', address: '', phone: '', maps_url: '' });
+            await loadSalons();
+          },
+          onError: (errMsg) => {
+            showNotification('Error en pago CardNet: ' + errMsg, 'error');
+            setSubmittingPayment(false);
+            setCheckoutVerifyingMsg(null);
+          },
+          onCheckoutClosed: () => {
+            setSubmittingPayment(false);
+            setCheckoutVerifyingMsg(null);
+            loadSalons();
+          }
+        });
+      }
+    } catch (err) {
+      showNotification('Error al procesar contratación: ' + err.message, 'error');
+      setSubmittingPayment(false);
+      setCheckoutVerifyingMsg(null);
+    }
+  };
+
+  const handleResumePendingBranch = (empresa) => {
+    openForm(null);
+    setFormData({
+      name: empresa.name || '',
+      address: empresa.address || '',
+      phone: empresa.phone || '',
+      maps_url: empresa.maps_url || ''
+    });
   };
 
   const handleDeleteSalon = async (empresa) => {
@@ -191,21 +330,39 @@ const SalonsModule = () => {
                   <Building size={22} />
                 </div>
                 
-                <span style={{ 
-                  background: '#f0fdf4', 
-                  color: '#166534', 
-                  border: '1px solid #bbf7d0', 
-                  padding: '0.25rem 0.65rem', 
-                  borderRadius: '99px', 
-                  fontSize: '0.68rem', 
-                  fontWeight: 800,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.3rem'
-                }}>
-                  <div style={{ width: '6px', height: '6px', background: '#22c55e', borderRadius: '50%' }}></div>
-                  OPERATIVA
-                </span>
+                {empresa.status === 'PendingPayment' || empresa.is_active === false ? (
+                  <span style={{ 
+                    background: '#fef3c7', 
+                    color: '#92400e', 
+                    border: '1px solid #fde68a', 
+                    padding: '0.25rem 0.65rem', 
+                    borderRadius: '99px', 
+                    fontSize: '0.68rem', 
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.3rem'
+                  }}>
+                    <div style={{ width: '6px', height: '6px', background: '#d97706', borderRadius: '50%' }}></div>
+                    PENDIENTE DE PAGO
+                  </span>
+                ) : (
+                  <span style={{ 
+                    background: '#f0fdf4', 
+                    color: '#166534', 
+                    border: '1px solid #bbf7d0', 
+                    padding: '0.25rem 0.65rem', 
+                    borderRadius: '99px', 
+                    fontSize: '0.68rem', 
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.3rem'
+                  }}>
+                    <div style={{ width: '6px', height: '6px', background: '#22c55e', borderRadius: '50%' }}></div>
+                    OPERATIVA
+                  </span>
+                )}
               </div>
 
               {/* Título y Dirección */}
@@ -260,6 +417,16 @@ const SalonsModule = () => {
               )}
 
               <div style={{ display: 'flex', gap: '0.4rem' }}>
+                {empresa.status === 'PendingPayment' && (
+                  <button 
+                    onClick={() => handleResumePendingBranch(empresa)}
+                    title="Completar pago de la sucursal"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: '#fffbeb', border: '1px solid #fcd34d', color: '#b45309', borderRadius: '8px', padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    <CreditCard size={13} /> Pagar
+                  </button>
+                )}
+
                 <button 
                   onClick={() => openForm(empresa)}
                   title="Editar Sucursal"
@@ -328,9 +495,10 @@ const SalonsModule = () => {
               backgroundColor: 'rgba(15, 23, 42, 0.65)', zIndex: 1000, 
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               backdropFilter: 'blur(5px)',
-              padding: '1rem'
+              padding: '1rem',
+              overflowY: 'auto'
             }}
-            onClick={() => setShowModal(false)}
+            onClick={() => !submittingPayment && setShowModal(false)}
           >
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
@@ -338,10 +506,11 @@ const SalonsModule = () => {
               exit={{ opacity: 0, scale: 0.95 }}
               className="surface-card"
               onClick={e => e.stopPropagation()}
-              style={{ width: '100%', maxWidth: '480px', borderRadius: '20px', padding: '2rem', position: 'relative' }}
+              style={{ width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '20px', padding: '2rem', position: 'relative' }}
             >
               <button 
                 onClick={() => setShowModal(false)} 
+                disabled={submittingPayment}
                 style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
               >
                 <X size={16} />
@@ -352,26 +521,38 @@ const SalonsModule = () => {
                   <Store size={22} />
                 </div>
                 <h3 style={{ fontWeight: 900, fontSize: '1.35rem', margin: '0 0 0.2rem 0' }}>
-                  {editingSalon ? 'Editar Sucursal' : 'Nueva Sucursal'}
+                  {editingSalon ? 'Editar Sucursal' : (licensingStatus?.canCreateWithoutPayment || quote?.canCreateWithoutPayment) ? 'Nueva Sucursal (Licencia Disponible)' : 'Contratar Nueva Sucursal'}
                 </h3>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: 0 }}>
-                  Configura los datos del punto de servicio para facturación y asignación de clientas.
+                  {editingSalon 
+                    ? 'Actualiza los datos del punto de servicio.' 
+                    : (licensingStatus?.canCreateWithoutPayment || quote?.canCreateWithoutPayment)
+                      ? 'Cuentas con una licencia pagada en tu suscripción. Activa tu nueva sede sin costo adicional.'
+                      : 'Contratación comercial de sucursal adicional con prorrateo canónico y cobro seguro CardNet.'}
                 </p>
               </div>
+
+              {checkoutVerifyingMsg && (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '12px 16px', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px', color: '#1e40af', fontSize: '13px', fontWeight: 600 }}>
+                  <RefreshCw size={16} className="sb-spin" />
+                  <span>{checkoutVerifyingMsg}</span>
+                </div>
+              )}
 
               <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                   <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase' }}>
-                    Nombre de la Sucursal
+                    Nombre de la Sucursal *
                   </label>
                   <input 
                     type="text" 
                     className="input-field" 
-                    placeholder="Ej: Empresa Bella Vista Norte"
+                    placeholder="Ej: Empresa Piantini Central"
                     value={formData.name}
                     onChange={e => setFormData({ ...formData, name: e.target.value })}
                     required
+                    disabled={submittingPayment}
                     style={{ borderRadius: '10px', padding: '0.65rem' }}
                   />
                 </div>
@@ -382,50 +563,245 @@ const SalonsModule = () => {
                   </label>
                   <textarea 
                     className="input-field" 
-                    placeholder="Av. San Vicente de Paúl, Plaza..."
+                    placeholder="Av. Gustavo Mejía Ricart, Plaza..."
                     value={formData.address}
                     onChange={e => setFormData({ ...formData, address: e.target.value })}
                     rows={2}
+                    disabled={submittingPayment}
                     style={{ borderRadius: '10px', padding: '0.65rem', resize: 'none' }}
                   />
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase' }}>
-                    Teléfono de Contacto
-                  </label>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    placeholder="Ej: 809-561-5000"
-                    value={formData.phone}
-                    onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                    style={{ borderRadius: '10px', padding: '0.65rem' }}
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase' }}>
+                      Teléfono
+                    </label>
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      placeholder="809-561-5000"
+                      value={formData.phone}
+                      onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                      disabled={submittingPayment}
+                      style={{ borderRadius: '10px', padding: '0.65rem' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase' }}>
+                      Google Maps (URL)
+                    </label>
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      placeholder="https://maps.app..."
+                      value={formData.maps_url}
+                      onChange={e => setFormData({ ...formData, maps_url: e.target.value })}
+                      disabled={submittingPayment}
+                      style={{ borderRadius: '10px', padding: '0.65rem' }}
+                    />
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase' }}>
-                    Enlace de Google Maps (URL)
-                  </label>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    placeholder="https://maps.app.goo.gl/..."
-                    value={formData.maps_url}
-                    onChange={e => setFormData({ ...formData, maps_url: e.target.value })}
-                    style={{ borderRadius: '10px', padding: '0.65rem' }}
-                  />
-                </div>
+                {/* Confirmación Comercial cuando NO es edición */}
+                {!editingSalon && (
+                  <>
+                    {(licensingStatus?.canCreateWithoutPayment || quote?.canCreateWithoutPayment) ? (
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '14px', padding: '14px 16px', color: '#166534', fontSize: '13px' }}>
+                        <div style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '14px' }}>
+                          <CheckCircle2 size={16} color="#16a34a" />
+                          <span>Licencia disponible ya pagada</span>
+                        </div>
+                        <p style={{ margin: 0, lineHeight: 1.4 }}>
+                          Tienes <strong>{licensingStatus?.availableLicenses || 1}</strong> licencia(s) de sucursal disponible(s) en tu suscripción. No se realizará ningún cobro adicional y la sede se activará de inmediato.
+                        </p>
+                      </div>
+                    ) : (
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>
+                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Building size={16} color="#2563eb" />
+                            Confirmación Comercial
+                          </h4>
+                          <span style={{ fontSize: '11px', fontWeight: 800, background: '#eff6ff', color: '#1d4ed8', padding: '2px 8px', borderRadius: '99px' }}>
+                            Prorrateo Canónico
+                          </span>
+                        </div>
 
-                <button 
-                  type="submit" 
-                  className="btn-primary" 
-                  style={{ width: '100%', marginTop: '0.5rem', padding: '0.85rem', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-                >
-                  <Save size={16} />
-                  <span>{editingSalon ? 'Guardar Cambios' : 'Registrar Sucursal'}</span>
-                </button>
+                        {loadingQuote ? (
+                          <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                            <RefreshCw size={16} className="sb-spin" />
+                            <span>Calculando cotización con tasa vigente...</span>
+                          </div>
+                        ) : quoteError ? (
+                          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '10px 14px', color: '#b91c1c', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <AlertTriangle size={16} />
+                            <span>{quoteError}</span>
+                          </div>
+                        ) : quote ? (
+                          <>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px' }}>
+                              <div>
+                                <span style={{ color: '#64748b' }}>Sucursales:</span>{' '}
+                                <strong>{quote.currentBranches} actuales → {quote.newBranchesCount} tras contratar</strong>
+                              </div>
+                              <div>
+                                <span style={{ color: '#64748b' }}>Precio mensual base:</span>{' '}
+                                <strong>US$ {Number(quote.branchMonthlyUsd).toFixed(2)}/mes</strong>
+                              </div>
+                              <div>
+                                <span style={{ color: '#64748b' }}>Usuarios incluidos:</span>{' '}
+                                <strong>+3 usuarios (+1 sucursal)</strong>
+                              </div>
+                              <div>
+                                <span style={{ color: '#64748b' }}>Vigencia ciclo:</span>{' '}
+                                <strong>{quote.remainingDays} días restantes</strong>
+                              </div>
+                            </div>
+
+                            {/* Add-on Membresías Opcional */}
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 12px', background: 'white', borderRadius: '10px', border: '1px solid #cbd5e1', cursor: 'pointer', fontSize: '12px', color: '#0f172a' }}>
+                              <input 
+                                type="checkbox"
+                                checked={wantsMembershipsAddon}
+                                onChange={e => handleToggleAddon(e.target.checked)}
+                                disabled={submittingPayment}
+                                style={{ marginTop: '2px' }}
+                              />
+                              <div>
+                                <strong>Contratar Add-on Suscripciones y Membresías B2C (+US$ 99.00/mes)</strong>
+                                <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>
+                                  Módulo para contratos digitales y cobros recurrentes de clientas. La implementación se cotiza por separado.
+                                </div>
+                              </div>
+                            </label>
+
+                            {/* Desglose Financiero */}
+                            <div style={{ background: '#0f172a', color: 'white', borderRadius: '12px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+                                <span>Importe USD a pagar ahora (prorrateado):</span>
+                                <strong style={{ color: 'white' }}>US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)}</strong>
+                              </div>
+                              {quote.fxRate && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+                                  <span>Tasa de cambio aplicada:</span>
+                                  <strong style={{ color: '#38bdf8' }}>RD$ {quote.fxRate.rateFormatted} por US$1</strong>
+                                </div>
+                              )}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+                                <span>Impuestos aplicables:</span>
+                                <strong style={{ color: 'white' }}>RD$ 0.00 (Exento B2B)</strong>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #334155', paddingTop: '8px', marginTop: '4px' }}>
+                                <span style={{ fontWeight: 800, fontSize: '13px', color: '#f8fafc' }}>Total exacto a cobrar hoy:</span>
+                                <span style={{ fontSize: '17px', fontWeight: 900, color: '#4ade80' }}>
+                                  RD$ {(Number(quote.totalDopMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+                                Nuevo total recurrente: <strong>US$ {Number(quote.nextMonthlyUsd).toFixed(2)}/mes</strong> · Próxima renovación: <strong>{new Date(quote.periodEnd).toLocaleDateString('es-DO')}</strong>
+                              </div>
+                            </div>
+
+                            {/* Método de Pago */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <label style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', color: '#475569' }}>
+                                Método de Pago
+                              </label>
+
+                              {licensingStatus?.defaultPaymentMethod ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', background: paymentMethodChoice === 'saved_card' ? '#eff6ff' : 'white' }}>
+                                    <input 
+                                      type="radio" 
+                                      name="pmChoice" 
+                                      value="saved_card" 
+                                      checked={paymentMethodChoice === 'saved_card'}
+                                      onChange={() => setPaymentMethodChoice('saved_card')}
+                                      disabled={submittingPayment}
+                                    />
+                                    <CreditCard size={15} color="#2563eb" />
+                                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                                      Tarjeta guardada: {licensingStatus.defaultPaymentMethod.brand} •••• {licensingStatus.defaultPaymentMethod.last4}
+                                    </span>
+                                  </label>
+
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', cursor: 'pointer', background: paymentMethodChoice === 'cardnet' ? '#eff6ff' : 'white' }}>
+                                    <input 
+                                      type="radio" 
+                                      name="pmChoice" 
+                                      value="cardnet" 
+                                      checked={paymentMethodChoice === 'cardnet'}
+                                      onChange={() => setPaymentMethodChoice('cardnet')}
+                                      disabled={submittingPayment}
+                                    />
+                                    <ShieldCheck size={15} color="#16a34a" />
+                                    <span style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a' }}>
+                                      Pagar con otra tarjeta vía CardNet (3D Secure)
+                                    </span>
+                                  </label>
+                                </div>
+                              ) : (
+                                <div style={{ padding: '8px 12px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '12px', color: '#475569', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <ShieldCheck size={16} color="#2563eb" />
+                                  <span>Pago seguro mediante pasarela CardNet (3D Secure). Se solicitará tu tarjeta en el checkout oficial.</span>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Botones de Acción */}
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button 
+                    type="button" 
+                    className="btn-secondary"
+                    onClick={() => setShowModal(false)}
+                    disabled={submittingPayment}
+                    style={{ flex: 1, padding: '0.85rem', borderRadius: '12px', fontSize: '0.88rem', fontWeight: 800, background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#334155', cursor: 'pointer' }}
+                  >
+                    Cancelar
+                  </button>
+
+                  <button 
+                    type="submit" 
+                    className="btn-primary" 
+                    disabled={submittingPayment || (!editingSalon && !licensingStatus?.canCreateWithoutPayment && !quote) || loadingQuote}
+                    style={{ flex: 2, padding: '0.85rem', borderRadius: '12px', fontSize: '0.88rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: 'pointer' }}
+                  >
+                    {submittingPayment ? (
+                      <>
+                        <RefreshCw size={16} className="sb-spin" />
+                        <span>Procesando...</span>
+                      </>
+                    ) : editingSalon ? (
+                      <>
+                        <Save size={16} />
+                        <span>Guardar Cambios</span>
+                      </>
+                    ) : (licensingStatus?.canCreateWithoutPayment || quote?.canCreateWithoutPayment) ? (
+                      <>
+                        <CheckCircle2 size={16} />
+                        <span>Activar sucursal (Sin costo adicional)</span>
+                      </>
+                    ) : quote ? (
+                      <>
+                        <CreditCard size={16} />
+                        <span>Continuar al pago (RD$ {(Number(quote.totalDopMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard size={16} />
+                        <span>Continuar</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </motion.div>
           </div>

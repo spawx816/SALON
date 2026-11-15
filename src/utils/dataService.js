@@ -1626,15 +1626,64 @@ export const dataService = {
     } catch { return []; }
   },
 
+  getBranchLicensingStatus: async () => {
+    const res = await fetch(`${API_URL}/salons/licensing-status`, { credentials: 'include' });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Error al consultar licencias de sucursales.');
+    }
+    return await res.json();
+  },
+
+  quoteAddBranch: async ({ wantsMembershipsAddon = false } = {}) => {
+    const res = await fetch(`${API_URL}/salons/quote-add-branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ wantsMembershipsAddon }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const err = new Error(data.error || 'Error al generar cotización de sucursal.');
+      err.code = data.code;
+      throw err;
+    }
+    return data;
+  },
+
+  contractBranch: async ({ branchData, wantsMembershipsAddon = false, paymentMethodChoice = 'saved_card' }) => {
+    const res = await fetch(`${API_URL}/salons/contract-branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ branchData, wantsMembershipsAddon, paymentMethodChoice }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const err = new Error(data.error || 'Error al contratar sucursal.');
+      err.code = data.code;
+      throw err;
+    }
+    return data;
+  },
+
   saveSalon: async (empresa) => {
-    try {
-      const res = await fetch(`${API_URL}/salons`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(empresa)
-      });
-      return await res.json();
-    } catch (e) { console.error(e); }
+    const res = await fetch(`${API_URL}/salons`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(empresa)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const err = new Error(data.error || 'Error al guardar sucursal');
+      err.code = data.code;
+      err.requiresCapacityContract = Boolean(data.requiresCapacityContract);
+      err.current = data.current;
+      err.maximum = data.maximum;
+      throw err;
+    }
+    return data;
   },
 
   updateSalon: async (id, empresa) => {

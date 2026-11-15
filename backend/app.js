@@ -572,7 +572,12 @@ function createApp(dependencies = {}) {
   }));
 
   app.use('/api/security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createSecurityRouter(pool));
-  app.use('/api/salons', rejectControlPlaneRoleOnTenantRoutes, createSalonsRouter(pool, { entitlementsService }));
+  app.use('/api/salons', rejectControlPlaneRoleOnTenantRoutes, createSalonsRouter(pool, {
+    entitlementsService,
+    saasCheckoutService,
+    billingRepo: saasBillingRepo,
+    fxRateService: saasFxRateService
+  }));
   app.use('/api/clients', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('clients'), createClientsRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders, entitlementsService }));
   app.use('/api/inventory', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createInventoryRouter({
     inventoryService,

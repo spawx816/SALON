@@ -14,7 +14,15 @@ class TenantSubscriptionRepository {
 
     if (this.pool) {
       const [rows] = await this.pool.query(
-        "SELECT * FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1",
+        `SELECT ts.*,
+                COALESCE(t.licensed_branches, t.max_branches, 1) as licensed_branches,
+                COALESCE(t.max_branches, t.licensed_branches, 1) as max_branches,
+                COALESCE(t.extra_user_seats, 0) as extra_user_seats,
+                COALESCE(t.max_users, 3) as max_users
+         FROM tenant_subscriptions ts
+         LEFT JOIN tenants t ON t.id = ts.tenant_id
+         WHERE ts.tenant_id = ?
+         LIMIT 1`,
         [tenantId]
       );
       if (rows && rows.length > 0) {
@@ -25,7 +33,12 @@ class TenantSubscriptionRepository {
       }
       // Fallback de retrocompatibilidad con tabla tenants
       const [tenantRows] = await this.pool.query(
-        "SELECT id, plan_id, status FROM tenants WHERE id = ? LIMIT 1",
+        `SELECT id, plan_id, status,
+                COALESCE(licensed_branches, max_branches, 1) as licensed_branches,
+                COALESCE(max_branches, licensed_branches, 1) as max_branches,
+                COALESCE(extra_user_seats, 0) as extra_user_seats,
+                COALESCE(max_users, 3) as max_users
+         FROM tenants WHERE id = ? LIMIT 1`,
         [tenantId]
       );
       if (tenantRows && tenantRows.length > 0) {
@@ -37,7 +50,11 @@ class TenantSubscriptionRepository {
           plan_code: SAAS_PLANS.PRINCIPAL,
           status: normalizedStatus,
           current_period_start: new Date(),
-          current_period_end: null
+          current_period_end: null,
+          licensed_branches: tenantRows[0].licensed_branches,
+          max_branches: tenantRows[0].max_branches,
+          extra_user_seats: tenantRows[0].extra_user_seats,
+          max_users: tenantRows[0].max_users
         };
       }
       return null;

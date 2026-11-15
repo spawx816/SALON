@@ -112,10 +112,25 @@ class EntitlementsService {
         };
       }
 
-      // Límites del plan
-      const planLimits = planCode && DEFAULT_PLAN_LIMITS[planCode]
-        ? { ...DEFAULT_PLAN_LIMITS[planCode] }
-        : { users: 0, branches: 0 };
+      // Límites del plan: derivados de suscripción y licencias contratadas
+      const defaultLimits = (planCode && DEFAULT_PLAN_LIMITS[planCode])
+        ? DEFAULT_PLAN_LIMITS[planCode]
+        : { users: 3, branches: 1 };
+
+      const licensedBranches = sub.licensed_branches !== undefined && sub.licensed_branches !== null
+        ? Number(sub.licensed_branches)
+        : (sub.max_branches !== undefined && sub.max_branches !== null ? Number(sub.max_branches) : defaultLimits.branches);
+
+      const extraSeats = Number(sub.extra_user_seats || 0);
+      const usersPerBranch = 3;
+      const calculatedMaxUsers = sub.max_users !== undefined && sub.max_users !== null
+        ? Number(sub.max_users)
+        : (licensedBranches * usersPerBranch) + extraSeats;
+
+      const planLimits = {
+        branches: Math.max(licensedBranches, defaultLimits.branches || 1),
+        users: Math.max(calculatedMaxUsers, defaultLimits.users || 3)
+      };
 
       // Sucursales activas del tenant (para resolución canónica de alcance por sucursal)
       const activeBranches = typeof this.entitlementsRepo?.findActiveBranchesByTenantId === 'function'

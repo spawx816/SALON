@@ -175,6 +175,405 @@ class SaasCheckoutService {
     };
   }
 
+  /**
+   * Cotiza de forma canónica y en backend la contratación de una sucursal adicional,
+   * aplicando la política matemática de prorrateo existente (ProrationEngine) y FX rate.
+   */
+  async calculateProratedBranchOrderAmounts({ tenantId, wantsMembershipsAddon = false, fxRate = null, effectiveAt = new Date() }) {
+    if (!tenantId) throw new Error('tenantId es requerido para cotizar sucursal adicional');
+
+    let periodStart = null;
+    let periodEnd = null;
+    let currentBranches = 1;
+    let licensedBranches = 1;
+
+    try {
+      const [subRows] = await this.pool.query(
+        `SELECT current_period_start, current_period_end FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1`,
+        [tenantId]
+      );
+      if (subRows[0]?.current_period_start) periodStart = new Date(subRows[0].current_period_start);
+      if (subRows[0]?.current_period_end) periodEnd = new Date(subRows[0].current_period_end);
+
+      const [tenantRows] = await this.pool.query(
+        `SELECT COALESCE(licensed_branches, max_branches, 1) as licensed_branches FROM tenants WHERE id = ? LIMIT 1`,
+        [tenantId]
+      );
+      if (tenantRows[0]) licensedBranches = Number(tenantRows[0].licensed_branches || 1);
+
+      const [branchCountRows] = await this.pool.query(
+        `SELECT COUNT(*)::int as total FROM branches WHERE tenant_id = ? AND is_active = true`,
+        [tenantId]
+      );
+      if (branchCountRows[0]) currentBranches = Number(branchCountRows[0].total ?? branchCountRows[0].count ?? 1);
+    } catch (_) {}
+
+    const availableLicenses = Math.max(0, licensedBranches - currentBranches);
+    const canCreateWithoutPayment = availableLicenses > 0;
+
+    const now = new Date(effectiveAt);
+    if (!periodStart || !periodEnd || isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime()) || periodEnd <= periodStart) {
+      periodStart = now;
+      periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    }
+
+    const totalDurationMs = BigInt(periodEnd.getTime() - periodStart.getTime());
+    let remainingMs = BigInt(Math.max(0, periodEnd.getTime() - now.getTime()));
+    if (remainingMs <= 0n || remainingMs > totalDurationMs) {
+      remainingMs = totalDurationMs;
+    }
+
+    const pricing = getConfiguredPricing();
+    const branchMonthlyUsd = Number(pricing?.principal?.usd ?? 99);
+    const addonMonthlyUsd = Number(pricing?.addons?.memberships?.usd ?? 99);
+
+    const branchMonthlyUsdMinor = BigInt(Math.round(branchMonthlyUsd * 100));
+    const addonMonthlyUsdMinor = BigInt(Math.round(addonMonthlyUsd * 100));
+
+    // Prorrateo determinista entero ceil (según ProrationEngine canónico)
+    const proratedBranchUsdMinor = canCreateWithoutPayment
+      ? 0n
+      : (totalDurationMs > 0n ? (branchMonthlyUsdMinor * remainingMs + totalDurationMs - 1n) / totalDurationMs : branchMonthlyUsdMinor);
+
+    const proratedAddonUsdMinor = (!canCreateWithoutPayment && wantsMembershipsAddon)
+      ? (totalDurationMs > 0n ? (addonMonthlyUsdMinor * remainingMs + totalDurationMs - 1n) / totalDurationMs : addonMonthlyUsdMinor)
+      : 0n;
+
+    const subtotalUsdMinor = proratedBranchUsdMinor + proratedAddonUsdMinor;
+    const taxUsdMinor = 0n;
+    const totalUsdMinor = subtotalUsdMinor + taxUsdMinor;
+
+    let rateObj = fxRate;
+    if (!rateObj && this.fxRateService) {
+      if (typeof this.fxRateService.requireCurrentRate === 'function') {
+        rateObj = await this.fxRateService.requireCurrentRate('USD_DOP');
+      } else if (typeof this.fxRateService.getEffectiveRate === 'function') {
+        rateObj = await this.fxRateService.getEffectiveRate('USD_DOP');
+      }
+    }
+    if (!rateObj && !canCreateWithoutPayment) {
+      const err = new Error('No hay una tasa de cambio USD → DOP válida configurada. El administrador debe configurarla antes de generar cobros.');
+      err.code = 'FX_RATE_NOT_CONFIGURED';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const rateVal = (typeof rateObj === 'object' && rateObj !== null)
+      ? (rateObj.rateFormatted ?? rateObj.rate_numeric ?? rateObj.rate)
+      : rateObj;
+    const parsedRate = rateVal ? parseAndScaleRate(rateVal) : { rateNumber: 1, rateStr: '1.0000', rateScaledBigInt: 10000n };
+    const branchDopMinor = convertUsdMinorToDopMinor(proratedBranchUsdMinor, parsedRate.rateScaledBigInt);
+    const addonDopMinor = convertUsdMinorToDopMinor(proratedAddonUsdMinor, parsedRate.rateScaledBigInt);
+    const subtotalDopMinor = branchDopMinor + addonDopMinor;
+    const taxDopMinor = 0n;
+    const totalDopMinor = subtotalDopMinor + taxDopMinor;
+
+    const remainingDays = Math.ceil(Number(remainingMs) / (1000 * 60 * 60 * 24));
+    const isProrated = remainingMs < totalDurationMs;
+    const nextMonthlyUsd = (currentBranches + 1) * branchMonthlyUsd + (wantsMembershipsAddon ? addonMonthlyUsd : 0);
+
+    const fxSnapshot = rateObj ? {
+      pair: rateObj.pair || 'USD_DOP',
+      rate: parsedRate.rateNumber,
+      rate_formatted: parsedRate.rateStr,
+      rate_scaled_10000: parsedRate.rateScaledBigInt.toString(),
+      rate_id: rateObj.id ?? null,
+      rate_updated_at: rateObj.updatedAt ?? rateObj.updated_at ?? null,
+      snapshot_at: new Date().toISOString(),
+      usd: {
+        currency: 'USD',
+        branches_minor: proratedBranchUsdMinor.toString(),
+        addon_minor: proratedAddonUsdMinor.toString(),
+        subtotal_minor: subtotalUsdMinor.toString(),
+        tax_minor: '0',
+        total_minor: totalUsdMinor.toString(),
+      },
+      dop: {
+        currency: 'DOP',
+        branches_minor: branchDopMinor.toString(),
+        addon_minor: addonDopMinor.toString(),
+        subtotal_minor: subtotalDopMinor.toString(),
+        tax_minor: '0',
+        total_minor: totalDopMinor.toString(),
+      },
+    } : null;
+
+    return {
+      currentBranches,
+      newBranchesCount: currentBranches + 1,
+      licensedBranches,
+      availableLicenses,
+      canCreateWithoutPayment,
+      usersIncludedPerBranch: 3,
+      branchMonthlyUsd,
+      wantsMembershipsAddon: Boolean(wantsMembershipsAddon),
+      addonMonthlyUsd,
+      remainingDays,
+      isProrated,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      proratedBranchUsdMinor: proratedBranchUsdMinor.toString(),
+      proratedAddonUsdMinor: proratedAddonUsdMinor.toString(),
+      subtotalUsdMinor: subtotalUsdMinor.toString(),
+      taxUsdMinor: taxUsdMinor.toString(),
+      totalUsdMinor: totalUsdMinor.toString(),
+      branchDopMinor: branchDopMinor.toString(),
+      addonDopMinor: addonDopMinor.toString(),
+      subtotalDopMinor: subtotalDopMinor.toString(),
+      taxDopMinor: taxDopMinor.toString(),
+      totalDopMinor: totalDopMinor.toString(),
+      nextMonthlyUsd,
+      fxSnapshot,
+      fxRate: rateObj ? {
+        pair: rateObj.pair || 'USD_DOP',
+        rate: parsedRate.rateNumber,
+        rateFormatted: parsedRate.rateStr,
+      } : null,
+    };
+  }
+
+  /**
+   * Crea orden de checkout para una nueva sucursal y la registra como pendiente en branches.
+   */
+  async createAddBranchOrder({ tenantId, branchData, wantsMembershipsAddon = false, actorUserId = null, clientIp = null }) {
+    if (!tenantId) throw new Error('Contexto de empresa requerido.');
+    if (!branchData || !branchData.name || !String(branchData.name).trim()) {
+      const err = new Error('El nombre de la sucursal es obligatorio.');
+      err.code = 'BRANCH_NAME_REQUIRED';
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const calc = await this.calculateProratedBranchOrderAmounts({ tenantId, wantsMembershipsAddon });
+    if (calc.canCreateWithoutPayment) {
+      return { canCreateWithoutPayment: true, quote: calc };
+    }
+
+    // Reusar orden pendiente reciente (evitar duplicados por doble clic)
+    const [existingPending] = await this.pool.query(
+      `SELECT * FROM saas_checkout_orders
+       WHERE tenant_id = ? AND source = 'branch_addon' AND status = 'pending_payment' AND expires_at > NOW()
+         AND (metadata->'branch_data'->>'name') = ?
+       ORDER BY created_at DESC LIMIT 1`,
+      [tenantId, branchData.name.trim()]
+    );
+    if (existingPending.length > 0) {
+      const existing = existingPending[0];
+      const meta = existing.metadata || {};
+      return {
+        canCreateWithoutPayment: false,
+        branchId: meta.branch_id,
+        order: sanitizeOrderForClient(existing),
+        quote: calc,
+      };
+    }
+
+    const branchId = crypto.randomUUID();
+    const orderNumber = generateOrderNumber();
+    const orderId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+    // 1. Guardar la nueva sucursal pendiente (fuera de operación hasta confirmar pago)
+    await this.pool.query(
+      `INSERT INTO branches (id, tenant_id, name, address, phone, is_main, is_active)
+       VALUES (?, ?, ?, ?, ?, false, false)`,
+      [branchId, tenantId, branchData.name.trim(), branchData.address || '', branchData.phone || '']
+    );
+    await this.pool.query(
+      `INSERT INTO salons (id, tenant_id, name, address, phone, status)
+       VALUES (?, ?, ?, ?, ?, 'PendingPayment')`,
+      [branchId, tenantId, branchData.name.trim(), branchData.address || '', branchData.phone || '']
+    );
+
+    // 2. Guardar orden con snapshot exacto
+    const metadata = {
+      type: 'add_branch',
+      branch_id: branchId,
+      branch_data: {
+        name: branchData.name.trim(),
+        address: branchData.address || '',
+        phone: branchData.phone || '',
+        maps_url: branchData.maps_url || '',
+      },
+      wants_memberships_addon: Boolean(wantsMembershipsAddon),
+      fx_snapshot: calc.fxSnapshot,
+      proration: {
+        remainingDays: calc.remainingDays,
+        isProrated: calc.isProrated,
+        periodStart: calc.periodStart,
+        periodEnd: calc.periodEnd,
+      },
+      pricing: {
+        branchMonthlyUsd: calc.branchMonthlyUsd,
+        addonMonthlyUsd: calc.addonMonthlyUsd,
+        nextMonthlyUsd: calc.nextMonthlyUsd,
+      },
+    };
+
+    const [rows] = await this.pool.query(
+      `INSERT INTO saas_checkout_orders (
+         id, tenant_id, order_number, status, currency, subtotal_minor, tax_minor, total_minor,
+         plan_code, billing_cycle, branches_count, extra_users_count, memberships_addon_enabled,
+         created_by_user_id, source, expires_at, metadata
+       )
+       VALUES (?, ?, ?, ?, 'DOP', ?, 0, ?, ?, 'monthly', 1, 0, ?, ?, 'branch_addon', ?, ?::jsonb)
+       RETURNING *`,
+      [
+        orderId,
+        tenantId,
+        orderNumber,
+        ORDER_STATUS.PENDING_PAYMENT,
+        calc.totalDopMinor,
+        calc.totalDopMinor,
+        SAAS_PLANS.PRINCIPAL,
+        Boolean(wantsMembershipsAddon),
+        actorUserId,
+        expiresAt.toISOString(),
+        JSON.stringify(metadata),
+      ]
+    );
+
+    const orderRecord = rows[0] || {
+      id: orderId,
+      order_number: orderNumber,
+      tenant_id: tenantId,
+      status: ORDER_STATUS.PENDING_PAYMENT,
+      currency: 'DOP',
+      subtotal_minor: calc.totalDopMinor,
+      total_minor: calc.totalDopMinor,
+      plan_code: SAAS_PLANS.PRINCIPAL,
+      billing_cycle: 'monthly',
+      branches_count: 1,
+      extra_users_count: 0,
+      memberships_addon_enabled: Boolean(wantsMembershipsAddon),
+      created_by_user_id: actorUserId,
+      source: 'branch_addon',
+      expires_at: expiresAt.toISOString(),
+      metadata,
+    };
+
+    return {
+      canCreateWithoutPayment: false,
+      branchId,
+      order: sanitizeOrderForClient(orderRecord),
+      quote: calc,
+    };
+  }
+
+  /**
+   * Ejecuta el cobro directo de una orden de sucursal con el método de pago guardado autorizado.
+   */
+  async payAddBranchWithSavedMethod({ orderId, tenantId, actorUserId = null, clientIp = null }) {
+    const [rows] = await this.pool.query(
+      `SELECT * FROM saas_checkout_orders WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [orderId, tenantId]
+    );
+    if (!rows.length) {
+      const err = new Error('Orden de contratación no encontrada.');
+      err.code = 'ORDER_NOT_FOUND';
+      err.statusCode = 404;
+      throw err;
+    }
+    const order = rows[0];
+
+    // Idempotencia: si ya está aprobada y activada, no volver a cobrar
+    if (order.status === ORDER_STATUS.APPROVED && order.activated_at) {
+      return { order: sanitizeOrderForClient(order), activated: true, alreadyProcessed: true };
+    }
+
+    if (!this.billingRepo || typeof this.billingRepo.getDefaultPaymentMethod !== 'function') {
+      const err = new Error('No hay método de pago configurado.');
+      err.code = 'NO_PAYMENT_METHOD';
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const defaultPm = await this.billingRepo.getDefaultPaymentMethod(tenantId);
+    if (!defaultPm || !defaultPm.token_reference) {
+      const err = new Error('No se encontró una tarjeta guardada reutilizable autorizada.');
+      err.code = 'NO_SAVED_CARD';
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (!this.tokenizationProvider || typeof this.tokenizationProvider.purchaseWithToken !== 'function') {
+      const err = new Error('Proveedor de tokenización CardNet no disponible.');
+      err.code = 'PROVIDER_UNAVAILABLE';
+      err.statusCode = 502;
+      throw err;
+    }
+
+    const meta = typeof order.metadata === 'object' && order.metadata ? order.metadata : {};
+    const branchName = meta.branch_data?.name || 'Sucursal adicional';
+
+    const purchase = await this.tokenizationProvider.purchaseWithToken({
+      trxToken: defaultPm.token_reference,
+      orderNumber: order.order_number,
+      totalMinor: order.total_minor,
+      currency: 'DOP',
+      description: `Pago sucursal adicional: ${branchName} (#${order.order_number})`,
+      clientIp,
+    });
+
+    const isApproved = Boolean(purchase.approved || purchase.outcome === 'approved' || purchase.status === 'approved');
+    if (isApproved) {
+      const maskedCard = defaultPm.brand && defaultPm.last4
+        ? `${defaultPm.brand} ****${defaultPm.last4}`
+        : (purchase.maskedCard || null);
+
+      await this.pool.query(
+        `UPDATE saas_checkout_orders
+         SET status = ?, paid_at = COALESCE(paid_at, NOW()),
+             cardnet_authorization_code = ?, cardnet_reference = ?,
+             cardnet_response_code = ?, cardnet_response_message = ?,
+             masked_card = COALESCE(?, masked_card),
+             last_error = NULL, updated_at = NOW()
+         WHERE id = ? AND tenant_id = ?`,
+        [
+          ORDER_STATUS.APPROVED,
+          purchase.authorizationCode,
+          purchase.reference,
+          purchase.responseCode,
+          purchase.message,
+          maskedCard,
+          order.id,
+          tenantId,
+        ]
+      );
+
+      const [paidRows] = await this.pool.query('SELECT * FROM saas_checkout_orders WHERE id = ? LIMIT 1', [order.id]);
+      return this._activateAfterPayment(paidRows[0], actorUserId);
+    }
+
+    const isDeclined = purchase.outcome === 'declined' || purchase.status === 'declined' || (!isApproved && !purchase.pending);
+    if (isDeclined) {
+      await this.pool.query(
+        `UPDATE saas_checkout_orders
+         SET status = ?, last_error = ?, cardnet_response_code = ?,
+             cardnet_response_message = ?, updated_at = NOW()
+         WHERE id = ? AND tenant_id = ?`,
+        [ORDER_STATUS.DECLINED, purchase.message, purchase.responseCode, purchase.message, order.id, tenantId]
+      );
+      const err = new Error(purchase.message || 'Tarjeta declinada por la entidad emisora.');
+      err.code = 'PAYMENT_DECLINED';
+      err.responseCode = purchase.responseCode;
+      err.statusCode = 402;
+      throw err;
+    }
+
+    // unknown_timeout
+    await this.pool.query(
+      `UPDATE saas_checkout_orders
+       SET status = ?, last_error = ?, cardnet_response_code = ?, updated_at = NOW()
+       WHERE id = ? AND tenant_id = ?`,
+      [ORDER_STATUS.UNKNOWN_TIMEOUT, purchase.message, purchase.responseCode, order.id, tenantId]
+    );
+    const err = new Error(purchase.message || 'Respuesta incierta de CardNet. Se requiere conciliación.');
+    err.code = 'PAYMENT_UNKNOWN_TIMEOUT';
+    err.statusCode = 504;
+    throw err;
+  }
+
   async createOrder({
     tenantId,
     actorUserId = null,
@@ -881,42 +1280,93 @@ class SaasCheckoutService {
 
   async _activateAfterPayment(order, actorUserId = null) {
     try {
-      // 1. Activar suscripción principal del tenant en PostgreSQL / lifecycleService
-      if (this.lifecycleService && typeof this.lifecycleService.activateOrRenewAfterPayment === 'function') {
-        await this.lifecycleService.activateOrRenewAfterPayment({
-          tenantId: order.tenant_id,
-          planCode: order.plan_code || SAAS_PLANS.PRINCIPAL,
-          branchesCount: order.branches_count,
-          extraUsersCount: order.extra_users_count,
-          orderNumber: order.order_number,
-          actorId: actorUserId || order.created_by_user_id || 'cardnet_checkout',
-        });
-      } else {
-        await this.pool.query(
-          `UPDATE tenant_subscriptions
-           SET plan_code = ?, status = 'active',
-               current_period_start = COALESCE(current_period_start, NOW()),
-               current_period_end = NOW() + INTERVAL '30 days',
-               updated_at = NOW()
-           WHERE tenant_id = ?`,
-          [order.plan_code || SAAS_PLANS.PRINCIPAL, order.tenant_id]
-        );
+      // 0. Si ya estaba activada, respuesta idempotente estricta sin duplicar recursos
+      if (order.activated_at) {
+        return {
+          order: sanitizeOrderForClient(order),
+          activated: true,
+          alreadyProcessed: true,
+        };
       }
 
-      // 1b. Activar estado del tenant en plataforma (desbloquea el acceso operativo tras pago verificado)
-      await this.pool.query(
-        `UPDATE tenants SET status = 'active' WHERE id = ? AND status = 'pending'`,
-        [order.tenant_id]
-      );
+      const meta = typeof order.metadata === 'object' && order.metadata ? order.metadata : {};
+      const isAddBranch = meta.type === 'add_branch';
 
-      // 2. Si contrató el add-on Suscripciones/Membresías B2C, activarlo de forma canónica
-      if (order.memberships_addon_enabled && this.entitlementsService) {
-        await this.entitlementsService.setAddonStatus(order.tenant_id, SAAS_ADDONS.MEMBERSHIPS, {
-          enabled: true,
-          source: 'commercial_addon',
-          reason: `Activado tras pago verificado en CardNet (Orden ${order.order_number})`,
-          actorId: actorUserId || order.created_by_user_id || 'cardnet_checkout',
-        });
+      if (isAddBranch) {
+        // A1. Activar la sucursal creada o pendiente en branches y salons
+        if (meta.branch_id) {
+          await this.pool.query(
+            `UPDATE branches SET is_active = true WHERE id::text = ? AND tenant_id = ?`,
+            [String(meta.branch_id), order.tenant_id]
+          );
+          await this.pool.query(
+            `UPDATE salons SET status = 'Active' WHERE id::text = ? AND tenant_id = ?`,
+            [String(meta.branch_id), order.tenant_id]
+          );
+        }
+
+        // A2. Incrementar licencias en tenants: +1 sucursal, +3 usuarios
+        await this.pool.query(
+          `UPDATE tenants
+           SET licensed_branches = COALESCE(licensed_branches, max_branches, 1) + 1,
+               max_branches = COALESCE(max_branches, licensed_branches, 1) + 1,
+               max_users = COALESCE(max_users, 3) + 3,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [order.tenant_id]
+        );
+
+        // A3. Si contrató el add-on Membresías para esta sucursal, activarlo de forma canónica
+        if (meta.wants_memberships_addon && this.entitlementsService) {
+          await this.entitlementsService.setAddonStatus(order.tenant_id, SAAS_ADDONS.MEMBERSHIPS, {
+            enabled: true,
+            source: 'commercial_addon',
+            reason: `Add-on contratado con sucursal ${meta.branch_data?.name || ''} (Orden ${order.order_number})`,
+            actorId: actorUserId || order.created_by_user_id || 'cardnet_checkout',
+          });
+        }
+
+        if (this.entitlementsService && typeof this.entitlementsService.invalidateTenantCache === 'function') {
+          this.entitlementsService.invalidateTenantCache(order.tenant_id);
+        }
+      } else {
+        // Flujo estándar de activación de suscripción de plan principal
+        if (this.lifecycleService && typeof this.lifecycleService.activateOrRenewAfterPayment === 'function') {
+          await this.lifecycleService.activateOrRenewAfterPayment({
+            tenantId: order.tenant_id,
+            planCode: order.plan_code || SAAS_PLANS.PRINCIPAL,
+            branchesCount: order.branches_count,
+            extraUsersCount: order.extra_users_count,
+            orderNumber: order.order_number,
+            actorId: actorUserId || order.created_by_user_id || 'cardnet_checkout',
+          });
+        } else {
+          await this.pool.query(
+            `UPDATE tenant_subscriptions
+             SET plan_code = ?, status = 'active',
+                 current_period_start = COALESCE(current_period_start, NOW()),
+                 current_period_end = NOW() + INTERVAL '30 days',
+                 updated_at = NOW()
+             WHERE tenant_id = ?`,
+            [order.plan_code || SAAS_PLANS.PRINCIPAL, order.tenant_id]
+          );
+        }
+
+        // 1b. Activar estado del tenant en plataforma (desbloquea el acceso operativo tras pago verificado)
+        await this.pool.query(
+          `UPDATE tenants SET status = 'active' WHERE id = ? AND status = 'pending'`,
+          [order.tenant_id]
+        );
+
+        // 2. Si contrató el add-on Suscripciones/Membresías B2C, activarlo de forma canónica
+        if (order.memberships_addon_enabled && this.entitlementsService) {
+          await this.entitlementsService.setAddonStatus(order.tenant_id, SAAS_ADDONS.MEMBERSHIPS, {
+            enabled: true,
+            source: 'commercial_addon',
+            reason: `Activado tras pago verificado en CardNet (Orden ${order.order_number})`,
+            actorId: actorUserId || order.created_by_user_id || 'cardnet_checkout',
+          });
+        }
       }
 
       // 3. Conciliar método de pago, factura comercial SaaS y registro de pago (idempotente, usando snapshot de la orden)
@@ -1086,17 +1536,25 @@ class SaasCheckoutService {
         // Fallback a fechas derivadas de la orden
       }
 
-      const branches = Number(order.branches_count || 1);
-      const extraUsers = Number(order.extra_users_count || 0);
-      const parts = [`Plan Principal (${branches} ${branches === 1 ? 'sucursal' : 'sucursales'})`];
-      if (extraUsers > 0) parts.push(`${extraUsers} usuario${extraUsers === 1 ? '' : 's'} adicional${extraUsers === 1 ? '' : 'es'}`);
-      if (order.memberships_addon_enabled) parts.push('Add-on Membresías B2C');
-
       const meta = typeof order.metadata === 'object' && order.metadata ? order.metadata : {};
       const fx = meta.fx_snapshot || null;
-      const itemDesc = fx?.rate_formatted
-        ? `${parts.join(' + ')} · Orden #${order.order_number} (Tasa ${fx.rate_formatted})`
-        : `${parts.join(' + ')} · Orden #${order.order_number}`;
+
+      let itemDesc = '';
+      if (meta.type === 'add_branch') {
+        const branchName = meta.branch_data?.name || 'Sucursal adicional';
+        const addonText = meta.wants_memberships_addon ? ' + Add-on Membresías B2C' : '';
+        const prorationText = meta.proration?.isProrated ? ` (Prorrateo ${meta.proration.remainingDays} días)` : '';
+        itemDesc = `Sucursal adicional "${branchName}" (+3 usuarios)${addonText}${prorationText} · Orden #${order.order_number}${fx?.rate_formatted ? ` (Tasa ${fx.rate_formatted})` : ''}`;
+      } else {
+        const branches = Number(order.branches_count || 1);
+        const extraUsers = Number(order.extra_users_count || 0);
+        const parts = [`Plan Principal (${branches} ${branches === 1 ? 'sucursal' : 'sucursales'})`];
+        if (extraUsers > 0) parts.push(`${extraUsers} usuario${extraUsers === 1 ? '' : 's'} adicional${extraUsers === 1 ? '' : 'es'}`);
+        if (order.memberships_addon_enabled) parts.push('Add-on Membresías B2C');
+        itemDesc = fx?.rate_formatted
+          ? `${parts.join(' + ')} · Orden #${order.order_number} (Tasa ${fx.rate_formatted})`
+          : `${parts.join(' + ')} · Orden #${order.order_number}`;
+      }
 
       invoice = await this.billingRepo.createInvoice(
         {
