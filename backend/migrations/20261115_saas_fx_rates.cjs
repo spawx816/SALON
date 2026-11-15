@@ -18,7 +18,7 @@ async function up(targetPool = defaultPool, targetSchema = 'public') {
         pair VARCHAR(16) NOT NULL UNIQUE,
         rate NUMERIC(14, 4) NOT NULL CHECK (rate > 0),
         rate_scaled_10000 BIGINT NOT NULL CHECK (rate_scaled_10000 > 0),
-        updated_by_user_id INTEGER,
+        updated_by_user_id VARCHAR(100),
         updated_by_email VARCHAR(255),
         reason TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -34,7 +34,7 @@ async function up(targetPool = defaultPool, targetSchema = 'public') {
         new_rate NUMERIC(14, 4) NOT NULL CHECK (new_rate > 0),
         previous_rate_scaled_10000 BIGINT,
         new_rate_scaled_10000 BIGINT NOT NULL CHECK (new_rate_scaled_10000 > 0),
-        actor_user_id INTEGER,
+        actor_user_id VARCHAR(100),
         actor_email VARCHAR(255),
         reason TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
