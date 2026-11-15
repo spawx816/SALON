@@ -1,7 +1,7 @@
 const express = require('express');
 
 /**
- * Commissions router module for Salon Pro & Plan Beauty RD (Scoped strictly by tenant_id)
+ * Commissions router module for Empresa Pro & Plan Beauty RD (Scoped strictly by tenant_id)
  */
 function createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions = null) {
   const router = express.Router();

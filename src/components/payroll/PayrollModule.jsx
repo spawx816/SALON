@@ -722,7 +722,7 @@ export default function PayrollModule({ initialTab }) {
     det.conceptos_descuentos = [
       { id: 'd1', label: d1Prev?.label || 'TSS (Ley 5.91%)', monto: tss },
       ...(dIsr ? [dIsr] : []),
-      { id: 'd2', label: 'Servicios de Salón', monto: serv },
+      { id: 'd2', label: 'Servicios de Empresa', monto: serv },
       { id: 'd3', label: 'Préstamos / Adelantos', monto: prest },
       { id: 'd4', label: 'Ausencias', monto: aus },
       { id: 'd5', label: tard > 0 ? (d5Prev?.label && d5Prev.label.includes('(') ? d5Prev.label : 'Tardanzas') : 'Tardanzas', monto: tard },
@@ -1268,7 +1268,7 @@ export default function PayrollModule({ initialTab }) {
 
     const descuentosBreakdown = [
       { label: 'TSS (Seguro/AFP 5.91%)', monto: totTss, color: '#ef4444' },
-      { label: 'Servicios de salón', monto: totServicios, color: '#f97316' },
+      { label: 'Servicios de empresa', monto: totServicios, color: '#f97316' },
       { label: 'Préstamos y Anticipos', monto: totPrestamos, color: '#f59e0b' },
       { label: 'Ausencias', monto: totAusencias, color: '#e11d48' },
       { label: 'Tardanzas', monto: totTardanzas, color: '#db2777' },
@@ -1352,7 +1352,7 @@ export default function PayrollModule({ initialTab }) {
               <thead><tr><th>DESCUENTOS</th><th style="text-align: right;">MONTO (RD$)</th></tr></thead>
               <tbody>
                 <tr><td>TSS (AFP 2.87% + SFS 3.04%)</td><td style="text-align: right;">${parseFloat(item.tss).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr><td>Servicios / Consumos Salón</td><td style="text-align: right;">${parseFloat(item.servicios).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Servicios / Consumos Empresa</td><td style="text-align: right;">${parseFloat(item.servicios).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Préstamos y Anticipos</td><td style="text-align: right;">${parseFloat(item.prestamos).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Ausencias</td><td style="text-align: right;">${parseFloat(item.ausencias).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Tardanzas</td><td style="text-align: right;">${parseFloat(item.tardanzas).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
@@ -2979,7 +2979,7 @@ export default function PayrollModule({ initialTab }) {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                         {[
                           { label: 'TSS (AFP 2.87% + SFS 3.04%)', key: 'tss' },
-                          { label: 'Servicios de salón consumidos', key: 'servicios' },
+                          { label: 'Servicios de empresa consumidos', key: 'servicios' },
                           { label: 'Préstamos y Anticipos', key: 'prestamos' },
                           { label: 'Ausencias no justificadas', key: 'ausencias' },
                           { label: 'Tardanzas', key: 'tardanzas' },
@@ -3195,7 +3195,7 @@ export default function PayrollModule({ initialTab }) {
                                   {field.key === 'servicios' && (
                                     <div>
                                       <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
-                                        Desglose de consumos y servicios de salón:
+                                        Desglose de consumos y servicios de empresa:
                                       </div>
                                       {breakdownItems.length > 0 ? (
                                         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
@@ -4491,7 +4491,7 @@ export default function PayrollModule({ initialTab }) {
 
                 <div style={{ background: '#f0f7ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '1rem', fontSize: '0.825rem', color: '#1e40af' }}>
                   <Info size={16} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'text-bottom' }} />
-                  El sistema calculará automáticamente para cada empleado: salarios fijos proporcionales, comisiones del período, horas extras, feriados, TSS legal (5.91%), préstamos y consumos de salón.
+                  El sistema calculará automáticamente para cada empleado: salarios fijos proporcionales, comisiones del período, horas extras, feriados, TSS legal (5.91%), préstamos y consumos de empresa.
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>

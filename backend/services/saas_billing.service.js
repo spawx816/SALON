@@ -203,7 +203,7 @@ class SaasBillingService {
     if (!sub) throw new Error('Suscripción no encontrada');
 
     if (sub.plan_code === newPlan) {
-      throw new Error(`El salón ya se encuentra en Plan ${newPlan}`);
+      throw new Error(`La empresa ya se encuentra en Plan ${newPlan}`);
     }
 
     const currency = sub.currency || 'DOP';

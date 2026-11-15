@@ -111,7 +111,7 @@ export default function TenantCustomizationModule() {
   const contrastSurface = useMemo(() => calculateContrast(formData.text_color, formData.surface_color), [formData.text_color, formData.surface_color]);
   const minContrast = Math.min(contrastBg, contrastSurface);
 
-  // Cargar lista de salones si es SuperAdmin
+  // Cargar lista de empresas si es SuperAdmin
   useEffect(() => {
     if (isSuperAdmin) {
       fetch('/api/saas/tenants')
@@ -232,7 +232,7 @@ export default function TenantCustomizationModule() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.business_name.trim()) {
-      showNotification('El nombre comercial del salón es obligatorio.', 'error');
+      showNotification('El nombre comercial de la empresa es obligatorio.', 'error');
       return;
     }
 
@@ -303,7 +303,7 @@ export default function TenantCustomizationModule() {
 
       setFormData(prev => ({ ...prev, logo_url: finalLogoUrl }));
       setSaveSuccess(true);
-      showNotification('¡Personalización y colores del salón actualizados exitosamente!', 'success');
+      showNotification('¡Personalización y colores de la empresa actualizados exitosamente!', 'success');
       setTimeout(() => setSaveSuccess(false), 4000);
     } catch (err) {
       console.error('Error al guardar personalización:', err);
@@ -348,7 +348,7 @@ export default function TenantCustomizationModule() {
             </span>
           </div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: '800', margin: 0, color: '#ffffff' }}>
-            Personalización de tu Salón
+            Personalización de tu empresa
           </h1>
           <p style={{ margin: '0.4rem 0 0', color: '#cbd5e1', fontSize: '0.9rem', maxWidth: '650px', lineHeight: '1.5' }}>
             Define el logotipo oficial, información fiscal (RNC), teléfono, dirección física y pie de página de impresión que verán tus clientes.
@@ -378,7 +378,7 @@ export default function TenantCustomizationModule() {
         </button>
       </div>
 
-      {/* Selector de Salón para SuperAdmin */}
+      {/* Selector de Empresa para SuperAdmin */}
       {isSuperAdmin && (
         <div style={{
           background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
@@ -409,7 +409,7 @@ export default function TenantCustomizationModule() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span style={{ fontSize: '0.92rem', fontWeight: '800', color: '#0f172a' }}>
-                  Salón / Cliente SaaS Seleccionado
+                  Empresa / Cliente SaaS Seleccionado
                 </span>
                 <span style={{
                   fontSize: '0.7rem',
@@ -423,7 +423,7 @@ export default function TenantCustomizationModule() {
                 </span>
               </div>
               <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                Como Super Administrador puedes gestionar la identidad y tickets de cualquier salón registrado.
+                Como Super Administrador puedes gestionar la identidad y tickets de cualquier empresa registrado.
               </p>
             </div>
           </div>
@@ -559,7 +559,7 @@ export default function TenantCustomizationModule() {
                 {formData.logo_url ? (
                   <img 
                     src={formData.logo_url} 
-                    alt="Logo Salón" 
+                    alt="Logo Empresa" 
                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                     style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '6px' }} 
                   />
@@ -650,7 +650,7 @@ export default function TenantCustomizationModule() {
               
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
-                  Nombre Comercial del Salón *
+                  Nombre Comercial de la empresa *
                 </label>
                 <input 
                   type="text" 
@@ -730,7 +730,7 @@ export default function TenantCustomizationModule() {
                   }}
                 />
                 <span style={{ fontSize: '0.7rem', color: '#94a3b8', display: 'block', marginTop: '0.25rem' }}>
-                  Este identificador único fue asignado al crear el salón y asegura el aislamiento de tus datos en la base de datos SaaS.
+                  Este identificador único fue asignado al crear la empresa y asegura el aislamiento de tus datos en la base de datos SaaS.
                 </span>
               </div>
 
@@ -1025,11 +1025,11 @@ export default function TenantCustomizationModule() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
-                  Sub-Encabezado de Ticket (Debajo del nombre del salón)
+                  Sub-Encabezado de Ticket (Debajo del nombre de la empresa)
                 </label>
                 <input
                   type="text"
-                  placeholder="Ej. Salón de Belleza y Estética Integral"
+                  placeholder="Ej. Empresa de Belleza y Estética Integral"
                   value={formData.receipt_header}
                   onChange={e => setFormData({ ...formData, receipt_header: e.target.value })}
                   style={{
@@ -1312,7 +1312,7 @@ export default function TenantCustomizationModule() {
 
                   <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     <div style={{ background: formData.accent_color || '#3b82f6', color: '#fff', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
-                      📊 Mi Panel de Salón
+                      📊 Mi Panel de Empresa
                     </div>
                     <div style={{ color: '#cbd5e1', padding: '0.45rem 0.75rem', fontSize: '0.75rem' }}>
                       🛒 Ventas & POS

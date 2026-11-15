@@ -202,8 +202,8 @@ const ClientRegistration = ({ initialClient = null, onClientSaved = null, submit
                     style={{ appearance: 'none', background: 'white' }}
                   >
                     <option value="">-- Seleccionar Sucursal --</option>
-                    {salons.map(salon => (
-                      <option key={salon.id} value={salon.id}>{salon.name}</option>
+                    {salons.map(empresa => (
+                      <option key={empresa.id} value={empresa.id}>{empresa.name}</option>
                     ))}
                   </select>
                 </div>

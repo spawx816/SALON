@@ -425,7 +425,7 @@ export const CashRegisterClosePrintModal = ({
 
             {/* PIE DEL TICKET */}
             <div style={{ textAlign: 'center', fontSize: '9.5px', color: '#64748b', marginTop: '14px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-              Sistema POS & Gestión Salon Pro • Plan Beauty RD<br />
+              Sistema POS & Gestión Empresa Pro • Plan Beauty RD<br />
               Reporte Oficial de Cierre y Arqueo de Caja
             </div>
 

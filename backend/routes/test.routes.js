@@ -8,7 +8,7 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
     const { clientId } = req.body;
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
 
     try {
@@ -26,7 +26,7 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
     const { clientId, amount } = req.body;
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
 
     try {
@@ -85,7 +85,7 @@ function createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }) {
   router.get('/clients', async (req, res) => {
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
 
     try {

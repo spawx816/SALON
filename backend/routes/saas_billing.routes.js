@@ -43,7 +43,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       }
 
       const sub = await lifecycleService.getSubscription(tenantId);
@@ -82,7 +82,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       }
       const { addonCode } = req.params;
       if (addonCode !== SAAS_ADDONS.MEMBERSHIPS) {
@@ -168,7 +168,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       }
 
       const result = await billingService.processUpgrade({
@@ -199,7 +199,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       }
 
       const result = await lifecycleService.requestDowngrade(tenantId, {
@@ -232,7 +232,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       }
 
       const result = await lifecycleService.cancelSubscription(tenantId, {
@@ -255,7 +255,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       }
 
       const invoices = await billingRepo.listInvoices(tenantId);
@@ -462,7 +462,9 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
 
   // === CARDNET HOSTED CHECKOUT PARA CONTRATACIÓN Y PAGO SAAS ===
   router.get('/checkout/config', (req, res) => {
-    const gateway = cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false };
+    const gateway = checkoutService?.getGatewayStatus
+      ? checkoutService.getGatewayStatus()
+      : (cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false });
     res.json({
       gateway,
       pricing: getConfiguredPricing(),
@@ -472,7 +474,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.get('/checkout/orders', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const orders = await checkoutService.listOrdersForTenant(tenantId);
       res.json({ orders });
     } catch (err) {
@@ -483,7 +485,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.post('/checkout/orders', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const {
         branchesCount,
         extraUsersCount,
@@ -515,7 +517,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.get('/checkout/orders/:orderId', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const order = await checkoutService.getOrderForTenant(req.params.orderId, tenantId);
       if (!order) return res.status(404).json({ error: 'Orden de pago no encontrada', code: 'ORDER_NOT_FOUND' });
       res.json({ order });
@@ -527,7 +529,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.post('/checkout/orders/:orderId/initiate-cardnet', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const origin = req.headers.origin || (req.headers.host ? `${req.protocol}://${req.headers.host}` : null);
       const result = await checkoutService.initiateCardnetCheckout({
         orderId: req.params.orderId,
@@ -549,7 +551,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.post('/checkout/orders/:orderId/charge-token', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const trxToken = req.body?.trxToken || req.body?.TokenId || req.body?.token;
       const result = await checkoutService.chargeOrderWithToken({
         orderId: req.params.orderId,
@@ -571,7 +573,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.post('/checkout/orders/:orderId/verify', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const cancelledByUser = Boolean(req.body?.cancelled);
       const result = await checkoutService.verifyAndFinalizeOrder({
         orderId: req.params.orderId,
@@ -589,10 +591,12 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.get('/payment-links/:token', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const order = await checkoutService.getOrderByTokenForTenant(req.params.token, tenantId);
       if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado o no pertenece a tu cuenta', code: 'PAYMENT_LINK_NOT_FOUND' });
-      const gateway = cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false };
+      const gateway = checkoutService?.getGatewayStatus
+        ? checkoutService.getGatewayStatus()
+        : (cardnetCheckoutProvider ? cardnetCheckoutProvider.getConfigurationStatus() : { configured: false });
       res.json({ order, gateway });
     } catch (err) {
       res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'INTERNAL_ERROR' });
@@ -602,7 +606,7 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
   router.post('/payment-links/:token/initiate-cardnet', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      if (!tenantId) return res.status(403).json({ error: 'Contexto de salón requerido', code: 'TENANT_REQUIRED' });
+      if (!tenantId) return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
       const order = await checkoutService.getOrderByTokenForTenant(req.params.token, tenantId);
       if (!order) return res.status(404).json({ error: 'Enlace de pago no encontrado', code: 'PAYMENT_LINK_NOT_FOUND' });
       const origin = req.headers.origin || (req.headers.host ? `${req.protocol}://${req.headers.host}` : null);

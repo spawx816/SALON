@@ -58,15 +58,28 @@ export function submitCardnetHostedPost({ authorizeUrl, sessionId }) {
 
 /**
  * Ejecuta el checkout seguro de CardNet (PWCheckout iframe o Hosted POST) sin capturar PAN/CVC en Etereas.
+ * Implementa transición limpia: Resumen -> Checkout CardNet (capa única) -> Verificación -> Resultado.
  */
-export async function executeCardnetCheckout({ orderId, checkout, onActivated, onError }) {
+export async function executeCardnetCheckout({
+  orderId,
+  checkout,
+  onCheckoutOpening,
+  onVerifying,
+  onCheckoutClosed,
+  onActivated,
+  onError,
+}) {
   if (checkout?.mode === 'pwcheckout_iframe' && checkout?.uniqueId && checkout?.captureUrl && checkout?.publicKey) {
     const PWCheckout = await loadCardNetScript(checkout.publicKey, checkout.captureUrl);
     let handled = false;
+    let isVerifying = false;
 
     PWCheckout.Bind('tokenCreated', async (tokenPayload) => {
       if (handled) return;
       handled = true;
+      isVerifying = true;
+      if (onVerifying) onVerifying();
+
       const trxToken =
         tokenPayload?.TokenId ||
         tokenPayload?.Token ||
@@ -74,6 +87,7 @@ export async function executeCardnetCheckout({ orderId, checkout, onActivated, o
         (typeof tokenPayload === 'string' ? tokenPayload : null);
 
       if (!trxToken) {
+        isVerifying = false;
         if (onError) onError('CardNet no devolvió un token de transacción válido.');
         return;
       }
@@ -113,6 +127,17 @@ export async function executeCardnetCheckout({ orderId, checkout, onActivated, o
         if (onError) onError(err.message);
       }
     });
+
+    PWCheckout.Bind('onClose', () => {
+      if (!isVerifying && onCheckoutClosed) {
+        onCheckoutClosed();
+      }
+    });
+
+    // Cerrar/desmontar cualquier modal previo antes de abrir CardNet para evitar superposición
+    if (onCheckoutOpening) {
+      onCheckoutOpening();
+    }
 
     const cleanCaptureUrl = checkout.captureUrl.endsWith('/') ? checkout.captureUrl : `${checkout.captureUrl}/`;
     PWCheckout.OpenIframeCustom(

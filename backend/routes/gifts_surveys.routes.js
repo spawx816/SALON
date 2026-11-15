@@ -366,7 +366,7 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
     const { giftCode } = req.body;
     try {
       const [rows] = await pool.query('SELECT * FROM gift_cards WHERE code = ? AND tenant_id = ?', [giftCode, tenantId]);
-      if (rows.length === 0) return res.status(404).json({ error: 'Código no encontrado en este salón' });
+      if (rows.length === 0) return res.status(404).json({ error: 'Código no encontrado en esta empresa' });
       
       const gift = rows[0];
       if (gift.status !== 'Active' && gift.status !== 'Partially_Redeemed') {
@@ -402,7 +402,7 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
       const [clients] = await pool.query('SELECT * FROM clients WHERE id = ? AND tenant_id = ?', [clientId, tenantId]);
       const client = clients[0];
       if (!client) {
-        return res.status(404).json({ error: 'Cliente no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.' });
       }
       const cardnetCustomerId = client?.cardnet_customer_id;
 
@@ -563,7 +563,7 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
     const { code, amount } = req.body;
     try {
       const [cards] = await pool.query('SELECT * FROM gift_cards WHERE code = ? AND tenant_id = ?', [code, tenantId]);
-      if (cards.length === 0) return res.status(404).json({ error: 'Código no encontrado en este salón' });
+      if (cards.length === 0) return res.status(404).json({ error: 'Código no encontrado en esta empresa' });
       
       const card = cards[0];
       if (card.status !== 'Active' && card.status !== 'Partially_Redeemed') {
@@ -622,7 +622,7 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
     try {
       const [settings] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
       if (settings.length === 0) {
-        return res.status(400).json({ error: 'Configuración de correo no encontrada para este salón' });
+        return res.status(400).json({ error: 'Configuración de correo no encontrada para esta empresa' });
       }
       
       const s = settings[0];

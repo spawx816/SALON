@@ -4,7 +4,7 @@ const nodemailer = require('nodemailer');
 const { getPrivateStorageAdapter } = require('../services/private_storage_adapter');
 
 /**
- * Attendance and Facial Recognition Module for Salon Pro & Plan Beauty RD
+ * Attendance and Facial Recognition Module for Empresa Pro & Plan Beauty RD
  * Scoped strictly by tenant_id (Multi-Tenant Architecture)
  * 
  * @param {import('mysql2/promise').Pool} pool
@@ -408,7 +408,7 @@ function createAttendanceRouter(pool) {
           [String(employeeId), tenantId]
         );
         if (systemUsers.length === 0) {
-          return res.status(404).json({ error: 'Empleado no encontrado en este salón.' });
+          return res.status(404).json({ error: 'Empleado no encontrado en esta empresa.' });
         }
         employees = systemUsers;
       }
@@ -907,7 +907,7 @@ function createAttendanceRouter(pool) {
           employees = users;
         }
         if (employees.length === 0) {
-          return res.status(404).json({ error: 'Colaborador no encontrado para este salón.' });
+          return res.status(404).json({ error: 'Colaborador no encontrado para esta empresa.' });
         }
         const emp = employees[0];
         
@@ -1065,7 +1065,7 @@ function createAttendanceRouter(pool) {
       }
 
       if (!empName) {
-        return res.status(404).json({ error: 'Empleado no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Empleado no encontrado en esta empresa.' });
       }
 
       if (!empEmail) {

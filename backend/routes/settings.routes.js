@@ -121,7 +121,7 @@ function createSettingsRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido' });
       }
       const [rows] = await pool.query('SELECT * FROM contract_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
       if (rows && rows[0]) {
@@ -154,7 +154,7 @@ function createSettingsRouter(pool) {
     }
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido' });
     }
     const {
       title = 'CONTRATO DE SERVICIOS DE BELLEZA',
@@ -210,7 +210,7 @@ function createSettingsRouter(pool) {
     }
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido' });
     }
     try {
       await pool.query('DELETE FROM contract_settings WHERE tenant_id = ?', [tenantId]);

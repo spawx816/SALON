@@ -32,14 +32,14 @@ const SalonsModule = () => {
     }
   };
 
-  const openForm = (salon = null) => {
-    if (salon) {
-      setEditingSalon(salon);
+  const openForm = (empresa = null) => {
+    if (empresa) {
+      setEditingSalon(empresa);
       setFormData({
-        name: salon.name || '',
-        address: salon.address || '',
-        phone: salon.phone || '',
-        maps_url: salon.maps_url || ''
+        name: empresa.name || '',
+        address: empresa.address || '',
+        phone: empresa.phone || '',
+        maps_url: empresa.maps_url || ''
       });
     } else {
       setEditingSalon(null);
@@ -51,7 +51,7 @@ const SalonsModule = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      showNotification('El nombre del salón es obligatorio', 'warning');
+      showNotification('El nombre de la empresa es obligatorio', 'warning');
       return;
     }
 
@@ -71,15 +71,15 @@ const SalonsModule = () => {
     }
   };
 
-  const handleDeleteSalon = async (salon) => {
-    const clientCount = salon.client_count || 0;
+  const handleDeleteSalon = async (empresa) => {
+    const clientCount = empresa.client_count || 0;
     const confirmMsg = clientCount > 0
-      ? `⚠️ ATENCIÓN: La sucursal "${salon.name}" tiene ${clientCount} clienta(s) afiliada(s).\n\n¿Seguro que deseas eliminarla? Las clientas quedarán sin sede asignada.`
-      : `¿Estás seguro de eliminar la sucursal "${salon.name}"?`;
+      ? `⚠️ ATENCIÓN: La sucursal "${empresa.name}" tiene ${clientCount} clienta(s) afiliada(s).\n\n¿Seguro que deseas eliminarla? Las clientas quedarán sin sede asignada.`
+      : `¿Estás seguro de eliminar la sucursal "${empresa.name}"?`;
 
     if (window.confirm(confirmMsg)) {
       try {
-        await dataService.deleteSalon(salon.id);
+        await dataService.deleteSalon(empresa.id);
         showNotification('Sucursal eliminada correctamente', 'warning');
         await loadSalons();
       } catch (e) {
@@ -102,7 +102,7 @@ const SalonsModule = () => {
             Gestión de Sucursales
           </h2>
           <p className="page-subtitle" style={{ margin: 0, color: 'var(--text-secondary)' }}>
-            Administra los locales físicos, ubicaciones y puntos de servicio de tu cadena de salones.
+            Administra los locales físicos, ubicaciones y puntos de servicio de tu cadena de empresas.
           </p>
         </div>
 
@@ -167,9 +167,9 @@ const SalonsModule = () => {
 
       {/* Grid de Sucursales */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.5rem' }}>
-        {salons.map((salon) => (
+        {salons.map((empresa) => (
           <motion.div 
-            key={salon.id}
+            key={empresa.id}
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             className="surface-card"
@@ -210,20 +210,20 @@ const SalonsModule = () => {
 
               {/* Título y Dirección */}
               <h3 style={{ fontSize: '1.2rem', fontWeight: 900, margin: '0 0 0.5rem 0', color: '#0f172a' }}>
-                {salon.name}
+                {empresa.name}
               </h3>
               
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem 0', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', lineHeight: 1.4 }}>
                 <MapPin size={15} color="#2563eb" style={{ flexShrink: 0, marginTop: '2px' }} />
-                <span>{salon.address || 'Sin dirección registrada'}</span>
+                <span>{empresa.address || 'Sin dirección registrada'}</span>
               </p>
 
               {/* Teléfono */}
-              {salon.phone && (
+              {empresa.phone && (
                 <p style={{ fontSize: '0.78rem', color: '#475569', margin: '0 0 1.25rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
                   <Phone size={14} color="#64748b" />
-                  <a href={`tel:${salon.phone}`} style={{ color: 'inherit', textDecoration: 'none' }}>
-                    {salon.phone}
+                  <a href={`tel:${empresa.phone}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                    {empresa.phone}
                   </a>
                 </p>
               )}
@@ -232,12 +232,12 @@ const SalonsModule = () => {
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '0.85rem 1rem', marginBottom: '1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
                   <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>Clientas Afiliadas:</span>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1d4ed8' }}>{salon.client_count || 0}</span>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1d4ed8' }}>{empresa.client_count || 0}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>Facturación Estimada:</span>
                   <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
-                    RD$ {Number(salon.total_revenue || 0).toLocaleString()}
+                    RD$ {Number(empresa.total_revenue || 0).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -246,9 +246,9 @@ const SalonsModule = () => {
             {/* Acciones y Links */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid #f1f5f9', gap: '0.5rem' }}>
               
-              {salon.maps_url ? (
+              {empresa.maps_url ? (
                 <a 
-                  href={salon.maps_url} 
+                  href={empresa.maps_url} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', fontWeight: 700, color: '#2563eb', textDecoration: 'none' }}
@@ -261,7 +261,7 @@ const SalonsModule = () => {
 
               <div style={{ display: 'flex', gap: '0.4rem' }}>
                 <button 
-                  onClick={() => openForm(salon)}
+                  onClick={() => openForm(empresa)}
                   title="Editar Sucursal"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#334155', borderRadius: '8px', padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
                 >
@@ -269,7 +269,7 @@ const SalonsModule = () => {
                 </button>
 
                 <button 
-                  onClick={() => handleDeleteSalon(salon)}
+                  onClick={() => handleDeleteSalon(empresa)}
                   title="Eliminar Sucursal"
                   style={{ background: '#fef2f2', border: '1px solid #fee2e2', color: '#ef4444', borderRadius: '8px', padding: '0.45rem 0.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
@@ -368,7 +368,7 @@ const SalonsModule = () => {
                   <input 
                     type="text" 
                     className="input-field" 
-                    placeholder="Ej: Salón Bella Vista Norte"
+                    placeholder="Ej: Empresa Bella Vista Norte"
                     value={formData.name}
                     onChange={e => setFormData({ ...formData, name: e.target.value })}
                     required

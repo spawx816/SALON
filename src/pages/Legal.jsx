@@ -25,7 +25,7 @@ const Legal = ({ page }) => {
             <>
               <h3>1. Alcance y separación multi-tenant</h3>
               <p>
-                Etereas opera como una plataforma SaaS multi-tenant en la que cada empresa o salón
+                Etereas opera como una plataforma SaaS multi-tenant en la que cada empresa o empresa
                 contratante mantiene su espacio de trabajo y su base de datos aislada por
                 identificador de tenant. La presente política aplica a los datos de cuenta y
                 operación gestionados dentro de la plataforma Etereas.
@@ -99,7 +99,7 @@ const Legal = ({ page }) => {
 
               <h3>2. Cambio de plan y conservación de datos</h3>
               <p>
-                Si un salón desactiva el add-on de Suscripciones/Membresías B2C, los registros de
+                Si una empresa desactiva el add-on de Suscripciones/Membresías B2C, los registros de
                 clientes, ventas, visitas e historial operativo se conservan intactos; únicamente el
                 módulo de membresías B2C y sus contratos y cobros recurrentes quedan restringidos sin
                 eliminar datos históricos existentes.
@@ -113,11 +113,11 @@ const Legal = ({ page }) => {
                 operador antes de su entrada en vigor comercial.
               </p>
 
-              <h3>4. Membresías B2C de cada salón</h3>
+              <h3>4. Membresías B2C de cada empresa</h3>
               <p>
-                Las políticas de cancelación o reembolso de membresías B2C que un salón con el
+                Las políticas de cancelación o reembolso de membresías B2C que una empresa con el
                 add-on contratado ofrezca a sus clientas finales son definidas y administradas de
-                forma independiente por cada salón contratante.
+                forma independiente por cada empresa contratante.
               </p>
             </>
           )
@@ -138,7 +138,7 @@ const Legal = ({ page }) => {
               <h3>1. Objeto del servicio</h3>
               <p>
                 Etereas es una plataforma de software como servicio (SaaS) multi-tenant orientada a la
-                gestión operativa de empresas y salones de belleza, integrando punto de venta,
+                gestión operativa de empresas y empresas de belleza, integrando punto de venta,
                 control de asistencia, nómina, contabilidad operativa y CRM de clientes.
               </p>
 
@@ -161,10 +161,10 @@ const Legal = ({ page }) => {
                 </li>
               </ul>
 
-              <h3>3. Separación de membresías B2C por salón</h3>
+              <h3>3. Separación de membresías B2C por empresa</h3>
               <p>
                 La funcionalidad de membresías y suscripciones B2C está disponible como add-on
-                opcional del servicio. Cada salón contratante que habilite este módulo es
+                opcional del servicio. Cada empresa contratante que habilite este módulo es
                 responsable de los precios, ciclos, beneficios y condiciones comerciales que
                 establezca frente a sus clientas finales mediante sus propios contratos digitales.
               </p>

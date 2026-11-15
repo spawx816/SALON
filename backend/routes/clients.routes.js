@@ -74,7 +74,7 @@ function createClientsRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const q = String(req.query.q || '').trim();
@@ -133,7 +133,7 @@ function createClientsRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const rawLimit = parseInt(req.query.limit || '50', 10);
@@ -296,7 +296,7 @@ function createClientsRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'No se pudo determinar el salón (Tenant) para registrar el cliente.' });
+        return res.status(403).json({ error: 'No se pudo determinar la empresa (Tenant) para registrar el cliente.' });
       }
 
       const {
@@ -437,7 +437,7 @@ function createClientsRouter(pool, options = {}) {
 
       const [existingRows] = await pool.query('SELECT id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (existingRows.length === 0) {
-        return res.status(404).json({ error: 'Cliente no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.' });
       }
 
       // BASE puede editar clientes, pero NO crear ni modificar contratos/membresías.
@@ -459,7 +459,7 @@ function createClientsRouter(pool, options = {}) {
             [String(salon_id), tenantId, String(salon_id), tenantId]
           );
           if (validBranch.length === 0) {
-            return res.status(400).json({ error: 'La sucursal especificada no pertenece a este salón.' });
+            return res.status(400).json({ error: 'La sucursal especificada no pertenece a esta empresa.' });
           }
           validatedSalonId = String(validBranch[0].id);
         }

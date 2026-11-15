@@ -382,7 +382,7 @@ export const ThermalTicketModal = ({
               </div>
             </div>
 
-            {/* Pie de agradecimiento del salón */}
+            {/* Pie de agradecimiento de la empresa */}
             <div style={{
               textAlign: 'center',
               marginTop: '4px',

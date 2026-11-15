@@ -27,7 +27,7 @@ function createPublicRouter(pool, options = {}) {
 
   /**
    * POST /api/public/onboarding
-   * Flujo de autoservicio público para salones.
+   * Flujo de autoservicio público para empresas.
    * REGLAS ESTRICTAS DE SEGURIDAD:
    * 1. Siempre se crea en estado 'pending'.
    * 2. Plan forzado al plan público base (plan_id = 1).
@@ -120,7 +120,7 @@ function createPublicRouter(pool, options = {}) {
         VALUES (?, ?, ?, ?, ?, true, 'Active', true)
       `, [branchId, tenantId, `${business_name} - Principal`, address || 'Sucursal Principal', owner_phone || '']);
 
-      // Inserción de Salón Legacy
+      // Inserción de Empresa Legacy
       await conn.query(`
         INSERT INTO salons (id, name, address, phone, status, tenant_id)
         VALUES (?, ?, ?, ?, 'Active', ?)
@@ -132,19 +132,7 @@ function createPublicRouter(pool, options = {}) {
         VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', true, 'Activo')
       `, [userId, tenantId, branchId, owner_name || 'Administrador', owner_name || 'Administrador', owner_email.trim(), passwordHash]);
 
-      // Inserción de Planes B2C
-      const defaultTenantPlans = [
-        ['silver', 'Plan Silver', 1500, '4 lavados y secados al mes', JSON.stringify(['4 Lavados mensuales', 'Secado incluido'])],
-        ['gold', 'Plan Beauty Pro', 1950, '4 lavados profundos + hidratación', JSON.stringify(['4 Lavados mensuales', '15% desc. en servicios extra'])],
-        ['black', 'Plan VIP Black', 3200, 'Lavados ilimitados + manicure', JSON.stringify(['Lavados ilimitados', '20% desc. en servicios extra'])]
-      ];
-      for (const [pId, pName, pPrice, pDesc, pFeatures] of defaultTenantPlans) {
-        await conn.query(`
-          INSERT INTO plans (tenant_id, id, name, title, price, description, features)
-          VALUES (?, ?, ?, ?, ?, ?, ?::jsonb)
-          ON CONFLICT DO NOTHING
-        `, [tenantId, pId, pName, pName, pPrice, pDesc, pFeatures]);
-      }
+      // No crear datos operativos de ejemplo ni planes B2C si no corresponden al alta SaaS
 
       // Inserción atómica de Suscripción Inicial en espera de pago CardNet (NUNCA 'active' sin cobro verificado)
       await conn.query(`

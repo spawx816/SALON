@@ -848,7 +848,7 @@ function createVisitsRouter(pool, helpers = {}) {
         );
         if (!secRows || secRows.length === 0) {
           return res.status(401).json({
-            error: 'No hay PIN de seguridad configurado para este salón.',
+            error: 'No hay PIN de seguridad configurado para esta empresa.',
             code: 'PIN_NOT_CONFIGURED'
           });
         }
@@ -879,7 +879,7 @@ function createVisitsRouter(pool, helpers = {}) {
         [id, tenantId]
       );
       if (existing.length === 0) {
-        return res.status(404).json({ error: 'Factura no encontrada en este salón.' });
+        return res.status(404).json({ error: 'Factura no encontrada en esta empresa.' });
       }
 
       const currentStatus = String(existing[0].status || '').trim();
@@ -982,7 +982,7 @@ function createVisitsRouter(pool, helpers = {}) {
 
       const [existing] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (existing.length === 0) {
-        return res.status(404).json({ error: 'Factura no encontrada en este salón.' });
+        return res.status(404).json({ error: 'Factura no encontrada en esta empresa.' });
       }
 
       await pool.query(

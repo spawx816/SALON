@@ -6,7 +6,7 @@ import { CheckCircle2, ShieldCheck, Sparkles, HelpCircle, ChevronDown, ChevronUp
 const PlanBelleza = () => {
   useDocumentMetadata({
     title: 'Plan de lavados por RD$1,950 al mes | Plan Beauty RD',
-    description: 'Conoce nuestro plan único de belleza mensual. Incluye 4 lavados profesionales, secado y atención premium en salones afiliados de República Dominicana.',
+    description: 'Conoce nuestro plan único de belleza mensual. Incluye 4 lavados profesionales, secado y atención premium en empresas afiliados de República Dominicana.',
     canonicalUrl: 'https://planbeautyrd.com/plan-de-belleza',
     robots: 'index, follow'
   });
@@ -20,7 +20,7 @@ const PlanBelleza = () => {
   const faqs = [
     {
       question: '¿Qué es Plan Beauty RD?',
-      answer: 'Plan Beauty es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en salones afiliados de República Dominicana por una tarifa plana fija.'
+      answer: 'Plan Beauty es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en empresas afiliados de República Dominicana por una tarifa plana fija.'
     },
     {
       question: '¿Qué incluye Plan Beauty?',
@@ -60,7 +60,7 @@ const PlanBelleza = () => {
     },
     {
       question: '¿Hay cargos adicionales?',
-      answer: 'La membresía cubre únicamente los servicios de lavado y secado estándar. Cualquier servicio adicional (tintes, tratamientos profundos, cortes, etc.) se cobrará de forma independiente según la tarifa vigente del salón.'
+      answer: 'La membresía cubre únicamente los servicios de lavado y secado estándar. Cualquier servicio adicional (tintes, tratamientos profundos, cortes, etc.) se cobrará de forma independiente según la tarifa vigente de la empresa.'
     },
     {
       question: '¿Qué debo presentar para utilizar mi membresía?',
@@ -90,7 +90,7 @@ const PlanBelleza = () => {
             CUIDA TU CABELLO TODO EL MES POR <span style={{ color: '#d4af37' }}>RD$1,950</span>
           </h1>
           <p style={{ maxWidth: '600px', margin: '1rem auto 0', color: '#64748b', fontSize: '1rem', lineHeight: 1.6 }}>
-            Plan Beauty es una suscripción mensual que te permite disfrutar de 4 lavados profesionales y peinados en salones afiliados de República Dominicana.
+            Plan Beauty es una suscripción mensual que te permite disfrutar de 4 lavados profesionales y peinados en empresas afiliados de República Dominicana.
           </p>
         </div>
 
@@ -127,7 +127,7 @@ const PlanBelleza = () => {
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <CheckCircle2 style={{ color: '#d4af37', flexShrink: 0 }} size={22} />
                 <div>
-                  <h4 style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>Red de Salones Afiliados</h4>
+                  <h4 style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem' }}>Red de Empresas Afiliados</h4>
                   <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Puedes cambiar o visitar cualquiera de nuestras sucursales activas en tu ciudad.</p>
                 </div>
               </div>
@@ -263,7 +263,7 @@ const PlanBelleza = () => {
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#d4af37' }}>Pioneros en Innovación</h4>
               </div>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#a1a1aa', lineHeight: 1.6 }}>
-                Plan Beauty es la primera membresía para salones de belleza en República Dominicana con pago automático mediante CardNet y en funcionamiento, ofreciendo una experiencia moderna, segura y completamente digital.
+                Plan Beauty es la primera membresía para empresas de belleza en República Dominicana con pago automático mediante CardNet y en funcionamiento, ofreciendo una experiencia moderna, segura y completamente digital.
               </p>
             </div>
 
@@ -329,7 +329,7 @@ const PlanBelleza = () => {
               </div>
               <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>Encuestas de Satisfacción</h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', lineHeight: 1.6 }}>
-                Después de cada visita podrás evaluar el servicio recibido en el salón, ayudándonos a mejorar continuamente tu experiencia de belleza.
+                Después de cada visita podrás evaluar el servicio recibido en la empresa, ayudándonos a mejorar continuamente tu experiencia de belleza.
               </p>
             </div>
 
@@ -360,9 +360,9 @@ const PlanBelleza = () => {
               <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(212, 175, 55, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem' }}>
                 <Scissors size={20} color="#d4af37" />
               </div>
-              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>20% Descuento en Salón</h4>
+              <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>20% Descuento en Empresa</h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', lineHeight: 1.6 }}>
-                Como miembro de Plan Beauty tendrás un <strong>20% de descuento exclusivo</strong> en todos los demás procesos y servicios adicionales que realices en el salón (tintes, hidrataciones, botox, cortes y más).
+                Como miembro de Plan Beauty tendrás un <strong>20% de descuento exclusivo</strong> en todos los demás procesos y servicios adicionales que realices en la empresa (tintes, hidrataciones, botox, cortes y más).
               </p>
             </div>
 
@@ -377,14 +377,14 @@ const PlanBelleza = () => {
               </p>
             </div>
 
-            {/* 11. Calidad Salones Afiliados */}
+            {/* 11. Calidad Empresas Afiliados */}
             <div className="surface-card" style={{ padding: '1.75rem', borderRadius: '20px', border: '1px solid #e2e8f0', background: 'white' }}>
               <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(212, 175, 55, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem' }}>
                 <CheckCircle2 size={20} color="#d4af37" />
               </div>
               <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>Calidad y Confianza</h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', lineHeight: 1.6 }}>
-                Disfruta de la experiencia, atención y calidad excepcional en lavados y secados que distinguen a nuestra red de salones afiliados.
+                Disfruta de la experiencia, atención y calidad excepcional en lavados y secados que distinguen a nuestra red de empresas afiliados.
               </p>
             </div>
 

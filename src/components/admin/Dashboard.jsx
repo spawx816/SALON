@@ -1254,7 +1254,7 @@ const Dashboard = () => {
                   <CalendarCheck size={20} color="#8b5cf6" /> {hasProPlan ? 'Historial de Visitas Plan Beauty' : 'Historial de Atenciones POS'}
                 </h3>
                 <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                  {hasProPlan ? 'Registro detallado de visitas de socias Plan Beauty' : 'Registro detallado de atenciones y ventas en salón'}
+                  {hasProPlan ? 'Registro detallado de visitas de socias Plan Beauty' : 'Registro detallado de atenciones y ventas en empresa'}
                 </p>
               </div>
               <button

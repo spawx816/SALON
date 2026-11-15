@@ -55,6 +55,13 @@ class SaasCheckoutService {
     return Boolean(this.tokenizationProvider.publicKey || this.tokenizationProvider.privateKey);
   }
 
+  getGatewayStatus() {
+    if (this._shouldUseTokenization()) {
+      return this.tokenizationProvider.getConfigurationStatus();
+    }
+    return this.cardnetProvider?.getConfigurationStatus?.() || { configured: false };
+  }
+
   calculateCanonicalAmounts({
     branchesCount = 1,
     extraUsersCount = 0,
@@ -144,7 +151,7 @@ class SaasCheckoutService {
     if (source === 'debt_payment' && invoiceId) {
       const invoice = this.billingRepo ? await this.billingRepo.getInvoiceById(invoiceId) : null;
       if (!invoice || String(invoice.tenant_id) !== String(tenantId)) {
-        const err = new Error('Factura no encontrada para este salón.');
+        const err = new Error('Factura no encontrada para esta empresa.');
         err.code = 'INVOICE_NOT_FOUND';
         err.statusCode = 404;
         throw err;
@@ -332,6 +339,27 @@ class SaasCheckoutService {
 
     // Modo 1: CardNet Tokenización / PWCheckout (servicios/tokens/v1)
     if (this._shouldUseTokenization()) {
+      // Reutilizar sesión PWCheckout vigente si el cliente cerró y reabrió el checkout
+      if (
+        order.status === ORDER_STATUS.PROCESSING &&
+        order.cardnet_session_id &&
+        order.cardnet_session_key &&
+        new Date(order.expires_at).getTime() > Date.now()
+      ) {
+        this.tokenizationProvider.assertReadyForCheckout();
+        return {
+          order: sanitizeOrderForClient(order),
+          checkout: {
+            mode: 'pwcheckout_iframe',
+            uniqueId: order.cardnet_session_id,
+            customerId: order.cardnet_session_key,
+            captureUrl: `${this.tokenizationProvider.baseUrl}/Capture`,
+            publicKey: this.tokenizationProvider.publicKey,
+            reusedSession: true,
+          },
+        };
+      }
+
       let customerEmail = actorEmail ? String(actorEmail).trim() : '';
       if (!customerEmail) {
         const [uRows] = await this.pool.query(
@@ -472,9 +500,9 @@ class SaasCheckoutService {
       if (err.code === 'CARDNET_TIMEOUT') {
         await this.pool.query(
           `UPDATE saas_checkout_orders
-           SET status = ?, cardnet_response_message = ?, updated_at = NOW()
+           SET status = ?, reconcile_attempts = reconcile_attempts + 1, last_error = ?, cardnet_response_code = ?, updated_at = NOW()
            WHERE id = ? AND tenant_id = ? AND status IN ('pending_payment', 'processing', 'unknown_timeout')`,
-          [ORDER_STATUS.UNKNOWN_TIMEOUT, err.message, order.id, tenantId]
+          [ORDER_STATUS.UNKNOWN_TIMEOUT, err.message, 'TIMEOUT', order.id, tenantId]
         );
       }
       throw err;
@@ -484,24 +512,21 @@ class SaasCheckoutService {
       await this.pool.query(
         `UPDATE saas_checkout_orders
          SET status = ?,
+             paid_at = COALESCE(paid_at, NOW()),
+             cardnet_authorization_code = ?,
+             cardnet_reference = ?,
              cardnet_response_code = ?,
              cardnet_response_message = ?,
-             cardnet_authorization_code = ?,
-             cardnet_transaction_id = ?,
-             cardnet_retrieval_ref = ?,
-             card_brand = ?,
-             masked_card = ?,
-             paid_at = NOW(),
+             masked_card = COALESCE(?, masked_card),
+             last_error = NULL,
              updated_at = NOW()
          WHERE id = ? AND tenant_id = ?`,
         [
           ORDER_STATUS.APPROVED,
+          result.authorizationCode,
+          result.retrievalReferenceNumber || result.transactionId || null,
           result.responseCode,
           result.responseMessage,
-          result.authorizationCode,
-          result.transactionId,
-          result.retrievalReferenceNumber,
-          result.cardBrand,
           result.maskedCard,
           order.id,
           tenantId,
@@ -514,10 +539,7 @@ class SaasCheckoutService {
 
     await this.pool.query(
       `UPDATE saas_checkout_orders
-       SET status = ?,
-           cardnet_response_code = ?,
-           cardnet_response_message = ?,
-           updated_at = NOW()
+       SET status = ?, cardnet_response_code = ?, cardnet_response_message = ?, updated_at = NOW()
        WHERE id = ? AND tenant_id = ? AND status IN ('pending_payment', 'processing', 'unknown_timeout')`,
       [ORDER_STATUS.DECLINED, result.responseCode, result.responseMessage, order.id, tenantId]
     );

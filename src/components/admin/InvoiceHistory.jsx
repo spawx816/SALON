@@ -477,7 +477,7 @@ export default function InvoiceHistory() {
         if (!ticketMatch && !clientMatch && !methodMatch && !servicesMatch) return false;
       }
 
-      // Salon / Localidad filter
+      // Empresa / Localidad filter
       if (salonFilter !== 'all') {
         const sMatch = String(v.salon_id) === String(salonFilter) || 
                        (v.salon_nombre && v.salon_nombre.toLowerCase().includes(String(salonFilter).toLowerCase())) ||
@@ -535,7 +535,7 @@ export default function InvoiceHistory() {
   // Filter Logic for Plan Beauty Subscription Payments
   const filteredPayments = useMemo(() => {
     return payments.filter(p => {
-      // Salon / Localidad filter
+      // Empresa / Localidad filter
       if (salonFilter !== 'all') {
         const sMatch = String(p.salon_id) === String(salonFilter);
         if (!sMatch) return false;
@@ -764,7 +764,7 @@ export default function InvoiceHistory() {
       'Fecha',
       'Hora Entrada',
       'Hora Facturación',
-      'Duración Salón',
+      'Duración Empresa',
       'Cliente',
       'ID Cliente',
       'Servicios Realizados',
@@ -1439,7 +1439,7 @@ export default function InvoiceHistory() {
                                         {it.nombre || it.service_name || it.servicio}
                                       </td>
                                       <td style={{ padding: '0.35rem', color: '#475569' }}>
-                                        {it.empleado_nombre || it.employee_name || it.empleado || 'Personal Salón'}
+                                        {it.empleado_nombre || it.employee_name || it.empleado || 'Personal Empresa'}
                                       </td>
                                       <td style={{ padding: '0.35rem', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
                                         RD$ {Number(it.precioAplicado || it.precio || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}

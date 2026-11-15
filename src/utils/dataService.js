@@ -1626,23 +1626,23 @@ export const dataService = {
     } catch { return []; }
   },
 
-  saveSalon: async (salon) => {
+  saveSalon: async (empresa) => {
     try {
       const res = await fetch(`${API_URL}/salons`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(salon)
+        body: JSON.stringify(empresa)
       });
       return await res.json();
     } catch (e) { console.error(e); }
   },
 
-  updateSalon: async (id, salon) => {
+  updateSalon: async (id, empresa) => {
     try {
       const res = await fetch(`${API_URL}/salons/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(salon)
+        body: JSON.stringify(empresa)
       });
       return await res.json();
     } catch (e) { console.error(e); }
@@ -2873,7 +2873,7 @@ export const dataService = {
         headers: {
           'x-user-role': user?.role || user?.role_name || 'admin',
           'x-user-name': user?.nombre || user?.name || 'Administrador',
-          'x-user-salon-id': user?.salon_id ? String(user.salon_id) : ''
+          'x-user-empresa-id': user?.salon_id ? String(user.salon_id) : ''
         }
       });
       const data = await res.json().catch(() => ({}));
@@ -3279,7 +3279,7 @@ export const dataService = {
         'x-tenant-id': tenantId
       }
     });
-    if (!res.ok) throw new Error('Error al obtener perfil del salón');
+    if (!res.ok) throw new Error('Error al obtener perfil de la empresa');
     return await res.json();
   },
 
@@ -3297,7 +3297,7 @@ export const dataService = {
       body: JSON.stringify(profileData)
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al guardar perfil del salón');
+    if (!res.ok) throw new Error(data.error || 'Error al guardar perfil de la empresa');
     return data;
   },
 

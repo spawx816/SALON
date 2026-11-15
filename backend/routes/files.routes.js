@@ -39,7 +39,7 @@ function createFilesRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId || req.auth?.tenantId;
       if (!tenantId) {
-        return res.status(401).json({ error: 'Autenticación requerida para acceder a archivos del salón.', code: 'UNAUTHENTICATED' });
+        return res.status(401).json({ error: 'Autenticación requerida para acceder a archivos de la empresa.', code: 'UNAUTHENTICATED' });
       }
 
       const rawFileId = req.params.fileId;
@@ -132,7 +132,7 @@ function createFilesRouter(pool, options = {}) {
 
       // If file not found in tenant records or storage: return 404 (Anti-enumeration)
       return res.status(404).json({
-        error: 'El archivo solicitado no existe o no pertenece a este salón.',
+        error: 'El archivo solicitado no existe o no pertenece a esta empresa.',
         code: 'FILE_NOT_FOUND'
       });
     } catch (err) {

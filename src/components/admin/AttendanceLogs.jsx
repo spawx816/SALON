@@ -1086,7 +1086,7 @@ const AttendanceLogs = () => {
           // Duración trabajada en minutos de reloj consistentes con lo visualizado en tabla
           dayWorkedMins = Math.max(0, outClockMins - inClockMins);
 
-          // Cierre oficial de salón según día de la semana (hora República Dominicana):
+          // Cierre oficial de empresa según día de la semana (hora República Dominicana):
           // - Sábados: corte de cierre 6:00 PM (18:00 = 1080 min)
           // - Domingos: corte de cierre 5:00 PM (17:00 = 1020 min)
           // - Lunes a Viernes: corte de cierre 8:00 PM (20:00 = 1200 min)

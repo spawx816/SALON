@@ -1768,7 +1768,7 @@ export default function ReporteIT1Module() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                   <span style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>
-                    Operaciones: Servicios Exentos (Rubro Salón / Belleza)
+                    Operaciones: Servicios Exentos (Rubro Empresa / Belleza)
                   </span>
                   {configRegimen === 'exento' && <Check size={18} color="#0891b2" strokeWidth={3} />}
                 </div>

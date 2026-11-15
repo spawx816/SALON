@@ -137,7 +137,7 @@ function createContractsRouter(pool) {
         [targetClientId, tenantId]
       );
       if (clientCheck.length === 0) {
-        return res.status(404).json({ error: 'Cliente no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.' });
       }
 
       // Validar sucursal

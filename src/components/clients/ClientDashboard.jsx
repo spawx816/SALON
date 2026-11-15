@@ -21,7 +21,7 @@ const ClientDashboard = () => {
   const { user, logout } = useAuth();
   
   const [contract, setContract] = useState(null);
-  const [salon, setSalon] = useState(null);
+  const [empresa, setSalon] = useState(null);
   const [visits, setVisits] = useState([]);
   const [usageStats, setUsageStats] = useState([]);
   const [contractSettings, setContractSettings] = useState(DEFAULT_CONTRACT_SETTINGS);
@@ -565,7 +565,7 @@ const ClientDashboard = () => {
               </div>
               <h1 style={{ fontSize: '2.5rem', fontWeight: 900, color: '#09090b', marginBottom: '1rem', letterSpacing: '-0.02em' }}>Plan Cancelado</h1>
               <p style={{ color: '#64748b', fontSize: '1.25rem', lineHeight: 1.6, marginBottom: '2.5rem' }}>
-                Tu membresía ha sido cancelada. Si deseas volver a suscribirte y disfrutar de nuestros beneficios, puedes solicitar una nueva afiliación en el salón.
+                Tu membresía ha sido cancelada. Si deseas volver a suscribirte y disfrutar de nuestros beneficios, puedes solicitar una nueva afiliación en la empresa.
               </p>
               <div style={{ background: '#f8fafc', padding: '1.5rem', borderRadius: '20px', border: '1px solid #e2e8f0', marginBottom: '2.5rem' }}>
                 <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.5rem' }}>¿Necesitas ayuda?</p>
@@ -861,15 +861,15 @@ const ClientDashboard = () => {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
-            {/* Salon / Branch Card */}
+            {/* Empresa / Branch Card */}
             <motion.div variants={cardVariants} style={{ background: 'white', borderRadius: '40px', padding: '2.5rem', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.05)' }}>
               <div style={{ position: 'relative', height: '200px', borderRadius: '28px', overflow: 'hidden', marginBottom: '1.75rem', boxShadow: '0 10px 20px rgba(0,0,0,0.1)' }}>
-                <img src="/abatte_salon_interior_1777874331934.png" style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="Salon" />
+                <img src="/abatte_salon_interior_1777874331934.png" style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="Empresa" />
                 <div style={{ position: 'absolute', bottom: '1.25rem', left: '1.25rem', padding: '0.6rem 1.2rem', background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)', borderRadius: '14px', fontSize: '0.8rem', fontWeight: 900, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                   San Vicente
                 </div>
               </div>
-              <h4 style={{ fontSize: '1.25rem', fontWeight: 900, margin: '0 0 0.75rem' }}>{user?.salon_name || 'Salón Afiliado'}</h4>
+              <h4 style={{ fontSize: '1.25rem', fontWeight: 900, margin: '0 0 0.75rem' }}>{user?.salon_name || 'Empresa Afiliado'}</h4>
               <a 
                 href="https://www.google.com/maps/search/?api=1&query=Abatte+Peluqueria+Av.+San+Vicente+de+Paul+Plaza+El+Poder" 
                 target="_blank" 
@@ -995,7 +995,7 @@ const ClientDashboard = () => {
                       </div>
                     )}
                     <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '1.5rem', lineHeight: 1.5 }}>
-                      Tu tarjeta se utiliza únicamente para el cobro recurrente de tu membresía. Para cambiarla, por favor solicita una actualización en el salón.
+                      Tu tarjeta se utiliza únicamente para el cobro recurrente de tu membresía. Para cambiarla, por favor solicita una actualización en la empresa.
                     </p>
                  </div>
 

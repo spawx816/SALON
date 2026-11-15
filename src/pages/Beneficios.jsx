@@ -6,7 +6,7 @@ import { Percent, Award, Heart, Gift, Coffee, ShieldAlert } from 'lucide-react';
 const Beneficios = () => {
   useDocumentMetadata({
     title: 'Beneficios de tu membresía de belleza | Plan Beauty RD',
-    description: 'Conoce los beneficios de afiliarte a Plan Beauty. Disfruta de un ahorro constante, atención profesional en salones certificados, bebidas de cortesía y ofertas exclusivas.',
+    description: 'Conoce los beneficios de afiliarte a Plan Beauty. Disfruta de un ahorro constante, atención profesional en empresas certificados, bebidas de cortesía y ofertas exclusivas.',
     canonicalUrl: 'https://planbeautyrd.com/beneficios',
     robots: 'index, follow'
   });
@@ -35,7 +35,7 @@ const Beneficios = () => {
             </div>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>Ahorro del 40%+</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
-              Pagar de forma individual cada lavado y secado en salones premium puede costar más de RD$3,200 al mes. Con la membresía unificada, gastas solo RD$1,950.
+              Pagar de forma individual cada lavado y secado en empresas premium puede costar más de RD$3,200 al mes. Con la membresía unificada, gastas solo RD$1,950.
             </p>
           </div>
 
@@ -44,9 +44,9 @@ const Beneficios = () => {
             <div style={{ width: '50px', height: '50px', borderRadius: '14px', background: 'rgba(212,175,55,0.08)', color: '#d4af37', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
               <Award size={22} />
             </div>
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>Salones Certificados</h3>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>Empresas Certificados</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
-              Trabajamos únicamente con salones reconocidos por su alto estándar de calidad en nuestra red de salones afiliados, garantizando profesionales de primer nivel.
+              Trabajamos únicamente con empresas reconocidos por su alto estándar de calidad en nuestra red de empresas afiliados, garantizando profesionales de primer nivel.
             </p>
           </div>
 
@@ -57,7 +57,7 @@ const Beneficios = () => {
             </div>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>Bebida de Cortesía</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
-              Disfruta de una experiencia relajante con una bebida de cortesía (café, té, agua o copa de vino) en cada una de tus visitas al salón.
+              Disfruta de una experiencia relajante con una bebida de cortesía (café, té, agua o copa de vino) en cada una de tus visitas a la empresa.
             </p>
           </div>
 
@@ -71,7 +71,7 @@ const Beneficios = () => {
             </div>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem' }}>20% de Descuento en Todo</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0 }}>
-              Disfruta de un <strong>20% de descuento exclusivo</strong> en todos los servicios y procesos adicionales que te realices en el salón (tintes, hidrataciones, botox capilar, cortes, peinados y más).
+              Disfruta de un <strong>20% de descuento exclusivo</strong> en todos los servicios y procesos adicionales que te realices en la empresa (tintes, hidrataciones, botox capilar, cortes, peinados y más).
             </p>
           </div>
 

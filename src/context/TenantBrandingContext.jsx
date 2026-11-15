@@ -73,7 +73,7 @@ export function TenantBrandingProvider({ children }) {
       });
 
       if (!res.ok) {
-        throw new Error('Error al obtener la personalización del salón');
+        throw new Error('Error al obtener la personalización de la empresa');
       }
 
       const data = await res.json();
@@ -102,7 +102,7 @@ export function TenantBrandingProvider({ children }) {
   // Update branding
   const updateBranding = async (payload) => {
     if (!tenantId || isSuperAdmin) {
-      throw new Error('No autorizado para modificar branding del salón');
+      throw new Error('No autorizado para modificar branding de la empresa');
     }
 
     setLoading(true);

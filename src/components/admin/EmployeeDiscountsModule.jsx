@@ -349,7 +349,7 @@ const EmployeeDiscountsModule = () => {
             </h1>
           </div>
           <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.85rem' }}>
-            Control de cargos a nómina por servicios del salón, préstamos y consumos organizados por colaborador
+            Control de cargos a nómina por servicios de la empresa, préstamos y consumos organizados por colaborador
           </p>
         </div>
 

@@ -40,7 +40,7 @@ function createDashboardRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const [
@@ -181,7 +181,7 @@ function createDashboardRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const now = new Date();
@@ -326,7 +326,7 @@ function createDashboardRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const now = new Date();
@@ -395,7 +395,7 @@ function createDashboardRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
       const [rows] = await pool.query(
         `SELECT p.id, p.name, p.price,
@@ -420,7 +420,7 @@ function createDashboardRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
       const [paymentStats] = await pool.query(
         `SELECT status, COUNT(*) as count, COALESCE(SUM(amount), 0) as total

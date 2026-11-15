@@ -4,7 +4,7 @@ const fs = require('fs');
 const nodemailer = require('nodemailer');
 
 /**
- * Marketing and Birthday Campaigns Router Module for Salon Pro & Plan Beauty RD (Strictly Scoped by tenant_id)
+ * Marketing and Birthday Campaigns Router Module for Empresa Pro & Plan Beauty RD (Strictly Scoped by tenant_id)
  * 
  * @param {import('mysql2/promise').Pool} pool
  */
@@ -169,7 +169,7 @@ function createMarketingRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const [sentRows] = await pool.query(`
@@ -203,7 +203,7 @@ function createMarketingRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
       const filter = req.query.targetFilter || req.query.filter;
       const whereAudience = getMarketingAudienceWhereClause(filter, tenantId);
@@ -222,7 +222,7 @@ function createMarketingRouter(pool) {
   router.post('/send-mass', async (req, res) => {
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
 
     const { subject, template, campaignType, flyerUrl, targetFilter, filter } = req.body;
@@ -238,7 +238,7 @@ function createMarketingRouter(pool) {
       
       const [settings] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
       if (settings.length === 0 || !settings[0].smtp_host) {
-        throw new Error("No hay configuración de correo activa para este salón.");
+        throw new Error("No hay configuración de correo activa para esta empresa.");
       }
       const s = settings[0];
 
@@ -305,7 +305,7 @@ function createMarketingRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const [rows] = await pool.query('SELECT * FROM marketing_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
@@ -329,7 +329,7 @@ function createMarketingRouter(pool) {
   router.post('/settings', async (req, res) => {
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
 
     const { 
@@ -375,7 +375,7 @@ function createMarketingRouter(pool) {
   router.post('/send-birthdays', async (req, res) => {
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
 
     const role = (req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
@@ -409,7 +409,7 @@ function createMarketingRouter(pool) {
 
       const [emailSettingsRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
       if (emailSettingsRows.length === 0 || !emailSettingsRows[0].smtp_host) {
-        throw new Error("No hay configuración de correo configurada para este salón.");
+        throw new Error("No hay configuración de correo configurada para esta empresa.");
       }
       const s = emailSettingsRows[0];
 

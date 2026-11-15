@@ -287,7 +287,7 @@ const CashRegistersModule = () => {
           </select>
         </div>
 
-        {/* Salon Filter */}
+        {/* Empresa Filter */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <MapPin size={16} color="#64748b" />
           <select
@@ -373,7 +373,7 @@ const CashRegistersModule = () => {
                   return (
                     <tr key={reg.id} style={{ borderBottom: '1px solid #f1f5f9', background: isOpen ? '#f0fdf4' : '#ffffff' }}>
                       
-                      {/* Register Number & Salon */}
+                      {/* Register Number & Empresa */}
                       <td style={{ padding: '0.85rem 0.65rem' }}>
                         <strong style={{ color: '#0f172a', display: 'block', fontSize: '0.85rem', fontWeight: 800 }}>
                           {reg.register_number || `CAJA-${reg.id}`}

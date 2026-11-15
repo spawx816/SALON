@@ -272,7 +272,7 @@ ${itemsXml}
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
       const [rows] = await pool.query(
         'SELECT * FROM visits WHERE tenant_id = ? AND ncf IS NOT NULL ORDER BY visited_at DESC LIMIT 100',

@@ -114,7 +114,7 @@ function canManageRole(actorRole, targetRole) {
   // SuperAdmin can manage anyone
   if (actor === 'superadmin') return true;
 
-  // Propietario can manage anyone within the salon, but NOT superadmin
+  // Propietario can manage anyone within the empresa, but NOT superadmin
   if (actor === 'propietario') {
     return target !== 'superadmin';
   }

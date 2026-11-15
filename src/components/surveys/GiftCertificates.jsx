@@ -381,7 +381,7 @@ const GiftCertificates = () => {
               <p>El regalo consiste en un saldo digital que podrá ser utilizado exclusivamente en la sucursal seleccionada al momento de la compra.</p>
               <p>El certificado es al portador, por lo que cualquier persona que presente el código correspondiente podrá hacer uso del saldo disponible.</p>
               <p>La entrega del código, ya sea de forma física o digital, es responsabilidad exclusiva del comprador. LA COMPAÑÍA no se hace responsable por el uso indebido, pérdida o compartición del mismo.</p>
-              <p>El saldo del regalo será consumido conforme a los servicios utilizados en el salón y no podrá ser canjeado por dinero en efectivo.</p>
+              <p>El saldo del regalo será consumido conforme a los servicios utilizados en la empresa y no podrá ser canjeado por dinero en efectivo.</p>
             </div>
             
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginTop: '1.5rem', cursor: 'pointer' }}>

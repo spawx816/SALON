@@ -30,7 +30,7 @@ function createSaasRouter(pool, options = {}) {
     auditRepo: new SubscriptionAuditRepository(pool)
   });
 
-  // Rate Limiter para creación de salones públicos
+  // Rate Limiter para creación de empresas públicos
   const onboardingLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 5,
@@ -142,7 +142,7 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
-  // GET /api/saas/tenants - Lista de salones registrados (PROTEGIDO SUPERADMIN)
+  // GET /api/saas/tenants - Lista de empresas registrados (PROTEGIDO SUPERADMIN)
   router.get('/tenants', authenticate, requireSuperAdmin, async (req, res) => {
     try {
       const [tenants] = await pool.query(`
@@ -205,7 +205,7 @@ function createSaasRouter(pool, options = {}) {
       res.json(enrichedTenants);
     } catch (error) {
       console.error('Error fetching tenants:', error);
-      res.status(500).json({ error: 'Error listando salones' });
+      res.status(500).json({ error: 'Error listando empresas' });
     }
   });
 
@@ -242,7 +242,7 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
-  // GET /api/saas/invoices - Lista de facturas de SalonPro a los salones (Control Plane)
+  // GET /api/saas/invoices - Lista de facturas de SalonPro a las empresas (Control Plane)
   router.get('/invoices', authenticate, requireSuperAdmin, async (req, res) => {
     try {
       const [invoices] = await pool.query(`
@@ -274,7 +274,7 @@ function createSaasRouter(pool, options = {}) {
     cancelled: ['active']
   });
 
-  // PUT /api/saas/tenants/:id/modules - Actualizar módulos habilitados por salón (Merge parcial validado)
+  // PUT /api/saas/tenants/:id/modules - Actualizar módulos habilitados por empresa (Merge parcial validado)
   router.put('/tenants/:id/modules', authenticate, requireSuperAdmin, async (req, res) => {
     const { id } = req.params;
     const rawPayload = req.body?.modules_config !== undefined ? req.body.modules_config : req.body;
@@ -309,7 +309,7 @@ function createSaasRouter(pool, options = {}) {
       const [rows] = await conn.query('SELECT id, modules_config FROM tenants WHERE id = ? FOR UPDATE', [id]);
       if (!rows || rows.length === 0) {
         await conn.rollback();
-        return res.status(404).json({ error: 'Salón no encontrado' });
+        return res.status(404).json({ error: 'Empresa no encontrado' });
       }
 
       const existingModules = (rows[0].modules_config && typeof rows[0].modules_config === 'object')
@@ -331,7 +331,7 @@ function createSaasRouter(pool, options = {}) {
     } catch (error) {
       await conn.rollback();
       console.error('Error updating tenant modules:', error);
-      res.status(500).json({ error: 'Error actualizando módulos del salón' });
+      res.status(500).json({ error: 'Error actualizando módulos de la empresa' });
     } finally {
       conn.release();
     }
@@ -381,7 +381,7 @@ function createSaasRouter(pool, options = {}) {
       );
       if (!rows || rows.length === 0) {
         await conn.rollback();
-        return res.status(404).json({ error: 'Salón no encontrado' });
+        return res.status(404).json({ error: 'Empresa no encontrado' });
       }
 
       const current = rows[0];
@@ -422,13 +422,13 @@ function createSaasRouter(pool, options = {}) {
     } catch (error) {
       await conn.rollback();
       console.error('Error updating tenant licensing:', error);
-      res.status(500).json({ error: 'Error actualizando licenciamiento del salón' });
+      res.status(500).json({ error: 'Error actualizando licenciamiento de la empresa' });
     } finally {
       conn.release();
     }
   });
 
-  // POST /api/saas/tenants - Crear nuevo salón (Contrato único transaccional Control Plane)
+  // POST /api/saas/tenants - Crear nueva empresa (Contrato único transaccional Control Plane)
   router.post('/tenants', authenticate, requireSuperAdmin, async (req, res) => {
     const {
       business_name,
@@ -445,7 +445,7 @@ function createSaasRouter(pool, options = {}) {
     } = req.body || {};
 
     if (!business_name || !owner_email || !admin_password) {
-      return res.status(400).json({ error: 'Nombre del salón, email y contraseña del administrador son obligatorios' });
+      return res.status(400).json({ error: 'Nombre de la empresa, email y contraseña del administrador son obligatorios' });
     }
     if (String(admin_password).length < 6) {
       return res.status(400).json({ error: 'La contraseña del administrador debe tener al menos 6 caracteres' });
@@ -465,14 +465,14 @@ function createSaasRouter(pool, options = {}) {
     const cleanOwnerName = String(owner_name || 'Propietario').trim();
     const cleanSlug = (slug || cleanBusinessName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     if (!cleanSlug) {
-      return res.status(400).json({ error: 'El identificador (slug) del salón no es válido' });
+      return res.status(400).json({ error: 'El identificador (slug) de la empresa no es válido' });
     }
 
     const conn = await pool.getConnection();
     try {
       const [existingSlug] = await conn.query("SELECT id FROM tenants WHERE slug = ?", [cleanSlug]);
       if (existingSlug.length > 0) {
-        return res.status(400).json({ error: 'El identificador (slug) del salón ya está en uso' });
+        return res.status(400).json({ error: 'El identificador (slug) de la empresa ya está en uso' });
       }
 
       const [existingEmail] = await conn.query("SELECT id FROM users WHERE LOWER(email) = LOWER(?)", [cleanEmail]);
@@ -536,7 +536,7 @@ function createSaasRouter(pool, options = {}) {
             tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id
           )
           VALUES (?, NULL, 'PRINCIPAL', NULL, ?, ?, ?)
-        `, [tenantId, initialStatus, 'Alta de salón desde Control Plane (Plan Principal sin add-on)', actorId]);
+        `, [tenantId, initialStatus, 'Alta de empresa desde Control Plane (Plan Principal sin add-on)', actorId]);
 
         await conn.commit();
       } catch (txError) {
@@ -546,7 +546,7 @@ function createSaasRouter(pool, options = {}) {
 
       res.status(201).json({
         success: true,
-        message: 'Salón registrado exitosamente por SuperAdmin',
+        message: 'Empresa registrado exitosamente por SuperAdmin',
         tenant_id: tenantId,
         branch_id: branchId,
         user_id: userId,
@@ -557,7 +557,7 @@ function createSaasRouter(pool, options = {}) {
       });
     } catch (error) {
       console.error('Error creating tenant:', error.message);
-      res.status(500).json({ error: 'Error interno al crear el nuevo salón' });
+      res.status(500).json({ error: 'Error interno al crear el nueva empresa' });
     } finally {
       conn.release();
     }
@@ -580,7 +580,7 @@ function createSaasRouter(pool, options = {}) {
       const [tenantRows] = await conn.query('SELECT id, status FROM tenants WHERE id = ? FOR UPDATE', [id]);
       if (!tenantRows || tenantRows.length === 0) {
         await conn.rollback();
-        return res.status(404).json({ error: 'Salón no encontrado' });
+        return res.status(404).json({ error: 'Empresa no encontrado' });
       }
 
       const [subRows] = await conn.query('SELECT id, plan_code, status FROM tenant_subscriptions WHERE tenant_id = ? FOR UPDATE', [id]);
@@ -620,7 +620,7 @@ function createSaasRouter(pool, options = {}) {
     } catch (error) {
       await conn.rollback();
       console.error('Error updating tenant status:', error);
-      res.status(500).json({ error: 'Error actualizando estado del salón' });
+      res.status(500).json({ error: 'Error actualizando estado de la empresa' });
     } finally {
       conn.release();
     }
@@ -797,8 +797,8 @@ function createSaasRouter(pool, options = {}) {
       if (err.code === 'TENANT_NOT_FOUND') {
         return res.status(404).json({ error: err.message, code: err.code });
       }
-      console.error('Error actualizando add-on del salón:', err);
-      res.status(500).json({ error: 'Error actualizando add-on del salón' });
+      console.error('Error actualizando add-on de la empresa:', err);
+      res.status(500).json({ error: 'Error actualizando add-on de la empresa' });
     }
   });
 
@@ -1040,7 +1040,7 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
-  // === CONTROL PLANE SECURITY ENDPOINTS (SuperAdmin únicamente, sin datos operativos de salones) ===
+  // === CONTROL PLANE SECURITY ENDPOINTS (SuperAdmin únicamente, sin datos operativos de empresas) ===
   const logControlPlaneSecurityAccess = async (req, action, details) => {
     try {
       const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket?.remoteAddress || req.ip || '127.0.0.1';
@@ -1218,7 +1218,7 @@ function createSaasRouter(pool, options = {}) {
         [String(tenantId)]
       );
       if (!tenantRows || tenantRows.length === 0) {
-        return res.status(404).json({ error: 'Salón / tenant no encontrado' });
+        return res.status(404).json({ error: 'Empresa / tenant no encontrado' });
       }
 
       const result = await saasCheckoutService.createSuperAdminPaymentLink({

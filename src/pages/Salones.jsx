@@ -26,8 +26,8 @@ const DEFAULT_SALONS = [
 
 const Salones = () => {
   useDocumentMetadata({
-    title: 'Salones afiliados a Plan Beauty en República Dominicana',
-    description: 'Encuentra las sucursales y salones de belleza asociados a Plan Beauty. Consulta direcciones, teléfonos, horarios de atención y disponibilidad.',
+    title: 'Empresas afiliados a Plan Beauty en República Dominicana',
+    description: 'Encuentra las sucursales y empresas de belleza asociados a Plan Beauty. Consulta direcciones, teléfonos, horarios de atención y disponibilidad.',
     canonicalUrl: 'https://planbeautyrd.com/salones',
     robots: 'index, follow'
   });
@@ -92,7 +92,7 @@ const Salones = () => {
             NUESTROS <span style={{ color: '#d4af37' }}>SALONES AFILIADOS</span>
           </h1>
           <p style={{ maxWidth: '600px', margin: '1rem auto 0', color: '#64748b', fontSize: '1rem', lineHeight: 1.6 }}>
-            Elige tu salón favorito para disfrutar de tu membresía. Puedes acudir a cualquiera de nuestras sucursales afiliadas en República Dominicana.
+            Elige tu empresa favorito para disfrutar de tu membresía. Puedes acudir a cualquiera de nuestras sucursales afiliadas en República Dominicana.
           </p>
         </div>
 
@@ -155,7 +155,7 @@ const Salones = () => {
           </div>
         ) : (
           <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-            No se encontraron salones que coincidan con tu búsqueda.
+            No se encontraron empresas que coincidan con tu búsqueda.
           </div>
         )}
 

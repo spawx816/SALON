@@ -25,7 +25,7 @@ class InventoryTransferService {
     const srcLoc = await this.inventoryRepo.getLocationById(tenantId, source_location_id);
     const dstLoc = await this.inventoryRepo.getLocationById(tenantId, destination_location_id);
     if (!srcLoc || !dstLoc) {
-      const err = new Error('Ubicación de origen o destino no encontrada en este salón');
+      const err = new Error('Ubicación de origen o destino no encontrada en esta empresa');
       err.code = 'NOT_FOUND';
       throw err;
     }
@@ -34,7 +34,7 @@ class InventoryTransferService {
     for (const it of items) {
       const prod = await this.inventoryRepo.getProductById(tenantId, it.product_id);
       if (!prod) {
-        const err = new Error(`Producto ${it.product_id} no encontrado en este salón`);
+        const err = new Error(`Producto ${it.product_id} no encontrado en esta empresa`);
         err.code = 'NOT_FOUND';
         throw err;
       }

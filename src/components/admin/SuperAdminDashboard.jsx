@@ -61,7 +61,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const [confirmModal, setConfirmModal] = useState(null); // { title, description, requireReason, reason, onConfirm }
   const [graceModal, setGraceModal] = useState(null); // { tenantId, businessName, additionalDays, reason }
 
-  // Formulario nuevo salón
+  // Formulario nueva empresa
   const [tenantFormData, setTenantFormData] = useState({
     business_name: '',
     legal_name: '',
@@ -124,7 +124,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       else if (mRes.status === 'rejected') failures.push(`Métricas: ${mRes.reason?.message}`);
 
       if (tRes.status === 'fulfilled' && Array.isArray(tRes.value)) setTenants(tRes.value);
-      else if (tRes.status === 'rejected') failures.push(`Salones: ${tRes.reason?.message}`);
+      else if (tRes.status === 'rejected') failures.push(`Empresas: ${tRes.reason?.message}`);
 
       if (pRes.status === 'fulfilled' && Array.isArray(pRes.value)) setPlans(pRes.value);
       else if (pRes.status === 'rejected') failures.push(`Planes: ${pRes.reason?.message}`);
@@ -277,15 +277,15 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const handleToggleStatus = (tenantId, currentStatus, businessName) => {
     const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
     setConfirmModal({
-      title: newStatus === 'suspended' ? `Suspender a "${businessName || 'Salón'}"` : `Reactivar a "${businessName || 'Salón'}"`,
+      title: newStatus === 'suspended' ? `Suspender a "${businessName || 'Empresa'}"` : `Reactivar a "${businessName || 'Empresa'}"`,
       description: newStatus === 'suspended'
-        ? 'La suscripción pasará a estado suspendido y bloqueará el acceso operativo del salón.'
+        ? 'La suscripción pasará a estado suspendido y bloqueará el acceso operativo de la empresa.'
         : 'La suscripción volverá a estado activo.',
       requireReason: true,
       reason: newStatus === 'suspended' ? 'Suspensión administrativa desde Control Plane' : 'Reactivación administrativa desde Control Plane',
       onConfirm: async (reason) => {
         await dataService.updateTenantStatus(tenantId, newStatus, reason);
-        showNotification(`Estado del salón cambiado a "${newStatus}".`);
+        showNotification(`Estado de la empresa cambiado a "${newStatus}".`);
         fetchData();
       }
     });
@@ -361,7 +361,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       showNotification(
         newPublicState
           ? `Plan "${plan.name}" ahora está PÚBLICO para nuevos clientes.`
-          : `Plan "${plan.name}" RETIRADO (Grandfathered). Los salones que ya lo contrataron lo conservan intacto.`
+          : `Plan "${plan.name}" RETIRADO (Grandfathered). Las empresas que ya lo contrataron lo conservan intacto.`
       );
       setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, is_public: newPublicState } : p));
     } catch (err) {
@@ -396,7 +396,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
     }
   };
 
-  // Crear Nuevo Salón (Contrato canónico alineado con backend)
+  // Crear Nueva empresa (Contrato canónico alineado con backend)
   const handleCreateTenant = async (e) => {
     e.preventDefault();
     if (!tenantFormData.business_name || !tenantFormData.email || !tenantFormData.owner_password) {
@@ -418,7 +418,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         extra_user_seats: parseInt(tenantFormData.extra_user_seats, 10) || 0,
         status: 'active'
       });
-      showNotification('¡Salón creado exitosamente con Plan Principal!');
+      showNotification('¡Empresa creado exitosamente con Plan Principal!');
       setIsNewTenantModalOpen(false);
       setTenantFormData({
         business_name: '',
@@ -438,7 +438,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       });
       fetchData();
     } catch (err) {
-      showError(`Error al crear salón: ${err.message}`);
+      showError(`Error al crear empresa: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -649,7 +649,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             }}
           >
             <Plus size={18} strokeWidth={2.5} />
-            Dar de Alta Salón
+            Dar de Alta Empresa
           </button>
         </div>
       </div>
@@ -787,10 +787,10 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
       {/* KPI Cards Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
 
-        {/* Card 1: Salones Registrados */}
+        {/* Card 1: Empresas Registrados */}
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.35rem', boxShadow: '0 4px 16px rgba(0,0,0,0.03)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b' }}>Salones Registrados</span>
+            <span style={{ fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b' }}>Empresas Registrados</span>
             <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <Building2 size={18} color="#2563eb" strokeWidth={2.5} />
             </div>
@@ -799,10 +799,10 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>Base Multi-tenant</div>
         </div>
 
-        {/* Card 2: Salones Activos */}
+        {/* Card 2: Empresas Activos */}
         <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.35rem', boxShadow: '0 4px 16px rgba(0,0,0,0.03)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b' }}>Salones Activos</span>
+            <span style={{ fontSize: '0.78rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b' }}>Empresas Activos</span>
             <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <CheckCircle2 size={18} color="#059669" strokeWidth={2.5} />
             </div>
@@ -878,7 +878,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           }}
         >
           <Building2 size={17} />
-          Salones ({tenants.length})
+          Empresas ({tenants.length})
         </button>
 
         <button
@@ -989,7 +989,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           <div style={{ padding: '1.5rem 1.75rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h2 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0, color: '#0f172a' }}>
-                Directorio de Salones Inquilinos & Control de Licencias
+                Directorio de Empresas Inquilinos & Control de Licencias
               </h2>
               <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>
                 Controla la asignación de planes, licencias por sucursal física, asientos de usuarios y activación de add-ons.
@@ -1022,7 +1022,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0', color: '#475569', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  <th style={{ padding: '1rem 1.25rem', fontWeight: '800' }}>Salón / Inquilino</th>
+                  <th style={{ padding: '1rem 1.25rem', fontWeight: '800' }}>Empresa / Inquilino</th>
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Plan Contratado</th>
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Sedes Licenciadas</th>
                   <th style={{ padding: '1rem 1rem', fontWeight: '800' }}>Asientos de Usuarios</th>
@@ -1040,7 +1040,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 {filteredTenants.length === 0 ? (
                   <tr>
                     <td colSpan="8" style={{ textAlign: 'center', padding: '3.5rem 1rem', color: '#64748b' }}>
-                      {loading ? 'Cargando salones desde PostgreSQL...' : 'No se encontraron salones registrados.'}
+                      {loading ? 'Cargando empresas desde PostgreSQL...' : 'No se encontraron empresas registrados.'}
                     </td>
                   </tr>
                 ) : (
@@ -1057,7 +1057,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     return (
                       <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
 
-                        {/* Salón */}
+                        {/* Empresa */}
                         <td style={{ padding: '1.15rem 1.25rem' }}>
                           <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '0.95rem' }}>
                             {t.business_name}
@@ -1312,7 +1312,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           </div>
           {filteredTenants.length > PAGE_SIZE && (
             <div style={{ padding: '0.9rem 1.5rem', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', color: '#475569' }}>
-              <span>Mostrando página {tenantPage} de {Math.ceil(filteredTenants.length / PAGE_SIZE)} ({filteredTenants.length} salones)</span>
+              <span>Mostrando página {tenantPage} de {Math.ceil(filteredTenants.length / PAGE_SIZE)} ({filteredTenants.length} empresas)</span>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button disabled={tenantPage <= 1} onClick={() => setTenantPage(p => Math.max(1, p - 1))} style={{ padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', cursor: tenantPage <= 1 ? 'not-allowed' : 'pointer' }}>Anterior</button>
                 <button disabled={tenantPage >= Math.ceil(filteredTenants.length / PAGE_SIZE)} onClick={() => setTenantPage(p => p + 1)} style={{ padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', cursor: tenantPage >= Math.ceil(filteredTenants.length / PAGE_SIZE) ? 'not-allowed' : 'pointer' }}>Siguiente</button>
@@ -1349,7 +1349,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                   Política de Grandfathering & Add-ons Modular
                 </h3>
                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#3b82f6', maxWidth: '850px' }}>
-                  Cuando retiras un plan marcándolo como <strong>No Público</strong>, ningún nuevo cliente podrá contratarlo, pero todos los salones existentes que lo adquirieron conservan su plan y tarifas para siempre. Las <strong>Membresías</strong> se venden como un Add-on aparte del plan base.
+                  Cuando retiras un plan marcándolo como <strong>No Público</strong>, ningún nuevo cliente podrá contratarlo, pero todas las empresas existentes que lo adquirieron conservan su plan y tarifas para siempre. Las <strong>Membresías</strong> se venden como un Add-on aparte del plan base.
                 </p>
               </div>
             </div>
@@ -1446,7 +1446,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                         fontSize: '0.72rem',
                         fontWeight: '800'
                       }}>
-                        {p.active_subscribers_count || 0} {(parseInt(p.active_subscribers_count) === 1) ? 'salón' : 'salones'}
+                        {p.active_subscribers_count || 0} {(parseInt(p.active_subscribers_count) === 1) ? 'empresa' : 'empresas'}
                       </span>
 
                       <span style={{
@@ -1597,14 +1597,14 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '14px', padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
               <div>
-                <div style={{ fontWeight: '800', color: '#1e3a8a', fontSize: '0.95rem' }}>Facturación B2B de Plataforma (Etereas → Salones)</div>
+                <div style={{ fontWeight: '800', color: '#1e3a8a', fontSize: '0.95rem' }}>Facturación B2B de Plataforma (Etereas → Empresas)</div>
                 <div style={{ fontSize: '0.82rem', color: '#1e40af', marginTop: '0.15rem' }}>
-                  Separado de la facturación comercial interna de los salones. Las pasarelas reales permanecen desactivadas en este entorno.
+                  Separado de la facturación comercial interna de las empresas. Las pasarelas reales permanecen desactivadas en este entorno.
                 </div>
               </div>
               <input
                 type="text"
-                placeholder="Buscar por salón, plan o factura..."
+                placeholder="Buscar por empresa, plan o factura..."
                 value={billingSearch}
                 onChange={(e) => { setBillingSearch(e.target.value); setSubPage(1); setInvPage(1); }}
                 style={{ padding: '0.55rem 0.9rem', borderRadius: '10px', border: '1px solid #93c5fd', background: '#fff', minWidth: '250px', fontSize: '0.85rem' }}
@@ -1632,7 +1632,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
-                      <th style={{ padding: '0.85rem 1.25rem' }}>Salón</th>
+                      <th style={{ padding: '0.85rem 1.25rem' }}>Empresa</th>
                       <th style={{ padding: '0.85rem 1rem' }}>Plan / Ciclo</th>
                       <th style={{ padding: '0.85rem 1rem' }}>Estado Comercial</th>
                       <th style={{ padding: '0.85rem 1rem' }}>Fin de Período</th>
@@ -1699,7 +1699,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
                       <th style={{ padding: '0.85rem 1.25rem' }}>Factura #</th>
-                      <th style={{ padding: '0.85rem 1rem' }}>Salón</th>
+                      <th style={{ padding: '0.85rem 1rem' }}>Empresa</th>
                       <th style={{ padding: '0.85rem 1rem' }}>Monto</th>
                       <th style={{ padding: '0.85rem 1rem' }}>Estado</th>
                       <th style={{ padding: '0.85rem 1rem' }}>Emisión</th>
@@ -1749,7 +1749,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
-                    <th style={{ padding: '0.85rem 1.25rem' }}>Salón Inquilino</th>
+                    <th style={{ padding: '0.85rem 1.25rem' }}>Empresa Inquilino</th>
                     <th style={{ padding: '0.85rem 1rem' }}>Sede</th>
                     <th style={{ padding: '0.85rem 1rem' }}>Dirección</th>
                     <th style={{ padding: '0.85rem 1rem' }}>Tipo</th>
@@ -1860,7 +1860,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '0.85rem 1.25rem' }}>Salón</th>
+                  <th style={{ padding: '0.85rem 1.25rem' }}>Empresa</th>
                   <th style={{ padding: '0.85rem 1rem' }}>Sucursales solicitadas</th>
                   <th style={{ padding: '0.85rem 1rem' }}>Mensualidad</th>
                   <th style={{ padding: '0.85rem 1rem' }}>Nota</th>
@@ -2258,7 +2258,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     Plan Público para Nuevos Clientes
                   </div>
                   <div style={{ fontSize: '0.75rem', color: '#3b82f6' }}>
-                    Si se desactiva, el plan queda <strong>Retirado (Grandfathered)</strong>. Solo los salones que ya lo tenían contratado podrán seguir utilizándolo.
+                    Si se desactiva, el plan queda <strong>Retirado (Grandfathered)</strong>. Solo las empresas que ya lo tenían contratado podrán seguir utilizándolo.
                   </div>
                 </div>
               </label>
@@ -2315,10 +2315,10 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
               <div>
                 <h3 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0, color: '#0f172a' }}>
-                  Dar de Alta Nuevo Salón Inquilino
+                  Dar de Alta Nueva empresa Inquilino
                 </h3>
                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                  Registra un salón y asígnale su plan base comercial y licencias de sucursal.
+                  Registra una empresa y asígnale su plan base comercial y licencias de sucursal.
                 </p>
               </div>
               <button
@@ -2332,7 +2332,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
             <form onSubmit={handleCreateTenant} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
-                  Nombre Comercial del Salón *
+                  Nombre Comercial de la empresa *
                 </label>
                 <input
                   type="text"
@@ -2476,7 +2476,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                   disabled={isSubmitting}
                   style={{ background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', color: '#ffffff', padding: '0.65rem 1.5rem', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
                 >
-                  {isSubmitting ? 'Creando...' : 'Dar de Alta Salón'}
+                  {isSubmitting ? 'Creando...' : 'Dar de Alta Empresa'}
                 </button>
               </div>
             </form>

@@ -8,9 +8,9 @@ const { requireRole, getEffectiveRole, canManageRole } = require('../middleware/
 
 function getClientIp(req) {
   return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-         req.socket?.remoteAddress ||
-         req.ip ||
-         '127.0.0.1';
+    req.socket?.remoteAddress ||
+    req.ip ||
+    '127.0.0.1';
 }
 
 function createAuthRouter(pool, options = {}) {
@@ -379,7 +379,7 @@ function createAuthRouter(pool, options = {}) {
 
       // Identity validation: confirm client exists within the exact tenant
       if (!rec.tenant_id) {
-        return res.status(400).json({ error: 'El código de activación no tiene un salón asociado.' });
+        return res.status(400).json({ error: 'El código de activación no tiene una empresa asociado.' });
       }
       const [clientCheck] = await pool.query(
         'SELECT id FROM clients WHERE id = ? AND tenant_id = ?',
@@ -390,7 +390,7 @@ function createAuthRouter(pool, options = {}) {
       }
 
       const hashedPassword = await bcrypt.hash(String(password), 10);
-      
+
       let updateQuery = "UPDATE clients SET password = ?, status = 'Active' WHERE id = ?";
       const updateParams = [hashedPassword, String(clientId)];
       if (rec.tenant_id) {
@@ -415,7 +415,7 @@ function createAuthRouter(pool, options = {}) {
     const role = getEffectiveRole(req);
     if (role === 'superadmin' || req.auth?.isSuperAdmin) {
       return res.status(403).json({
-        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados de la empresa.',
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
       });
     }
@@ -426,7 +426,7 @@ function createAuthRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const [rows] = await pool.query(`
@@ -468,7 +468,7 @@ function createAuthRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'No se pudo determinar el salón (Tenant) para crear el usuario.' });
+        return res.status(403).json({ error: 'No se pudo determinar la empresa (Tenant) para crear el usuario.' });
       }
 
       const actorRole = getEffectiveRole(req);
@@ -571,7 +571,7 @@ function createAuthRouter(pool, options = {}) {
           INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
           VALUES (?, ?, 'USER_CREATED', ?, ?)
         `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario creado con rol ${effectiveRole}: ${finalEmail}`, tenantId]);
-      } catch (e) {}
+      } catch (e) { }
 
       res.json({ id: result.insertId || result[0]?.id, success: true });
     } catch (err) {
@@ -587,7 +587,7 @@ function createAuthRouter(pool, options = {}) {
       // Verify the user belongs to this tenant (anti-IDOR, anti-enumeration: returns 404)
       const [existing] = await pool.query('SELECT id, tenant_id, role, is_active FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(id), tenantId]);
       if (!existing || existing.length === 0) {
-        return res.status(404).json({ error: 'Usuario no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Usuario no encontrado en esta empresa.' });
       }
 
       const actorRole = getEffectiveRole(req);
@@ -667,7 +667,7 @@ function createAuthRouter(pool, options = {}) {
           INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
           VALUES (?, ?, 'USER_UPDATED', ?, ?)
         `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario modificado con ID ${id}`, tenantId]);
-      } catch (e) {}
+      } catch (e) { }
 
       res.json({ success: true });
     } catch (err) {
@@ -681,7 +681,7 @@ function createAuthRouter(pool, options = {}) {
       const tenantId = req.tenantId;
       const [existing] = await pool.query('SELECT id, tenant_id, role, is_active FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(id), tenantId]);
       if (!existing || existing.length === 0) {
-        return res.status(404).json({ error: 'Usuario no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Usuario no encontrado en esta empresa.' });
       }
 
       const targetRole = String(existing[0].role || '').toLowerCase();
@@ -699,7 +699,7 @@ function createAuthRouter(pool, options = {}) {
 
         if (remainingOwners < 1) {
           return res.status(409).json({
-            error: 'No es posible eliminar al único propietario activo del salón.',
+            error: 'No es posible eliminar al único propietario activo de la empresa.',
             code: 'CANNOT_DELETE_LAST_OWNER'
           });
         }
@@ -708,7 +708,7 @@ function createAuthRouter(pool, options = {}) {
       await pool.query('DELETE FROM users WHERE id::text = ? AND tenant_id = ?', [String(id), tenantId]);
       try {
         await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ?', [String(id), tenantId]);
-      } catch (e) {}
+      } catch (e) { }
 
       // Audit log
       try {
@@ -716,7 +716,7 @@ function createAuthRouter(pool, options = {}) {
           INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
           VALUES (?, ?, 'USER_DELETED', ?, ?)
         `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario eliminado con ID ${id}`, tenantId]);
-      } catch (e) {}
+      } catch (e) { }
 
       res.json({ success: true });
     } catch (err) {
@@ -847,7 +847,7 @@ function createAuthRouter(pool, options = {}) {
           const effectiveRole = String(u.role || 'admin').toLowerCase();
           const isSuperAdmin = effectiveRole === 'superadmin';
 
-          // Obtener configuración del Tenant si el usuario pertenece a un salón
+          // Obtener configuración del Tenant si el usuario pertenece a una empresa
           let tenantInfo = null;
           if (!isSuperAdmin && u.tenant_id) {
             const [tRows] = await pool.query(`
@@ -858,10 +858,10 @@ function createAuthRouter(pool, options = {}) {
             `, [u.tenant_id]);
             tenantInfo = tRows[0] || null;
             if (!tenantInfo) {
-              return res.status(403).json({ error: 'El salón asociado a este usuario no existe.' });
+              return res.status(403).json({ error: 'La empresa asociado a este usuario no existe.' });
             }
             if (tenantInfo.status === 'terminated' || tenantInfo.status === 'inactive') {
-              return res.status(403).json({ error: 'La cuenta de este salón se encuentra inactiva o finalizada. Contacte a soporte.' });
+              return res.status(403).json({ error: 'La cuenta de esta empresa se encuentra inactiva o finalizada. Contacte a soporte.' });
             }
           }
 
@@ -1140,7 +1140,7 @@ function createAuthRouter(pool, options = {}) {
           `, [u.tenant_id]);
           tenantInfo = tRows[0] || null;
           if (tenantInfo && tenantInfo.status === 'suspended') {
-            return res.status(403).json({ valid: false, reason: 'tenant_suspended', error: 'Salón suspendido.' });
+            return res.status(403).json({ valid: false, reason: 'tenant_suspended', error: 'Empresa suspendido.' });
           }
         }
         return res.json({ valid: true, sessionId, tenant: tenantInfo });

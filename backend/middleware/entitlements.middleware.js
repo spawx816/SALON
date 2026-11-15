@@ -22,7 +22,7 @@ function createEntitlementsMiddleware(entitlementsService) {
 
         if (!tenantId) {
           return res.status(403).json({
-            error: 'Contexto de salón requerido para validar permisos de plan.',
+            error: 'Contexto de empresa requerido para validar permisos de plan.',
             code: 'TENANT_REQUIRED'
           });
         }
@@ -69,7 +69,7 @@ function createEntitlementsMiddleware(entitlementsService) {
 
         if (!tenantId) {
           return res.status(403).json({
-            error: 'Contexto de salón requerido para validar límites de plan.',
+            error: 'Contexto de empresa requerido para validar límites de plan.',
             code: 'TENANT_REQUIRED'
           });
         }

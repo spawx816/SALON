@@ -25,7 +25,7 @@ function createEmployeeSecurityRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       // Auto-cascade/clean any existing deductions linked to voided visits within the tenant
@@ -85,7 +85,7 @@ function createEmployeeSecurityRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const { employee_id, employee_name, type, amount, date, notes, status, created_by } = req.body;
@@ -117,7 +117,7 @@ function createEmployeeSecurityRouter(pool) {
 
       const [check] = await pool.query('SELECT id FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (check.length === 0) {
-        return res.status(404).json({ error: 'Descuento no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Descuento no encontrado en esta empresa.' });
       }
 
       let cleanDate = date;
@@ -150,7 +150,7 @@ function createEmployeeSecurityRouter(pool) {
       const { id } = req.params;
       const [check] = await pool.query('SELECT id FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (check.length === 0) {
-        return res.status(404).json({ error: 'Descuento no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Descuento no encontrado en esta empresa.' });
       }
 
       await pool.query('DELETE FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
@@ -192,12 +192,12 @@ function createEmployeeSecurityRouter(pool) {
           from: cfg.smtp_from || '"Plan Beauty RD" <hola@planbeautyrd.com>',
           to: employeeEmail,
           subject: `🔒 Código de Seguridad Consumo Nómina: ${code}`,
-          text: `Hola ${employeeName || ''}, tu código de autorización para consumo en salón a las ${new Date().toLocaleTimeString('es-DO')} es: ${code}`,
+          text: `Hola ${employeeName || ''}, tu código de autorización para consumo en empresa a las ${new Date().toLocaleTimeString('es-DO')} es: ${code}`,
           html: `
             <div style="font-family: sans-serif; padding: 20px; border: 1px solid #ec4899; border-radius: 12px; max-width: 500px;">
               <h2 style="color: #be185d;">Autorización de Consumo de Empleado</h2>
               <p>Hola <strong>${escapeHtml(employeeName || 'Colaborador')}</strong>,</p>
-              <p>Se ha registrado un consumo de servicios en salón a las <strong>${new Date().toLocaleTimeString('es-DO')}</strong>.</p>
+              <p>Se ha registrado un consumo de servicios en empresa a las <strong>${new Date().toLocaleTimeString('es-DO')}</strong>.</p>
               <p style="font-size: 24px; font-weight: bold; color: #ec4899; letter-spacing: 4px; text-align: center; background: #fdf2f8; padding: 10px; border-radius: 8px;">${code}</p>
               <p style="font-size: 12px; color: #64748b;">Si no realizaste esta solicitud, por favor comunícate con administración inmediatamente.</p>
             </div>
@@ -264,7 +264,7 @@ function createEmployeeSecurityRouter(pool) {
                 <div style="font-size: 36px; margin-bottom: 10px;">📋</div>
                 <h2 style="color: #1e40af; margin: 0 0 8px 0; font-weight: 900;">Autorización de Descuento por Nómina</h2>
                 <p style="color: #475569; font-size: 14px; margin-bottom: 20px;">
-                  Hola <strong>${escapeHtml(empName)}</strong>, se ha solicitado un cargo por servicios en salón:
+                  Hola <strong>${escapeHtml(empName)}</strong>, se ha solicitado un cargo por servicios en empresa:
                 </p>
                 <div style="background: #ffffff; border-radius: 12px; padding: 15px; margin: 15px 0; border: 1px dashed #93c5fd;">
                   <p style="margin: 0; color: #64748b; font-size: 13px;">Monto a descontar de nómina:</p>

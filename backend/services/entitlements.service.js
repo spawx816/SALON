@@ -230,7 +230,7 @@ class EntitlementsService {
     if (!entitlements.hasSubscription) {
       return {
         allowed: false,
-        reason: 'El salón no tiene suscripción registrada.',
+        reason: 'La empresa no tiene suscripción registrada.',
         code: 'SUBSCRIPTION_NOT_FOUND',
         currentPlan: null
       };
@@ -249,7 +249,7 @@ class EntitlementsService {
 
       return {
         allowed: false,
-        reason: `La suscripción del salón se encuentra ${entitlements.status}.`,
+        reason: `La suscripción de la empresa se encuentra ${entitlements.status}.`,
         code: statusCode,
         currentPlan: entitlements.plan
       };
@@ -423,7 +423,7 @@ class EntitlementsService {
 
         const tenantRes = await client.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
         if (!tenantRes.rows || tenantRes.rows.length === 0) {
-          const err = new Error('Salón no encontrado');
+          const err = new Error('Empresa no encontrado');
           err.code = 'TENANT_NOT_FOUND';
           throw err;
         }
@@ -446,7 +446,7 @@ class EntitlementsService {
             }
             const invalid = cleaned.find(id => !branchMap.has(id));
             if (invalid) {
-              const err = new Error('Una o más sucursales seleccionadas no pertenecen a este salón.');
+              const err = new Error('Una o más sucursales seleccionadas no pertenecen a esta empresa.');
               err.code = 'INVALID_BRANCH_SELECTION';
               throw err;
             }

@@ -8,7 +8,7 @@ const { createQuarantineGuard } = require('../middleware/quarantine.middleware.c
 function createSalonsRouter(pool, options = {}) {
   const router = express.Router();
 
-  // Fail-Closed Quarantine Protection Guard on Salon Resources
+  // Fail-Closed Quarantine Protection Guard on Empresa Resources
   router.use('/:id', createQuarantineGuard(pool, 'salons', 'id'));
 
   // GET /api/salons
@@ -16,7 +16,7 @@ function createSalonsRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const [branches] = await pool.query(`
@@ -44,7 +44,7 @@ function createSalonsRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const q = String(req.query.q || '').trim();
@@ -89,7 +89,7 @@ function createSalonsRouter(pool, options = {}) {
     const { name, address, phone } = req.body;
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
 
     try {

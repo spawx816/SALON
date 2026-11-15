@@ -5892,7 +5892,7 @@ const VisitRecorder = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                             <span style={{ fontWeight: 700, color: '#334155' }}>💇‍♀️ Atendido por:</span>
                             <span style={{ fontWeight: 600, color: '#0f172a' }}>
-                              {staffNamesList.length > 0 ? staffNamesList.join(', ') : 'Personal del Salón'}
+                              {staffNamesList.length > 0 ? staffNamesList.join(', ') : 'Personal de la empresa'}
                             </span>
                           </div>
 
@@ -5943,7 +5943,7 @@ const VisitRecorder = () => {
                                           {item.nombre || item.service_name || item.servicio}
                                         </td>
                                         <td style={{ padding: '0.3rem', color: '#475569' }}>
-                                          {item.empleado_nombre || item.employee_name || item.empleado || 'Personal Salón'}
+                                          {item.empleado_nombre || item.employee_name || item.empleado || 'Personal Empresa'}
                                         </td>
                                         <td style={{ padding: '0.3rem', textAlign: 'right', fontWeight: 800, color: '#059669' }}>
                                           RD$ {Number(item.precioAplicado || item.precio || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
@@ -6097,7 +6097,7 @@ const VisitRecorder = () => {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.2rem' }}>
                     <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-                      {activeRegister.salon_name || 'Salón Principal'} • Apertura: {new Date(activeRegister.opened_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {activeRegister.salon_name || 'Empresa Principal'} • Apertura: {new Date(activeRegister.opened_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     <span style={{ background: '#dcfce7', color: '#15803d', fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '99px', textTransform: 'uppercase' }}>
                       ABIERTA

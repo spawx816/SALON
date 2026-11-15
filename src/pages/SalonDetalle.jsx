@@ -6,7 +6,7 @@ import { MapPin, Phone, Clock, ShieldCheck, Check, Star, Car, ArrowLeft } from '
 const SalonDetalle = () => {
   const { slug } = useParams();
 
-  // Find salon details based on slug
+  // Find empresa details based on slug
   const salonsData = {
     'abatte-san-vicente': {
       id: 1,
@@ -85,11 +85,11 @@ const SalonDetalle = () => {
     }
   };
 
-  const salon = salonsData[slug] || salonsData['abatte-san-vicente']; // fallback to san vicente
+  const empresa = salonsData[slug] || salonsData['abatte-san-vicente']; // fallback to san vicente
 
   useDocumentMetadata({
-    title: salon.title,
-    description: salon.description,
+    title: empresa.title,
+    description: empresa.description,
     canonicalUrl: `https://planbeautyrd.com/salones/${slug}`,
     robots: 'index, follow'
   });
@@ -101,7 +101,7 @@ const SalonDetalle = () => {
         {/* Back link */}
         <Link to="/salones" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748b', textDecoration: 'none', marginBottom: '2rem', fontSize: '0.85rem', fontWeight: 700 }}>
           <ArrowLeft size={16} />
-          <span>Volver a Salones</span>
+          <span>Volver a Empresas</span>
         </Link>
 
         {/* Hero split layout */}
@@ -113,7 +113,7 @@ const SalonDetalle = () => {
               Sucursal Afiliada
             </span>
             <h1 style={{ fontSize: '2.25rem', fontWeight: 900, marginTop: '1.25rem', color: '#09090b', lineHeight: 1.2 }}>
-              Utiliza tu Plan Beauty en <span style={{ color: '#d4af37' }}>{salon.name}</span>
+              Utiliza tu Plan Beauty en <span style={{ color: '#d4af37' }}>{empresa.name}</span>
             </h1>
             
             <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.6, margin: '1rem 0 2rem' }}>
@@ -126,7 +126,7 @@ const SalonDetalle = () => {
                 <div>
                   <h4 style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>Dirección</h4>
                   <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                    {salon.address}, {salon.sector}, {salon.municipio}, {salon.provincia}.
+                    {empresa.address}, {empresa.sector}, {empresa.municipio}, {empresa.provincia}.
                   </p>
                 </div>
               </div>
@@ -135,7 +135,7 @@ const SalonDetalle = () => {
                 <Phone style={{ color: '#d4af37', flexShrink: 0 }} size={20} />
                 <div>
                   <h4 style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>Teléfono de Contacto</h4>
-                  <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>{salon.phone}</p>
+                  <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>{empresa.phone}</p>
                 </div>
               </div>
 
@@ -143,7 +143,7 @@ const SalonDetalle = () => {
                 <Clock style={{ color: '#d4af37', flexShrink: 0 }} size={20} />
                 <div>
                   <h4 style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>Horario de Atención</h4>
-                  <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.85rem', color: '#64748b', lineHeight: 1.4 }}>{salon.hours}</p>
+                  <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.85rem', color: '#64748b', lineHeight: 1.4 }}>{empresa.hours}</p>
                 </div>
               </div>
 
@@ -151,7 +151,7 @@ const SalonDetalle = () => {
                 <Car style={{ color: '#d4af37', flexShrink: 0 }} size={20} />
                 <div>
                   <h4 style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>Estacionamiento</h4>
-                  <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.85rem', color: '#64748b', lineHeight: 1.4 }}>{salon.parking}</p>
+                  <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.85rem', color: '#64748b', lineHeight: 1.4 }}>{empresa.parking}</p>
                 </div>
               </div>
             </div>
@@ -166,7 +166,7 @@ const SalonDetalle = () => {
             <div style={{ borderRadius: '24px', overflow: 'hidden', boxShadow: '0 15px 35px rgba(0,0,0,0.05)', position: 'relative', height: '280px' }}>
               <img 
                 src="/abatte_salon_interior_1777874331934.png" 
-                alt={salon.name} 
+                alt={empresa.name} 
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             </div>
@@ -178,10 +178,10 @@ const SalonDetalle = () => {
                 <span>¿Cómo llegar?</span>
               </h4>
               <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, lineHeight: 1.5 }}>
-                {salon.mapDescription || 'Estamos ubicados estratégicamente en la Av. San Vicente de Paul, esquina con la calle Puerto Rico, dentro de la concurrida Plaza El Poder en Santo Domingo Este.'}
+                {empresa.mapDescription || 'Estamos ubicados estratégicamente en la Av. San Vicente de Paul, esquina con la calle Puerto Rico, dentro de la concurrida Plaza El Poder en Santo Domingo Este.'}
               </p>
               <a 
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(salon.mapsQuery || (salon.name + ' ' + salon.address))}`} 
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(empresa.mapsQuery || (empresa.name + ' ' + empresa.address))}`} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="landing-btn"
@@ -201,7 +201,7 @@ const SalonDetalle = () => {
           <div>
             <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#09090b', marginBottom: '1.5rem' }}>Servicios del Plan en Sucursal</h3>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {salon.services.map((service, index) => (
+              {empresa.services.map((service, index) => (
                 <li key={index} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', fontSize: '0.9rem', color: '#64748b' }}>
                   <div style={{ background: '#f0fdf4', color: '#16a34a', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Check size={12} strokeWidth={3} />
@@ -216,7 +216,7 @@ const SalonDetalle = () => {
           <div>
             <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#09090b', marginBottom: '1.5rem' }}>Opiniones de Clientes</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              {salon.reviews.map((review, index) => (
+              {empresa.reviews.map((review, index) => (
                 <div key={index} style={{ background: '#f8fafc', padding: '1.5rem', borderRadius: '20px', border: '1px solid #e2e8f0' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <h5 style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem' }}>{review.author}</h5>

@@ -429,7 +429,7 @@ export default function InventoryModule() {
               {products.length === 0 ? (
                 <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
                   <Package size={40} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
-                  <p>No se encontraron productos en el catálogo de este salón.</p>
+                  <p>No se encontraron productos en el catálogo de esta empresa.</p>
                 </div>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>

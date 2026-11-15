@@ -439,7 +439,7 @@ const AppContent = () => {
             (user?.role ? String(user.role) : 'Usuario');
           const tenantDisplayName = isSuperAdmin
             ? (user?.nombre || user?.name || 'Etereas Platform')
-            : (branding?.business_name || user?.tenant?.business_name || user?.tenant?.name || 'Mi Salón');
+            : (branding?.business_name || user?.tenant?.business_name || user?.tenant?.name || 'Mi empresa');
           const tenantInitial = tenantDisplayName.trim().charAt(0).toUpperCase() || 'E';
 
           return (
@@ -499,7 +499,7 @@ const AppContent = () => {
                 <SidebarLink
                   to="/saas"
                   icon={Building2}
-                  label="Salones & Licencias"
+                  label="Empresas & Licencias"
                   active={location.pathname === '/saas' || location.pathname === '/saas/salones'}
                   onClick={closeMobileMenu}
                 />

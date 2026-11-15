@@ -299,10 +299,10 @@ const ServiceAnalytics = () => {
           const query = normalizeQuery(clientPaymentSearch);
           const name = normalizeQuery(p.client_name);
           const phone = normalizeQuery(p.client_phone);
-          const salon = normalizeQuery(p.salon_name);
+          const empresa = normalizeQuery(p.salon_name);
           const desc = normalizeQuery(p.description);
           const method = normalizeQuery(p.method);
-          return name.includes(query) || phone.includes(query) || salon.includes(query) || desc.includes(query) || method.includes(query);
+          return name.includes(query) || phone.includes(query) || empresa.includes(query) || desc.includes(query) || method.includes(query);
         });
 
         const totalCharged = filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
@@ -960,7 +960,7 @@ const ServiceAnalytics = () => {
                   Clientes Inactivos ({filteredInactive.length})
                 </h3>
                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                  Socias con más de 15 días sin registrar visita al salón
+                  Socias con más de 15 días sin registrar visita a la empresa
                 </p>
               </div>
 
@@ -1393,7 +1393,7 @@ const ServiceAnalytics = () => {
               <BarChart2 size={36} color="#94a3b8" />
             </motion.div>
             <p style={{ fontWeight: 700, color: '#64748b', fontSize: '0.9rem' }}>
-              Consultando indicadores del salón...
+              Consultando indicadores de la empresa...
             </p>
           </div>
         ) : (

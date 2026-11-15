@@ -178,7 +178,7 @@ class SubscriptionLifecycleService {
     if (!sub) throw new Error('Suscripción no encontrada');
 
     if (sub.plan_code === LEGACY_PLAN_CODES.BASE || sub.plan_code === SAAS_PLANS.PRINCIPAL) {
-      throw new Error('El salón ya se encuentra en el plan base/principal');
+      throw new Error('La empresa ya se encuentra en el plan base/principal');
     }
 
     // VALIDACIÓN ESTRICTA DE LÍMITES DE RECURSOS PARA DOWNGRADE:

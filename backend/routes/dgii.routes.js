@@ -19,7 +19,7 @@ function createDgiiRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
       let [rows] = await pool.query(
         `SELECT id,
@@ -52,7 +52,7 @@ function createDgiiRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
       const dgiiEnabled = process.env.DGII_ENABLED === 'true';
       const [rows] = await pool.query(

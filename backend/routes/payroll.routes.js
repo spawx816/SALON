@@ -185,7 +185,7 @@ function createPayrollRouter(pool) {
 
       res.json({
         success: true,
-        message: 'Configuración salarial actualizada exitosamente para este salón'
+        message: 'Configuración salarial actualizada exitosamente para esta empresa'
       });
     } catch (err) {
       console.error('[PAYROLL CALC CONFIG POST ERROR]:', err.message);
@@ -212,7 +212,7 @@ function createPayrollRouter(pool) {
       `, [id, tenantId]);
 
       if (!periods || periods.length === 0) {
-        return res.status(404).json({ error: 'Período de nómina no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
       }
 
       const [items] = await pool.query(`
@@ -532,7 +532,7 @@ function createPayrollRouter(pool) {
         ],
         conceptos_descuentos: [
           { id: 'd1', label: 'TSS (Ley 5.91%)', monto: tss },
-          { id: 'd2', label: 'Servicios de Salón', monto: serviciosConsumo },
+          { id: 'd2', label: 'Servicios de Empresa', monto: serviciosConsumo },
           { id: 'd3', label: 'Préstamos / Adelantos', monto: prestamosMonto },
           { id: 'd4', label: 'Ausencias', monto: ausenciasMonto },
           { id: 'd5', label: 'Tardanzas', monto: tardanzasMonto },
@@ -559,7 +559,7 @@ function createPayrollRouter(pool) {
         return res.status(400).json({ error: 'El nombre del período y las fechas de inicio y fin son obligatorios' });
       }
 
-      // 1. Obtener empleados activos de este salón exclusivamente
+      // 1. Obtener empleados activos de esta empresa exclusivamente
       let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND (status = 'Activo' OR status = 'Active' OR status IS NULL)";
       const staffParams = [tenantId];
       if (sucursal && sucursal !== 'Todas') {
@@ -573,7 +573,7 @@ function createPayrollRouter(pool) {
       let [staffList] = await pool.query(staffQuery, staffParams);
 
       if (staffList.length === 0) {
-        return res.status(400).json({ error: 'No se encontraron colaboradores registrados en este salón para procesar la nómina.' });
+        return res.status(400).json({ error: 'No se encontraron colaboradores registrados en esta empresa para procesar la nómina.' });
       }
 
       // 2. Crear registro del período con tenant_id
@@ -660,7 +660,7 @@ function createPayrollRouter(pool) {
         [payroll_id, tenantId]
       );
       if (periodRows.length === 0) {
-        return res.status(404).json({ error: 'Período no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
       }
       if (periodRows[0].status === 'Aprobada' || periodRows[0].is_immutable === 1) {
         return res.status(403).json({ error: 'Esta nómina ya ha sido aprobada y es inmutable. No se pueden realizar modificaciones.' });
@@ -752,7 +752,7 @@ function createPayrollRouter(pool) {
         'SELECT status, is_immutable FROM payroll_periods WHERE id = ? AND tenant_id = ?',
         [payroll_id, tenantId]
       );
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en este salón.' });
+      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
       if (periodRows[0].status === 'Aprobada' || periodRows[0].is_immutable === 1) {
         return res.status(403).json({ error: 'Esta nómina es inmutable' });
       }
@@ -847,7 +847,7 @@ function createPayrollRouter(pool) {
         'SELECT * FROM payroll_periods WHERE id = ? AND tenant_id = ?',
         [payroll_id, tenantId]
       );
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en este salón.' });
+      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
 
       const period = periodRows[0];
       const startDate = period.start_date ? String(period.start_date).split('T')[0] : '';
@@ -938,7 +938,7 @@ function createPayrollRouter(pool) {
                approved_by
         FROM payroll_periods WHERE id = ? AND tenant_id = ?
       `, [id, tenantId]);
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en este salón.' });
+      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
       
       const period = periodRows[0];
       if (period.status === 'Aprobada' || period.is_immutable === 1) {
@@ -1063,7 +1063,7 @@ function createPayrollRouter(pool) {
         [id, tenantId]
       );
       if (!existing || existing.length === 0) {
-        return res.status(404).json({ error: 'Período de nómina no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
       }
 
       await pool.query('DELETE FROM payroll_items WHERE payroll_id = ? AND tenant_id = ?', [id, tenantId]);

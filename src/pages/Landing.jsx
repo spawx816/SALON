@@ -33,7 +33,7 @@ const CANONICAL_FALLBACK_PLANS = [
     users_included: 3,
     branches_included: 1,
     description:
-      'Operación integral para tu salón: POS, cajas, Clientes/CRM, inventario avanzado multisucursal, asistencia, nómina, comisiones, marketing y reportes DGII. Añade el módulo de Suscripciones/Membresías B2C cuando lo necesites.'
+      'Operación integral para tu empresa: POS, cajas, Clientes/CRM, inventario avanzado multisucursal, asistencia, nómina, comisiones, marketing y reportes DGII. Añade el módulo de Suscripciones/Membresías B2C cuando lo necesites.'
   }
 ];
 
@@ -179,6 +179,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [regSuccess, setRegSuccess] = useState(false);
   const [pendingOrder, setPendingOrder] = useState(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutVerifying, setCheckoutVerifying] = useState(false);
   const [checkoutErr, setCheckoutErr] = useState('');
 
   // Forgot / Reset password modal state
@@ -396,7 +397,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
 
     if (regStep === 2) {
       if (!businessName.trim() || businessName.trim().length < 3) {
-        setRegError('Ingresa el nombre comercial de tu empresa o salón.');
+        setRegError('Ingresa el nombre comercial de tu empresa o empresa.');
         return;
       }
       if (!ownerPassword || ownerPassword.length < 8) {
@@ -968,7 +969,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               </h2>
               <p className="et-sub">
                 Comienza con el Plan Principal con todas las herramientas operativas y añade el módulo
-                de Suscripciones y Membresías B2C cuando tu salón lo requiera.
+                de Suscripciones y Membresías B2C cuando tu empresa lo requiera.
               </p>
             </div>
 
@@ -1354,11 +1355,13 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               {regSuccess ? (
                 <div>
                   <div className="et-alert-success" role="status">
-                    ¡Tu espacio de trabajo <strong>{businessName}</strong> ha sido registrado!
+                    ¡Tu empresa <strong>{businessName}</strong> ha sido registrada!
                   </div>
-                  <h2 id="reg-modal-title">Completa el pago para activar tu acceso</h2>
+                  <h2 id="reg-modal-title">Completa el pago para activar tu empresa</h2>
                   <p className="et-login-subtitle" style={{ marginBottom: 14 }}>
-                    Tu cuenta está creada en espera de pago. No podrás ingresar al sistema operativo hasta confirmar tu pago seguro con CardNet.
+                    {checkoutVerifying
+                      ? 'Verificando la confirmación de tu pago con CardNet...'
+                      : 'Tu cuenta está creada en espera de pago. No podrás ingresar al sistema operativo hasta confirmar tu pago seguro con CardNet.'}
                   </p>
                   {pendingOrder && (
                     <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 13 }}>
@@ -1382,7 +1385,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                     <button
                       type="button"
                       className="et-btn-primary et-cta-full"
-                      disabled={checkoutBusy}
+                      disabled={checkoutBusy || checkoutVerifying}
                       onClick={async () => {
                         setCheckoutBusy(true);
                         setCheckoutErr('');
@@ -1396,13 +1399,43 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                           if (!res.ok) {
                             throw new Error(data.error || 'No se pudo iniciar el checkout con CardNet.');
                           }
+                          if (data?.order) setPendingOrder(data.order);
                           await executeCardnetCheckout({
                             orderId: pendingOrder.id,
                             checkout: data.checkout,
+                            onCheckoutOpening: () => {
+                              // Desmontar el modal/backdrop de Landing antes de abrir el iframe de CardNet (capa modal única)
+                              setIsRegisterModalOpen(false);
+                            },
+                            onVerifying: () => {
+                              setCheckoutVerifying(true);
+                              setIsRegisterModalOpen(true);
+                            },
+                            onCheckoutClosed: async () => {
+                              // Restaurar el resumen y consultar el estado real de la orden sin crear duplicados
+                              setCheckoutVerifying(false);
+                              setIsRegisterModalOpen(true);
+                              try {
+                                const ordRes = await fetch(`/api/saas/billing/checkout/orders/${pendingOrder.id}`, {
+                                  credentials: 'include',
+                                });
+                                if (ordRes.ok) {
+                                  const ordData = await ordRes.json();
+                                  if (ordData?.order) setPendingOrder(ordData.order);
+                                }
+                              } catch {
+                                // ignore network refresh error
+                              }
+                            },
                             onActivated: () => {
+                              setCheckoutVerifying(false);
                               window.location.href = '/dashboard';
                             },
-                            onError: (msg) => setCheckoutErr(msg),
+                            onError: (msg) => {
+                              setCheckoutVerifying(false);
+                              setIsRegisterModalOpen(true);
+                              setCheckoutErr(msg);
+                            },
                           });
                         } catch (err) {
                           setCheckoutErr(err.message);
@@ -1411,7 +1444,11 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         }
                       }}
                     >
-                      {checkoutBusy ? 'Conectando con CardNet...' : 'Pagar ahora con CardNet →'}
+                      {checkoutVerifying
+                        ? 'Verificando pago...'
+                        : checkoutBusy
+                          ? 'Conectando con CardNet...'
+                          : 'Pagar ahora con CardNet →'}
                     </button>
                   ) : (
                     <button
@@ -1430,7 +1467,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   <p className="et-eyebrow" style={{ marginBottom: 6 }}>
                     ALTA DE EMPRESA · PASO {regStep} DE 3
                   </p>
-                  <h2 id="reg-modal-title">Crear espacio en Etereas</h2>
+                  <h2 id="reg-modal-title">
+                    {regStep === 1 ? 'Registrar mi empresa' : regStep === 2 ? 'Datos de la empresa' : 'Resumen y acceso'}
+                  </h2>
                   <div className="et-stepper-bars" aria-hidden="true">
                     <div className={`et-stepper-bar ${regStep >= 1 ? 'active' : ''}`} />
                     <div className={`et-stepper-bar ${regStep >= 2 ? 'active' : ''}`} />

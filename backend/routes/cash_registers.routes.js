@@ -169,7 +169,7 @@ function createCashRegistersRouter(pool) {
       // Operador extraído estrictamente de req.auth para prevenir suplantación de identidad (REM-P1-08)
       const effectiveOpenedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.opened_by || 'Recepción';
 
-      // Verificar si ya hay una caja abierta en este salón y sucursal
+      // Verificar si ya hay una caja abierta en esta empresa y sucursal
       let checkQuery = "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta'";
       const checkParams = [tenantId];
       if (salon_id && String(salon_id).length > 10) {
@@ -227,7 +227,7 @@ function createCashRegistersRouter(pool) {
 
       const [rows] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (rows.length === 0) {
-        return res.status(404).json({ error: 'Caja no encontrada en este salón' });
+        return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
       }
 
       const register = rows[0];
@@ -310,7 +310,7 @@ function createCashRegistersRouter(pool) {
           const pinHash = secRows[0]?.admin_pin_hash;
           if (!pinHash) {
             return res.status(500).json({
-              error: 'No se ha configurado el PIN administrativo en este salón.',
+              error: 'No se ha configurado el PIN administrativo en esta empresa.',
               code: 'PIN_NOT_CONFIGURED'
             });
           }
@@ -400,7 +400,7 @@ function createCashRegistersRouter(pool) {
       const { id } = req.params;
       const [rows] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (rows.length === 0) {
-        return res.status(404).json({ error: 'Caja no encontrada en este salón' });
+        return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
       }
       const register = rows[0];
 
@@ -436,7 +436,7 @@ function createCashRegistersRouter(pool) {
       const { id } = req.params;
       const [regCheck] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (regCheck.length === 0) {
-        return res.status(404).json({ error: 'Caja no encontrada en este salón' });
+        return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
       }
 
       const [movements] = await pool.query(
@@ -474,7 +474,7 @@ function createCashRegistersRouter(pool) {
 
       const [regCheck] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (regCheck.length === 0) {
-        return res.status(404).json({ error: 'Caja no encontrada en este salón.' });
+        return res.status(404).json({ error: 'Caja no encontrada en esta empresa.' });
       }
 
       const numAmount = Number(amount);
@@ -530,7 +530,7 @@ function createCashRegistersRouter(pool) {
       const { id } = req.params;
       const [regRows] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (regRows.length === 0) {
-        return res.status(404).json({ error: 'Caja no encontrada en este salón' });
+        return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
       }
       const [rows] = await pool.query(`
         SELECT v.id, v.ticket_number, v.ticket_number as invoice_number, v.ncf, v.total, v.metodo_pago, v.status, v.visited_at,

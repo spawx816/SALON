@@ -269,7 +269,7 @@ const SatisfactionSurvey = () => {
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
             
             <div style={{ background: '#ffffff', padding: '2rem', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-              <label style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '1.5rem', display: 'block', lineHeight: 1.5 }}>1. ¿Cómo calificarías tu experiencia en general en el salón?</label>
+              <label style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '1.5rem', display: 'block', lineHeight: 1.5 }}>1. ¿Cómo calificarías tu experiencia en general en la empresa?</label>
               <NPSScale value={responses.q1} onChange={(v) => setResponses({ ...responses, q1: v })} />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem' }}>
                 <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>Mala</span>
@@ -287,7 +287,7 @@ const SatisfactionSurvey = () => {
             </div>
 
             <div style={{ background: '#ffffff', padding: '2rem', borderRadius: '24px', border: '1px solid #f1f5f9', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-              <label style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '1.5rem', display: 'block', lineHeight: 1.5 }}>3. ¿Cómo calificarías tu tiempo de espera en el salón?</label>
+              <label style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '1.5rem', display: 'block', lineHeight: 1.5 }}>3. ¿Cómo calificarías tu tiempo de espera en la empresa?</label>
               <NPSScale value={responses.q8} onChange={(v) => setResponses({ ...responses, q8: v })} />
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem' }}>
                 <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>Inaceptable</span>

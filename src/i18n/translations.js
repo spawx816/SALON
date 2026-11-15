@@ -21,7 +21,7 @@ export const translations = {
 
     // Dashboard
     'dash.title': 'Resumen General',
-    'dash.subtitle': 'Esto es lo que está pasando en tu salón hoy.',
+    'dash.subtitle': 'Esto es lo que está pasando en tu empresa hoy.',
     'dash.btn.export': 'Exportar Reporte',
     'dash.btn.new': 'Nueva Cita',
     'dash.visits': 'Visitas Totales',
@@ -84,7 +84,7 @@ export const translations = {
     'contract.step1.1': '1. PROPÓSITO: El cliente reconoce y acepta los términos de los planes de servicio seleccionados...',
     'contract.step1.2': '2. CANCELACIÓN: Las citas deben cancelarse con al menos 24 horas de antelación para no aplicar penalidades...',
     'contract.step1.3': '3. PRIVACIDAD: Los datos biométricos y verifiación de identidad se mantendrán estrictamente encriptados...',
-    'contract.step1.4': '4. RESPONSABILIDAD: El salón no se hace responsable por condiciones o alergias no declaradas...',
+    'contract.step1.4': '4. RESPONSABILIDAD: La empresa no se hace responsable por condiciones o alergias no declaradas...',
     'contract.step1.5': '5. TRAZABILIDAD CRIPTOGRÁFICA: Al firmar, su dispositivo y zona horaria se registran para compliance legal.',
     'contract.btn.accept': 'Aceptar y Continuar',
     'contract.step2.title': 'Verificación de Identidad',
@@ -126,7 +126,7 @@ export const translations = {
     'reg.sector.ph': 'Ej: Piantini',
     'reg.city': 'Ciudad',
     'reg.city.ph': 'Ej: Santo Domingo',
-    'reg.note': 'El perfil estará disponible al instante en todas las estaciones del salón.',
+    'reg.note': 'El perfil estará disponible al instante en todas las estaciones de la empresa.',
     'reg.error.required': 'Este campo es obligatorio',
     'reg.btn.create': 'Crear Perfil',
     'reg.btn.next': 'Siguiente',
@@ -207,7 +207,7 @@ export const translations = {
 
     // Dashboard
     'dash.title': 'Overview',
-    'dash.subtitle': 'Here\'s what\'s happening at your salon today.',
+    'dash.subtitle': 'Here\'s what\'s happening at your empresa today.',
     'dash.btn.export': 'Export Report',
     'dash.btn.new': 'New Appt',
     'dash.visits': 'Total Visits',
@@ -270,7 +270,7 @@ export const translations = {
     'contract.step1.1': '1. PURPOSE: The client acknowledges and agrees to the terms of the selected service plans...',
     'contract.step1.2': '2. CANCELLATION: Appointments must be canceled with at least 24 hours\' notice...',
     'contract.step1.3': '3. PRIVACY & DATA: The client\'s biometric data and identity will be encrypted and maintained locally...',
-    'contract.step1.4': '4. LIABILITY: The Salon is completely excluded from any liability regarding undisclosed allergies...',
+    'contract.step1.4': '4. LIABILITY: The Empresa is completely excluded from any liability regarding undisclosed allergies...',
     'contract.step1.5': '5. CRYPTOGRAPHIC TRACING: By signing this, your device metadata is embedded to the signature hash.',
     'contract.btn.accept': 'Accept & Proceed',
     'contract.step2.title': 'Identity Verification',
@@ -312,7 +312,7 @@ export const translations = {
     'reg.sector.ph': 'e.g. Manhattan',
     'reg.city': 'City',
     'reg.city.ph': 'e.g. New York',
-    'reg.note': 'Profile will be instantly available across all salon stations.',
+    'reg.note': 'Profile will be instantly available across all empresa stations.',
     'reg.btn.create': 'Create Profile',
     'reg.btn.next': 'Next',
     'reg.btn.back': 'Back',

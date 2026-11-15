@@ -98,7 +98,7 @@ const ClientProfile = () => {
   // Clientes/CRM está en BASE y PRO; los paneles de membresía/contratos/tarjetas/cobros solo existen en PRO.
   const { hasFeature, loading: entitlementsLoading } = useEntitlements();
   const showMemberships = hasFeature('memberships');
-  const [sortBy, setSortBy] = useState('name_asc'); // 'name_asc' | 'name_desc' | 'status' | 'salon'
+  const [sortBy, setSortBy] = useState('name_asc'); // 'name_asc' | 'name_desc' | 'status' | 'empresa'
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
   const [salonsList, setSalonsList] = useState([]);
@@ -1670,7 +1670,7 @@ const ClientProfile = () => {
                           </div>
                           {contract?.status === 'Pending_Retry' && (
                             <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed #fcd34d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: '0.7rem', color: '#92400e', fontWeight: 600 }}>¿Clienta en salón? Puedes cobrarle directamente:</span>
+                              <span style={{ fontSize: '0.7rem', color: '#92400e', fontWeight: 600 }}>¿Clienta en empresa? Puedes cobrarle directamente:</span>
                               <button 
                                 onClick={() => handleManualPayment(contract, plan)}
                                 style={{ 
@@ -2036,7 +2036,7 @@ const ClientProfile = () => {
                   <span>Estado Legal Descubierto</span>
                 </div>
                 <p style={{ fontSize: '0.875rem', color: '#92400e', lineHeight: 1.5, fontWeight: 500 }}>
-                  El cliente no ha firmado ningún contrato digital de acuerdos de Términos y Membresía del salón.
+                  El cliente no ha firmado ningún contrato digital de acuerdos de Términos y Membresía de la empresa.
                 </p>
                 <button 
                   onClick={() => navigate('/contratos', { state: { clientCedula: client.cedula } })}
@@ -2602,7 +2602,7 @@ const ClientProfile = () => {
                     <option value="name_asc">Nombre (A - Z)</option>
                     <option value="name_desc">Nombre (Z - A)</option>
                     <option value="status">Por Estado</option>
-                    <option value="salon">Por Sede</option>
+                    <option value="empresa">Por Sede</option>
                   </select>
                 </div>
 
@@ -2672,7 +2672,7 @@ const ClientProfile = () => {
               if (sortBy === 'name_asc') return (a.nombre || '').localeCompare(b.nombre || '');
               if (sortBy === 'name_desc') return (b.nombre || '').localeCompare(a.nombre || '');
               if (sortBy === 'status') return (a.status || '').localeCompare(b.status || '');
-              if (sortBy === 'salon') return String(a.salon_id || '').localeCompare(String(b.salon_id || ''));
+              if (sortBy === 'empresa') return String(a.salon_id || '').localeCompare(String(b.salon_id || ''));
               return 0;
             });
 
@@ -3157,7 +3157,7 @@ const ClientProfile = () => {
               onClick={() => setIsUpdatingCard(false)}
               style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
             >
-              <Scissors size={20} style={{ transform: 'rotate(45deg)' }} /> {/* Using scissors as close icon for salon theme */}
+              <Scissors size={20} style={{ transform: 'rotate(45deg)' }} /> {/* Using scissors as close icon for empresa theme */}
             </button>
 
             <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
@@ -3493,7 +3493,7 @@ const ClientProfile = () => {
                 { id: 'q1', label: '1. ¿Qué tan satisfecha estás con el servicio recibido hoy?', icon: '✨' },
                 { id: 'q2', label: '2. ¿Cómo calificarías el desempeño del personal (peluquera/lava pelo)?', icon: '👤' },
                 { id: 'q3', label: '3. ¿Cómo calificarías el tiempo de espera?', icon: '⏳' },
-                { id: 'q4', label: '4. ¿Cómo calificarías tu experiencia general en el salón?', icon: '⭐' },
+                { id: 'q4', label: '4. ¿Cómo calificarías tu experiencia general en la empresa?', icon: '⭐' },
                 { id: 'q5', label: '5. ¿Qué tan probable es que nos recomiendes a una amiga o familiar?', icon: '🤝' },
               ].map((q, idx) => (
                 <div key={q.id} style={{ background: '#f8fafc', padding: '1.75rem', borderRadius: '24px', border: '1px solid #f1f5f9' }}>

@@ -6,7 +6,7 @@ import { UserPlus, CreditCard, MapPin, Smile, ArrowRight } from 'lucide-react';
 const ComoFunciona = () => {
   useDocumentMetadata({
     title: '¿Cómo funciona Plan Beauty? Suscripción, citas y beneficios',
-    description: 'Descubre el funcionamiento de Plan Beauty. Elige tu plan, suscríbete online, asiste a tu salón sin necesidad de cita previa y disfruta de tu lavado profesional.',
+    description: 'Descubre el funcionamiento de Plan Beauty. Elige tu plan, suscríbete online, asiste a tu empresa sin necesidad de cita previa y disfruta de tu lavado profesional.',
     canonicalUrl: 'https://planbeautyrd.com/como-funciona',
     robots: 'index, follow'
   });
@@ -48,7 +48,7 @@ const ComoFunciona = () => {
             </div>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem', position: 'relative', zIndex: 2 }}>Elige tu Sucursal</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0, position: 'relative', zIndex: 2 }}>
-              Elige el salón de belleza afiliado más cercano a ti para asociarlo a tu cuenta de membresía.
+              Elige la empresa de belleza afiliado más cercano a ti para asociarlo a tu cuenta de membresía.
             </p>
           </div>
 
@@ -72,7 +72,7 @@ const ComoFunciona = () => {
             </div>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#09090b', marginBottom: '0.75rem', position: 'relative', zIndex: 2 }}>Visita y Disfruta</h3>
             <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5, margin: 0, position: 'relative', zIndex: 2 }}>
-              Ve al salón cuando quieras sin necesidad de agendar cita. Identifícate en la entrada y disfruta.
+              Ve a la empresa cuando quieras sin necesidad de agendar cita. Identifícate en la entrada y disfruta.
             </p>
           </div>
 
@@ -91,7 +91,7 @@ const ComoFunciona = () => {
                 <ArrowRight size={16} />
               </Link>
               <Link to="/salones" className="landing-btn" style={{ background: 'transparent', border: '1.5px solid #cbd5e1', textDecoration: 'none', color: '#09090b' }}>
-                Ver Salones Disponibles
+                Ver Empresas Disponibles
               </Link>
             </div>
           </div>

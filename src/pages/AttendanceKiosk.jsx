@@ -658,7 +658,7 @@ const AttendanceKiosk = () => {
               <thead><tr><th>DESCUENTOS</th><th style="text-align: right;">RD$</th></tr></thead>
               <tbody>
                 <tr><td>TSS (Seguro / AFP 5.91%)</td><td style="text-align: right;">${Number(item.tss || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
-                <tr><td>Servicios / Consumos Salón</td><td style="text-align: right;">${Number(item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
+                <tr><td>Servicios / Consumos Empresa</td><td style="text-align: right;">${Number(item.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Préstamos y Anticipos</td><td style="text-align: right;">${Number(item.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Ausencias</td><td style="text-align: right;">${Number(item.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
                 <tr><td>Tardanzas</td><td style="text-align: right;">${Number(item.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td></tr>
@@ -1845,14 +1845,14 @@ const AttendanceKiosk = () => {
                           <strong>RD$ {Number(employeeSlip.item.tss || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
                         </div>
 
-                        {/* 2. Servicios de Salón */}
+                        {/* 2. Servicios de Empresa */}
                         <div>
                           <div 
                             onClick={() => setExpandedDiscountConcept(expandedDiscountConcept === 'servicios' ? null : 'servicios')}
                             style={{ display: 'flex', justifyContent: 'space-between', color: '#d4d4d8', cursor: 'pointer', padding: '0.25rem 0', userSelect: 'none' }}
                           >
                             <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: Number(employeeSlip.item.servicios || 0) > 0 ? '#60a5fa' : '#d4d4d8' }}>
-                              <span>Servicios / Consumos de Salón</span>
+                              <span>Servicios / Consumos de Empresa</span>
                               {Number(employeeSlip.item.servicios || 0) > 0 && (
                                 <span style={{ fontSize: '0.7rem' }}>{expandedDiscountConcept === 'servicios' ? '▲' : '▼'}</span>
                               )}

@@ -1,5 +1,5 @@
 /**
- * Secure CSV Export Utility (Salon Pro & Plan Beauty RD)
+ * Secure CSV Export Utility (Empresa Pro & Plan Beauty RD)
  * 
  * Provides native, secure CSV generation with zero external dependencies.
  * Defends against CSV / Excel Formula Injection (CWE-1236):

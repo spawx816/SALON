@@ -5,7 +5,7 @@ import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 const PreguntasFrecuentes = () => {
   useDocumentMetadata({
     title: 'Preguntas Frecuentes | Plan Beauty RD',
-    description: 'Encuentra respuestas a tus dudas sobre el plan de belleza, cobro de suscripción mensual, políticas de acumulación de lavados, cancelación y cambio de salón.',
+    description: 'Encuentra respuestas a tus dudas sobre el plan de belleza, cobro de suscripción mensual, políticas de acumulación de lavados, cancelación y cambio de empresa.',
     canonicalUrl: 'https://planbeautyrd.com/preguntas-frecuentes',
     robots: 'index, follow'
   });
@@ -13,7 +13,7 @@ const PreguntasFrecuentes = () => {
   const faqs = [
     {
       question: '¿Qué es Plan Beauty RD?',
-      answer: 'Plan Beauty es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en salones afiliados de República Dominicana por una tarifa plana fija.'
+      answer: 'Plan Beauty es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en empresas afiliados de República Dominicana por una tarifa plana fija.'
     },
     {
       question: '¿Qué incluye Plan Beauty?',
@@ -53,7 +53,7 @@ const PreguntasFrecuentes = () => {
     },
     {
       question: '¿Hay cargos adicionales?',
-      answer: 'La membresía cubre únicamente los servicios de lavado y secado estándar. Cualquier servicio adicional (tintes, tratamientos profundos, cortes, etc.) se cobrará de forma independiente según la tarifa vigente del salón.'
+      answer: 'La membresía cubre únicamente los servicios de lavado y secado estándar. Cualquier servicio adicional (tintes, tratamientos profundos, cortes, etc.) se cobrará de forma independiente según la tarifa vigente de la empresa.'
     },
     {
       question: '¿Qué debo presentar para utilizar mi membresía?',

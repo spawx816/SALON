@@ -1,6 +1,7 @@
 const { describe, it, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { CardNetHostedCheckoutProvider } = require('../backend/services/cardnet_hosted_checkout.provider');
+const { CardNetTokenizationProvider } = require('../backend/services/cardnet_tokenization.provider');
 const { SaasCheckoutService, ORDER_STATUS } = require('../backend/services/saas_checkout.service');
 
 /**
@@ -473,5 +474,173 @@ describe('CardNet Hosted Checkout & SaaS Subscription Activation', () => {
     assert.equal(r3.activated, true);
     assert.equal(verifyHits, 2);
     assert.equal(pool.subscriptions.get('tenant-rec')?.status, 'active');
+  });
+
+  it('6. CardNet Tokenización (PWCheckout): reutiliza sesión al cerrar/reabrir, cobra con importe del servidor y es idempotente', async () => {
+    let customerCalls = 0;
+    let purchaseCalls = 0;
+    const tokProvider = new CardNetTokenizationProvider({
+      env: {
+        CARDNET_BASE_URL: 'https://labservicios.cardnet.com.do/servicios/tokens/v1',
+        CARDNET_PUBLIC_KEY: 'pub_test_123',
+        CARDNET_PRIVATE_KEY: 'priv_secret_never_leak',
+        CARDNET_MERCHANT_NUMBER: '349000001',
+        CARDNET_TERMINAL_ID: '10311240',
+        CARDNET_ENV: 'STAGING',
+      },
+      fetchImpl: async (url, init) => {
+        if (url.endsWith('/api/Customer')) {
+          customerCalls += 1;
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({
+              Response: {
+                CustomerId: 777001,
+                UniqueID: 'UI_sandbox_1',
+                CaptureURL: 'https://labservicios.cardnet.com.do/servicios/tokens/v1/Capture',
+              },
+              Errors: [],
+            }),
+          };
+        }
+        if (url.endsWith('/api/Purchase')) {
+          purchaseCalls += 1;
+          const body = JSON.parse(init.body);
+          assert.equal(body.Amount, 9900);
+          assert.equal(body.TrxToken, 'trx_one_time_ok');
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({
+              Response: {
+                ResponseCode: '00',
+                Transaction: { Status: 'Approved', TransactionId: 'TXN_TOK_1' },
+                AuthorizationCode: 'AUTH_TOK',
+                Brand: 'Visa',
+                Last4: '4242',
+              },
+              Errors: [],
+            }),
+          };
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    });
+
+    const service = new SaasCheckoutService({
+      pool,
+      cardnetProvider: new CardNetHostedCheckoutProvider({ env: {} }),
+      tokenizationProvider: tokProvider,
+      lifecycleService: {
+        async activateOrRenewAfterPayment({ tenantId, planCode }) {
+          pool.subscriptions.set(tenantId, { tenant_id: tenantId, plan_code: planCode, status: 'active' });
+        },
+      },
+    });
+
+    const order = await service.createOrder({ tenantId: 'tenant-tok', branchesCount: 1, idempotencyKey: 'idem-tok' });
+    const init1 = await service.initiateCardnetCheckout({
+      orderId: order.id,
+      tenantId: 'tenant-tok',
+      actorEmail: 'owner@empresa.com',
+    });
+    assert.equal(init1.checkout.mode, 'pwcheckout_iframe');
+    assert.equal(init1.checkout.reusedSession, false);
+    assert.equal(JSON.stringify(init1).includes('priv_secret_never_leak'), false);
+
+    // Reapertura tras cerrar iframe sin pagar: debe reutilizar la sesión vigente sin llamar otra vez a /api/Customer
+    const init2 = await service.initiateCardnetCheckout({
+      orderId: order.id,
+      tenantId: 'tenant-tok',
+      actorEmail: 'owner@empresa.com',
+    });
+    assert.equal(init2.checkout.reusedSession, true);
+    assert.equal(customerCalls, 1);
+
+    // Cobro aprobado con TrxToken
+    const paid1 = await service.chargeOrderWithToken({
+      orderId: order.id,
+      tenantId: 'tenant-tok',
+      trxToken: 'trx_one_time_ok',
+    });
+    assert.equal(paid1.activated, true);
+    assert.equal(paid1.order.status, ORDER_STATUS.APPROVED);
+    assert.equal(pool.subscriptions.get('tenant-tok')?.status, 'active');
+
+    // Doble envío / confirmación duplicada no vuelve a cobrar
+    const paid2 = await service.chargeOrderWithToken({
+      orderId: order.id,
+      tenantId: 'tenant-tok',
+      trxToken: 'trx_one_time_ok',
+    });
+    assert.equal(paid2.alreadyProcessed, true);
+    assert.equal(purchaseCalls, 1);
+  });
+
+  it('7. CardNet Tokenización: rechazo y timeout no activan la empresa ni la suscripción', async () => {
+    let mode = 'declined';
+    const tokProvider = new CardNetTokenizationProvider({
+      env: {
+        CARDNET_BASE_URL: 'https://labservicios.cardnet.com.do/servicios/tokens/v1',
+        CARDNET_PUBLIC_KEY: 'pub_test_123',
+        CARDNET_PRIVATE_KEY: 'priv_secret_123',
+        CARDNET_MERCHANT_NUMBER: '349000001',
+        CARDNET_TERMINAL_ID: '10311240',
+        CARDNET_ENV: 'STAGING',
+      },
+      fetchImpl: async (url) => {
+        if (url.endsWith('/api/Customer')) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({
+              Response: { CustomerId: 777002, UniqueID: 'UI_sandbox_2', CaptureURL: 'https://labservicios.cardnet.com.do/servicios/tokens/v1/Capture' },
+            }),
+          };
+        }
+        if (url.endsWith('/api/Purchase')) {
+          if (mode === 'timeout') {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            throw err;
+          }
+          return {
+            ok: true,
+            status: 200,
+            text: async () => JSON.stringify({
+              Response: { ResponseCode: '51', ResponseMessage: 'Fondos insuficientes', Transaction: { Status: 'Declined' } },
+            }),
+          };
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      },
+    });
+
+    const service = new SaasCheckoutService({
+      pool,
+      cardnetProvider: new CardNetHostedCheckoutProvider({ env: {} }),
+      tokenizationProvider: tokProvider,
+    });
+
+    const ordTimeout = await service.createOrder({ tenantId: 'tenant-to', branchesCount: 1 });
+    await service.initiateCardnetCheckout({ orderId: ordTimeout.id, tenantId: 'tenant-to', actorEmail: 'to@empresa.com' });
+    mode = 'timeout';
+    await assert.rejects(
+      () => service.chargeOrderWithToken({ orderId: ordTimeout.id, tenantId: 'tenant-to', trxToken: 'tok_to' }),
+      { code: 'CARDNET_TIMEOUT' }
+    );
+    const savedTimeout = await service.getOrderForTenant(ordTimeout.id, 'tenant-to');
+    assert.equal(savedTimeout.status, ORDER_STATUS.UNKNOWN_TIMEOUT);
+    assert.equal(pool.subscriptions.has('tenant-to'), false);
+
+    const ordDec = await service.createOrder({ tenantId: 'tenant-dec', branchesCount: 1 });
+    await service.initiateCardnetCheckout({ orderId: ordDec.id, tenantId: 'tenant-dec', actorEmail: 'dec@empresa.com' });
+    mode = 'declined';
+    const decRes = await service.chargeOrderWithToken({ orderId: ordDec.id, tenantId: 'tenant-dec', trxToken: 'tok_dec' });
+    assert.equal(decRes.activated, false);
+    assert.equal(decRes.declined, true);
+    assert.equal(decRes.order.status, ORDER_STATUS.DECLINED);
+    assert.equal(pool.subscriptions.has('tenant-dec'), false);
   });
 });

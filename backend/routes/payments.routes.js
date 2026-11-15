@@ -55,7 +55,7 @@ function createPaymentsRouter(pool, helpers = {}) {
       if (targetClient) {
         const [clientCheck] = await pool.query('SELECT id, salon_id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [targetClient, tenantId]);
         if (clientCheck.length === 0) {
-          return res.status(404).json({ error: 'Cliente no encontrado en este salón.' });
+          return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.' });
         }
       }
 
@@ -222,7 +222,7 @@ function createPaymentsRouter(pool, helpers = {}) {
       // Validar que el cliente pertenece al tenant autenticado
       const [clientCheck] = await pool.query('SELECT id, salon_id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [targetClientId, tenantId]);
       if (clientCheck.length === 0) {
-        return res.status(404).json({ error: 'Cliente no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.' });
       }
 
       let validatedSalonId = null;

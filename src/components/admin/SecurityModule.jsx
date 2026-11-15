@@ -586,7 +586,7 @@ export default function SecurityModule() {
               </thead>
               <tbody>
                 {filteredUsers.map((u) => {
-                  const salon = salons.find(s => String(s.id) === String(u.salon_id));
+                  const empresa = salons.find(s => String(s.id) === String(u.salon_id));
                   return (
                     <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}>
                       <td style={{ padding: '1rem 1.5rem' }}>
@@ -648,7 +648,7 @@ export default function SecurityModule() {
                         </span>
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
-                        {salon ? (salon.name || salon.nombre) : '🌐 Todas (Global)'}
+                        {empresa ? (empresa.name || empresa.nombre) : '🌐 Todas (Global)'}
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
                         {u.last_login ? new Date(u.last_login).toLocaleString('es-DO') : 'Nunca'}
@@ -1174,7 +1174,7 @@ export default function SecurityModule() {
                   rows={3}
                   value={securitySettings.pin_notification_emails}
                   onChange={(e) => setSecuritySettings({ ...securitySettings, pin_notification_emails: e.target.value })}
-                  placeholder="ejemplo: admin1@planbeautyrd.com, gerencia@salon.com, seguridad@etereas.com"
+                  placeholder="ejemplo: admin1@planbeautyrd.com, gerencia@empresa.com, seguridad@etereas.com"
                   style={{
                     width: '100%',
                     padding: '0.75rem 1rem',
@@ -1423,8 +1423,8 @@ export default function SecurityModule() {
                       🌐 Global (Todas las sucursales)
                     </option>
                     {(salons && salons.length > 0 ? salons : [
-                      { id: 1, name: 'Salón Principal Sede Norte' },
-                      { id: 4, name: 'Salón Sucursal Centro' },
+                      { id: 1, name: 'Empresa Principal Sede Norte' },
+                      { id: 4, name: 'Empresa Sucursal Centro' },
                       { id: 6, name: 'Disponibles (*)' }
                     ])
                     .filter(s => s && (s.name || s.nombre) && String(s.name || s.nombre).trim() !== '')

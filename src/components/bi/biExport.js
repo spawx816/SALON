@@ -55,7 +55,7 @@ export const generateCsvContent = ({
   const hasActiveFilter = activeFilters && Object.values(activeFilters).some(v => v && v !== 'all');
   if (activeFilters) {
     const filterParts = [];
-    if (activeFilters.salon && activeFilters.salon !== 'all') filterParts.push(`Sucursal: ${activeFilters.salon}`);
+    if (activeFilters.empresa && activeFilters.empresa !== 'all') filterParts.push(`Sucursal: ${activeFilters.empresa}`);
     if (activeFilters.plan && activeFilters.plan !== 'all') filterParts.push(`Plan: ${activeFilters.plan}`);
     if (activeFilters.status && activeFilters.status !== 'all') filterParts.push(`Estado: ${activeFilters.status}`);
     if (filterParts.length > 0) {

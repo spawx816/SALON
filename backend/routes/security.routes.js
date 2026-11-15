@@ -454,7 +454,7 @@ function createSecurityRouter(pool) {
       res.json({ attempts, blockedIps: [], blockedAccounts });
     } catch (err) {
       console.error('[SECURITY LOGIN ATTEMPTS ERROR]:', err.message);
-      res.status(500).json({ error: 'Error consultando intentos de acceso del salón' });
+      res.status(500).json({ error: 'Error consultando intentos de acceso de la empresa' });
     }
   });
 
@@ -479,7 +479,7 @@ function createSecurityRouter(pool) {
         [String(account_identifier).trim(), tenantId]
       );
       if (!tenantUsers || tenantUsers.length === 0) {
-        return res.status(404).json({ error: 'Cuenta no encontrada en este salón', code: 'ACCOUNT_NOT_IN_TENANT' });
+        return res.status(404).json({ error: 'Cuenta no encontrada en esta empresa', code: 'ACCOUNT_NOT_IN_TENANT' });
       }
 
       const canonicalEmail = tenantUsers[0].email;
@@ -507,7 +507,7 @@ function createSecurityRouter(pool) {
     const role = (req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
     if (role === 'superadmin' || req.auth?.isSuperAdmin) {
       return res.status(403).json({
-        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados de la empresa.',
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
       });
     }
@@ -647,7 +647,7 @@ function createSecurityRouter(pool) {
         req.headers['x-user-id'] || req.auth?.userId || 'owner',
         req.headers['x-user-name'] || req.auth?.name || 'Propietario',
         'SECURITY_SETTINGS_UPDATED',
-        hashedNewPin ? 'Configuración de seguridad y PIN administrativo actualizado con hash adaptativo' : 'Parámetros de seguridad actualizados para el salón.',
+        hashedNewPin ? 'Configuración de seguridad y PIN administrativo actualizado con hash adaptativo' : 'Parámetros de seguridad actualizados para la empresa.',
         req,
         tenantId
       );
@@ -681,7 +681,7 @@ function createSecurityRouter(pool) {
         .filter(e => e.length > 3 && e.includes('@'));
 
       if (emailRecipients.length === 0) {
-        return res.status(400).json({ error: 'No hay correos configurados en el módulo de seguridad de este salón para recibir el PIN.' });
+        return res.status(400).json({ error: 'No hay correos configurados en el módulo de seguridad de esta empresa para recibir el PIN.' });
       }
 
       const [smtpRows] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
@@ -697,14 +697,14 @@ function createSecurityRouter(pool) {
       });
 
       const senderEmail = smtp.smtp_user || process.env.SMTP_USER || 'notificaciones@salonpro.io';
-      const smtpFrom = `"Seguridad Salon Pro" <${senderEmail}>`;
+      const smtpFrom = `"Seguridad Empresa Pro" <${senderEmail}>`;
       const clientIp = getClientIp(req);
 
       await transporter.sendMail({
         from: smtpFrom,
         to: emailRecipients.join(', '),
-        subject: `🔐 PIN de Seguridad Salon Pro: ${otpPin} (Válido por 10 min)`,
-        text: `Tu PIN de seguridad para tu salón es: ${otpPin}. Válido por 10 minutos. Solicitado desde IP: ${clientIp}`,
+        subject: `🔐 PIN de Seguridad Empresa Pro: ${otpPin} (Válido por 10 min)`,
+        text: `Tu PIN de seguridad para tu empresa es: ${otpPin}. Válido por 10 minutos. Solicitado desde IP: ${clientIp}`,
         html: `<p>Tu PIN de seguridad dinámico es: <strong>${otpPin}</strong> (expira en 10 minutos).</p>`
       });
 
@@ -734,7 +734,7 @@ function createSecurityRouter(pool) {
       const role = (req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
       if (role === 'superadmin' || req.auth?.isSuperAdmin) {
         return res.status(403).json({
-          error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+          error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados de la empresa.',
           code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
         });
       }
@@ -749,7 +749,7 @@ function createSecurityRouter(pool) {
         'SELECT admin_pin, admin_pin_hash, active_otp_pin, otp_expires_at, pin_failed_attempts, pin_locked_until, max_failed_attempts, lockout_minutes FROM security_settings WHERE tenant_id = ?',
         [tenantId]
       );
-      if (rows.length === 0) return res.status(401).json({ error: 'No hay PIN configurado en este salón' });
+      if (rows.length === 0) return res.status(401).json({ error: 'No hay PIN configurado en esta empresa' });
 
       const { admin_pin, admin_pin_hash, active_otp_pin, otp_expires_at } = rows[0];
 
@@ -804,7 +804,7 @@ function createSecurityRouter(pool) {
       if (isLegacyPin) {
         return res.status(403).json({
           success: false,
-          error: 'El PIN de seguridad configurado en este salón está en formato legacy no encriptado y requiere rotación obligatoria por el propietario antes de ser utilizado.',
+          error: 'El PIN de seguridad configurado en esta empresa está en formato legacy no encriptado y requiere rotación obligatoria por el propietario antes de ser utilizado.',
           code: 'PIN_ROTATION_REQUIRED'
         });
       }
@@ -884,12 +884,12 @@ function createSecurityRouter(pool) {
     }
   });
 
-  // 14. Configurar PIN de Seguridad (Plano de Salón - Prohibido a SuperAdmin)
+  // 14. Configurar PIN de Seguridad (Plano de Empresa - Prohibido a SuperAdmin)
   router.post('/set-pin', async (req, res) => {
     const role = (req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
     if (role === 'superadmin' || req.auth?.isSuperAdmin) {
       return res.status(403).json({
-        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados de la empresa.',
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
       });
     }
@@ -898,7 +898,7 @@ function createSecurityRouter(pool) {
     if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
 
     if (role !== 'propietario' && role !== 'owner') {
-      return res.status(403).json({ error: 'Solo el propietario del salón puede configurar el PIN.' });
+      return res.status(403).json({ error: 'Solo el propietario de la empresa puede configurar el PIN.' });
     }
 
     const { pin } = req.body;
@@ -923,12 +923,12 @@ function createSecurityRouter(pool) {
     res.json({ success: true, message: 'PIN configurado exitosamente' });
   });
 
-  // 15. Rotar PIN de Seguridad (Plano de Salón - Prohibido a SuperAdmin)
+  // 15. Rotar PIN de Seguridad (Plano de Empresa - Prohibido a SuperAdmin)
   router.post('/rotate-pin', async (req, res) => {
     const role = (req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
     if (role === 'superadmin' || req.auth?.isSuperAdmin) {
       return res.status(403).json({
-        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados de la empresa.',
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
       });
     }
@@ -937,7 +937,7 @@ function createSecurityRouter(pool) {
     if (!tenantId) return res.status(401).json({ error: 'Tenant context required' });
 
     if (role !== 'propietario' && role !== 'owner') {
-      return res.status(403).json({ error: 'Solo el propietario del salón puede rotar el PIN.' });
+      return res.status(403).json({ error: 'Solo el propietario de la empresa puede rotar el PIN.' });
     }
 
     const { current_pin, new_pin } = req.body;

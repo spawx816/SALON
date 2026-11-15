@@ -36,13 +36,13 @@ function createTenantRouter(pool, options = {}) {
     return null;
   };
 
-  // GET /api/tenant/branding - Consulta canónica de branding del salón autenticado
+  // GET /api/tenant/branding - Consulta canónica de branding de la empresa autenticado
   router.get('/branding', async (req, res) => {
     try {
       const tenantId = req.tenantId || req.auth?.tenantId || (await resolveTenantId(req));
       if (!tenantId) {
         return res.status(403).json({
-          error: 'Contexto de salón requerido para consultar branding.',
+          error: 'Contexto de empresa requerido para consultar branding.',
           code: 'TENANT_REQUIRED'
         });
       }
@@ -51,7 +51,7 @@ function createTenantRouter(pool, options = {}) {
       res.json(branding);
     } catch (err) {
       console.error('Error fetching tenant branding:', err);
-      res.status(500).json({ error: 'Error obteniendo branding del salón' });
+      res.status(500).json({ error: 'Error obteniendo branding de la empresa' });
     }
   });
 
@@ -61,7 +61,7 @@ function createTenantRouter(pool, options = {}) {
       const tenantId = req.tenantId || req.auth?.tenantId || (await resolveTenantId(req));
       if (!tenantId) {
         return res.status(403).json({
-          error: 'Contexto de salón requerido para actualizar branding.',
+          error: 'Contexto de empresa requerido para actualizar branding.',
           code: 'TENANT_REQUIRED'
         });
       }
@@ -71,7 +71,7 @@ function createTenantRouter(pool, options = {}) {
       const isOwnerOrAdmin = role === 'propietario' || role === 'owner' || role === 'admin' || role === 'administrador';
       if (!isOwnerOrAdmin) {
         return res.status(403).json({
-          error: 'Se requiere rol de propietario o administrador para modificar el branding del salón.',
+          error: 'Se requiere rol de propietario o administrador para modificar el branding de la empresa.',
           code: 'FORBIDDEN_ROLE'
         });
       }
@@ -87,13 +87,13 @@ function createTenantRouter(pool, options = {}) {
 
       res.json({
         success: true,
-        message: 'Branding del salón actualizado correctamente',
+        message: 'Branding de la empresa actualizado correctamente',
         branding: updated
       });
     } catch (err) {
       console.error('Error updating tenant branding:', err);
       res.status(400).json({
-        error: err.message || 'Error actualizando branding del salón',
+        error: err.message || 'Error actualizando branding de la empresa',
         code: 'INVALID_BRANDING_PAYLOAD'
       });
     }
@@ -105,7 +105,7 @@ function createTenantRouter(pool, options = {}) {
       const tenantId = req.tenantId || req.auth?.tenantId || (await resolveTenantId(req));
       if (!tenantId) {
         return res.status(403).json({
-          error: 'Contexto de salón requerido para reiniciar branding.',
+          error: 'Contexto de empresa requerido para reiniciar branding.',
           code: 'TENANT_REQUIRED'
         });
       }
@@ -131,7 +131,7 @@ function createTenantRouter(pool, options = {}) {
       });
     } catch (err) {
       console.error('Error resetting tenant branding:', err);
-      res.status(500).json({ error: 'Error reiniciando branding del salón' });
+      res.status(500).json({ error: 'Error reiniciando branding de la empresa' });
     }
   });
 
@@ -141,7 +141,7 @@ function createTenantRouter(pool, options = {}) {
       const tenantId = req.tenantId || (await resolveTenantId(req));
       if (!tenantId) {
         return res.status(403).json({
-          error: 'Contexto de salón requerido para consultar permisos de plan.',
+          error: 'Contexto de empresa requerido para consultar permisos de plan.',
           code: 'TENANT_REQUIRED'
         });
       }
@@ -150,16 +150,16 @@ function createTenantRouter(pool, options = {}) {
       res.json(entitlements);
     } catch (err) {
       console.error('Error fetching tenant entitlements:', err);
-      res.status(500).json({ error: 'Error obteniendo permisos de plan del salón' });
+      res.status(500).json({ error: 'Error obteniendo permisos de plan de la empresa' });
     }
   });
 
-  // GET /api/tenant/settings - Obtener configuración y branding del salón activo
+  // GET /api/tenant/settings - Obtener configuración y branding de la empresa activo
   router.get('/settings', async (req, res) => {
     try {
       const tenantId = await resolveTenantId(req);
       if (!tenantId) {
-        return res.status(404).json({ error: 'Salón no encontrado o no autorizado' });
+        return res.status(404).json({ error: 'Empresa no encontrado o no autorizado' });
       }
 
       const [rows] = await pool.query(`
@@ -176,22 +176,22 @@ function createTenantRouter(pool, options = {}) {
       `, [tenantId]);
 
       if (!rows || rows.length === 0) {
-        return res.status(404).json({ error: 'Salón no encontrado' });
+        return res.status(404).json({ error: 'Empresa no encontrado' });
       }
 
       res.json(rows[0]);
     } catch (error) {
       console.error('Error fetching tenant settings:', error);
-      res.status(500).json({ error: 'Error obteniendo configuración del salón' });
+      res.status(500).json({ error: 'Error obteniendo configuración de la empresa' });
     }
   });
 
-  // GET /api/tenant/profile - Alias canónico para perfil operativo del salón autenticado
+  // GET /api/tenant/profile - Alias canónico para perfil operativo de la empresa autenticado
   router.get('/profile', async (req, res) => {
     try {
       const tenantId = await resolveTenantId(req);
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido o no autorizado' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido o no autorizado' });
       }
 
       const [rows] = await pool.query(`
@@ -208,7 +208,7 @@ function createTenantRouter(pool, options = {}) {
       `, [tenantId]);
 
       if (!rows || rows.length === 0) {
-        return res.status(404).json({ error: 'Salón no encontrado' });
+        return res.status(404).json({ error: 'Empresa no encontrado' });
       }
 
       const row = rows[0];
@@ -221,21 +221,21 @@ function createTenantRouter(pool, options = {}) {
       });
     } catch (error) {
       console.error('Error fetching tenant profile:', error);
-      return res.status(500).json({ error: 'Error obteniendo perfil del salón' });
+      return res.status(500).json({ error: 'Error obteniendo perfil de la empresa' });
     }
   });
 
-  // PUT /api/tenant/profile - Actualización del perfil del salón (solo propietario o admin)
+  // PUT /api/tenant/profile - Actualización del perfil de la empresa (solo propietario o admin)
   router.put('/profile', async (req, res) => {
     try {
       const role = String(req.auth?.role || '').toLowerCase();
       if (!['admin', 'administrador', 'owner'].includes(role)) {
-        return res.status(403).json({ error: 'Solo propietarios o administradores pueden modificar el perfil del salón' });
+        return res.status(403).json({ error: 'Solo propietarios o administradores pueden modificar el perfil de la empresa' });
       }
 
       const tenantId = await resolveTenantId(req);
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido o no autorizado' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido o no autorizado' });
       }
 
       const {
@@ -301,16 +301,16 @@ function createTenantRouter(pool, options = {}) {
       return res.json({ success: true, tenant: updatedRows[0] || null });
     } catch (error) {
       console.error('Error updating tenant profile:', error);
-      return res.status(500).json({ error: 'Error actualizando perfil del salón' });
+      return res.status(500).json({ error: 'Error actualizando perfil de la empresa' });
     }
   });
 
-  // PUT /api/tenant/settings - Actualizar nombre, logo, colores, contacto y RNC del salón
+  // PUT /api/tenant/settings - Actualizar nombre, logo, colores, contacto y RNC de la empresa
   router.put('/settings', async (req, res) => {
     try {
       const tenantId = await resolveTenantId(req);
       if (!tenantId) {
-        return res.status(404).json({ error: 'Salón no encontrado o no autorizado' });
+        return res.status(404).json({ error: 'Empresa no encontrado o no autorizado' });
       }
 
       const {
@@ -400,7 +400,7 @@ function createTenantRouter(pool, options = {}) {
 
       res.json({
         success: true,
-        message: 'Personalización del salón guardada correctamente',
+        message: 'Personalización de la empresa guardada correctamente',
         tenant: updated[0]
       });
     } catch (error) {

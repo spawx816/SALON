@@ -1,7 +1,7 @@
 const express = require('express');
 
 /**
- * Catalog and Services Router module for Salon Pro & Plan Beauty RD (Scoped by tenant_id)
+ * Catalog and Services Router module for Empresa Pro & Plan Beauty RD (Scoped by tenant_id)
  */
 function createServicesRouter(pool) {
   const router = express.Router();
@@ -216,7 +216,7 @@ function createServicesRouter(pool) {
       const tenantId = req.tenantId;
       const { id } = req.params;
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id))) {
-        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Servicio no encontrado en esta empresa.' });
       }
       const [rows] = await pool.query(
         `SELECT s.*,
@@ -230,7 +230,7 @@ function createServicesRouter(pool) {
         [id, tenantId]
       );
       if (!rows || rows.length === 0) {
-        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Servicio no encontrado en esta empresa.' });
       }
       res.json(normalizeCatalogRow(rows[0]));
     } catch (err) {
@@ -563,7 +563,7 @@ function createServicesRouter(pool) {
         );
         const affected = arch?.rowCount ?? arch?.affectedRows ?? 0;
         if (affected === 0) {
-          return res.status(404).json({ error: 'Ítem no encontrado en este salón.' });
+          return res.status(404).json({ error: 'Ítem no encontrado en esta empresa.' });
         }
         return res.json({
           success: true,
@@ -575,7 +575,7 @@ function createServicesRouter(pool) {
       const [result] = await pool.query('DELETE FROM services WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       const affected = result?.rowCount ?? result?.affectedRows ?? 0;
       if (affected === 0) {
-        return res.status(404).json({ error: 'Servicio no encontrado en este salón.' });
+        return res.status(404).json({ error: 'Servicio no encontrado en esta empresa.' });
       }
       res.json({ success: true, archived: false, message: 'Servicio eliminado exitosamente' });
     } catch (err) {

@@ -67,7 +67,7 @@ function maskCedula(val) {
 
 /**
  * Deep recursive object sanitization
- * Does NOT redact generic 'name' if it represents an operational entity (service, category, salon).
+ * Does NOT redact generic 'name' if it represents an operational entity (service, category, empresa).
  */
 function sanitizePayload(data, depth = 0) {
   if (depth > 6) return '[MAX_DEPTH_REACHED]';

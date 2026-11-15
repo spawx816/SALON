@@ -244,7 +244,7 @@ function createAuthMiddleware(pool) {
         if (!isSuperAdmin) {
           if (!userTenantId) {
             return res.status(403).json({
-              error: 'El usuario no tiene un salón (Tenant) asignado en base de datos.',
+              error: 'El usuario no tiene una empresa (Tenant) asignado en base de datos.',
               code: 'TENANT_UNASSIGNED'
             });
           }
@@ -256,7 +256,7 @@ function createAuthMiddleware(pool) {
           );
           if (!tenantRows || tenantRows.length === 0) {
             return res.status(403).json({
-              error: 'El salón asociado a esta cuenta no existe en el sistema.',
+              error: 'La empresa asociado a esta cuenta no existe en el sistema.',
               code: 'TENANT_NOT_FOUND'
             });
           }
@@ -268,7 +268,7 @@ function createAuthMiddleware(pool) {
             const method = req.method.toUpperCase();
 
             const isBillingRescueRoute = (
-              // 1. Consulta de suscripción, sesión, planes y contexto mínimo del salón
+              // 1. Consulta de suscripción, sesión, planes y contexto mínimo de la empresa
               (method === 'GET' && (
                 cleanPath === '/api/auth/session-status' ||
                 cleanPath === '/api/tenant/entitlements' ||
@@ -303,11 +303,11 @@ function createAuthMiddleware(pool) {
             );
 
             if (isBillingRescueRoute) {
-              // Exclusivo para PROPIETARIO del salón (o SuperAdmin)
+              // Exclusivo para PROPIETARIO de la empresa (o SuperAdmin)
               const role = effectiveRole;
               if (role !== 'propietario' && role !== 'owner' && !isSuperAdmin) {
                 return res.status(403).json({
-                  error: 'Acceso denegado: solo el propietario del salón puede gestionar la regularización y rescate de facturación en estado de suspensión.',
+                  error: 'Acceso denegado: solo el propietario de la empresa puede gestionar la regularización y rescate de facturación en estado de suspensión.',
                   code: 'OWNER_ONLY_SUSPENSION_RESCUE'
                 });
               }
@@ -320,7 +320,7 @@ function createAuthMiddleware(pool) {
               });
             } else {
               return res.status(403).json({
-                error: 'La suscripción de este salón se encuentra suspendida o inactiva.',
+                error: 'La suscripción de esta empresa se encuentra suspendida o inactiva.',
                 code: 'TENANT_SUSPENDED'
               });
             }
@@ -339,7 +339,7 @@ function createAuthMiddleware(pool) {
         for (const candidate of [headerTenant, queryTenant, bodyTenant]) {
           if (candidate && candidate !== String(userTenantId)) {
             return res.status(403).json({
-              error: 'Acceso denegado: No está autorizado para acceder o modificar datos de otro salón (Tenant).',
+              error: 'Acceso denegado: No está autorizado para acceder o modificar datos de otra empresa (Tenant).',
               code: 'CROSS_TENANT_ACCESS_DENIED'
             });
           }
@@ -358,7 +358,7 @@ function createAuthMiddleware(pool) {
         }
       } else {
         // SuperAdmin: pertenece ESTRICTAMENTE al Control Plane (req.tenantId = null siempre)
-        // Prohibido adoptar x-tenant-id para adoptar contexto operativo de un salón
+        // Prohibido adoptar x-tenant-id para adoptar contexto operativo de una empresa
         const candidateTenant =
           normalizeCandidateTenantId(req.headers['x-tenant-id']) ||
           normalizeCandidateTenantId(req.query?.tenant_id) ||
@@ -407,7 +407,7 @@ function createAuthMiddleware(pool) {
   const requireTenant = (req, res, next) => {
     if (!req.tenantId) {
       return res.status(403).json({
-        error: 'Contexto de salón (Tenant) requerido para esta operación.',
+        error: 'Contexto de empresa (Tenant) requerido para esta operación.',
         code: 'TENANT_CONTEXT_REQUIRED'
       });
     }
@@ -423,7 +423,7 @@ function createAuthMiddleware(pool) {
 
     if (isSuperAdmin) {
       return res.status(403).json({
-        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados de la empresa.',
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
       });
     }
@@ -453,7 +453,7 @@ function createAuthMiddleware(pool) {
     const isClient = Boolean(req.auth?.isClient) || String(req.auth?.role || req.headers['x-user-role'] || '').toLowerCase() === 'client';
     if (isClient) {
       return res.status(403).json({
-        error: 'Acceso denegado: Clientes no tienen autorización para acceder a módulos operativos o de personal del salón.',
+        error: 'Acceso denegado: Clientes no tienen autorización para acceder a módulos operativos o de personal de la empresa.',
         code: 'CLIENT_ROLE_FORBIDDEN'
       });
     }
@@ -481,7 +481,7 @@ module.exports = {
     const isSuperAdmin = role === 'superadmin' || Boolean(req.auth?.isSuperAdmin);
     if (isSuperAdmin) {
       return res.status(403).json({
-        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados del salón.',
+        error: 'Acceso denegado: El rol de SuperAdmin pertenece al plano de control (Control Plane) y tiene estrictamente prohibido operar sobre recursos privados de la empresa.',
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
       });
     }
@@ -491,7 +491,7 @@ module.exports = {
     const isClient = Boolean(req.auth?.isClient) || String(req.auth?.role || req.headers['x-user-role'] || '').toLowerCase() === 'client';
     if (isClient) {
       return res.status(403).json({
-        error: 'Acceso denegado: Clientes no tienen autorización para acceder a módulos operativos o de personal del salón.',
+        error: 'Acceso denegado: Clientes no tienen autorización para acceder a módulos operativos o de personal de la empresa.',
         code: 'CLIENT_ROLE_FORBIDDEN'
       });
     }

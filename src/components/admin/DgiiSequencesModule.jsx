@@ -29,7 +29,7 @@ export default function DgiiSequencesModule() {
 
   const COMPROBANTE_TYPES = [
     { code: 'E31', name: 'Factura de Crédito Fiscal Electrónico', desc: 'Para empresas y compras con valor fiscal (B2B)' },
-    { code: 'E32', name: 'Factura de Consumo Electrónica', desc: 'Para clientas y consumidor final en salón' },
+    { code: 'E32', name: 'Factura de Consumo Electrónica', desc: 'Para clientas y consumidor final en empresa' },
     { code: 'E33', name: 'Nota de Débito Electrónica', desc: 'Para cargos adicionales sobre e-CF' },
     { code: 'E34', name: 'Nota de Crédito Electrónica', desc: 'Para anulaciones, devoluciones o correcciones' },
     { code: 'E41', name: 'Compras Electrónicas', desc: 'Compras a personas físicas no registradas' },

@@ -11,7 +11,7 @@ function createEmployeesRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       const [rows] = await pool.query(`
@@ -79,7 +79,7 @@ function createEmployeesRouter(pool) {
 
       const [oldPos] = await pool.query('SELECT name FROM staff_positions WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (oldPos.length === 0) {
-        return res.status(404).json({ error: 'Posición no encontrada en este salón' });
+        return res.status(404).json({ error: 'Posición no encontrada en esta empresa' });
       }
       await pool.query('UPDATE staff_positions SET name = ? WHERE id = ? AND tenant_id = ?', [cleanName, id, tenantId]);
 

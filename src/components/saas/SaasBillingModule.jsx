@@ -553,7 +553,7 @@ export default function SaasBillingModule() {
               </span>
             </div>
             <p className="sb-meta-text" style={{ margin: '4px 0 0' }}>
-              Módulo adicional para ofrecer planes mensuales, contratos digitales y cobros recurrentes a los clientes de tu salón.
+              Módulo adicional para ofrecer planes mensuales, contratos digitales y cobros recurrentes a los clientes de tu empresa.
             </p>
             {hasMembershipsAddon && isLegacyTransition && (
               <p className="sb-meta-text" style={{ margin: '4px 0 0', color: '#92400e', fontWeight: 600 }}>
@@ -742,7 +742,7 @@ export default function SaasBillingModule() {
             </div>
 
             <p className="sb-meta-text" style={{ marginBottom: '12px' }}>
-              Este módulo adicional habilita la creación de planes de membresía B2C, contratos digitales y cobros recurrentes para los clientes de tu salón.
+              Este módulo adicional habilita la creación de planes de membresía B2C, contratos digitales y cobros recurrentes para los clientes de tu empresa.
             </p>
             <p className="sb-meta-text" style={{ marginBottom: '14px', fontWeight: 600, color: '#0f172a' }}>
               {subPricing?.addons?.memberships?.pricingDisplay ||

@@ -253,7 +253,7 @@ export default function PayrollHistoryView({
               Sin nóminas aprobadas registradas
             </div>
             <div style={{ fontSize: '13.5px' }}>
-              Cuando apruebes un período de nómina en este salón, aparecerá aquí el historial real.
+              Cuando apruebes un período de nómina en esta empresa, aparecerá aquí el historial real.
             </div>
           </div>
         )}

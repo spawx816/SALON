@@ -28,7 +28,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
   const urlPeriod = searchParams ? searchParams.get('period') : null;
   const urlStart = searchParams ? searchParams.get('start') : null;
   const urlEnd = searchParams ? searchParams.get('end') : null;
-  const urlSalon = searchParams ? searchParams.get('salon') : null;
+  const urlSalon = searchParams ? searchParams.get('empresa') : null;
 
   const initialCategory = urlCategory || 'sales';
   const initialReportId = urlReport || 'sales_summary';
@@ -1585,7 +1585,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                           amount: c.amount,
                           percentage: `${c.percentage}%`
                         })),
-                        activeFilters: { salon: selectedSalon, period }
+                        activeFilters: { empresa: selectedSalon, period }
                       });
                     } else {
                       exportReportToExcel({
@@ -1596,7 +1596,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                         rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
                         unmatchedTable: reportData?.unmatched_table,
                         activeFilters: {
-                          salon: selectedSalon,
+                          empresa: selectedSalon,
                           plan: selectedPlan,
                           service: selectedService,
                           period
@@ -1632,7 +1632,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                       rows: tableFilteredRows || displayedTable?.rows || reportData?.table?.rows || [],
                       unmatchedTable: reportData?.unmatched_table,
                       activeFilters: {
-                        salon: selectedSalon,
+                        empresa: selectedSalon,
                         plan: selectedPlan,
                         service: selectedService,
                         period

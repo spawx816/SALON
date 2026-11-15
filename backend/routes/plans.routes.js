@@ -11,7 +11,7 @@ function createPlansRouter(pool) {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
-        return res.status(403).json({ error: 'Contexto de salón requerido.' });
+        return res.status(403).json({ error: 'Contexto de empresa requerido.' });
       }
 
       let [rows] = await pool.query(`
@@ -23,7 +23,7 @@ function createPlansRouter(pool) {
         ORDER BY p.price ASC
       `, [tenantId]);
 
-      // Si el salón es nuevo y aún no tiene planes inicializados, sembrar planes base para este tenant
+      // Si la empresa es nuevo y aún no tiene planes inicializados, sembrar planes base para este tenant
       if (!rows || rows.length === 0) {
         const defaultPlans = [
           ['silver', 'Plan Silver', 1500, '4 lavados y secados al mes', JSON.stringify(['4 Lavados mensuales', 'Secado incluido'])],
@@ -61,7 +61,7 @@ function createPlansRouter(pool) {
     const plans = req.body;
     const tenantId = req.tenantId;
     if (!tenantId) {
-      return res.status(403).json({ error: 'Contexto de salón requerido.' });
+      return res.status(403).json({ error: 'Contexto de empresa requerido.' });
     }
     if (!Array.isArray(plans)) {
       return res.status(400).json({ error: 'Se requiere un arreglo de planes válido.' });
@@ -79,7 +79,7 @@ function createPlansRouter(pool) {
           'INSERT INTO plans (tenant_id, id, name, title, price, description, features) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [tenantId, planId, planName, planTitle, p.price, p.description || '', JSON.stringify(p.features || [])]
         );
-        // Sincronizar automáticamente los contratos de este salón vinculados a este plan
+        // Sincronizar automáticamente los contratos de esta empresa vinculados a este plan
         await connection.query(
           'UPDATE contracts SET plan_name = ?, precio_mensual = ? WHERE plan_id = ? AND tenant_id = ?',
           [p.name, p.price, planId, tenantId]

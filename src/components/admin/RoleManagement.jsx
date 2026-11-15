@@ -732,7 +732,7 @@ const RoleManagement = () => {
                     <label>Email de Notificaciones</label>
                     <input 
                       type="email" className="input-field"
-                      placeholder="ejemplo@salon.com"
+                      placeholder="ejemplo@empresa.com"
                       value={newStaff.email || ''} onChange={e => setNewStaff({...newStaff, email: e.target.value})}
                     />
                   </div>
@@ -1155,7 +1155,7 @@ const RoleManagement = () => {
                        <Phone size={14} /> {member.contacto || 'N/A'}
                     </p>
                     <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                       <Mail size={14} /> {member.email || `${member.nombre.split(' ')[0].toLowerCase()}@salon.com`}
+                       <Mail size={14} /> {member.email || `${member.nombre.split(' ')[0].toLowerCase()}@empresa.com`}
                     </p>
                   </div>
 
@@ -1180,15 +1180,15 @@ const RoleManagement = () => {
           {/* Agrupado View */}
           {viewMode === 'agrupado' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              {(salons.length > 0 ? salons : [{ id: null, name: 'General' }]).map(salon => {
-                const branchStaff = filteredStaff.filter(s => salon.id ? String(s.salon_id) === String(salon.id) : !s.salon_id);
+              {(salons.length > 0 ? salons : [{ id: null, name: 'General' }]).map(empresa => {
+                const branchStaff = filteredStaff.filter(s => empresa.id ? String(s.salon_id) === String(empresa.id) : !s.salon_id);
                 if (branchStaff.length === 0 && filterLocation) return null;
                 return (
-                  <div key={salon.id || 'unassigned'} className="surface-card" style={{ padding: '0', borderRadius: '16px', overflow: 'hidden' }}>
+                  <div key={empresa.id || 'unassigned'} className="surface-card" style={{ padding: '0', borderRadius: '16px', overflow: 'hidden' }}>
                     <div style={{ padding: '1rem 1.5rem', background: '#09090b', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <Building size={18} color="#d4af37" />
-                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{salon.name || 'Sin Sucursal Asignada'}</h4>
+                        <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>{empresa.name || 'Sin Sucursal Asignada'}</h4>
                       </div>
                       <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.15)', padding: '0.2rem 0.75rem', borderRadius: '50px', fontWeight: 700 }}>
                         {branchStaff.length} colaborador(es)
@@ -1468,7 +1468,7 @@ const RoleManagement = () => {
                       <span style={{ background: 'white', padding: '0.4rem', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex' }}><Mail size={14} color="#64748b" /></span>
                       <div>
                         <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>CORREO ELECTRÓNICO</span>
-                        <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>{selectedStaffDetail.email || `${selectedStaffDetail.nombre.split(' ')[0].toLowerCase()}@salon.com`}</strong>
+                        <strong style={{ fontSize: '0.85rem', color: '#09090b' }}>{selectedStaffDetail.email || `${selectedStaffDetail.nombre.split(' ')[0].toLowerCase()}@empresa.com`}</strong>
                       </div>
                     </div>
                   </div>
@@ -1668,7 +1668,7 @@ const RoleManagement = () => {
                       </label>
                       <input
                         type="text"
-                        placeholder="Ej. Atención y peinados en salón"
+                        placeholder="Ej. Atención y peinados en empresa"
                         value={positionForm.description}
                         onChange={e => setPositionForm({ ...positionForm, description: e.target.value })}
                         style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.875rem', outline: 'none' }}
