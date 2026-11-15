@@ -193,6 +193,20 @@ function createPublicRouter(pool, options = {}) {
 
       // Emitir sesión restringida al flujo de pago (todas las rutas operativas quedan bloqueadas con 402 hasta aprobar pago)
       const sessionId = crypto.randomBytes(24).toString('hex');
+      const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      await pool.query(`
+        INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
+        VALUES (?, ?, ?, 'owner', ?, ?, ?, 1, NOW(), NOW(), ?)
+      `, [
+        sessionId,
+        String(userId),
+        owner_name || 'Propietario',
+        String(branchId),
+        clientIp,
+        userAgent,
+        tenantId,
+      ]);
       const token = signAuthToken({
         sub: String(userId),
         id: String(userId),
