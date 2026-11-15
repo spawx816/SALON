@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 
 const { TenantBrandingRepository } = require('../repositories/tenant_branding.repository');
 const { TenantBrandingService } = require('../services/tenant_branding.service');
+const { signAuthToken } = require('../middleware/auth.middleware');
 
 /**
  * Public Routes Router - Strictly unprivileged endpoints
@@ -43,6 +44,8 @@ function createPublicRouter(pool, options = {}) {
       admin_password,
       rnc,
       address,
+      branches_count,
+      extra_users_count,
       wants_memberships_addon,
       addon_branches_count
     } = req.body;
@@ -143,12 +146,12 @@ function createPublicRouter(pool, options = {}) {
         `, [tenantId, pId, pName, pName, pPrice, pDesc, pFeatures]);
       }
 
-      // Inserción atómica de Suscripción Inicial (Plan Principal único, sin add-ons contratados)
+      // Inserción atómica de Suscripción Inicial en espera de pago CardNet (NUNCA 'active' sin cobro verificado)
       await conn.query(`
         INSERT INTO tenant_subscriptions (
           tenant_id, plan_code, status, current_period_start, current_period_end, updated_at
-        ) VALUES (?, 'PRINCIPAL', 'active', NOW(), NOW() + INTERVAL '30 days', NOW())
-        ON CONFLICT (tenant_id) DO UPDATE SET plan_code = 'PRINCIPAL', status = 'active', updated_at = NOW()
+        ) VALUES (?, 'PRINCIPAL', 'pending_payment', NULL, NULL, NOW())
+        ON CONFLICT (tenant_id) DO UPDATE SET plan_code = 'PRINCIPAL', status = 'pending_payment', updated_at = NOW()
       `, [tenantId]);
 
       // Registro de Auditoría de Creación de Suscripción Inicial
@@ -156,12 +159,12 @@ function createPublicRouter(pool, options = {}) {
         ? Math.max(1, parseInt(addon_branches_count, 10) || 1)
         : 0;
       const onboardingReason = wants_memberships_addon
-        ? `Suscripción inicial de onboarding (Plan Principal) + solicitud add-on Membresías B2C (${requestedAddonBranches} sucursal(es), US$${requestedAddonBranches * 99}/mes + implementación por separado)`
-        : 'Suscripción inicial de onboarding (Plan Principal)';
+        ? `Registro inicial pendiente de pago CardNet (Plan Principal + Add-on Membresías B2C ${requestedAddonBranches} suc.)`
+        : 'Registro inicial pendiente de pago CardNet (Plan Principal)';
       await conn.query(`
         INSERT INTO tenant_subscription_events (
           tenant_id, previous_plan, new_plan, previous_status, new_status, reason, actor_id, created_at
-        ) VALUES (?, NULL, 'PRINCIPAL', NULL, 'active', ?, 'onboarding', NOW())
+        ) VALUES (?, NULL, 'PRINCIPAL', NULL, 'pending_payment', ?, 'onboarding', NOW())
       `, [tenantId, onboardingReason]);
 
       // Inyección de fallo controlada EXCLUSIVAMENTE para pruebas automáticas (NODE_ENV=test con header explícito)
@@ -173,14 +176,72 @@ function createPublicRouter(pool, options = {}) {
 
       await conn.commit();
 
-      // NUNCA devolver token utilizable mientras status sea pending
+      // Crear orden de checkout pendiente para permitir pago inmediato desde el Landing con CardNet
+      let checkoutOrder = null;
+      if (options.saasCheckoutService) {
+        checkoutOrder = await options.saasCheckoutService.createOrder({
+          tenantId,
+          actorUserId: userId,
+          source: 'self_service',
+          branchesCount: branches_count || 1,
+          extraUsersCount: extra_users_count || 0,
+          wantsMembershipsAddon: Boolean(wants_memberships_addon),
+          addonBranchesCount: requestedAddonBranches,
+          metadata: { onboarding: true },
+        });
+      }
+
+      // Emitir sesión restringida al flujo de pago (todas las rutas operativas quedan bloqueadas con 402 hasta aprobar pago)
+      const sessionId = crypto.randomBytes(24).toString('hex');
+      const token = signAuthToken({
+        sub: String(userId),
+        id: String(userId),
+        email: owner_email.trim(),
+        name: owner_name || 'Propietario',
+        role: 'owner',
+        tenantId,
+        branchId,
+        sessionId,
+        isSuperAdmin: false,
+        tokenVersion: 1,
+      });
+
+      res.cookie('auth_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+
       res.status(201).json({
         success: true,
-        message: 'Solicitud de registro recibida exitosamente. Su cuenta está pendiente de activación por el equipo administrativo de SalonPro.',
+        paymentRequired: true,
+        message: 'Espacio registrado. Completa el pago con CardNet para activar tu acceso al sistema.',
         tenant_id: tenantId,
         branch_id: branchId,
         user_id: userId,
-        status: 'pending'
+        status: 'pending',
+        order: checkoutOrder,
+        user: {
+          id: userId,
+          tenant_id: tenantId,
+          branch_id: branchId,
+          name: owner_name || 'Propietario',
+          nombre: owner_name || 'Propietario',
+          email: owner_email.trim(),
+          role: 'owner',
+          rol: 'owner',
+          salon_id: branchId,
+          salon_name: `${business_name} - Principal`,
+          tenant: {
+            id: tenantId,
+            business_name,
+            status: 'pending',
+            subscription_status: 'pending_payment',
+          },
+          sessionId,
+        },
       });
     } catch (txError) {
       await conn.rollback();

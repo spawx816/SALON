@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { validateName, cleanPhone } from '../utils/formUtils';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
+import { submitCardnetHostedPost, formatOrderMoney } from '../components/saas/SaasCheckoutPanel';
 import './LandingEtereas.css';
 
 const CANONICAL_FALLBACK_PLANS = [
@@ -176,6 +177,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [regLoading, setRegLoading] = useState(false);
   const [regError, setRegError] = useState('');
   const [regSuccess, setRegSuccess] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState(null);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutErr, setCheckoutErr] = useState('');
 
   // Forgot / Reset password modal state
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -422,12 +426,18 @@ const handleRegisterStep = async (e) => {
         rnc: rnc.trim() || null,
         address: 'Principal',
         requested_plan: selectedPlanCode,
+        branches_count: branchesCount,
+        extra_users_count: extraUsersCount,
         wants_memberships_addon: wantsMembershipsAddon,
         addon_branches_count: wantsMembershipsAddon ? Math.min(addonBranchesCount, branchesCount) : 0
       })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'No se pudo completar el registro.');
+    if (data?.user && typeof window !== 'undefined') {
+      localStorage.setItem('salon_pro_user', JSON.stringify(data.user));
+    }
+    setPendingOrder(data?.order || null);
     setRegSuccess(true);
   } catch (err) {
     setRegError(err.message || 'Error al registrar el espacio de trabajo.');
@@ -1344,23 +1354,71 @@ return (
             <div className="et-alert-success" role="status">
               ¡Tu espacio de trabajo <strong>{businessName}</strong> ha sido registrado!
             </div>
-            <h2 id="reg-modal-title">Registro completado</h2>
-            <p className="et-login-subtitle" style={{ marginBottom: 18 }}>
-              Ya puedes iniciar sesión con <strong>{regEmail}</strong> y la contraseña que
-              definiste para completar el pago seguro de tu plan con CardNet en <strong>Mi Suscripción</strong>.
+            <h2 id="reg-modal-title">Completa el pago para activar tu acceso</h2>
+            <p className="et-login-subtitle" style={{ marginBottom: 14 }}>
+              Tu cuenta está creada en espera de pago. No podrás ingresar al sistema operativo hasta confirmar tu pago seguro con CardNet.
             </p>
-            <button
-              type="button"
-              className="et-btn-primary et-cta-full"
-              onClick={() => {
-                setEmail(regEmail);
-                setPassword(ownerPassword);
-                closeAllModals();
-                focusLoginCard();
-              }}
-            >
-              Ir a iniciar sesión →
-            </button>
+            {pendingOrder && (
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 13 }}>
+                <div><strong>Orden:</strong> #{pendingOrder.order_number}</div>
+                <div>
+                  <strong>Plan Principal:</strong> {pendingOrder.branches_count} sucursal(es)
+                  {pendingOrder.extra_users_count > 0 ? ` · ${pendingOrder.extra_users_count} usuario(s) extra` : ''}
+                  {pendingOrder.memberships_addon_enabled ? ` · Add-on Membresías (${pendingOrder.addon_branches_count} suc.)` : ''}
+                </div>
+                <div style={{ marginTop: 4, fontWeight: 700, color: '#0f172a' }}>
+                  Total a pagar: {formatOrderMoney(pendingOrder.total_minor, pendingOrder.currency)} ({pendingOrder.currency} / mes)
+                </div>
+              </div>
+            )}
+            {checkoutErr && (
+              <div className="et-alert-error" role="alert" style={{ marginBottom: 12 }}>
+                {checkoutErr}
+              </div>
+            )}
+            {pendingOrder ? (
+              <button
+                type="button"
+                className="et-btn-primary et-cta-full"
+                disabled={checkoutBusy}
+                onClick={async () => {
+                  setCheckoutBusy(true);
+                  setCheckoutErr('');
+                  try {
+                    const res = await fetch(`/api/saas/billing/checkout/orders/${pendingOrder.id}/initiate-cardnet`, {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' },
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      throw new Error(data.error || 'No se pudo iniciar el checkout con CardNet.');
+                    }
+                    if (data?.checkout?.authorizeUrl && data?.checkout?.sessionId) {
+                      submitCardnetHostedPost(data.checkout);
+                      return;
+                    }
+                    throw new Error('Respuesta incompleta de CardNet.');
+                  } catch (err) {
+                    setCheckoutErr(err.message);
+                  } finally {
+                    setCheckoutBusy(false);
+                  }
+                }}
+              >
+                {checkoutBusy ? 'Conectando con CardNet...' : 'Pagar ahora con CardNet →'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="et-btn-primary et-cta-full"
+                onClick={() => {
+                  window.location.href = '/mi-suscripcion';
+                }}
+              >
+                Ir a completar pago →
+              </button>
+            )}
           </div>
         ) : (
           <form onSubmit={handleRegisterStep} noValidate>

@@ -527,6 +527,12 @@ class SaasCheckoutService {
         );
       }
 
+      // 1b. Activar estado del tenant en plataforma (desbloquea el acceso operativo tras pago verificado)
+      await this.pool.query(
+        `UPDATE tenants SET status = 'active' WHERE id = ? AND status = 'pending'`,
+        [order.tenant_id]
+      );
+
       // 2. Si contrató el add-on Suscripciones/Membresías B2C, activarlo de forma canónica
       if (order.memberships_addon_enabled && this.entitlementsService) {
         await this.entitlementsService.setAddonStatus(order.tenant_id, SAAS_ADDONS.MEMBERSHIPS, {

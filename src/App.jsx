@@ -352,6 +352,40 @@ const AppContent = () => {
     );
   }
 
+  const isPaymentPending = Boolean(
+    user &&
+    !isSuperAdmin &&
+    user.role !== 'client' &&
+    String(user?.tenant?.status || '').toLowerCase() === 'pending'
+  );
+
+  if (isPaymentPending) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#f8fafc', padding: '24px 16px' }}>
+        <div style={{ maxWidth: 960, margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, padding: '12px 18px', background: '#ffffff', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+            <div>
+              <strong style={{ color: '#0f172a', fontSize: 16 }}>{user?.tenant?.business_name || 'ETEREAS'}</strong>
+              <span style={{ marginLeft: 10, fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: '#fef3c7', color: '#b45309' }}>
+                Pago pendiente para activar acceso
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={logout}
+              style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#334155' }}
+            >
+              Cerrar sesión
+            </button>
+          </div>
+          <Suspense fallback={<WorkspaceSkeleton />}>
+            <SaasBillingModule />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`canvas-layout ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}>
       

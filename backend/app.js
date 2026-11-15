@@ -432,11 +432,42 @@ function createApp(dependencies = {}) {
     return false;
   };
 
+  const isPaywallExemptPath = (req) => {
+    const pathUrl = (req.originalUrl || req.url || '').split('?')[0];
+    return (
+      pathUrl.startsWith('/api/auth') ||
+      pathUrl.startsWith('/api/saas/billing') ||
+      pathUrl === '/api/saas/plans' ||
+      pathUrl.startsWith('/api/public') ||
+      pathUrl.startsWith('/api/tenant/entitlements') ||
+      pathUrl.startsWith('/api/tenant/branding') ||
+      pathUrl.startsWith('/api/health')
+    );
+  };
+
   app.use('/api', (req, res, next) => {
     if (isPublicApiRoute(req)) {
       return next();
     }
-    return authenticate(req, res, next);
+    return authenticate(req, res, async (authErr) => {
+      if (authErr) return next(authErr);
+      if (req.auth?.isSuperAdmin || !req.tenantId || isPaywallExemptPath(req) || !pool || pool.isInMemory || pool.constructor?.name === 'InMemoryDbMock') {
+        return next();
+      }
+      try {
+        const [tRows] = await pool.query('SELECT status FROM tenants WHERE id = ? LIMIT 1', [req.tenantId]);
+        if (tRows && tRows.length > 0 && String(tRows[0].status || '').toLowerCase() === 'pending') {
+          return res.status(402).json({
+            error: 'Debes completar el pago de tu suscripción para acceder al sistema.',
+            code: 'PAYMENT_REQUIRED',
+            paymentRequired: true,
+          });
+        }
+      } catch (_) {
+        // En entornos sin tabla tenants (tests unitarios aislados), no bloquear
+      }
+      return next();
+    });
   });
 
   // Repositories & Services Setup (Phase 2A, 2B, 2D)
@@ -618,7 +649,7 @@ function createApp(dependencies = {}) {
   const { router: authRouter } = createAuthRouter(pool, { sendSurveyEmail, entitlementsService });
   app.use('/api', authRouter);
   app.use('/api/auth', authRouter);
-  app.use('/api/public', createPublicRouter(pool, { tenantBrandingService }));
+  app.use('/api/public', createPublicRouter(pool, { tenantBrandingService, saasCheckoutService }));
   app.get('/api/demo/status', (req, res) => {
     const isDemo = process.env.NODE_ENV === 'demo';
     res.json({
