@@ -79,17 +79,22 @@ class PgSaasBillingRepository extends SaasBillingRepository {
     const expYear = methodData.exp_year ? Number(methodData.exp_year) : null;
 
     // Buscar si ya existe por token_reference o por (provider_customer_id + last4) para evitar duplicados en reintentos
-    const [existingRows] = await this.pool.query(
-      `SELECT * FROM saas_payment_methods
-       WHERE tenant_id = ?
-         AND (
-           token_reference = ?
-           OR (? IS NOT NULL AND ? IS NOT NULL AND provider_customer_id = ? AND last4 = ?)
-         )
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [tenantId, String(methodData.token_reference), providerCustomerId, last4, providerCustomerId, last4]
-    );
+    const [existingRows] = providerCustomerId && last4
+      ? await this.pool.query(
+          `SELECT * FROM saas_payment_methods
+           WHERE tenant_id = ?
+             AND (token_reference = ? OR (provider_customer_id = ? AND last4 = ?))
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [tenantId, String(methodData.token_reference), providerCustomerId, last4]
+        )
+      : await this.pool.query(
+          `SELECT * FROM saas_payment_methods
+           WHERE tenant_id = ? AND token_reference = ?
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [tenantId, String(methodData.token_reference)]
+        );
 
     const [countRows] = await this.pool.query(
       `SELECT COUNT(*)::int AS cnt FROM saas_payment_methods WHERE tenant_id = ?`,
