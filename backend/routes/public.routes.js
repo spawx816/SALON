@@ -150,7 +150,7 @@ function createPublicRouter(pool, options = {}) {
       await conn.query(`
         INSERT INTO tenant_subscriptions (
           tenant_id, plan_code, status, current_period_start, current_period_end, updated_at
-        ) VALUES (?, 'PRINCIPAL', 'pending_payment', NULL, NULL, NOW())
+        ) VALUES (?, 'PRINCIPAL', 'pending_payment', NOW(), NOW(), NOW())
         ON CONFLICT (tenant_id) DO UPDATE SET plan_code = 'PRINCIPAL', status = 'pending_payment', updated_at = NOW()
       `, [tenantId]);
 
