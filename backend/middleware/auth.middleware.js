@@ -268,21 +268,30 @@ function createAuthMiddleware(pool) {
             const method = req.method.toUpperCase();
 
             const isBillingRescueRoute = (
-              // 1. Consulta de suscripción del salón
+              // 1. Consulta de suscripción, sesión, planes y contexto mínimo del salón
               (method === 'GET' && (
+                cleanPath === '/api/auth/session-status' ||
+                cleanPath === '/api/tenant/entitlements' ||
+                cleanPath === '/api/tenant/branding' ||
+                cleanPath === '/api/saas/plans' ||
+                cleanPath === '/api/saas/billing/plans' ||
                 cleanPath === '/api/saas/billing/subscription' ||
                 cleanPath === '/api/tenant/subscription' ||
                 cleanPath === '/api/saas/subscription'
               )) ||
-              // 2. Facturas de suscripción y recibos propios
+              // 2. Facturas de suscripción, recibos propios y órdenes de checkout CardNet
               (method === 'GET' && (
                 cleanPath === '/api/saas/billing/invoices' ||
+                cleanPath === '/api/saas/billing/checkout/orders' ||
+                /^\/api\/saas\/billing\/checkout\/orders\/[^/]+$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/invoices\/[^/]+\/receipt$/.test(cleanPath)
               )) ||
-              // 3. Métodos de pago y pago de deuda pendiente (reactivación)
+              // 3. Métodos de pago, pago de deuda pendiente y flujo CardNet Hosted Checkout
               (method === 'POST' && (
                 cleanPath === '/api/saas/billing/payment-methods' ||
                 cleanPath === '/api/saas/billing/pay-debt' ||
+                cleanPath === '/api/saas/billing/checkout/orders' ||
+                /^\/api\/saas\/billing\/checkout\/orders\/[^/]+\/(initiate-cardnet|verify-cardnet)$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/invoices\/[^/]+\/pay$/.test(cleanPath)
               )) ||
               // 4. Cierre de sesión y soporte técnico
@@ -303,6 +312,12 @@ function createAuthMiddleware(pool) {
                 });
               }
               // Permite continuar hacia el endpoint de facturación
+            } else if (String(tenantRows[0].status).toLowerCase() === 'pending') {
+              return res.status(402).json({
+                error: 'Debes completar el pago de tu suscripción para acceder al sistema.',
+                code: 'PAYMENT_REQUIRED',
+                paymentRequired: true
+              });
             } else {
               return res.status(403).json({
                 error: 'La suscripción de este salón se encuentra suspendida o inactiva.',
