@@ -317,7 +317,7 @@ function createApp(dependencies = {}) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), interest-cohort=()');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: *; frame-src 'self' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do; connect-src 'self' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do;");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: *; frame-src 'self' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do https://tr-tsp.gtp-seglan.com; connect-src 'self' https://servicios.cardnet.com.do https://labservicios.cardnet.com.do https://tr-tsp.gtp-seglan.com;");
     next();
   });
 
