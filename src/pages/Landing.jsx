@@ -1891,18 +1891,29 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
           <div
             className="et-modal-backdrop"
             role="presentation"
+            style={{ zIndex: 10050 }}
             onClick={(e) => {
               if (e.target === e.currentTarget) closeTermsModal();
             }}
           >
             <div
               ref={termsModalRef}
-              className="et-modal et-modal-terms"
+              className="et-modal-card et-modal-terms"
               role="dialog"
               aria-modal="true"
               aria-labelledby="landing-terms-modal-title"
               tabIndex={-1}
-              style={{ maxWidth: '820px', width: '95vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', padding: 0 }}
+              style={{
+                maxWidth: '860px',
+                width: '95vw',
+                maxHeight: '88vh',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: 0,
+                overflow: 'hidden',
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+              }}
             >
               <div
                 style={{
@@ -1912,6 +1923,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   gap: '12px',
                   padding: '18px 24px',
                   borderBottom: '1px solid #e2e8f0',
+                  backgroundColor: '#ffffff',
                   flexShrink: 0,
                 }}
               >
@@ -1923,14 +1935,14 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   onClick={closeTermsModal}
                   aria-label="Cerrar Términos y Condiciones"
                   style={{
-                    background: 'transparent',
+                    background: '#f8fafc',
                     border: '1px solid #cbd5e1',
                     borderRadius: '8px',
                     width: '34px',
                     height: '34px',
                     fontSize: '1.25rem',
                     lineHeight: 1,
-                    color: '#334155',
+                    color: '#0f172a',
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -1940,7 +1952,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   ×
                 </button>
               </div>
-              <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
+              <div style={{ overflowY: 'auto', padding: '24px', flex: 1, backgroundColor: '#ffffff' }}>
                 <TermsDocumentContent version="v2026.1" />
               </div>
               <div
@@ -1951,15 +1963,23 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   gap: '12px',
                   padding: '14px 24px',
                   borderTop: '1px solid #e2e8f0',
-                  background: '#f8fafc',
+                  backgroundColor: '#f8fafc',
                   flexShrink: 0,
                 }}
               >
                 <button
                   type="button"
                   onClick={closeTermsModal}
-                  className="et-btn-secondary"
-                  style={{ padding: '10px 20px', fontWeight: 600 }}
+                  style={{
+                    padding: '10px 20px',
+                    fontWeight: 600,
+                    fontSize: '0.9375rem',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    backgroundColor: '#ffffff',
+                    color: '#0f172a',
+                    cursor: 'pointer',
+                  }}
                 >
                   ← Volver
                 </button>
