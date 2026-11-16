@@ -834,9 +834,10 @@ function createAuthRouter(pool, options = {}) {
     try {
       if (pool.isPostgres) {
         const [pgUsers] = await pool.query(`
-          SELECT u.*, b.name as branch_name, u.tenant_id
+          SELECT u.*, b.name as branch_name, u.tenant_id, r.nombre as role_name, r.permisos as role_permissions
           FROM users u
           LEFT JOIN branches b ON (u.branch_id::text = b.id::text AND b.tenant_id = u.tenant_id)
+          LEFT JOIN roles r ON (u.role_id = r.id AND r.tenant_id = u.tenant_id)
           WHERE (LOWER(u.email) = LOWER(?) OR LOWER(u.username) = LOWER(?))
             AND COALESCE(u.is_active, true) = true
           ORDER BY u.created_at DESC
@@ -927,6 +928,18 @@ function createAuthRouter(pool, options = {}) {
             maxAge: 24 * 60 * 60 * 1000
           });
 
+          let resolvedPermissions = {};
+          const isAdminLike = isSuperAdmin || ['owner', 'propietario', 'admin', 'administrador'].includes(effectiveRole);
+          if (u.role_permissions) {
+            if (typeof u.role_permissions === 'string') {
+              try { resolvedPermissions = JSON.parse(u.role_permissions || '{}'); } catch { resolvedPermissions = {}; }
+            } else if (typeof u.role_permissions === 'object') {
+              resolvedPermissions = u.role_permissions;
+            }
+          } else if (isAdminLike) {
+            resolvedPermissions = ['all'];
+          }
+
           // NUNCA devolver el token en el body JSON; se transmite exclusivamente vía cookie HttpOnly
           return res.json({
             id: u.id,
@@ -937,9 +950,11 @@ function createAuthRouter(pool, options = {}) {
             email: u.email,
             role: effectiveRole,
             rol: effectiveRole,
+            role_id: u.role_id || null,
+            role_name: u.role_name || null,
             isSuperAdmin: Boolean(isSuperAdmin),
             is_superadmin: Boolean(isSuperAdmin),
-            permissions: ['all'],
+            permissions: resolvedPermissions,
             salon_id: u.branch_id || u.salon_id || 1,
             salon_name: u.branch_name || tenantInfo?.business_name || 'Sucursal Principal',
             tenant: tenantInfo,

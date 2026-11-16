@@ -543,7 +543,7 @@ const AppContent = () => {
               )}
               
               {/* Menú Desplegable Ventas */}
-              {!isAccountant && (isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits || user.permissions.manage_salons || user.permissions.manage_services || user.permissions.manage_clients || user.permissions.manage_inventory)) || hasFeature('inventory')) && (
+              {!isAccountant && (isAdmin || (user?.permissions && (user.permissions.process_payments || user.permissions.record_visits || user.permissions.view_invoices || user.permissions.manage_discounts || user.permissions.manage_salons || user.permissions.manage_services || user.permissions.manage_clients || user.permissions.manage_inventory)) || hasFeature('inventory')) && (
                 <div style={{ margin: '0.2rem 0' }}>
                   <button
                     type="button"
@@ -587,7 +587,7 @@ const AppContent = () => {
                           onClick={closeMobileMenu} 
                         />
                       )}
-                      {isAdmin && (
+                      {(isAdmin || user?.permissions?.view_invoices) && (
                         <SidebarLink 
                           to="/facturas" 
                           icon={Receipt} 
@@ -1145,7 +1145,7 @@ const AppContent = () => {
                   <Route path="/clientes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" replace /> : (!hasClients ? <FeatureForbiddenGate featureName="El directorio CRM de Clientas" /> : <ClientProfile />))} />
                   <Route path="/visitas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isClient ? <Navigate to="/" /> : <VisitRecorder />))} />
                   <Route path="/cajas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || (user?.permissions && user.permissions.process_payments)) ? <CashRegistersModule /> : <Navigate to="/" />))} />
-                  <Route path="/facturas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <InvoiceHistory /> : <Navigate to="/" />))} />
+                  <Route path="/facturas" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || user?.permissions?.view_invoices) ? <InvoiceHistory /> : <Navigate to="/" />))} />
                   <Route path="/descuentos-empleados" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || (user?.permissions && (user.permissions.manage_staff || user.permissions.manage_commissions))) ? <EmployeeDiscountsModule /> : <Navigate to="/" />)} />
                   <Route path="/servicios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <ServiceManagement />)} />
                   <Route path="/inventario" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <Navigate to="/" /> : <InventoryModule />)} />
@@ -1159,12 +1159,12 @@ const AppContent = () => {
                   <Route path="/regalar" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <GiftCertificates />} />
                   <Route path="/mis-servicios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <ClientServices />} />
                   <Route path="/activar" element={<ActivateAccount />} />
-                  <Route path="/equipo" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <StaffModule /> : <Navigate to="/" />))} />
-                  <Route path="/nomina" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <PayrollModule /> : <Navigate to="/" />))} />
-                  <Route path="/nomina/historial" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <PayrollModule initialTab="historical" /> : <Navigate to="/" />)} />
-                  <Route path="/nomina/regalias" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <PayrollModule initialTab="regalias" /> : <Navigate to="/" />)} />
-                  <Route path="/seguridad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isAdmin ? <SecurityModule /> : <Navigate to="/" />))} />
-                  <Route path="/sucursales" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAdmin ? <SalonsModule /> : <Navigate to="/" />)} />
+                  <Route path="/equipo" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || user?.permissions?.manage_staff) ? <StaffModule /> : <Navigate to="/" />))} />
+                  <Route path="/nomina" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || user?.permissions?.manage_payroll) ? <PayrollModule /> : <Navigate to="/" />))} />
+                  <Route path="/nomina/historial" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_payroll) ? <PayrollModule initialTab="historical" /> : <Navigate to="/" />)} />
+                  <Route path="/nomina/regalias" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_payroll) ? <PayrollModule initialTab="regalias" /> : <Navigate to="/" />)} />
+                  <Route path="/seguridad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || user?.permissions?.manage_security) ? <SecurityModule /> : <Navigate to="/" />))} />
+                  <Route path="/sucursales" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_salons) ? <SalonsModule /> : <Navigate to="/" />)} />
                   <Route path="/membresias" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Suscripciones y Membresías B2C" /> : <PlansModule />))} />
                   <Route path="/planes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Suscripciones y Membresías B2C" /> : <PlansModule />))} />
                   <Route path="/pagos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((!hasProPlan && !isAdmin) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Cobros Recurrentes de Membresías" /> : <Payments />))} />
