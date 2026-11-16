@@ -333,16 +333,18 @@ function createAuthMiddleware(pool) {
               (method === 'GET' && (
                 cleanPath === '/api/saas/billing/invoices' ||
                 cleanPath === '/api/saas/billing/payment-methods' ||
+                cleanPath === '/api/saas/billing/terms/status' ||
                 cleanPath === '/api/saas/billing/checkout/config' ||
                 cleanPath === '/api/saas/billing/checkout/orders' ||
                 /^\/api\/saas\/billing\/checkout\/orders\/by-token\/[^/]+$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/checkout\/orders\/[^/]+$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/invoices\/[^/]+\/receipt$/.test(cleanPath)
               )) ||
-              // 3. Métodos de pago, pago de deuda pendiente y flujo CardNet Hosted Checkout
+              // 3. Métodos de pago, pago de deuda pendiente, cancelación y flujo CardNet Hosted Checkout
               (method === 'POST' && (
                 cleanPath === '/api/saas/billing/payment-methods' ||
                 cleanPath === '/api/saas/billing/pay-debt' ||
+                cleanPath === '/api/saas/billing/subscription/cancel' ||
                 cleanPath === '/api/saas/billing/checkout/orders' ||
                 /^\/api\/saas\/billing\/checkout\/orders\/[^/]+\/(initiate-cardnet|verify-cardnet|verify|charge-token)$/.test(cleanPath) ||
                 /^\/api\/saas\/billing\/invoices\/[^/]+\/pay$/.test(cleanPath)

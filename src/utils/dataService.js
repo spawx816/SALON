@@ -3864,6 +3864,7 @@ export const dataService = {
     const user = userStr ? JSON.parse(userStr) : null;
     const res = await fetch(`${API_URL}/saas/billing/subscription/cancel`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'x-tenant-id': user?.tenant_id || user?.tenant?.id || '',
@@ -3871,8 +3872,16 @@ export const dataService = {
       },
       body: JSON.stringify({ reason })
     });
-    const resData = await res.json();
-    if (!res.ok) throw new Error(resData.error || 'Error al cancelar suscripción');
+    const rawText = await res.text();
+    let resData = {};
+    try {
+      resData = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      resData = {};
+    }
+    if (!res.ok) {
+      throw new Error(resData.error || `No se pudo cancelar la suscripción (HTTP ${res.status})`);
+    }
     return resData;
   },
 

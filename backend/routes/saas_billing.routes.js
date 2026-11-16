@@ -260,16 +260,20 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
 
       const result = await lifecycleService.cancelSubscription(tenantId, {
         reason: req.body?.reason || 'solicitud_cliente',
-        actorId: req.user?.id || 'admin'
+        actorId: req.auth?.userId || req.user?.id || 'owner',
+        actorEmail: req.auth?.email || req.user?.email || null,
+        pool,
       });
 
       res.json({
         success: true,
-        message: 'Suscripción cancelada. El acceso comercial permanecerá activo hasta el fin de ciclo.',
-        accessUntil: result.accessUntil
+        ...result,
       });
     } catch (err) {
-      res.status(400).json({ error: err.message, code: 'CANCELLATION_FAILED' });
+      res.status(err.statusCode || 400).json({
+        error: err.message,
+        code: err.code || 'CANCELLATION_FAILED',
+      });
     }
   });
 

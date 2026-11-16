@@ -86,12 +86,21 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ email, password })
       });
       
-      const data = await response.json();
+      const rawText = await response.text();
+      let data = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = {};
+      }
       if (!response.ok) {
-        const error = new Error(data.error || 'Error al iniciar sesión');
+        const error = new Error(data.error || `Error al iniciar sesión (HTTP ${response.status})`);
         error.status = data.status;
         error.id = data.id;
         throw error;
+      }
+      if (!data || !data.id) {
+        throw new Error('Respuesta vacía o inválida del servidor al iniciar sesión.');
       }
 
       setUser(data);

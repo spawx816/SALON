@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CreditCard,
@@ -118,6 +118,8 @@ export default function SaasBillingModule() {
 
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+  const cancelInFlightRef = useRef(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
 
   const [payingInvoiceId, setPayingInvoiceId] = useState(null);
@@ -350,18 +352,34 @@ export default function SaasBillingModule() {
 
   const handleCancelSubscription = async (e) => {
     e.preventDefault();
+    if (cancelInFlightRef.current || canceling) return;
+    cancelInFlightRef.current = true;
     try {
       setCanceling(true);
+      setCancelError('');
       setError(null);
       const res = await dataService.cancelSaasSubscription(cancelReason.trim() || undefined);
-      setSuccessMsg(res?.message || 'Cancelación solicitada correctamente.');
+      setSubscription((prev) => ({
+        ...(prev || {}),
+        status: res?.status || 'cancelled',
+        current_period_end: res?.accessUntil !== undefined ? res.accessUntil : prev?.current_period_end,
+        cancelled_at: res?.cancelledAt || new Date().toISOString(),
+      }));
+      const effectiveLabel = res?.accessUntil ? formatDateEs(res.accessUntil) : 'inmediata';
+      setSuccessMsg(
+        res?.message ||
+        `Cancelación confirmada (vigencia: ${effectiveLabel}).`
+      );
       setShowCancelModal(false);
       setCancelReason('');
       await Promise.all([loadBillingData(), refetchEntitlements()]);
     } catch (err) {
-      setError(err.message || 'No se pudo procesar la solicitud de cancelación.');
+      const msg = err.message || 'No se pudo procesar la solicitud de cancelación.';
+      setCancelError(msg);
+      setError(msg);
     } finally {
       setCanceling(false);
+      cancelInFlightRef.current = false;
     }
   };
 
@@ -1160,16 +1178,61 @@ export default function SaasBillingModule() {
               <button
                 type="button"
                 className="sb-modal-close"
-                onClick={() => setShowCancelModal(false)}
+                onClick={() => {
+                  if (!canceling) {
+                    setCancelError('');
+                    setShowCancelModal(false);
+                  }
+                }}
+                disabled={canceling}
                 aria-label="Cerrar"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <p className="sb-meta-text" style={{ marginBottom: '16px' }}>
-              Al confirmar, la renovación automática de tu suscripción se desactivará conforme a las condiciones del servicio.
-            </p>
+            {status === 'cancelled' ? (
+              <div style={{ padding: '12px 14px', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '16px', fontSize: '0.88rem', color: '#334155' }}>
+                <strong>Esta suscripción ya está cancelada.</strong>
+                {subscription?.current_period_end && (
+                  <div style={{ marginTop: '4px' }}>
+                    Acceso restante hasta: <strong>{formatDateEs(subscription.current_period_end)}</strong>.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: '12px 14px', borderRadius: '10px', background: '#f8fafc', border: '1px solid #e2e8f0', marginBottom: '16px', fontSize: '0.88rem', color: '#334155', lineHeight: 1.55 }}>
+                <div>
+                  Al confirmar, la renovación automática y futuros cargos recurrentes se desactivarán de inmediato conforme a los términos aceptados.
+                </div>
+                <div style={{ marginTop: '8px' }}>
+                  <strong>Fecha efectiva:</strong>{' '}
+                  {['pending', 'suspended', 'past_due'].includes(status)
+                    ? 'Inmediata (se detienen futuros reintentos de cobro; las facturas ya devengadas se mantienen por separado).'
+                    : (subscription?.current_period_end
+                        ? `Fin del ciclo actual — acceso restante hasta el ${formatDateEs(subscription.current_period_end)}.`
+                        : 'Inmediata.')}
+                </div>
+              </div>
+            )}
+
+            {cancelError && (
+              <div
+                role="alert"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  color: '#b91c1c',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  marginBottom: '14px',
+                }}
+              >
+                {cancelError}
+              </div>
+            )}
 
             <form onSubmit={handleCancelSubscription}>
               <div className="sb-field">
@@ -1180,6 +1243,7 @@ export default function SaasBillingModule() {
                   className="sb-input"
                   value={cancelReason}
                   onChange={(e) => setCancelReason(e.target.value)}
+                  disabled={canceling || status === 'cancelled'}
                   placeholder="Cuéntanos brevemente el motivo de tu solicitud..."
                 />
               </div>
@@ -1188,19 +1252,24 @@ export default function SaasBillingModule() {
                 <button
                   type="button"
                   className="sb-btn"
-                  onClick={() => setShowCancelModal(false)}
+                  onClick={() => {
+                    setCancelError('');
+                    setShowCancelModal(false);
+                  }}
                   disabled={canceling}
                 >
                   Volver
                 </button>
-                <button
-                  type="submit"
-                  className="sb-btn"
-                  style={{ borderColor: '#fecaca', color: '#dc2626', background: '#fef2f2' }}
-                  disabled={canceling}
-                >
-                  {canceling ? 'Procesando...' : 'Confirmar cancelación'}
-                </button>
+                {status !== 'cancelled' && (
+                  <button
+                    type="submit"
+                    className="sb-btn"
+                    style={{ borderColor: '#fecaca', color: '#dc2626', background: '#fef2f2' }}
+                    disabled={canceling}
+                  >
+                    {canceling ? 'Procesando...' : 'Confirmar cancelación'}
+                  </button>
+                )}
               </div>
             </form>
           </div>

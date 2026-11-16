@@ -36,8 +36,14 @@ const Login = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: pendingClientId, code: activationCode })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const rawText = await res.text();
+      let data = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = {};
+      }
+      if (!res.ok) throw new Error(data.error || `Error al activar cuenta (HTTP ${res.status})`);
       
       alert("¡Cuenta activada! Ya puedes iniciar sesión.");
       setShowActivation(false);
