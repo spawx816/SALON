@@ -19,6 +19,12 @@ const { TenantSubscriptionRepository } = require('../repositories/tenant_subscri
 const { EntitlementsRepository } = require('../repositories/entitlements.repository');
 const { SubscriptionAuditRepository } = require('../repositories/subscription_audit.repository');
 const { EntitlementsService } = require('../services/entitlements.service');
+const {
+  getGlobalEmailMetadata,
+  upsertGlobalEmailSettings,
+  getGlobalSmtpConfig,
+  isPlaceholderPassword,
+} = require('../services/platform_email.service');
 
 function createSaasRouter(pool, options = {}) {
   const router = express.Router();
@@ -1295,91 +1301,38 @@ function createSaasRouter(pool, options = {}) {
     }
   });
 
-  // === CONFIGURACIÓN GLOBAL DE CORREO DEL SISTEMA (SMTP PLATAFORMA, tenant_id IS NULL) ===
-  let globalEmailColumnChecked = false;
-  const ensureGlobalEmailSettingsNullable = async () => {
-    if (globalEmailColumnChecked) return;
-    try {
-      await pool.query('ALTER TABLE email_settings ALTER COLUMN tenant_id DROP NOT NULL');
-    } catch {
-      // Already nullable or table managed externally
-    }
-    globalEmailColumnChecked = true;
-  };
-
+  // === CONFIGURACIÓN GLOBAL DE CORREO DEL SISTEMA (SMTP PLATAFORMA: platform_email_settings) ===
   router.get('/email-settings', authenticate, requireSuperAdmin, async (req, res) => {
     try {
-      await ensureGlobalEmailSettingsNullable();
-      const [rows] = await pool.query(
-        "SELECT id, smtp_host, smtp_port, smtp_user, smtp_from, smtp_secure, (smtp_pass IS NOT NULL AND smtp_pass <> '') AS has_password FROM email_settings WHERE tenant_id IS NULL LIMIT 1"
-      );
-      if (!rows || rows.length === 0) {
-        return res.json({
-          smtp_host: '',
-          smtp_port: 587,
-          smtp_user: '',
-          smtp_pass: '',
-          smtp_from: 'Etereas',
-          smtp_secure: false,
-          has_password: false,
-        });
-      }
-      const row = rows[0];
-      res.json({
-        smtp_host: row.smtp_host || '',
-        smtp_port: Number(row.smtp_port) || 587,
-        smtp_user: row.smtp_user || '',
-        smtp_pass: '',
-        smtp_from: row.smtp_from || 'Etereas',
-        smtp_secure: Boolean(row.smtp_secure),
-        has_password: Boolean(row.has_password),
-      });
+      const metadata = await getGlobalEmailMetadata(pool);
+      res.json(metadata);
     } catch (error) {
-      res.status(500).json({ error: 'Error cargando configuración SMTP global: ' + error.message });
+      const errorId = `err_${crypto.randomBytes(4).toString('hex')}`;
+      console.error(`[SUPERADMIN SMTP GET ERROR] error_id=${errorId}:`, error.message);
+      res.status(500).json({ error: 'No se pudo cargar la configuración SMTP global.', error_id: errorId });
     }
   });
 
   router.put('/email-settings', authenticate, requireSuperAdmin, async (req, res) => {
     try {
-      await ensureGlobalEmailSettingsNullable();
-      const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure } = req.body || {};
-      const cleanHost = String(smtp_host || '').trim();
-      const cleanUser = String(smtp_user || '').trim();
-      const cleanFrom = String(smtp_from || 'Etereas').trim();
-      const parsedPort = parseInt(smtp_port, 10) || 587;
-      const secureFlag = smtp_secure ? 1 : 0;
-
-      if (!cleanHost || !cleanUser) {
-        return res.status(400).json({ error: 'Servidor SMTP y usuario/correo son obligatorios.' });
-      }
-
-      const [existing] = await pool.query(
-        'SELECT id, smtp_pass FROM email_settings WHERE tenant_id IS NULL LIMIT 1'
-      );
-
-      let finalPass = typeof smtp_pass === 'string' && smtp_pass.trim() !== '' && smtp_pass !== '********'
-        ? smtp_pass.trim()
-        : (existing?.[0]?.smtp_pass || '');
-
-      if (!finalPass) {
-        return res.status(400).json({ error: 'La contraseña SMTP es obligatoria.' });
-      }
-
-      if (existing && existing.length > 0) {
-        await pool.query(
-          'UPDATE email_settings SET smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, smtp_from = ?, smtp_secure = ? WHERE id = ? AND tenant_id IS NULL',
-          [cleanHost, parsedPort, cleanUser, finalPass, cleanFrom, secureFlag, existing[0].id]
-        );
-      } else {
-        await pool.query(
-          'INSERT INTO email_settings (tenant_id, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure) VALUES (NULL, ?, ?, ?, ?, ?, ?)',
-          [cleanHost, parsedPort, cleanUser, finalPass, cleanFrom, secureFlag]
-        );
-      }
-
-      res.json({ success: true, message: 'Configuración de correo del sistema guardada correctamente.' });
+      const actor = {
+        userId: req.auth?.userId || req.user?.id || null,
+        email: req.auth?.email || req.user?.email || null,
+        ip: req.ip || null,
+      };
+      const updated = await upsertGlobalEmailSettings(pool, req.body || {}, actor);
+      res.json({
+        success: true,
+        message: 'Configuración de correo del sistema guardada correctamente.',
+        settings: updated,
+      });
     } catch (error) {
-      res.status(500).json({ error: 'Error guardando configuración SMTP global: ' + error.message });
+      if (error.statusCode === 400) {
+        return res.status(400).json({ error: error.message });
+      }
+      const errorId = `err_${crypto.randomBytes(4).toString('hex')}`;
+      console.error(`[SUPERADMIN SMTP PUT ERROR] error_id=${errorId}:`, error.message);
+      res.status(500).json({ error: 'No se pudo guardar la configuración SMTP global.', error_id: errorId });
     }
   });
 
@@ -1391,18 +1344,13 @@ function createSaasRouter(pool, options = {}) {
         return res.status(400).json({ error: 'Ingresa un correo destino válido para la prueba.' });
       }
 
-      const [existing] = await pool.query(
-        'SELECT * FROM email_settings WHERE tenant_id IS NULL LIMIT 1'
-      );
-      const saved = existing?.[0] || {};
-      const host = String(smtp_host || saved.smtp_host || '').trim();
-      const port = parseInt(smtp_port || saved.smtp_port, 10) || 587;
-      const user = String(smtp_user || saved.smtp_user || '').trim();
-      const pass = (typeof smtp_pass === 'string' && smtp_pass.trim() !== '' && smtp_pass !== '********')
-        ? smtp_pass.trim()
-        : (saved.smtp_pass || '');
-      const fromName = String(smtp_from || saved.smtp_from || 'Etereas').trim();
-      const secure = smtp_secure !== undefined ? Boolean(smtp_secure) : (port === 465 || Boolean(saved.smtp_secure));
+      const saved = await getGlobalSmtpConfig(pool);
+      const host = String(smtp_host || saved?.host || '').trim();
+      const port = parseInt(smtp_port || saved?.port, 10) || 587;
+      const user = String(smtp_user || saved?.user || '').trim();
+      const pass = !isPlaceholderPassword(smtp_pass) ? smtp_pass.trim() : (saved?.pass || '');
+      const fromName = String(smtp_from || saved?.fromName || 'Etereas').trim() || 'Etereas';
+      const secure = smtp_secure !== undefined ? (port === 465 || Boolean(smtp_secure)) : (port === 465 || Boolean(saved?.secure));
 
       if (!host || !user || !pass) {
         return res.status(400).json({ error: 'Completa servidor SMTP, usuario y contraseña antes de probar.' });
@@ -1411,28 +1359,50 @@ function createSaasRouter(pool, options = {}) {
       const transporter = nodemailer.createTransport({
         host,
         port,
-        secure: port === 465 || secure,
+        secure,
         auth: { user, pass },
         tls: { rejectUnauthorized: false },
       });
 
-      await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: `"${fromName}" <${user}>`,
         to: targetEmail,
         subject: 'Prueba de Correo del Sistema — Etereas',
-        text: 'La configuración SMTP global de Etereas funciona correctamente para envíos de recuperación de contraseña, bienvenidas y facturas.',
+        text: 'El servidor SMTP aceptó el mensaje de prueba de Etereas. La entrega final en bandeja depende del proveedor receptor.',
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;">
             <h2 style="margin-top: 0; color: #0f172a;">Correo del Sistema Activo</h2>
-            <p style="color: #475569; line-height: 1.6;">La configuración SMTP global de <strong>Etereas</strong> funciona correctamente para envíos de recuperación de contraseña, bienvenidas, facturas y notificaciones.</p>
+            <p style="color: #475569; line-height: 1.6;">El servidor SMTP global de <strong>Etereas</strong> aceptó este mensaje de prueba para recuperación de contraseña, bienvenidas, facturas y notificaciones.</p>
             <p style="font-size: 12px; color: #94a3b8; margin-bottom: 0;">Servidor: ${host}:${port}</p>
           </div>
         `,
       });
 
-      res.json({ success: true, message: `Correo de prueba enviado exitosamente a ${targetEmail}.` });
+      const accepted = Array.isArray(info?.accepted) ? info.accepted : [];
+      const rejected = Array.isArray(info?.rejected) ? info.rejected : [];
+      if (rejected.length > 0 && accepted.length === 0) {
+        const errorId = `err_${crypto.randomBytes(4).toString('hex')}`;
+        console.warn(`[SUPERADMIN SMTP TEST REJECTED] error_id=${errorId} host=${host} rejected=${rejected.join(',')}`);
+        return res.status(400).json({
+          error: 'El servidor SMTP rechazó el destinatario de prueba.',
+          error_id: errorId,
+        });
+      }
+
+      res.json({
+        success: true,
+        accepted,
+        rejected,
+        messageId: info?.messageId || null,
+        message: `SMTP aceptó el envío para ${targetEmail} (ID: ${info?.messageId || 'sin-id'}). Nota: esto confirma aceptación por el servidor SMTP; la entrega final depende del buzón receptor.`,
+      });
     } catch (error) {
-      res.status(400).json({ error: `Fallo al enviar correo de prueba: ${error.message}` });
+      const errorId = `err_${crypto.randomBytes(4).toString('hex')}`;
+      console.error(`[SUPERADMIN SMTP TEST ERROR] error_id=${errorId}:`, error.message);
+      res.status(400).json({
+        error: `No se pudo completar el envío de prueba (${error.code || 'SMTP_ERROR'}).`,
+        error_id: errorId,
+      });
     }
   });
 

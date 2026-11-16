@@ -17,7 +17,8 @@ const globalTables = [
   'pending_tenant_reconciliations',
   'billing_codes',
   'saas_fx_rates',
-  'saas_fx_rate_history'
+  'saas_fx_rate_history',
+  'platform_email_settings'
 ];
 
 console.log('EXACT SCAN FOR QUERIES MISSING TENANT_ID:');

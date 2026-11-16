@@ -27,7 +27,8 @@ const CANONICAL_MIGRATIONS = [
   '20261110_phase3b_storage_and_portability',
   '20261110_phase3b_p2p3_extensions',
   '20261111_phase3c_clients_in_base_plan',
-  '20261115_saas_fx_rates'
+  '20261115_saas_fx_rates',
+  '20261116_platform_email_settings'
 ];
 
 // Global / Control Plane / System Tables
@@ -40,6 +41,7 @@ const GLOBAL_SYSTEM_TABLES = [
   'job_request_nonces',
   'login_attempts',
   'pending_tenant_reconciliations',
+  'platform_email_settings',
   'saas_features',
   'saas_fx_rate_history',
   'saas_fx_rates',

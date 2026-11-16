@@ -443,20 +443,14 @@ ${itemsXml}
       `;
 
       try {
-        const [settings] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? OR tenant_id IS NULL ORDER BY tenant_id DESC NULLS LAST LIMIT 1', [tenantId]);
-        const s = settings[0] || {};
-        const transporter = nodemailer.createTransport({
-          host: s.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
-          port: s.smtp_port || parseInt(process.env.SMTP_PORT) || 587,
-          secure: (s.smtp_port == 465) || process.env.SMTP_SECURE === 'true',
-          auth: {
-            user: s.smtp_user || process.env.SMTP_USER,
-            pass: s.smtp_pass || process.env.SMTP_PASS
-          }
-        });
+        const { resolveTransporterForTenant } = require('../services/platform_email.service');
+        const { transporter, fromAddress } = await resolveTransporterForTenant(pool, tenantId, 'Etereas');
+        if (!transporter) {
+          throw new Error('No hay transporte SMTP configurado (ni por salón ni global).');
+        }
 
         await transporter.sendMail({
-          from: `"${s.smtp_from || 'PLAN BEAUTY RD'}" <${s.smtp_user || process.env.SMTP_USER || 'no-reply@planbeauty.do'}>`,
+          from: fromAddress,
           to: targetEmail,
           subject: `Factura Electrónica e-CF (${encf}) - Representación Impresa DGII y XML Firmado ✨`,
           html: emailHtml,

@@ -34,6 +34,7 @@ const { up: upCatalogCategoriesAndAlerts } = require('./20261114_catalog_categor
 const { up: upSaasFxRates } = require('./20261115_saas_fx_rates.cjs');
 const { up: upTenantTermsAndWelcome } = require('./20261115_tenant_terms_and_welcome.cjs');
 const { up: upRbacHardening } = require('./20261115_rbac_hardening.cjs');
+const { up: upPlatformEmailSettings } = require('./20261116_platform_email_settings.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -245,6 +246,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Columnas authorized_branch_ids, all_branches_access, allow_admin_role_delegation e índice único por tenant en roles',
     execute: async (targetPool, targetSchema) => {
       return upRbacHardening(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261116_platform_email_settings',
+    description: 'Tabla global platform_email_settings para configuración SMTP de plataforma (SuperAdmin)',
+    execute: async (targetPool, targetSchema) => {
+      return upPlatformEmailSettings(targetPool, targetSchema);
     }
   }
 ];

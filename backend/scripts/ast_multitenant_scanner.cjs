@@ -57,6 +57,7 @@ const EXEMPT_SYSTEM_TABLES = new Set([
   'saas_plan_features',
   'saas_fx_rates',
   'saas_fx_rate_history',
+  'platform_email_settings',
   'migrations',
   'system_settings',
   'audit_logs',

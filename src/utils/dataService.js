@@ -12,9 +12,11 @@ const saasFetch = async (path, options = {}) => {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(data.error || `Error del servidor (${res.status})`);
+    const baseMsg = data.error || `Error del servidor (${res.status})`;
+    const err = new Error(data.error_id ? `${baseMsg} [Ref: ${data.error_id}]` : baseMsg);
     err.status = res.status;
     err.code = data.code;
+    err.errorId = data.error_id;
     throw err;
   }
   return data;

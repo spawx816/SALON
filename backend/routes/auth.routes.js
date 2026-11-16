@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
 const { signAuthToken } = require('../middleware/auth.middleware');
+const { resolveTransporterForTenant } = require('../services/platform_email.service');
 const { requireRole, requirePermission, getEffectiveRole, canManageRole, normalizeRole } = require('../middleware/rbac.middleware');
 const {
   PERMISSION_MODULES,
@@ -154,37 +155,7 @@ function createAuthRouter(pool, options = {}) {
       );
 
       try {
-        let transporter = null;
-        let fromAddress = process.env.SMTP_FROM || '"Etereas" <notificaciones@etereas.com>';
-
-        const [smtpRows] = await pool.query(
-          userTenantId
-            ? 'SELECT * FROM email_settings WHERE tenant_id = ? OR tenant_id IS NULL ORDER BY tenant_id DESC NULLS LAST LIMIT 1'
-            : 'SELECT * FROM email_settings WHERE tenant_id IS NULL LIMIT 1',
-          userTenantId ? [userTenantId] : []
-        );
-        if (smtpRows.length > 0 && smtpRows[0].smtp_host) {
-          const s = smtpRows[0];
-          transporter = nodemailer.createTransport({
-            host: s.smtp_host,
-            port: parseInt(s.smtp_port, 10) || 587,
-            secure: parseInt(s.smtp_port, 10) === 465 || s.smtp_secure === 1,
-            auth: { user: s.smtp_user, pass: s.smtp_pass },
-            tls: { rejectUnauthorized: false }
-          });
-          fromAddress = `"${s.smtp_from || 'Etereas'}" <${s.smtp_user}>`;
-        } else if (process.env.SMTP_HOST) {
-          transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST,
-            port: parseInt(process.env.SMTP_PORT, 10) || 587,
-            secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
-            auth: {
-              user: process.env.SMTP_USER,
-              pass: process.env.SMTP_PASS
-            },
-            tls: { rejectUnauthorized: false }
-          });
-        }
+        const { transporter, fromAddress } = await resolveTransporterForTenant(pool, userTenantId, 'Etereas');
 
         if (transporter) {
           await transporter.sendMail({
