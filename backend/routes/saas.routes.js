@@ -1296,8 +1296,20 @@ function createSaasRouter(pool, options = {}) {
   });
 
   // === CONFIGURACIÓN GLOBAL DE CORREO DEL SISTEMA (SMTP PLATAFORMA, tenant_id IS NULL) ===
+  let globalEmailColumnChecked = false;
+  const ensureGlobalEmailSettingsNullable = async () => {
+    if (globalEmailColumnChecked) return;
+    try {
+      await pool.query('ALTER TABLE email_settings ALTER COLUMN tenant_id DROP NOT NULL');
+    } catch {
+      // Already nullable or table managed externally
+    }
+    globalEmailColumnChecked = true;
+  };
+
   router.get('/email-settings', authenticate, requireSuperAdmin, async (req, res) => {
     try {
+      await ensureGlobalEmailSettingsNullable();
       const [rows] = await pool.query(
         "SELECT id, smtp_host, smtp_port, smtp_user, smtp_from, smtp_secure, (smtp_pass IS NOT NULL AND smtp_pass <> '') AS has_password FROM email_settings WHERE tenant_id IS NULL LIMIT 1"
       );
@@ -1329,6 +1341,7 @@ function createSaasRouter(pool, options = {}) {
 
   router.put('/email-settings', authenticate, requireSuperAdmin, async (req, res) => {
     try {
+      await ensureGlobalEmailSettingsNullable();
       const { smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from, smtp_secure } = req.body || {};
       const cleanHost = String(smtp_host || '').trim();
       const cleanUser = String(smtp_user || '').trim();
