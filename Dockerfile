@@ -41,6 +41,8 @@ COPY --chown=node:node backend/repositories ./backend/repositories
 COPY --chown=node:node backend/utils ./backend/utils
 COPY --chown=node:node backend/domain ./backend/domain
 COPY --chown=node:node backend/public ./backend/public
+COPY --chown=node:node backend/data ./backend/data
+COPY --chown=node:node backend/migrations ./backend/migrations
 
 ENV NODE_ENV=staging \
     PORT=5005
