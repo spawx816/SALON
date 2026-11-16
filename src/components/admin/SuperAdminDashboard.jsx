@@ -4,7 +4,7 @@ import {
   Building2, Users, Layers, ShieldCheck, Plus, CheckCircle2,
   XCircle, ToggleLeft, ToggleRight, Search, RefreshCw, Sparkles,
   Store, AlertCircle, FileText, Database, ArrowUpRight, DollarSign,
-  Package, Crown, Check, X, Edit3, Settings, ShieldAlert, ChevronRight, CreditCard
+  Package, Crown, Check, X, Edit3, Settings, ShieldAlert, ChevronRight, CreditCard, Mail, Send
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 
@@ -112,6 +112,20 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
   const [fxError, setFxError] = useState('');
   const [fxSuccess, setFxSuccess] = useState('');
 
+  // Correo del Sistema (SMTP Global de Plataforma)
+  const [emailSettings, setEmailSettings] = useState({
+    smtp_host: '',
+    smtp_port: 587,
+    smtp_user: '',
+    smtp_pass: '',
+    smtp_from: 'Etereas',
+    smtp_secure: false,
+    has_password: false,
+  });
+  const [emailTestTo, setEmailTestTo] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailTesting, setEmailTesting] = useState(false);
+
   const fetchData = async () => {
     setLoading(true);
     setLoadError(null);
@@ -151,6 +165,23 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
 
       if (arRes.status === 'fulfilled') setAddonRequests(Array.isArray(arRes.value?.requests) ? arRes.value.requests : []);
       else if (arRes.status === 'rejected') failures.push(`Solicitudes Add-on: ${arRes.reason?.message}`);
+
+      try {
+        const smtpCfg = await dataService.getSaasEmailSettings();
+        if (smtpCfg) {
+          setEmailSettings({
+            smtp_host: smtpCfg.smtp_host || '',
+            smtp_port: smtpCfg.smtp_port || 587,
+            smtp_user: smtpCfg.smtp_user || '',
+            smtp_pass: '',
+            smtp_from: smtpCfg.smtp_from || 'Etereas',
+            smtp_secure: Boolean(smtpCfg.smtp_secure),
+            has_password: Boolean(smtpCfg.has_password),
+          });
+        }
+      } catch {
+        // Ignore non-blocking email settings fetch failure
+      }
 
       try {
         const fxRes = await fetch('/api/saas/fx-rate', { credentials: 'include' });
@@ -1042,6 +1073,25 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
         >
           <CreditCard size={17} />
           Solicitudes Add-on ({addonRequests.filter(r => !r.is_fulfilled).length})
+        </button>
+        <button
+          onClick={() => setActiveTab('email')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.6rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            fontSize: '0.9rem',
+            fontWeight: '800',
+            cursor: 'pointer',
+            background: activeTab === 'email' ? '#0f172a' : 'transparent',
+            color: activeTab === 'email' ? '#ffffff' : '#64748b'
+          }}
+        >
+          <Mail size={17} />
+          Correo del Sistema
         </button>
       </div>
 
@@ -2143,6 +2193,190 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: CORREO DEL SISTEMA (SMTP GLOBAL DE PLATAFORMA) */}
+      {/* ========================================================================= */}
+      {activeTab === 'email' && (
+        <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.75rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#0f172a' }}>
+              Configuración Global de Correo (SMTP del Sistema)
+            </h2>
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', color: '#64748b' }}>
+              Se utiliza para enviar correos transaccionales del sistema: recuperación de contraseña, correos de bienvenida, activaciones y facturas cuando un salón no tiene SMTP propio.
+            </p>
+          </div>
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setEmailSaving(true);
+              setErrorMessage(null);
+              try {
+                await dataService.updateSaasEmailSettings(emailSettings);
+                showNotification('Configuración SMTP del sistema guardada correctamente.');
+                setEmailSettings((prev) => ({ ...prev, smtp_pass: '', has_password: true }));
+              } catch (err) {
+                setErrorMessage(err.message || 'No se pudo guardar la configuración SMTP.');
+              } finally {
+                setEmailSaving(false);
+              }
+            }}
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}
+          >
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
+                Servidor SMTP (Host)
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="smtp.hostinger.com / smtp.gmail.com"
+                value={emailSettings.smtp_host}
+                onChange={(e) => setEmailSettings((p) => ({ ...p, smtp_host: e.target.value }))}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
+                Puerto SMTP
+              </label>
+              <input
+                type="number"
+                required
+                placeholder="587 o 465"
+                value={emailSettings.smtp_port}
+                onChange={(e) => setEmailSettings((p) => ({ ...p, smtp_port: Number(e.target.value) || 587 }))}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
+                Usuario / Correo SMTP
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="notificaciones@etereasapp.com"
+                value={emailSettings.smtp_user}
+                onChange={(e) => setEmailSettings((p) => ({ ...p, smtp_user: e.target.value }))}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
+                Contraseña SMTP {emailSettings.has_password ? '(guardada — dejar vacío para mantener)' : ''}
+              </label>
+              <input
+                type="password"
+                required={!emailSettings.has_password}
+                placeholder={emailSettings.has_password ? '••••••••••••' : 'Contraseña o App Password'}
+                value={emailSettings.smtp_pass}
+                onChange={(e) => setEmailSettings((p) => ({ ...p, smtp_pass: e.target.value }))}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
+                Nombre del Remitente
+              </label>
+              <input
+                type="text"
+                placeholder="Etereas"
+                value={emailSettings.smtp_from}
+                onChange={(e) => setEmailSettings((p) => ({ ...p, smtp_from: e.target.value }))}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', paddingTop: '1.5rem' }}>
+              <input
+                id="superadmin-smtp-secure"
+                type="checkbox"
+                checked={Boolean(emailSettings.smtp_secure)}
+                onChange={(e) => setEmailSettings((p) => ({ ...p, smtp_secure: e.target.checked }))}
+                style={{ width: '16px', height: '16px' }}
+              />
+              <label htmlFor="superadmin-smtp-secure" style={{ fontSize: '0.88rem', fontWeight: '600', color: '#334155', cursor: 'pointer' }}>
+                Usar SSL/TLS directo (puerto 465)
+              </label>
+            </div>
+
+            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button
+                type="submit"
+                disabled={emailSaving}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  fontSize: '0.9rem',
+                  cursor: emailSaving ? 'not-allowed' : 'pointer',
+                  opacity: emailSaving ? 0.7 : 1,
+                }}
+              >
+                {emailSaving ? 'Guardando...' : 'Guardar Configuración SMTP'}
+              </button>
+            </div>
+          </form>
+
+          <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: '800', color: '#0f172a' }}>
+              Enviar Correo de Prueba
+            </h3>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="email"
+                placeholder="tu-correo@ejemplo.com"
+                value={emailTestTo}
+                onChange={(e) => setEmailTestTo(e.target.value)}
+                style={{ flex: '1 1 260px', maxWidth: '360px', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+              />
+              <button
+                type="button"
+                disabled={emailTesting || !emailTestTo}
+                onClick={async () => {
+                  setEmailTesting(true);
+                  setErrorMessage(null);
+                  try {
+                    const resp = await dataService.testSaasEmailSettings({ ...emailSettings, test_email: emailTestTo });
+                    showNotification(resp?.message || `Correo de prueba enviado a ${emailTestTo}.`);
+                  } catch (err) {
+                    setErrorMessage(err.message || 'Fallo al enviar correo de prueba.');
+                  } finally {
+                    setEmailTesting(false);
+                  }
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  padding: '0.65rem 1.25rem',
+                  borderRadius: '10px',
+                  border: '1px solid #0f172a',
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  fontWeight: '700',
+                  fontSize: '0.88rem',
+                  cursor: emailTesting || !emailTestTo ? 'not-allowed' : 'pointer',
+                  opacity: emailTesting || !emailTestTo ? 0.6 : 1,
+                }}
+              >
+                <Send size={15} />
+                {emailTesting ? 'Enviando...' : 'Probar Envío'}
+              </button>
+            </div>
           </div>
         </div>
       )}

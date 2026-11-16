@@ -3302,6 +3302,20 @@ export const dataService = {
 
   getSaasAddonRequests: async () => saasFetch('/saas/addon-requests'),
 
+  getSaasEmailSettings: async () => saasFetch('/saas/email-settings'),
+
+  updateSaasEmailSettings: async (payload) =>
+    saasFetch('/saas/email-settings', {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    }),
+
+  testSaasEmailSettings: async (payload) =>
+    saasFetch('/saas/email-settings/test', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
   createSaasTenant: async (tenantData) =>
     saasFetch('/saas/tenants', {
       method: 'POST',

@@ -443,7 +443,7 @@ ${itemsXml}
       `;
 
       try {
-        const [settings] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1', [tenantId]);
+        const [settings] = await pool.query('SELECT * FROM email_settings WHERE tenant_id = ? OR tenant_id IS NULL ORDER BY tenant_id DESC NULLS LAST LIMIT 1', [tenantId]);
         const s = settings[0] || {};
         const transporter = nodemailer.createTransport({
           host: s.smtp_host || process.env.SMTP_HOST || 'smtp.gmail.com',
