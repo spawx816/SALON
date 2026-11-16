@@ -683,20 +683,14 @@ const SalonsModule = () => {
                                 <span>Importe USD a pagar ahora (prorrateado):</span>
                                 <strong style={{ color: 'white' }}>US$ {(Number(quote.totalUsdMinor) / 100).toFixed(2)}</strong>
                               </div>
-                              {quote.fxRate && (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
-                                  <span>Tasa de cambio aplicada:</span>
-                                  <strong style={{ color: '#38bdf8' }}>RD$ {quote.fxRate.rateFormatted} por US$1</strong>
-                                </div>
-                              )}
                               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
                                 <span>Impuestos aplicables:</span>
-                                <strong style={{ color: 'white' }}>RD$ 0.00 (Exento B2B)</strong>
+                                <strong style={{ color: 'white' }}>US$ 0.00 (Exento B2B)</strong>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #334155', paddingTop: '8px', marginTop: '4px' }}>
                                 <span style={{ fontWeight: 800, fontSize: '13px', color: '#f8fafc' }}>Total exacto a cobrar hoy:</span>
                                 <span style={{ fontSize: '17px', fontWeight: 900, color: '#4ade80' }}>
-                                  RD$ {(Number(quote.totalDopMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  US$ {(Number(quote.totalUsdMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
                               </div>
                               <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
@@ -792,7 +786,7 @@ const SalonsModule = () => {
                     ) : quote ? (
                       <>
                         <CreditCard size={16} />
-                        <span>Continuar al pago (RD$ {(Number(quote.totalDopMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                        <span>Continuar al pago (US$ {(Number(quote.totalUsdMinor) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
                       </>
                     ) : (
                       <>

@@ -130,7 +130,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
       : 'https://etereasapp.com/';
 
   useDocumentMetadata({
-    title: 'ETEREAS — Toda tu empresa. Una sola plataforma.',
+    title: 'Etereas',
     description:
       'Plataforma SaaS Multi-Tenant de gestión empresarial: facturación POS, control de asistencia facial, nómina automática, CRM de clientes y membresías.',
     canonicalUrl: canonicalOrigin,
@@ -1377,15 +1377,14 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         {fx?.usd?.total_minor && (
                           <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #e2e8f0', color: '#475569' }}>
                             <div><strong>Importe en USD:</strong> {formatOrderMoney(fx.usd.total_minor, 'USD')} USD / mes</div>
-                            <div><strong>Tasa aplicada:</strong> RD${fx.rate_formatted || fx.rate} por US$1</div>
                           </div>
                         )}
                         <div style={{ color: '#475569', marginTop: 4 }}>
                           <strong>Impuestos aplicables:</strong>{' '}
-                          {hasTax ? formatOrderMoney(pendingOrder.tax_minor, pendingOrder.currency) : `${formatOrderMoney(0, pendingOrder.currency)} (Exento)`}
+                          {hasTax && fx?.usd?.tax_minor ? formatOrderMoney(fx.usd.tax_minor, 'USD') : 'US$ 0.00 (Exento)'}
                         </div>
                         <div style={{ marginTop: 6, fontWeight: 700, color: '#0f172a', fontSize: 14 }}>
-                          Total exacto a cobrar: {formatOrderMoney(pendingOrder.total_minor, pendingOrder.currency)} ({pendingOrder.currency})
+                          Total exacto a cobrar: {formatOrderMoney(fx?.usd?.total_minor || pendingOrder.total_minor, 'USD')} (USD)
                         </div>
                       </div>
                     );

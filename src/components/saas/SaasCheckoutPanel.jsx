@@ -191,7 +191,9 @@ export async function executeCardnetCheckout({
       PWCheckout.SetProperties({
         name: 'Etereas',
         email: customerEmail || '',
-        button_label: order?.total_minor ? `Pagar ${formatOrderMoney(order.total_minor, order.currency || 'DOP')}` : 'Confirmar pago',
+        button_label: order?.total_minor
+          ? `Pagar ${formatOrderMoney(order.metadata?.fx_snapshot?.usd?.total_minor ?? order.total_minor, order.metadata?.fx_snapshot?.usd ? 'USD' : (order.currency || 'USD'))}`
+          : 'Confirmar pago',
         description: order?.order_number ? `Orden #${order.order_number}` : 'Suscripción Etereas',
         currency: order?.currency || 'DOP',
         amount: String(order?.total_minor || '0'),
@@ -408,7 +410,7 @@ export default function SaasCheckoutPanel({
                         Autorización: {order.cardnet_authorization_code || 'Verificada'}
                         {order.masked_card ? ` · Tarjeta ${order.masked_card}` : ''}
                         {order.total_minor !== undefined && order.total_minor !== null
-                          ? ` · ${(Number(order.total_minor) / 100).toLocaleString('es-DO', { style: 'currency', currency: order.currency || 'DOP' })}`
+                          ? ` · ${formatOrderMoney(order.metadata?.fx_snapshot?.usd?.total_minor ?? order.total_minor, order.metadata?.fx_snapshot?.usd ? 'USD' : (order.currency || 'USD'))}`
                           : ''}
                       </span>
                     </div>

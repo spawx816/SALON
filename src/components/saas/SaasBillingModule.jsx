@@ -1252,28 +1252,28 @@ export default function SaasBillingModule() {
               </div>
               {selectedInvoice.fx_snapshot?.usd?.total_minor && (
                 <div className="sb-kv-row">
-                  <span className="sb-kv-label">Precio original (USD)</span>
+                  <span className="sb-kv-label">Precio (USD)</span>
                   <span className="sb-kv-value">
                     {formatMinor(selectedInvoice.fx_snapshot.usd.total_minor, 'USD')}
                   </span>
                 </div>
               )}
-              {selectedInvoice.fx_snapshot?.rate_formatted && (
-                <div className="sb-kv-row">
-                  <span className="sb-kv-label">Tasa FX aplicada</span>
-                  <span className="sb-kv-value">RD$ {selectedInvoice.fx_snapshot.rate_formatted} / US$1</span>
-                </div>
-              )}
               <div className="sb-kv-row">
                 <span className="sb-kv-label">Impuestos</span>
                 <span className="sb-kv-value">
-                  {formatMinor(selectedInvoice.tax_minor || 0, selectedInvoice.currency)}
+                  {formatMinor(
+                    selectedInvoice.fx_snapshot?.usd?.tax_minor ?? selectedInvoice.tax_minor ?? 0,
+                    selectedInvoice.fx_snapshot?.usd ? 'USD' : selectedInvoice.currency
+                  )}
                 </span>
               </div>
               <div className="sb-kv-row">
                 <span className="sb-kv-label">Total cobrado</span>
                 <span className="sb-kv-value" style={{ fontWeight: 700 }}>
-                  {formatMinor(selectedInvoice.total_minor, selectedInvoice.currency)}
+                  {formatMinor(
+                    selectedInvoice.fx_snapshot?.usd?.total_minor ?? selectedInvoice.total_minor,
+                    selectedInvoice.fx_snapshot?.usd ? 'USD' : selectedInvoice.currency
+                  )}
                 </span>
               </div>
               {(selectedInvoice.cardnet_authorization_code || selectedInvoice.payment_reference) && (

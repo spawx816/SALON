@@ -121,6 +121,10 @@ const AppContent = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    document.title = 'Etereas';
+  }, [location.pathname]);
+
   const isClientsActive = location.pathname.startsWith('/lista-clientes') || location.pathname.startsWith('/registro-cliente') || location.pathname.startsWith('/clientes');
   const isSalesActive = location.pathname.startsWith('/visitas') || location.pathname.startsWith('/cajas') || location.pathname.startsWith('/facturas') || location.pathname.startsWith('/servicios') || location.pathname.startsWith('/marketing') || location.pathname.startsWith('/inventario') || location.pathname.startsWith('/inventory') || isClientsActive;
   const isSubscriptionsActive = location.pathname.startsWith('/contratos') || location.pathname.startsWith('/pagos') || location.pathname.startsWith('/encuesta') || location.pathname.startsWith('/planes') || location.pathname.startsWith('/regalos');
