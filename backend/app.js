@@ -568,6 +568,7 @@ function createApp(dependencies = {}) {
     checkoutService: saasCheckoutService,
     fxRateService: saasFxRateService,
     cardnetCheckoutProvider,
+    cardnetTokenizationProvider,
     pool
   }));
 

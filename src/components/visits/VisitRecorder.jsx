@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import {
   Search, Calendar, Scissors, Clock as ClockIcon, Mail, Save, UserCheck, Star,
@@ -18,19 +18,6 @@ import ThermalTicketModal from './ThermalTicketModal';
 import CajaInvoicesModal from './CajaInvoicesModal';
 import CashRegisterClosePrintModal from './CashRegisterClosePrintModal';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
-
-const DEFAULT_TOP_SERVICES = [
-  { id: '1', nombre: 'Lavado y Secado', precio: 800 },
-  { id: '2', nombre: 'Corte de Puntas', precio: 500 },
-  { id: '3', nombre: 'Tratamiento Profundo', precio: 750 },
-  { id: '4', nombre: 'Plancha / Brushing', precio: 400 },
-  { id: '5', nombre: 'Tinte Completo', precio: 1800 },
-  { id: '6', nombre: 'Retoque de Tinte', precio: 1200 },
-  { id: '7', nombre: 'Manicura Simple', precio: 500 },
-  { id: '8', nombre: 'Pedicura Simple', precio: 600 },
-  { id: '9', nombre: 'Mascarilla Capilar', precio: 650 },
-  { id: '10', nombre: 'Botox Capilar', precio: 2200 }
-];
 
 const LAVADO_SENCILLO_PRICE = 200; // Precio fijo para Lavado Sencillo en tickets de empleado
 const isLavadoSencillo = (nombre) => {
@@ -167,8 +154,10 @@ const VisitRecorder = () => {
   // Form & Line Items
   const [clientFound, setClientFound] = useState(null);
   const [lineItems, setLineItems] = useState([]);
-  const [availableServices, setAvailableServices] = useState(DEFAULT_TOP_SERVICES);
-  const [quickAccessServices, setQuickAccessServices] = useState(DEFAULT_TOP_SERVICES);
+  const [availableServices, setAvailableServices] = useState([]);
+  const [quickAccessServices, setQuickAccessServices] = useState([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [activePlans, setActivePlans] = useState([]);
@@ -1173,27 +1162,32 @@ const VisitRecorder = () => {
   }, [salonId]);
 
   const fetchTopServices = async () => {
+    setServicesLoading(true);
+    setServicesError(null);
     try {
       const [servs, top] = await Promise.all([
-        dataService.getServices().catch(() => []),
+        dataService.getServices(),
         dataService.getTopServices(salonId, 20).catch(() => [])
       ]);
 
-      if (Array.isArray(servs) && servs.length > 0) {
-        setAvailableServices(servs);
-      } else {
-        setAvailableServices(DEFAULT_TOP_SERVICES);
-      }
+      const activeCatalog = (Array.isArray(servs) ? servs : []).filter(s =>
+        s && (s.activo === 1 || s.activo === true || s.is_active !== false) && s.deleted_at == null
+      );
+      setAvailableServices(activeCatalog);
 
-      if (Array.isArray(top) && top.length > 0) {
-        setQuickAccessServices(top);
-      } else {
-        setQuickAccessServices(DEFAULT_TOP_SERVICES);
-      }
+      const activeTop = (Array.isArray(top) ? top : []).filter(t =>
+        t && (t.activo === 1 || t.activo === true || t.is_active !== false) &&
+        activeCatalog.some(s => Number(s.id) === Number(t.id))
+      );
+
+      setQuickAccessServices(activeTop.length > 0 ? activeTop : activeCatalog);
     } catch (e) {
       console.error('Error cargando servicios catálogo:', e);
-      setAvailableServices(DEFAULT_TOP_SERVICES);
-      setQuickAccessServices(DEFAULT_TOP_SERVICES);
+      setServicesError(e.message || 'Error al cargar servicios del catálogo.');
+      setAvailableServices([]);
+      setQuickAccessServices([]);
+    } finally {
+      setServicesLoading(false);
     }
   };
 
@@ -2007,9 +2001,9 @@ const VisitRecorder = () => {
     });
 
     // 2. If client has fewer than 3 past unique services, complement with top catalog services
-    if (recommendations.length < 3) {
-      const topDefaults = (availableServices && availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES).filter(s =>
-        !s.nombre.toLowerCase().includes('lavado') && !recommendations.some(r => r.nombre.toLowerCase() === s.nombre.toLowerCase())
+    if (recommendations.length < 3 && Array.isArray(availableServices) && availableServices.length > 0) {
+      const topDefaults = availableServices.filter(s =>
+        s && s.nombre && !s.nombre.toLowerCase().includes('lavado') && !recommendations.some(r => r.nombre.toLowerCase() === s.nombre.toLowerCase())
       );
       topDefaults.slice(0, 3 - recommendations.length).forEach(s => {
         recommendations.push({
@@ -4149,60 +4143,76 @@ const VisitRecorder = () => {
                   maxWidth: '100%'
                 }}
               >
-                {(quickAccessServices.length > 0 ? quickAccessServices : (availableServices.length > 0 ? availableServices : DEFAULT_TOP_SERVICES)).slice(0, 20).map((srv, idx) => {
-                  const nameLower = (srv.nombre || '').toLowerCase();
-                  let iconEmoji = '✨';
-                  if (nameLower.includes('lavado')) iconEmoji = '🧴';
-                  else if (nameLower.includes('corte')) iconEmoji = '✂️';
-                  else if (nameLower.includes('tinte')) iconEmoji = '🎨';
-                  else if (nameLower.includes('tratamiento') || nameLower.includes('ampolla')) iconEmoji = '💆‍♀️';
-                  else if (nameLower.includes('manicura') || nameLower.includes('uñas')) iconEmoji = '💅';
-                  else if (nameLower.includes('pedicura')) iconEmoji = '🦶';
-                  else if (nameLower.includes('maquillaje')) iconEmoji = '💄';
-                  else if (nameLower.includes('shampoo') || nameLower.includes('aceite') || nameLower.includes('crema')) iconEmoji = '🛍️';
+                {servicesLoading ? (
+                  <span style={{ fontSize: '0.78rem', color: '#64748b', padding: '0.4rem 0' }}>Cargando accesos rápidos...</span>
+                ) : servicesError ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#dc2626', padding: '0.4rem 0' }}>
+                    <span>Error al cargar servicios del catálogo.</span>
+                    <button type="button" onClick={fetchTopServices} style={{ textDecoration: 'underline', background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: 700 }}>Reintentar</button>
+                  </div>
+                ) : (quickAccessServices.length === 0 && availableServices.length === 0) ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.78rem', color: '#64748b', padding: '0.4rem 0' }}>
+                    <span>Agrega servicios al Catálogo para configurar tus accesos rápidos.</span>
+                    <Link to="/servicios" style={{ color: '#9333ea', textDecoration: 'underline', fontWeight: 700 }}>
+                      Ir al Catálogo
+                    </Link>
+                  </div>
+                ) : (
+                  (quickAccessServices.length > 0 ? quickAccessServices : availableServices).slice(0, 20).map((srv, idx) => {
+                    const nameLower = (srv.nombre || '').toLowerCase();
+                    let iconEmoji = '✨';
+                    if (nameLower.includes('lavado')) iconEmoji = '🧴';
+                    else if (nameLower.includes('corte')) iconEmoji = '✂️';
+                    else if (nameLower.includes('tinte')) iconEmoji = '🎨';
+                    else if (nameLower.includes('tratamiento') || nameLower.includes('ampolla')) iconEmoji = '💆‍♀️';
+                    else if (nameLower.includes('manicura') || nameLower.includes('uñas')) iconEmoji = '💅';
+                    else if (nameLower.includes('pedicura')) iconEmoji = '🦶';
+                    else if (nameLower.includes('maquillaje')) iconEmoji = '💄';
+                    else if (nameLower.includes('shampoo') || nameLower.includes('aceite') || nameLower.includes('crema')) iconEmoji = '🛍️';
 
-                  return (
-                    <button
-                      key={srv.id || idx}
-                      type="button"
-                      onClick={() => addServiceToLineItems(srv)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        padding: '0.45rem 0.85rem',
-                        borderRadius: '99px',
-                        background: '#f8fafc',
-                        border: '1px solid #cbd5e1',
-                        color: '#0f172a',
-                        fontSize: '0.775rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        transition: 'all 0.15s ease',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-                        flexShrink: 0
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#be185d';
-                        e.currentTarget.style.color = '#ffffff';
-                        e.currentTarget.style.borderColor = '#be185d';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = '0 4px 8px -1px rgba(190, 24, 93, 0.25)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#f8fafc';
-                        e.currentTarget.style.color = '#0f172a';
-                        e.currentTarget.style.borderColor = '#cbd5e1';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
-                      }}
-                    >
-                      <span style={{ fontSize: '0.85rem' }}>{iconEmoji}</span>
-                      <span>{srv.nombre}</span>
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        key={srv.id || idx}
+                        type="button"
+                        onClick={() => addServiceToLineItems(srv)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          padding: '0.45rem 0.85rem',
+                          borderRadius: '99px',
+                          background: '#f8fafc',
+                          border: '1px solid #cbd5e1',
+                          color: '#0f172a',
+                          fontSize: '0.775rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.15s ease',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                          flexShrink: 0
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#be185d';
+                          e.currentTarget.style.color = '#ffffff';
+                          e.currentTarget.style.borderColor = '#be185d';
+                          e.currentTarget.style.transform = 'translateY(-1px)';
+                          e.currentTarget.style.boxShadow = '0 4px 8px -1px rgba(190, 24, 93, 0.25)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#f8fafc';
+                          e.currentTarget.style.color = '#0f172a';
+                          e.currentTarget.style.borderColor = '#cbd5e1';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
+                        }}
+                      >
+                        <span style={{ fontSize: '0.85rem' }}>{iconEmoji}</span>
+                        <span>{srv.nombre}</span>
+                      </button>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>

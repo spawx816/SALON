@@ -6,6 +6,7 @@
 const express = require('express');
 const { getConfiguredPricing, SAAS_ADDONS } = require('../services/saas_catalog.constants');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
+const { TermsAndWelcomeEmailService } = require('../services/terms_and_welcome_email.service');
 
 // Safe BigInt JSON serialization
 if (!BigInt.prototype.toJSON) {
@@ -14,8 +15,9 @@ if (!BigInt.prototype.toJSON) {
   };
 }
 
-function createSaasBillingRouter({ billingService, lifecycleService, billingRepo, checkoutService, fxRateService, cardnetCheckoutProvider, pool }) {
+function createSaasBillingRouter({ billingService, lifecycleService, billingRepo, checkoutService, fxRateService, cardnetCheckoutProvider, cardnetTokenizationProvider, termsService: providedTermsService, pool }) {
   const router = express.Router();
+  const termsService = providedTermsService || new TermsAndWelcomeEmailService({ pool });
 
   // Financial Idempotency Guard (upgrade, downgrade, pay-debt, payment methods)
   router.use(createIdempotencyMiddleware());
@@ -478,6 +480,133 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
     }
   });
 
+  // 8b. Iniciar registro de tarjeta mediante CardNet (PWCheckout)
+  router.post('/payment-methods/initiate-cardnet', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      }
+
+      const role = String(req.user?.role || '').toLowerCase();
+      const isOwnerOrAdmin = role === 'owner' || role === 'propietario' || role === 'admin' || role === 'superadmin';
+      if (!isOwnerOrAdmin) {
+        return res.status(403).json({ error: 'Solo el propietario o administrador puede registrar métodos de pago.', code: 'FORBIDDEN' });
+      }
+
+      const email = req.user?.email || req.user?.correo || `tenant_${tenantId}@etereas.com`;
+      const tokenProvider = cardnetTokenizationProvider || checkoutService?.tokenizationProvider;
+      if (!tokenProvider) {
+        return res.status(503).json({ error: 'Proveedor de tokenización CardNet no disponible.', code: 'PROVIDER_UNAVAILABLE' });
+      }
+
+      const session = await tokenProvider.createCustomerSession({ email });
+      res.json({
+        success: true,
+        customerId: session.customerId,
+        uniqueId: session.uniqueId,
+        captureUrl: session.captureUrl,
+        publicKey: tokenProvider.publicKey,
+        scriptUrl: session.scriptUrl || tokenProvider.scriptUrl,
+        env: session.env || tokenProvider.env
+      });
+    } catch (err) {
+      console.error('[SAAS BILLING] Error initiating CardNet session:', err);
+      res.status(err.statusCode || 500).json({ error: err.message || 'Error al iniciar sesión de CardNet', code: err.code || 'CARDNET_INITIATE_FAILED' });
+    }
+  });
+
+  // 8c. Confirmar y persistir tarjeta tokenizada desde CardNet (CERO PAN/CVC)
+  router.post('/payment-methods/confirm-cardnet', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      }
+
+      const role = String(req.user?.role || '').toLowerCase();
+      const isOwnerOrAdmin = role === 'owner' || role === 'propietario' || role === 'admin' || role === 'superadmin';
+      if (!isOwnerOrAdmin) {
+        return res.status(403).json({ error: 'Solo el propietario o administrador puede registrar métodos de pago.', code: 'FORBIDDEN' });
+      }
+
+      const { customerId, tokenPayload } = req.body;
+      const tokenProvider = cardnetTokenizationProvider || checkoutService?.tokenizationProvider;
+
+      let trxToken = tokenPayload?.TokenId || tokenPayload?.Token || tokenPayload?.trxToken;
+      if (typeof tokenPayload === 'string') {
+        trxToken = tokenPayload;
+      }
+
+      let brand = tokenPayload?.Brand || tokenPayload?.brand || null;
+      let last4 = tokenPayload?.Last4 || tokenPayload?.last4 || null;
+      let expMonth = tokenPayload?.ExpMonth || tokenPayload?.expMonth || null;
+      let expYear = tokenPayload?.ExpYear || tokenPayload?.expYear || null;
+      let paymentProfileId = tokenPayload?.PaymentProfileId || tokenPayload?.paymentProfileId || null;
+      let isReusable = false;
+
+      // Intentar consultar el perfil seguro del cliente en CardNet para rescatar metadata enmascarada y perfil reusable
+      if (customerId && tokenProvider && typeof tokenProvider.getCustomerProfile === 'function') {
+        try {
+          const profile = await tokenProvider.getCustomerProfile(customerId);
+          if (profile && Array.isArray(profile.paymentProfiles) && profile.paymentProfiles.length > 0) {
+            const latest = profile.paymentProfiles[profile.paymentProfiles.length - 1];
+            brand = brand || latest.brand;
+            last4 = last4 || latest.last4;
+            expMonth = expMonth || latest.expMonth;
+            expYear = expYear || latest.expYear;
+            paymentProfileId = paymentProfileId || latest.paymentProfileId;
+            if (latest.token) {
+              trxToken = latest.token;
+            }
+            isReusable = Boolean(latest.paymentProfileId || latest.token);
+          }
+        } catch (err) {
+          console.warn('[SAAS BILLING] Error fetching CardNet customer profile (continuing with payload):', err.message);
+        }
+      }
+
+      if (!trxToken && !paymentProfileId) {
+        return res.status(400).json({ error: 'CardNet no devolvió un identificador de token ni perfil de pago válido.', code: 'INVALID_TOKEN' });
+      }
+
+      const tokenReference = String(paymentProfileId || trxToken);
+      const maskedLast4 = last4 ? String(last4).slice(-4) : '****';
+      const cleanBrand = brand ? String(brand).trim().toLowerCase() : 'visa';
+
+      // Persistir de forma segura en saas_payment_methods. CERO PAN, CERO CVC.
+      const savedMethod = await billingRepo.savePaymentMethod({
+        tenant_id: tenantId,
+        token_reference: tokenReference,
+        provider_customer_id: customerId ? String(customerId) : null,
+        last4: maskedLast4,
+        brand: cleanBrand,
+        exp_month: expMonth ? Number(expMonth) : 12,
+        exp_year: expYear ? Number(expYear) : (new Date().getFullYear() + 3),
+        is_default: true
+      });
+
+      res.status(201).json({
+        success: true,
+        reusable: isReusable,
+        message: isReusable
+          ? 'Tarjeta registrada y autorizada para pagos futuros.'
+          : 'Tarjeta registrada exitosamente. Según las condiciones del procesador, renovaciones futuras pueden requerir confirmación.',
+        paymentMethod: {
+          id: savedMethod.id,
+          brand: savedMethod.brand,
+          last4: savedMethod.last4,
+          expMonth: savedMethod.exp_month,
+          expYear: savedMethod.exp_year,
+          isDefault: savedMethod.is_default
+        }
+      });
+    } catch (err) {
+      console.error('[SAAS BILLING] Error confirming CardNet payment method:', err);
+      res.status(500).json({ error: err.message || 'Error al guardar método de pago', code: 'CONFIRM_FAILED' });
+    }
+  });
+
   // 9. Registrar método de pago tokenizado (CERO PAN/CVC)
   router.post('/payment-methods', async (req, res) => {
     try {
@@ -488,14 +617,22 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
         return res.status(400).json({ error: 'paymentMethodToken es obligatorio', code: 'TOKEN_REQUIRED' });
       }
 
+      // Prevenir creación de tokens sintéticos no validados
+      if (String(paymentMethodToken).startsWith('tok_') && !providerCustomerReference) {
+        return res.status(400).json({
+          error: 'No se permite registrar tarjetas con datos manuales ficticios. Utiliza la pasarela oficial CardNet.',
+          code: 'SYNTHETIC_TOKENS_FORBIDDEN'
+        });
+      }
+
       const method = await billingRepo.savePaymentMethod({
         tenant_id: tenantId,
         token_reference: paymentMethodToken,
         provider_customer_id: providerCustomerReference,
-        last4: last4 || '4242',
+        last4: last4 || '****',
         brand: brand || 'visa',
         exp_month: expMonth || 12,
-        exp_year: expYear || 2028,
+        exp_year: expYear || (new Date().getFullYear() + 3),
         is_default: isDefault !== false
       });
 
@@ -510,6 +647,68 @@ table{width:100%;border-collapse:collapse;margin:16px 0} td,th{padding:10px 8px;
       });
     } catch (err) {
       res.status(400).json({ error: err.message, code: 'PAYMENT_METHOD_FAILED' });
+    }
+  });
+
+  // 9b. Aceptar términos y condiciones para el tenant actual
+  router.post('/terms/accept', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const userId = req.user?.id || req.user?.sub;
+      if (!tenantId || !userId) {
+        return res.status(403).json({ error: 'Contexto de empresa y usuario requerido', code: 'UNAUTHORIZED' });
+      }
+
+      const { accept_terms, authorize_recurring, terms_version } = req.body;
+      if (!accept_terms) {
+        return res.status(400).json({ error: 'Debes marcar la casilla para aceptar los Términos y Condiciones.', code: 'TERMS_ACCEPTANCE_REQUIRED' });
+      }
+
+      const result = await termsService.recordAcceptance({
+        tenantId,
+        userId,
+        termsVersion: terms_version || 'v2026.1',
+        recurringAuthorized: Boolean(authorize_recurring),
+        acceptanceMechanism: 'web_portal_checkbox',
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        recipientEmail: req.user?.email || req.user?.correo || null,
+        recipientName: req.user?.nombre || req.user?.name || null,
+        companyName: req.user?.tenant?.business_name || req.user?.tenant?.nombre || null,
+        accountStatus: req.user?.tenant?.status || null
+      });
+
+      res.status(200).json(result);
+    } catch (err) {
+      console.error('[SAAS TERMS] Error accepting terms:', err);
+      res.status(err.statusCode || 500).json({ error: err.message || 'Error al registrar aceptación de términos', code: err.code || 'TERMS_ACCEPT_FAILED' });
+    }
+  });
+
+  // 9c. Consultar estado de aceptación de términos del tenant
+  router.get('/terms/status', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      }
+
+      const [rows] = await pool.query(
+        `SELECT id, terms_version, document_hash, accepted_at_utc, recurring_authorized, acceptance_mechanism
+         FROM tenant_terms_acceptances
+         WHERE tenant_id = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+        [tenantId]
+      );
+
+      const latestAcceptance = rows && rows.length > 0 ? rows[0] : null;
+      res.json({
+        hasAccepted: Boolean(latestAcceptance),
+        latestAcceptance
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message, code: 'INTERNAL_ERROR' });
     }
   });
 

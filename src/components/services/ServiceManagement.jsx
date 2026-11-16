@@ -56,12 +56,20 @@ const ServiceManagement = () => {
   const [categoriesList, setCategoriesList] = useState([]);
   const [commissionCategories, setCommissionCategories] = useState([]);
 
+  const isCatActive = (estado) => ['activa', 'activo', 'active', '1', 'true'].includes(String(estado || '').trim().toLowerCase());
+
   const activeCommissionCategories = commissionCategories.filter(
-    c => String(c.estado || '').toLowerCase() === 'activo'
+    c => isCatActive(c.estado)
   );
 
   useEffect(() => {
     loadServices();
+
+    const onCategoriesUpdated = () => {
+      loadServices();
+    };
+    window.addEventListener('commissionCategoriesUpdated', onCategoriesUpdated);
+    return () => window.removeEventListener('commissionCategoriesUpdated', onCategoriesUpdated);
   }, []);
 
   // Reset to page 1 whenever filters change
@@ -81,7 +89,7 @@ const ServiceManagement = () => {
       setCommissionCategories(normalizedCommCats);
 
       const activeCommCatNames = normalizedCommCats
-        .filter(c => String(c.estado || '').toLowerCase() === 'activo')
+        .filter(c => isCatActive(c.estado))
         .map(c => c.nombre)
         .filter(Boolean);
       const serviceCatNames = Array.isArray(data) ? data.map(s => s.categoria).filter(Boolean) : [];
@@ -95,9 +103,18 @@ const ServiceManagement = () => {
     }
   };
 
-  const handleOpenNewModal = () => {
+  const handleOpenNewModal = async () => {
     setEditingService(null);
-    const defaultCat = activeCommissionCategories[0] || null;
+    let currentActive = activeCommissionCategories;
+    try {
+      const commCats = await dataService.getCommissionCategories().catch(() => []);
+      const normalized = Array.isArray(commCats) ? commCats : [];
+      setCommissionCategories(normalized);
+      currentActive = normalized.filter(c => isCatActive(c.estado));
+    } catch {
+      // fallback to existing state
+    }
+    const defaultCat = currentActive[0] || null;
     setFormData({
       nombre: '',
       descripcion: '',
@@ -119,10 +136,20 @@ const ServiceManagement = () => {
     setShowModal(true);
   };
 
-  const handleOpenEditModal = (service) => {
+  const handleOpenEditModal = async (service) => {
+    let allCats = commissionCategories;
+    try {
+      const commCats = await dataService.getCommissionCategories().catch(() => []);
+      if (Array.isArray(commCats)) {
+        allCats = commCats;
+        setCommissionCategories(commCats);
+      }
+    } catch {
+      // fallback
+    }
     setEditingService(service);
     const isProduct = service.item_type === 'PRODUCTO' || service.tipo_item === 'Producto' || service.categoria === 'Productos';
-    const matchedCommCat = commissionCategories.find(
+    const matchedCommCat = allCats.find(
       c => (service.commission_category_id && Number(c.id) === Number(service.commission_category_id)) ||
         (service.categoria && String(c.nombre || '').toLowerCase() === String(service.categoria).toLowerCase())
     );
@@ -842,7 +869,7 @@ Depilación Facial Completa,Estética,600,20,0`;
                       ? commissionCategories.find(
                           c =>
                             String(c.id) === String(formData.commission_category_id) &&
-                            String(c.estado || '').toLowerCase() !== 'activo'
+                            !isCatActive(c.estado)
                         )
                       : null;
                     return (

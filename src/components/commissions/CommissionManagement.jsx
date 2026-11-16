@@ -147,6 +147,7 @@ const CommissionManagement = () => {
       await dataService.saveCommissionCategory(payload);
       setShowCategoryModal(false);
       loadAllData();
+      window.dispatchEvent(new CustomEvent('commissionCategoriesUpdated'));
       alert('Categoría guardada exitosamente');
     } catch (err) {
       alert('Error guardando categoría: ' + err.message);
@@ -158,6 +159,7 @@ const CommissionManagement = () => {
     try {
       await dataService.deleteCommissionCategory(id);
       loadAllData();
+      window.dispatchEvent(new CustomEvent('commissionCategoriesUpdated'));
     } catch (err) {
       alert('Error eliminando categoría');
     }

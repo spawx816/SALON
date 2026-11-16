@@ -19,8 +19,41 @@ import {
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useEntitlements } from '../../context/EntitlementsContext';
+import { loadCardNetScript } from '../../utils/cardnetScriptLoader';
 import SaasCheckoutPanel from './SaasCheckoutPanel';
 import './SaasBillingModule.css';
+
+function ensureCardnetMethodForm(formId = 'etereas_cardnet_method_form') {
+  let form = document.forms?.[formId] || document.getElementById(formId);
+  if (!form) {
+    form = document.createElement('form');
+    form.id = formId;
+    form.name = formId;
+    form.style.display = 'none';
+    form.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(form);
+  }
+  form.innerHTML = '';
+  return form;
+}
+
+function patchCardnetMethodClose(PWCheckout) {
+  if (!PWCheckout?.Iframe?.Close || PWCheckout.Iframe.__etereasCardClosePatched) return;
+  const originalClose = PWCheckout.Iframe.Close;
+  PWCheckout.Iframe.Close = function safeClose() {
+    const frame = document.getElementById(PWCheckout.Iframe.frameId);
+    const modal = document.getElementById(PWCheckout.Iframe.modalId);
+    if (!frame && !modal) return;
+    if (!frame || !modal) {
+      if (frame?.parentNode) frame.parentNode.removeChild(frame);
+      if (modal?.parentNode) modal.parentNode.removeChild(modal);
+      if (typeof PWCheckout.Iframe.Closed === 'function') PWCheckout.Iframe.Closed();
+      return;
+    }
+    return originalClose.apply(this, arguments);
+  };
+  PWCheckout.Iframe.__etereasCardClosePatched = true;
+}
 
 const STATUS_META = {
   active: { label: 'Activa', badgeClass: 'sb-badge-active' },
@@ -88,11 +121,9 @@ export default function SaasBillingModule() {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
 
   const [payingInvoiceId, setPayingInvoiceId] = useState(null);
-  const [cardLast4, setCardLast4] = useState('');
-  const [cardBrand, setCardBrand] = useState('visa');
-  const [cardExpMonth, setCardExpMonth] = useState('12');
-  const [cardExpYear, setCardExpYear] = useState(String(new Date().getFullYear() + 3));
-  const [savingCard, setSavingCard] = useState(false);
+  const [cardnetLoading, setCardnetLoading] = useState(false);
+  const [cardnetStatusMsg, setCardnetStatusMsg] = useState('');
+  const [cardnetNotice, setCardnetNotice] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [canceling, setCanceling] = useState(false);
   const [checkoutOrders, setCheckoutOrders] = useState([]);
@@ -217,32 +248,103 @@ export default function SaasBillingModule() {
     }
   };
 
-  const handleSaveCard = async (e) => {
-    e.preventDefault();
-    if (cardLast4.length !== 4) {
-      setError('Ingresa exactamente los últimos 4 dígitos de la tarjeta.');
-      return;
-    }
-
+  const handleLaunchCardnetGateway = async () => {
     try {
-      setSavingCard(true);
+      setCardnetLoading(true);
       setError(null);
-      await dataService.saveSaasPaymentMethod({
-        paymentMethodToken: `tok_${Date.now()}_${cardLast4}`,
-        last4: cardLast4,
-        brand: cardBrand,
-        expMonth: Number(cardExpMonth) || 12,
-        expYear: Number(cardExpYear) || new Date().getFullYear() + 3,
-        isDefault: true,
+      setCardnetNotice(null);
+      setCardnetStatusMsg('Iniciando sesión segura con CardNet...');
+
+      const initRes = await fetch('/api/saas/billing/payment-methods/initiate-cardnet', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
       });
-      setSuccessMsg('Método de pago guardado correctamente.');
-      setShowAddCardModal(false);
-      setCardLast4('');
-      await loadBillingData();
+      const initData = await initRes.json().catch(() => ({}));
+      if (!initRes.ok) {
+        throw new Error(initData.error || 'No se pudo iniciar la sesión con CardNet.');
+      }
+
+      setCardnetStatusMsg('Cargando pasarela oficial de CardNet...');
+      const PWCheckout = await loadCardNetScript(initData.publicKey, initData.captureUrl);
+      const formId = 'etereas_cardnet_method_form';
+      ensureCardnetMethodForm(formId);
+      patchCardnetMethodClose(PWCheckout);
+
+      if (typeof PWCheckout.Unbind === 'function') {
+        try {
+          PWCheckout.Unbind('tokenCreated');
+          PWCheckout.Unbind('closed');
+        } catch {
+          // ignore
+        }
+      }
+
+      let handled = false;
+
+      PWCheckout.Bind('tokenCreated', async (tokenPayload) => {
+        if (handled) return;
+        handled = true;
+        setCardnetStatusMsg('Tarjeta registrada en CardNet. Confirmando de forma segura...');
+
+        try {
+          const confRes = await fetch('/api/saas/billing/payment-methods/confirm-cardnet', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              customerId: initData.customerId,
+              tokenPayload,
+              uniqueId: initData.uniqueId,
+            }),
+          });
+          const confData = await confRes.json().catch(() => ({}));
+          if (!confRes.ok) {
+            throw new Error(confData.error || 'No se pudo confirmar el método de pago.');
+          }
+
+          setSuccessMsg(confData.message || 'Método de pago registrado exitosamente.');
+          setShowAddCardModal(false);
+          await loadBillingData();
+        } catch (err) {
+          setError(err.message || 'Error al confirmar el método de pago.');
+        } finally {
+          setCardnetLoading(false);
+          setCardnetStatusMsg('');
+        }
+      });
+
+      PWCheckout.Bind('closed', () => {
+        setCardnetLoading(false);
+        setCardnetStatusMsg('');
+      });
+
+      if (typeof PWCheckout.SetProperties === 'function') {
+        PWCheckout.SetProperties({
+          name: 'Etereas',
+          email: '',
+          button_label: 'Registrar tarjeta',
+          description: 'Registro seguro de medio de pago Etereas',
+          currency: 'DOP',
+          amount: '0',
+          lang: 'ESP',
+          form_id: formId,
+          checkout_card: '1',
+        });
+      }
+
+      if (typeof PWCheckout.Iframe?.Open === 'function') {
+        PWCheckout.Iframe.Open({
+          customerId: initData.customerId,
+          uniqueId: initData.uniqueId,
+          formId,
+        });
+      }
     } catch (err) {
-      setError(err.message || 'Error al registrar el método de pago.');
-    } finally {
-      setSavingCard(false);
+      console.error('Error opening CardNet checkout:', err);
+      setError(err.message || 'Error al abrir pasarela de CardNet.');
+      setCardnetLoading(false);
+      setCardnetStatusMsg('');
     }
   };
 
@@ -923,7 +1025,7 @@ export default function SaasBillingModule() {
         </div>
       )}
 
-      {/* Add Card Modal */}
+      {/* Add Card Modal via CardNet PWCheckout */}
       {showAddCardModal && (
         <div
           className="sb-modal-backdrop"
@@ -934,105 +1036,112 @@ export default function SaasBillingModule() {
           <div className="sb-modal-card">
             <div className="sb-modal-header">
               <h3 id="sb-add-card-title">
-                {defaultPm ? 'Actualizar tarjeta' : 'Agregar método de pago'}
+                {defaultPm ? 'Actualizar tarjeta con CardNet' : 'Agregar tarjeta con CardNet'}
               </h3>
               <button
                 type="button"
                 className="sb-modal-close"
-                onClick={() => setShowAddCardModal(false)}
+                onClick={() => {
+                  if (!cardnetLoading) {
+                    setShowAddCardModal(false);
+                  }
+                }}
+                disabled={cardnetLoading}
                 aria-label="Cerrar"
               >
                 <X size={18} />
               </button>
             </div>
 
+            {defaultPm && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '0.85rem 1rem',
+                marginBottom: '1rem',
+                fontSize: '0.82rem',
+                color: '#334155'
+              }}>
+                <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '0.2rem' }}>
+                  Tarjeta actualmente activa:
+                </div>
+                <div>
+                  {String(defaultPm.brand || 'Tarjeta').toUpperCase()} terminada en •••• {defaultPm.last4}
+                </div>
+                <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '0.25rem' }}>
+                  Tu tarjeta actual se mantendrá intacta hasta que confirmes la nueva en CardNet. Cancelar o cerrar no alterará tu método guardado.
+                </div>
+              </div>
+            )}
+
             <p className="sb-meta-text" style={{ marginBottom: '16px' }}>
-              La tarjeta se tokeniza mediante pasarela segura. El sistema no almacena números completos de tarjeta ni códigos de seguridad.
+              La tarjeta se registra mediante la pasarela segura oficial de <strong>CardNet</strong>. Etereas jamás almacena números completos de tarjeta (PAN) ni códigos de seguridad (CVC).
             </p>
 
-            <form onSubmit={handleSaveCard}>
-              <div className="sb-field">
-                <label htmlFor="sb-card-brand">Franquicia</label>
-                <select
-                  id="sb-card-brand"
-                  className="sb-input"
-                  value={cardBrand}
-                  onChange={(e) => setCardBrand(e.target.value)}
-                >
-                  <option value="visa">Visa</option>
-                  <option value="mastercard">Mastercard</option>
-                  <option value="amex">American Express</option>
-                </select>
-              </div>
+            <div style={{
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '10px',
+              padding: '0.75rem',
+              marginBottom: '1.25rem',
+              fontSize: '0.8rem',
+              color: '#166534',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem'
+            }}>
+              <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+              <span>Esta operación solo tokeniza y registra tu tarjeta. <strong>NO</strong> realiza ningún cobro de suscripción en este momento.</span>
+            </div>
 
-              <div className="sb-field">
-                <label htmlFor="sb-card-last4">Últimos 4 dígitos</label>
-                <input
-                  id="sb-card-last4"
-                  type="text"
-                  maxLength={4}
-                  value={cardLast4}
-                  onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, ''))}
-                  placeholder="0000"
-                  required
-                  className="sb-input"
-                />
+            {cardnetStatusMsg && (
+              <div style={{
+                background: '#f1f5f9',
+                border: '1px solid #cbd5e1',
+                borderRadius: '10px',
+                padding: '0.75rem',
+                marginBottom: '1.25rem',
+                fontSize: '0.82rem',
+                color: '#334155',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <Loader2 size={16} className="sb-spin" />
+                <span>{cardnetStatusMsg}</span>
               </div>
+            )}
 
-              <div className="sb-grid-2" style={{ marginBottom: 0 }}>
-                <div className="sb-field">
-                  <label htmlFor="sb-card-month">Mes vencimiento</label>
-                  <input
-                    id="sb-card-month"
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={cardExpMonth}
-                    onChange={(e) => setCardExpMonth(e.target.value)}
-                    required
-                    className="sb-input"
-                  />
-                </div>
-                <div className="sb-field">
-                  <label htmlFor="sb-card-year">Año vencimiento</label>
-                  <input
-                    id="sb-card-year"
-                    type="number"
-                    min={new Date().getFullYear()}
-                    max={new Date().getFullYear() + 20}
-                    value={cardExpYear}
-                    onChange={(e) => setCardExpYear(e.target.value)}
-                    required
-                    className="sb-input"
-                  />
-                </div>
-              </div>
-
-              <div className="sb-modal-footer">
-                <button
-                  type="button"
-                  className="sb-btn"
-                  onClick={() => setShowAddCardModal(false)}
-                  disabled={savingCard}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="sb-btn sb-btn-primary"
-                  disabled={savingCard}
-                >
-                  {savingCard ? (
-                    <>
-                      <Loader2 size={15} className="sb-spin" />
-                      <span>Guardando...</span>
-                    </>
-                  ) : (
-                    <span>Guardar tarjeta</span>
-                  )}
-                </button>
-              </div>
-            </form>
+            <div className="sb-modal-footer">
+              <button
+                type="button"
+                className="sb-btn"
+                onClick={() => setShowAddCardModal(false)}
+                disabled={cardnetLoading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="sb-btn sb-btn-primary"
+                onClick={handleLaunchCardnetGateway}
+                disabled={cardnetLoading}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                {cardnetLoading ? (
+                  <>
+                    <Loader2 size={15} className="sb-spin" />
+                    <span>Conectando con CardNet...</span>
+                  </>
+                ) : (
+                  <>
+                    <CreditCard size={16} />
+                    <span>Abrir pasarela CardNet</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

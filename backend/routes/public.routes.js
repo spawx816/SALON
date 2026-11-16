@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 
 const { TenantBrandingRepository } = require('../repositories/tenant_branding.repository');
 const { TenantBrandingService } = require('../services/tenant_branding.service');
+const { TermsAndWelcomeEmailService } = require('../services/terms_and_welcome_email.service');
 const { signAuthToken } = require('../middleware/auth.middleware');
 
 /**
@@ -16,6 +17,7 @@ function createPublicRouter(pool, options = {}) {
   const tenantBrandingService = options.tenantBrandingService || new TenantBrandingService({
     repository: options.brandingRepository || new TenantBrandingRepository(pool)
   });
+  const termsService = options.termsService || new TermsAndWelcomeEmailService({ pool });
 
   const onboardingLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hora
@@ -349,6 +351,26 @@ function createPublicRouter(pool, options = {}) {
         maxAge: 24 * 60 * 60 * 1000,
       });
 
+      if (req.body.accept_terms) {
+        try {
+          await termsService.recordAcceptance({
+            tenantId,
+            userId,
+            termsVersion: req.body.terms_version || 'v2026.1',
+            recurringAuthorized: Boolean(req.body.authorize_recurring),
+            acceptanceMechanism: 'onboarding_checkbox',
+            ipAddress: req.ip || req.connection?.remoteAddress,
+            userAgent: req.headers['user-agent'],
+            recipientEmail: owner_email.trim(),
+            recipientName: owner_name || 'Propietario',
+            companyName: business_name,
+            accountStatus: 'pending_payment'
+          });
+        } catch (termsErr) {
+          console.warn('[ONBOARDING] Error registrando términos (no bloqueante):', termsErr.message);
+        }
+      }
+
       res.status(201).json({
         success: true,
         paymentRequired: true,
@@ -428,6 +450,36 @@ function createPublicRouter(pool, options = {}) {
       console.error('Error fetching public branding:', err);
       const defaultSafe = await tenantBrandingService.getPublicSafeBranding(null);
       res.json(defaultSafe);
+    }
+  });
+
+  /**
+   * GET /api/public/terms/:version
+   * Consulta pública de versión de términos inmutables
+   */
+  router.get('/terms/:version', (req, res) => {
+    try {
+      const version = req.params.version;
+      const terms = termsService.getTerms(version);
+      res.json(terms);
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'TERMS_ERROR' });
+    }
+  });
+
+  /**
+   * GET /api/public/terms/:version/download
+   * Descarga de copia íntegra en texto plano
+   */
+  router.get('/terms/:version/download', (req, res) => {
+    try {
+      const version = req.params.version;
+      const terms = termsService.getTerms(version);
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="terminos_etereas_${terms.version}.txt"`);
+      res.send(terms.content);
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'TERMS_ERROR' });
     }
   });
 

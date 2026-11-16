@@ -47,7 +47,7 @@ function createServicesRouter(pool) {
       }
       const cat = rows[0];
       const isKeepingSameHistorical = fallbackExistingId && Number(fallbackExistingId) === Number(cat.id);
-      const isActiveCat = String(cat.estado || '').toLowerCase() === 'activo';
+      const isActiveCat = ['activa', 'activo', 'active', '1', 'true'].includes(String(cat.estado || '').trim().toLowerCase());
       if (!isActiveCat && !isKeepingSameHistorical) {
         return { error: 'La categoría seleccionada está inactiva y no puede asignarse a nuevos ítems.', status: 400 };
       }
@@ -67,7 +67,7 @@ function createServicesRouter(pool) {
         'SELECT id, nombre, estado FROM commission_categories WHERE tenant_id = ? AND LOWER(nombre) = LOWER(?) LIMIT 1',
         [tenantId, String(fallbackName).trim()]
       );
-      if (rows && rows.length > 0 && String(rows[0].estado || '').toLowerCase() === 'activo') {
+      if (rows && rows.length > 0 && ['activa', 'activo', 'active', '1', 'true'].includes(String(rows[0].estado || '').trim().toLowerCase())) {
         return { id: rows[0].id, nombre: rows[0].nombre, estado: rows[0].estado };
       }
     }
