@@ -20,6 +20,7 @@ import {
 import { validateName, cleanPhone } from '../utils/formUtils';
 import { useDocumentMetadata } from '../hooks/useDocumentMetadata';
 import { executeCardnetCheckout, formatOrderMoney } from '../components/saas/SaasCheckoutPanel';
+import { TermsDocumentContent } from '../components/common/TermsDocumentContent';
 import './LandingEtereas.css';
 
 const CANONICAL_FALLBACK_PLANS = [
@@ -197,10 +198,13 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [pendingClientId, setPendingClientId] = useState(null);
   const [activationCode, setActivationCode] = useState('');
   const [activationError, setActivationError] = useState('');
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   const loginInputRef = useRef(null);
   const activeModalRef = useRef(null);
   const lastTriggerRef = useRef(null);
+  const termsTriggerRef = useRef(null);
+  const termsModalRef = useRef(null);
 
   // Focus login input when navigating directly to /login
   useEffect(() => {
@@ -276,7 +280,15 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     loadPlans();
   }, [loadPlans]);
 
+  const closeTermsModal = useCallback(() => {
+    setShowTermsModal(false);
+    if (termsTriggerRef.current && typeof termsTriggerRef.current.focus === 'function') {
+      setTimeout(() => termsTriggerRef.current?.focus(), 20);
+    }
+  }, []);
+
   const closeAllModals = useCallback(() => {
+    setShowTermsModal(false);
     setIsRegisterModalOpen(false);
     setShowForgotModal(false);
     setShowActivation(false);
@@ -288,11 +300,32 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     }
   }, []);
 
+  // Restaurar scroll al cerrar modales
+  useEffect(() => {
+    if (!showTermsModal) return undefined;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeBtn = termsModalRef.current?.querySelector('button');
+    closeBtn?.focus();
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeTermsModal();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [showTermsModal, closeTermsModal]);
+
   // Keyboard Trap & Escape for active modal
   useEffect(() => {
     const isAnyOpen = isRegisterModalOpen || showForgotModal || showActivation;
     const container = activeModalRef.current;
-    if (!isAnyOpen || !container) return undefined;
+    if (!isAnyOpen || !container || showTermsModal) return undefined;
 
     const focusableSel =
       'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
@@ -321,7 +354,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isRegisterModalOpen, showForgotModal, showActivation, closeAllModals]);
+  }, [isRegisterModalOpen, showForgotModal, showActivation, showTermsModal, closeAllModals]);
 
   const openOnboardingModal = (planCode = selectedPlanCode, triggerEl = null) => {
     if (triggerEl) {
@@ -430,7 +463,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
           branches_count: branchesCount,
           extra_users_count: extraUsersCount,
           wants_memberships_addon: wantsMembershipsAddon,
-          addon_branches_count: wantsMembershipsAddon ? Math.min(addonBranchesCount, branchesCount) : 0
+          addon_branches_count: wantsMembershipsAddon ? Math.min(addonBranchesCount, branchesCount) : 0,
+          accept_terms: acceptTerms,
+          terms_version: 'v2026.1'
         })
       });
       const data = await res.json();
@@ -1326,8 +1361,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
 
           <div className="et-footer-links">
             <Link to="/contacto">Contacto</Link>
-            <Link to="/terminos-y-condiciones">Términos</Link>
-            <Link to="/politica-de-privacidad">Privacidad</Link>
+            <Link to="/terminos-y-condiciones" state={{ from: '/' }}>Términos</Link>
+            <Link to="/politica-de-privacidad" state={{ from: '/' }}>Privacidad</Link>
           </div>
         </div>
       </footer>
@@ -1648,11 +1683,25 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                         />
                         <span>
                           Acepto los{' '}
-                          <Link to="/terminos-y-condiciones" onClick={closeAllModals}>
+                          <button
+                            type="button"
+                            ref={termsTriggerRef}
+                            onClick={() => setShowTermsModal(true)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              color: '#2563eb',
+                              textDecoration: 'underline',
+                              fontWeight: 600,
+                              fontSize: 'inherit',
+                              cursor: 'pointer'
+                            }}
+                          >
                             Términos y Condiciones
-                          </Link>{' '}
+                          </button>{' '}
                           y la{' '}
-                          <Link to="/politica-de-privacidad" onClick={closeAllModals}>
+                          <Link to="/politica-de-privacidad" state={{ from: '/' }}>
                             Política de Privacidad
                           </Link>
                           .
@@ -1832,6 +1881,89 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                   Activar cuenta →
                 </button>
               </form>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        showTermsModal && (
+          <div
+            className="et-modal-backdrop"
+            role="presentation"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) closeTermsModal();
+            }}
+          >
+            <div
+              ref={termsModalRef}
+              className="et-modal et-modal-terms"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="landing-terms-modal-title"
+              tabIndex={-1}
+              style={{ maxWidth: '820px', width: '95vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', padding: 0 }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  padding: '18px 24px',
+                  borderBottom: '1px solid #e2e8f0',
+                  flexShrink: 0,
+                }}
+              >
+                <h2 id="landing-terms-modal-title" style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700, color: '#0f172a' }}>
+                  Términos y Condiciones de Uso de Etereas
+                </h2>
+                <button
+                  type="button"
+                  onClick={closeTermsModal}
+                  aria-label="Cerrar Términos y Condiciones"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    width: '34px',
+                    height: '34px',
+                    fontSize: '1.25rem',
+                    lineHeight: 1,
+                    color: '#334155',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
+                <TermsDocumentContent version="v2026.1" />
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  gap: '12px',
+                  padding: '14px 24px',
+                  borderTop: '1px solid #e2e8f0',
+                  background: '#f8fafc',
+                  flexShrink: 0,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={closeTermsModal}
+                  className="et-btn-secondary"
+                  style={{ padding: '10px 20px', fontWeight: 600 }}
+                >
+                  ← Volver
+                </button>
+              </div>
             </div>
           </div>
         )
