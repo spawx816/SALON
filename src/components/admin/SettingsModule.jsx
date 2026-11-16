@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
-import { Mail, Shield, Server, Check, Save, AlertTriangle, Sliders, FileSignature } from 'lucide-react';
+import { Mail, Shield, Server, Check, Save, AlertTriangle, Sliders, FileSignature, Printer } from 'lucide-react';
 import { motion } from 'framer-motion';
 import ContractSettingsModule from './ContractSettingsModule';
+import PrintTemplatesDesigner from '../print/PrintTemplatesDesigner';
 
 const SettingsModule = () => {
   const { showNotification } = useNotification();
@@ -112,10 +113,35 @@ const SettingsModule = () => {
         >
           <Mail size={17} /> Servidor de Correo (SMTP)
         </button>
+
+        <button
+          onClick={() => setActiveTab('print_templates')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.65rem 1.25rem',
+            borderRadius: '10px',
+            border: 'none',
+            background: activeTab === 'print_templates' ? '#0ea5e9' : '#f1f5f9',
+            color: activeTab === 'print_templates' ? '#fff' : '#475569',
+            fontWeight: 700,
+            fontSize: '0.875rem',
+            cursor: 'pointer',
+            boxShadow: activeTab === 'print_templates' ? '0 4px 12px rgba(14, 165, 233, 0.25)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Printer size={17} /> Plantillas de impresión
+        </button>
       </div>
 
       {activeTab === 'contract' && (
         <ContractSettingsModule />
+      )}
+
+      {activeTab === 'print_templates' && (
+        <PrintTemplatesDesigner />
       )}
 
       {activeTab === 'email' && (

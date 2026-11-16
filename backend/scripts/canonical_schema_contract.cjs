@@ -28,7 +28,8 @@ const CANONICAL_MIGRATIONS = [
   '20261110_phase3b_p2p3_extensions',
   '20261111_phase3c_clients_in_base_plan',
   '20261115_saas_fx_rates',
-  '20261116_platform_email_settings'
+  '20261116_platform_email_settings',
+  '20261116_print_templates_and_turn_tickets'
 ];
 
 // Global / Control Plane / System Tables
@@ -148,6 +149,9 @@ const TENANT_OWNED_TABLES = [
   'tenant_subscription_events',
   'tenant_subscriptions',
   'ticket_sequences',
+  'turn_ticket_counters',
+  'turn_tickets',
+  'print_templates',
   'user_sessions',
   'users',
   'verification_codes',

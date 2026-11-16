@@ -55,6 +55,7 @@ const { createEmployeesRouter } = require('./routes/employees.routes');
 const { createReportsRouter } = require('./routes/reports.routes');
 const { createAppointmentsRouter } = require('./routes/appointments.routes');
 const { createSettingsRouter } = require('./routes/settings.routes');
+const { createPrintTemplatesRouter } = require('./routes/print_templates.routes');
 const { createAuthRouter } = require('./routes/auth.routes');
 const { createInvoicesRouter } = require('./routes/invoices.routes');
 const { createTestRouter } = require('./routes/test.routes');
@@ -705,6 +706,7 @@ function createApp(dependencies = {}) {
   });
   app.use('/api/saas', createSaasRouter(pool, { entitlementsService, saasCheckoutService, saasFxRateService, cardnetCheckoutProvider }));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
+  app.use('/api', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPrintTemplatesRouter(pool));
   app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.export', 'security.manage'), createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));

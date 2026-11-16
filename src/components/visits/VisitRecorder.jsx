@@ -15,6 +15,7 @@ import DigitalContract from '../contracts/DigitalContract';
 import ReceptionMotivationalModal from '../common/ReceptionMotivationalModal';
 import ElectronicInvoicePrintModal from '../common/ElectronicInvoicePrintModal';
 import ThermalTicketModal from './ThermalTicketModal';
+import TurnTicketModal from '../print/TurnTicketModal';
 import CajaInvoicesModal from './CajaInvoicesModal';
 import CashRegisterClosePrintModal from './CashRegisterClosePrintModal';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
@@ -199,6 +200,7 @@ const VisitRecorder = () => {
   const [ticketType, setTicketType] = useState('general');
   const [newTicketCedula, setNewTicketCedula] = useState('');
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showTurnTicketModal, setShowTurnTicketModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [printableTicketData, setPrintableTicketData] = useState(null);
   const [showInvoicePrintModal, setShowInvoicePrintModal] = useState(false);
@@ -4834,6 +4836,30 @@ const VisitRecorder = () => {
               <span>📄 Precuenta (Pendiente de Pago)</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() => setShowTurnTicketModal(true)}
+              style={{
+                width: '100%',
+                background: '#f0f9ff',
+                color: '#0369a1',
+                border: '1.5px solid #bae6fd',
+                padding: '0.6rem',
+                borderRadius: '12px',
+                fontWeight: 700,
+                fontSize: '0.825rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.4rem',
+              }}
+              title="Emitir o reimprimir ticket de turno sin crear factura ni cobro"
+            >
+              <Printer size={15} />
+              <span>🎟️ Ticket de Turno (Sin Cobro)</span>
+            </button>
+
             {/* CARGAR A NÓMINA — solo visible en tickets de empleado */}
             {isEmployeeClient && (
               <button
@@ -5715,6 +5741,13 @@ const VisitRecorder = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL: TICKET DE TURNO CAR WASH (SIN COBRO NI FACTURA) */}
+      <TurnTicketModal
+        isOpen={showTurnTicketModal}
+        onClose={() => setShowTurnTicketModal(false)}
+        branchId={selectedSalonId || currentUser?.branch_id || 'default'}
+      />
 
       {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO 80MM (HOMOLOGADO AL SALÓN - PRE-CUENTA) */}
       {showPrintModal && printableTicketData && (
