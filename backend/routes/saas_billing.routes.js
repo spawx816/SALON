@@ -7,6 +7,7 @@ const express = require('express');
 const { getConfiguredPricing, SAAS_ADDONS } = require('../services/saas_catalog.constants');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
 const { TermsAndWelcomeEmailService } = require('../services/terms_and_welcome_email.service');
+const { getEffectiveRole, normalizeRole } = require('../middleware/rbac.middleware');
 
 // Safe BigInt JSON serialization
 if (!BigInt.prototype.toJSON) {
@@ -39,6 +40,26 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
       }))
     };
   };
+
+  // Guard estricto: acciones comerciales y suscripción SaaS exclusivas de Owner (Propietario)
+  router.use((req, res, next) => {
+    if (
+      req.path.startsWith('/webhooks/') ||
+      req.path.startsWith('/payment-links/') ||
+      req.path.startsWith('/admin/') ||
+      req.path.startsWith('/checkout/orders/by-token/')
+    ) {
+      return next();
+    }
+    const role = req.auth ? getEffectiveRole(req) : normalizeRole(req.user?.role);
+    if (role === 'propietario' || req.auth?.isSuperAdmin || role === 'superadmin') {
+      return next();
+    }
+    return res.status(403).json({
+      error: 'Acceso denegado: la suscripción SaaS, métodos de pago y facturación de la plataforma son exclusivos del Propietario.',
+      code: 'OWNER_ONLY_SAAS_BILLING'
+    });
+  });
 
   // 1. Obtener estado de suscripción del tenant
   router.get('/subscription', async (req, res) => {

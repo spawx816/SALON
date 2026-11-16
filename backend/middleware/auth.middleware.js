@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { expandEffectivePermissions } = require('../domain/rbac_catalog');
 
 /**
  * Validates the JWT secret on startup.
@@ -180,6 +181,11 @@ function createAuthMiddleware(pool) {
       let userBranchId = decoded.branchId || decoded.branch_id || null;
       let userEmail = decoded.email || '';
       let userName = decoded.name || decoded.nombre || '';
+      let userRoleId = null;
+      let userRoleName = null;
+      let userPermissions = {};
+      let authorizedBranchIds = [];
+      let allBranchesAccess = false;
 
       if (decoded.isClient) {
         // Cliente B2C
@@ -234,12 +240,56 @@ function createAuthMiddleware(pool) {
           }
         }
 
-        effectiveRole = String(uRow.role || decoded.role || 'admin').toLowerCase();
+        effectiveRole = String(uRow.role || decoded.role || 'empleado').toLowerCase();
         isSuperAdmin = effectiveRole === 'superadmin';
         userTenantId = isSuperAdmin ? null : uRow.tenant_id;
         userBranchId = uRow.branch_id || uRow.salon_id || userBranchId;
         userName = uRow.name || uRow.nombre || userName;
         userEmail = uRow.email || userEmail;
+        userRoleId = uRow.role_id || null;
+
+        // Cargar alcance opcional de sucursales (si las columnas ya fueron migradas)
+        try {
+          const [scopeRows] = await pool.query(
+            'SELECT authorized_branch_ids, all_branches_access FROM users WHERE id::text = ? LIMIT 1',
+            [userId]
+          );
+          if (scopeRows && scopeRows[0]) {
+            allBranchesAccess = Boolean(scopeRows[0].all_branches_access);
+            const rawAuthBranches = scopeRows[0].authorized_branch_ids;
+            if (Array.isArray(rawAuthBranches)) {
+              authorizedBranchIds = rawAuthBranches.map((v) => String(v));
+            } else if (typeof rawAuthBranches === 'string' && rawAuthBranches.trim()) {
+              try {
+                const parsedBranches = JSON.parse(rawAuthBranches);
+                if (Array.isArray(parsedBranches)) {
+                  authorizedBranchIds = parsedBranches.map((v) => String(v));
+                }
+              } catch { /* ignore invalid JSON */ }
+            }
+          }
+        } catch {
+          // Pre-migration fallback: usar branch_id único del usuario
+        }
+
+        if (!isSuperAdmin && userTenantId && userRoleId) {
+          try {
+            const [roleRows] = await pool.query(
+              'SELECT id, nombre, permisos FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+              [userRoleId, userTenantId]
+            );
+            if (roleRows && roleRows.length > 0) {
+              userRoleName = roleRows[0].nombre || null;
+              userPermissions = expandEffectivePermissions(roleRows[0].permisos);
+            } else {
+              // Fail-closed si el role_id no pertenece al tenant o fue eliminado
+              userRoleId = null;
+              userPermissions = {};
+            }
+          } catch {
+            userPermissions = {};
+          }
+        }
 
         if (!isSuperAdmin) {
           if (!userTenantId) {
@@ -382,6 +432,11 @@ function createAuthMiddleware(pool) {
         email: userEmail,
         name: userName,
         role: effectiveRole,
+        roleId: userRoleId,
+        roleName: userRoleName,
+        permissions: userPermissions,
+        authorizedBranchIds,
+        allBranchesAccess,
         isSuperAdmin,
         isClient: Boolean(decoded.isClient),
         tenantId: req.tenantId,

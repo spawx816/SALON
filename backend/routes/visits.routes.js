@@ -1,6 +1,8 @@
 const express = require('express');
 const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
+const { getBranchScope, isBranchAuthorized } = require('../middleware/rbac.middleware');
+const { permissionMapGrants } = require('../domain/rbac_catalog');
 
 function createVisitsRouter(pool, helpers = {}) {
   const router = express.Router();
@@ -259,7 +261,21 @@ function createVisitsRouter(pool, helpers = {}) {
       `;
       const params = [tenantId];
 
-      if (salon_id && salon_id !== 'all') {
+      const scope = getBranchScope(req);
+      if (!scope.allBranches) {
+        if (salon_id && salon_id !== 'all') {
+          if (!isBranchAuthorized(req, salon_id)) {
+            return res.status(403).json({ error: 'No tienes acceso autorizado a la sucursal solicitada.', code: 'BRANCH_ACCESS_DENIED' });
+          }
+          query += ' AND v.salon_id::text = ?';
+          params.push(String(salon_id));
+        } else {
+          if (scope.branchIds.length === 0) return res.json([]);
+          const placeholders = scope.branchIds.map(() => '?').join(', ');
+          query += ` AND v.salon_id::text IN (${placeholders})`;
+          params.push(...scope.branchIds);
+        }
+      } else if (salon_id && salon_id !== 'all') {
         query += ' AND v.salon_id::text = ?';
         params.push(String(salon_id));
       }
@@ -750,6 +766,12 @@ function createVisitsRouter(pool, helpers = {}) {
         empleado_manicurista = 'No asignada',
         recepcionista = 'Recepción'
       } = req.body;
+      if (!isBranchAuthorized(req, salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para registrar visitas en esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
 
       const visitId = id || `VIS-${Date.now()}`;
       const ticketNumber = await getNextTicketNumber(salon_id, tenantId);
@@ -830,7 +852,7 @@ function createVisitsRouter(pool, helpers = {}) {
       // Autorización de Supervisor o Validación de PIN Maestro/OTP (REM-P1-06)
       // -------------------------------------------------------------
       const actorRole = String(req.auth?.role || req.headers['x-user-role'] || '').toLowerCase();
-      const isPrivileged = actorRole === 'propietario' || actorRole === 'owner' || actorRole === 'admin' || Boolean(req.auth?.isSuperAdmin);
+      const isPrivileged = actorRole === 'propietario' || actorRole === 'owner' || actorRole === 'admin' || Boolean(req.auth?.isSuperAdmin) || permissionMapGrants(req.auth?.permissions, 'pos.invoices.void');
 
       const providedPin = req.body?.admin_pin || req.body?.supervisor_pin || req.body?.pin || req.headers['x-admin-pin'];
 

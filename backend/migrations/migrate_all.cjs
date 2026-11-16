@@ -33,6 +33,7 @@ const { up: upUnifyCatalogInventory } = require('./20261114_unify_catalog_invent
 const { up: upCatalogCategoriesAndAlerts } = require('./20261114_catalog_categories_and_inventory_alerts.cjs');
 const { up: upSaasFxRates } = require('./20261115_saas_fx_rates.cjs');
 const { up: upTenantTermsAndWelcome } = require('./20261115_tenant_terms_and_welcome.cjs');
+const { up: upRbacHardening } = require('./20261115_rbac_hardening.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -237,6 +238,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Tablas tenant_terms_acceptances y tenant_welcome_email_queue para términos versionados y correos de bienvenida',
     execute: async (targetPool, targetSchema) => {
       return upTenantTermsAndWelcome(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261115_rbac_hardening',
+    description: 'Columnas authorized_branch_ids, all_branches_access, allow_admin_role_delegation e índice único por tenant en roles',
+    execute: async (targetPool, targetSchema) => {
+      return upRbacHardening(targetPool, targetSchema);
     }
   }
 ];

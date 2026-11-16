@@ -7,6 +7,7 @@
  */
 const express = require('express');
 const { InventoryPhysicalSessionService } = require('../services/inventory_physical_session.service');
+const { getBranchScope, isBranchAuthorized } = require('../middleware/rbac.middleware');
 
 function createInventoryRouter({ inventoryService, purchaseService, transferService, physicalSessionService, requirePlanFeature }) {
   const router = express.Router();
@@ -455,6 +456,33 @@ function createInventoryRouter({ inventoryService, purchaseService, transferServ
     try {
       const tenantId = req.tenantId;
       const { items, tenant_id: _ignored, ...transferData } = req.body;
+      const scope = getBranchScope(req);
+      if (!scope.allBranches) {
+        const originBranch = transferData.from_branch_id || transferData.origin_branch_id || transferData.from_salon_id;
+        const destBranch = transferData.to_branch_id || transferData.destination_branch_id || transferData.to_salon_id;
+        if (originBranch && !isBranchAuthorized(req, originBranch)) {
+          return res.status(403).json({
+            error: 'No tienes autorización sobre la sucursal de origen para esta transferencia.',
+            code: 'BRANCH_ACCESS_DENIED_ORIGIN'
+          });
+        }
+        if (destBranch && !isBranchAuthorized(req, destBranch)) {
+          return res.status(403).json({
+            error: 'No tienes autorización sobre la sucursal de destino para esta transferencia.',
+            code: 'BRANCH_ACCESS_DENIED_DESTINATION'
+          });
+        }
+        if (!originBranch && !destBranch && typeof transferService?.getLocationBranch === 'function') {
+          const fromLocBranch = await transferService.getLocationBranch(tenantId, transferData.from_location_id);
+          const toLocBranch = await transferService.getLocationBranch(tenantId, transferData.to_location_id);
+          if ((fromLocBranch && !isBranchAuthorized(req, fromLocBranch)) || (toLocBranch && !isBranchAuthorized(req, toLocBranch))) {
+            return res.status(403).json({
+              error: 'No tienes autorización sobre las sucursales de origen y destino.',
+              code: 'BRANCH_ACCESS_DENIED'
+            });
+          }
+        }
+      }
       const transfer = await transferService.requestTransfer(tenantId, transferData, items);
       res.status(201).json(transfer);
     } catch (err) {

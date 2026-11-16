@@ -7,6 +7,7 @@ import {
   Clock, MapPin, Laptop, Monitor, AlertCircle
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
+import { PERMISSION_MODULES, ACTION_LABELS, hasUiPermission, isReservedRoleName } from '../../utils/rbacCatalog';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -78,6 +79,14 @@ export default function SecurityModule() {
   const [sendingPin, setSendingPin] = useState(false);
   const [pinNotice, setPinNotice] = useState(null);
 
+  // RBAC Catalog & Role Management State
+  const [catalogModules, setCatalogModules] = useState(PERMISSION_MODULES);
+  const [canManageRoles, setCanManageRoles] = useState(
+    ['propietario', 'owner'].includes(String(currentUser?.role || '').toLowerCase())
+  );
+  const [roleSaveError, setRoleSaveError] = useState('');
+  const [roleDirty, setRoleDirty] = useState(false);
+
   // PIN Verification Modal for sensitive actions
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -91,7 +100,7 @@ export default function SecurityModule() {
   const loadAllSecurityData = async () => {
     setLoading(true);
     try {
-      const [u, r, sal, sess, logs, attemptsData, secSet, staffRes] = await Promise.all([
+      const [u, r, sal, sess, logs, attemptsData, secSet, staffRes, catalogRes] = await Promise.all([
         dataService.getUsers(),
         dataService.getRoles(),
         dataService.getSalons(),
@@ -99,13 +108,20 @@ export default function SecurityModule() {
         dataService.getSecurityAuditLogs(100),
         dataService.getLoginAttempts(),
         dataService.getSecuritySettings(),
-        dataService.getEmployees(true)
+        dataService.getEmployees(true),
+        dataService.getRolesCatalog()
       ]);
 
       setUsers(u || []);
       setRoles(r || []);
       setSalons(sal || []);
       setStaffList(staffRes || []);
+      if (catalogRes?.modules?.length) {
+        setCatalogModules(catalogRes.modules);
+      }
+      if (catalogRes && typeof catalogRes.canManageRoles === 'boolean') {
+        setCanManageRoles(catalogRes.canManageRoles);
+      }
       setActiveSessions(sess || []);
       setAuditLogs(logs || []);
       setLoginAttempts(attemptsData.attempts || []);
@@ -158,8 +174,9 @@ export default function SecurityModule() {
       const payload = {
         ...userForm,
         id: editingUser ? editingUser.id : undefined,
-        role_id: userForm.role_id || (roles[0]?.id || 1),
-        salon_id: userForm.salon_id ? parseInt(userForm.salon_id) : null,
+        role_id: userForm.role_id || (roles[0]?.id || null),
+        salon_id: userForm.salon_id ? userForm.salon_id : null,
+        branch_id: userForm.salon_id ? userForm.salon_id : null,
         staff_id: userForm.staff_id ? parseInt(userForm.staff_id, 10) : null
       };
 
@@ -207,44 +224,103 @@ export default function SecurityModule() {
   };
 
   // === ROLE HANDLERS ===
+  const canDelegatePermKey = (permKey) => {
+    const rawRole = String(currentUser?.role || '').toLowerCase();
+    if (rawRole === 'propietario' || rawRole === 'owner') return true;
+    return hasUiPermission(currentUser, permKey);
+  };
+
   const handleSaveRole = async (e) => {
     e.preventDefault();
-    if (!roleForm.nombre) {
-      alert('El nombre del rol es requerido');
+    setRoleSaveError('');
+    const cleanName = String(roleForm.nombre || '').trim();
+    if (!cleanName) {
+      setRoleSaveError('El nombre del rol es requerido.');
+      return;
+    }
+    if (isReservedRoleName(cleanName)) {
+      setRoleSaveError(`El nombre "${cleanName}" está reservado para roles del sistema y no puede usarse.`);
       return;
     }
 
     try {
       await dataService.saveRole({
         id: editingRole ? editingRole.id : undefined,
-        nombre: roleForm.nombre,
+        nombre: cleanName,
         permisos: roleForm.permisos
       });
       setShowRoleModal(false);
       setEditingRole(null);
+      setRoleDirty(false);
       setRoleForm({ nombre: '', permisos: {} });
       await loadAllSecurityData();
       alert(editingRole ? 'Rol actualizado exitosamente' : 'Rol creado exitosamente');
     } catch (err) {
-      alert('Error al guardar rol: ' + err.message);
+      setRoleSaveError(err.message || 'Error al guardar rol.');
     }
   };
 
-  const togglePermission = (permKey) => {
-    setRoleForm(prev => ({
-      ...prev,
-      permisos: {
-        ...prev.permisos,
-        [permKey]: !prev.permisos[permKey]
+  const handleDeleteRole = async (r) => {
+    if (Number(r.assigned_users_count || 0) > 0) {
+      alert(`No puedes eliminar el rol "${r.nombre}" porque tiene ${r.assigned_users_count} usuario(s) asignado(s). Reasigna esos usuarios primero.`);
+      return;
+    }
+    if (!window.confirm(`¿Estás seguro de eliminar el rol "${r.nombre}"? Esta acción quedará auditada.`)) {
+      return;
+    }
+    try {
+      await dataService.deleteRole(r.id);
+      await loadAllSecurityData();
+      alert('Rol eliminado correctamente.');
+    } catch (err) {
+      alert('No se pudo eliminar el rol: ' + err.message);
+    }
+  };
+
+  const togglePermission = (permObj) => {
+    const permKey = typeof permObj === 'string' ? permObj : permObj.key;
+    if (!canDelegatePermKey(permKey)) return;
+    setRoleDirty(true);
+    setRoleForm(prev => {
+      const nextValue = !prev.permisos[permKey];
+      const nextPerms = { ...prev.permisos, [permKey]: nextValue };
+      // Si se habilita un permiso con dependencias, habilitar sus dependencias automáticamente
+      if (nextValue && typeof permObj === 'object' && Array.isArray(permObj.dependsOn)) {
+        for (const dep of permObj.dependsOn) {
+          if (canDelegatePermKey(dep)) {
+            nextPerms[dep] = true;
+          }
+        }
       }
-    }));
+      return { ...prev, permisos: nextPerms };
+    });
+  };
+
+  const handleSelectAllDelegable = () => {
+    setRoleDirty(true);
+    const nextPerms = { ...roleForm.permisos };
+    for (const mod of catalogModules) {
+      for (const p of (mod.permissions || [])) {
+        if (canDelegatePermKey(p.key)) {
+          nextPerms[p.key] = true;
+        }
+      }
+    }
+    setRoleForm(prev => ({ ...prev, permisos: nextPerms }));
+  };
+
+  const handleClearRolePerms = () => {
+    setRoleDirty(true);
+    setRoleForm(prev => ({ ...prev, permisos: {} }));
   };
 
   const startEditRole = (r) => {
     setEditingRole(r);
+    setRoleSaveError('');
+    setRoleDirty(false);
     let perms = {};
     if (typeof r.permisos === 'string') {
-      try { perms = JSON.parse(r.permisos); } catch (e) { perms = {}; }
+      try { perms = JSON.parse(r.permisos); } catch { perms = {}; }
     } else if (typeof r.permisos === 'object' && r.permisos !== null) {
       perms = r.permisos;
     }
@@ -711,28 +787,32 @@ export default function SecurityModule() {
                 Configura los accesos por pantalla y funciones operativas para cada rol.
               </p>
             </div>
-            <button
-              onClick={() => {
-                setEditingRole(null);
-                setRoleForm({ nombre: '', permisos: {} });
-                setShowRoleModal(true);
-              }}
-              style={{
-                background: '#0f172a',
-                color: '#ffffff',
-                border: 'none',
-                padding: '0.75rem 1.5rem',
-                borderRadius: '12px',
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                cursor: 'pointer'
-              }}
-            >
-              <Key size={18} color="#d4af37" />
-              <span>Crear Nuevo Rol</span>
-            </button>
+            {canManageRoles && (
+              <button
+                onClick={() => {
+                  setEditingRole(null);
+                  setRoleSaveError('');
+                  setRoleDirty(false);
+                  setRoleForm({ nombre: '', permisos: {} });
+                  setShowRoleModal(true);
+                }}
+                style={{
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '12px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  cursor: 'pointer'
+                }}
+              >
+                <Key size={18} color="#d4af37" />
+                <span>Crear Nuevo Rol</span>
+              </button>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
@@ -795,9 +875,10 @@ export default function SecurityModule() {
                   <div style={{ display: 'flex', gap: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
                     <button
                       onClick={() => startEditRole(r)}
+                      disabled={!canManageRoles}
                       style={{
                         flex: 1,
-                        background: '#0f172a',
+                        background: canManageRoles ? '#0f172a' : '#94a3b8',
                         color: '#ffffff',
                         border: 'none',
                         padding: '0.65rem',
@@ -808,12 +889,32 @@ export default function SecurityModule() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '0.4rem',
-                        cursor: 'pointer'
+                        cursor: canManageRoles ? 'pointer' : 'not-allowed'
                       }}
                     >
                       <Sliders size={15} color="#d4af37" />
                       <span>Configurar Permisos</span>
                     </button>
+                    {canManageRoles && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRole(r)}
+                        title={Number(r.assigned_users_count || 0) > 0 ? `En uso por ${r.assigned_users_count} usuario(s)` : 'Eliminar rol'}
+                        style={{
+                          background: '#fef2f2',
+                          color: '#dc2626',
+                          border: '1px solid #fecaca',
+                          padding: '0.65rem 0.8rem',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -1525,9 +1626,22 @@ export default function SecurityModule() {
             background: '#ffffff', borderRadius: '20px', maxWidth: '780px', width: '100%',
             padding: '2rem', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
           }}>
-            <h3 style={{ margin: '0 0 1.25rem 0', fontWeight: 900, color: '#0f172a', fontSize: '1.3rem' }}>
-              {editingRole ? `Configurar Permisos: ${editingRole.nombre}` : 'Crear Nuevo Rol'}
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0, fontWeight: 900, color: '#0f172a', fontSize: '1.3rem' }}>
+                {editingRole ? `Configurar Permisos: ${editingRole.nombre}` : 'Crear Nuevo Rol'}
+              </h3>
+              {roleDirty && (
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.25rem 0.65rem', borderRadius: '999px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+                  Cambios sin guardar
+                </span>
+              )}
+            </div>
+
+            {roleSaveError && (
+              <div role="alert" style={{ marginBottom: '1rem', padding: '0.75rem 1rem', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: '0.85rem', fontWeight: 600 }}>
+                {roleSaveError}
+              </div>
+            )}
 
             <form onSubmit={handleSaveRole}>
               <div style={{ marginBottom: '1.5rem' }}>
@@ -1538,38 +1652,62 @@ export default function SecurityModule() {
                   type="text"
                   required
                   value={roleForm.nombre}
-                  onChange={(e) => setRoleForm({ ...roleForm, nombre: e.target.value })}
+                  onChange={(e) => {
+                    setRoleDirty(true);
+                    setRoleSaveError('');
+                    setRoleForm({ ...roleForm, nombre: e.target.value });
+                  }}
                   style={{ width: '100%', padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: 700 }}
                 />
               </div>
 
               <div style={{ marginBottom: '1.5rem' }}>
-                <h4 style={{ margin: '0 0 0.75rem 0', color: '#0f172a', fontWeight: 800 }}>
-                  Matriz de Permisos por Módulos
-                </h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <h4 style={{ margin: 0, color: '#0f172a', fontWeight: 800 }}>
+                    Matriz Canónica de Permisos por Módulo y Acción
+                  </h4>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={handleSelectAllDelegable}
+                      style={{ padding: '0.35rem 0.7rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', color: '#0f172a', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      Seleccionar todos (delegables)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearRolePerms}
+                      style={{ padding: '0.35rem 0.7rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#64748b', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+                </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  {permissionModules.map((mod, idx) => (
-                    <div key={idx} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  {catalogModules.map((mod, idx) => (
+                    <div key={mod.module || idx} style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                       <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.9rem', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        {mod.group}
+                        {mod.label}
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.65rem' }}>
-                        {mod.perms.map(p => {
-                          const isChecked = Boolean(roleForm.permisos[p.key]);
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.65rem' }}>
+                        {(mod.permissions || []).map(p => {
+                          const isChecked = Boolean(roleForm.permisos[p.key] || (p.legacyKey && roleForm.permisos[p.legacyKey]));
+                          const delegable = canDelegatePermKey(p.key);
                           return (
                             <label
                               key={p.key}
                               style={{
                                 display: 'flex',
-                                alignItems: 'center',
+                                alignItems: 'flex-start',
                                 gap: '0.5rem',
-                                fontSize: '0.85rem',
+                                fontSize: '0.82rem',
                                 color: isChecked ? '#0f172a' : '#64748b',
                                 fontWeight: isChecked ? 700 : 500,
-                                cursor: 'pointer',
+                                cursor: delegable ? 'pointer' : 'not-allowed',
+                                opacity: delegable ? 1 : 0.55,
                                 background: isChecked ? '#ffffff' : 'transparent',
-                                padding: '0.5rem 0.75rem',
+                                padding: '0.55rem 0.75rem',
                                 borderRadius: '8px',
                                 border: isChecked ? '1px solid #cbd5e1' : '1px solid transparent'
                               }}
@@ -1577,10 +1715,28 @@ export default function SecurityModule() {
                               <input
                                 type="checkbox"
                                 checked={isChecked}
-                                onChange={() => togglePermission(p.key)}
-                                style={{ accentColor: '#0f172a', width: '16px', height: '16px' }}
+                                disabled={!delegable}
+                                onChange={() => togglePermission(p)}
+                                style={{ accentColor: '#0f172a', width: '16px', height: '16px', marginTop: '2px' }}
                               />
-                              <span>{p.label}</span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span>{p.label}</span>
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', background: '#e2e8f0', color: '#334155', fontWeight: 700 }}>
+                                    {ACTION_LABELS[p.action] || p.action}
+                                  </span>
+                                  {p.requiresAddon && (
+                                    <span style={{ fontSize: '0.68rem', padding: '1px 5px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
+                                      Add-on: {p.requiresAddon}
+                                    </span>
+                                  )}
+                                  {p.dependsOn?.length > 0 && (
+                                    <span style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                                      Requiere consulta
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </label>
                           );
                         })}
@@ -1593,7 +1749,11 @@ export default function SecurityModule() {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
                 <button
                   type="button"
-                  onClick={() => setShowRoleModal(false)}
+                  onClick={() => {
+                    if (roleDirty && !window.confirm('Tienes cambios sin guardar. ¿Seguro que deseas cerrar?')) return;
+                    setShowRoleModal(false);
+                    setRoleDirty(false);
+                  }}
                   style={{
                     padding: '0.75rem 1.25rem', borderRadius: '10px', border: '1px solid #cbd5e1',
                     background: '#f8fafc', color: '#475569', fontWeight: 600, cursor: 'pointer'

@@ -28,6 +28,7 @@ try {
 // Modular Routers & Services
 const { dgiiReceptionRouter } = require('./dgii_reception_router');
 const { createDgiiService } = require('./services/dgii.service');
+const { requireRole, requirePermission } = require('./middleware/rbac.middleware');
 const { createDashboardRouter } = require('./routes/dashboard.routes');
 const { createSecurityRouter } = require('./routes/security.routes');
 const { createPayrollRouter } = require('./routes/payroll.routes');
@@ -580,35 +581,51 @@ function createApp(dependencies = {}) {
     billingRepo: saasBillingRepo,
     fxRateService: saasFxRateService
   }));
+  const requireMethodPermission = (readPerm, writePerm) => (req, res, next) => {
+    const isRead = ['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
+    return requirePermission(...(isRead ? (Array.isArray(readPerm) ? readPerm : [readPerm]) : (Array.isArray(writePerm) ? writePerm : [writePerm])))(req, res, next);
+  };
+
   app.use('/api/clients', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('clients'), createClientsRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders, entitlementsService }));
-  app.use('/api/inventory', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createInventoryRouter({
+  app.use('/api/inventory', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['inventory.view', 'inventory.manage'], 'inventory.manage'), createInventoryRouter({
     inventoryService,
     purchaseService: inventoryPurchaseService,
     transferService: inventoryTransferService,
     physicalSessionService: new InventoryPhysicalSessionService(pool),
     requirePlanFeature
   }));
-  app.use('/api/cash-registers', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCashRegistersRouter(pool));
-  app.use('/api/dashboard', rejectControlPlaneRoleOnTenantRoutes, createDashboardRouter(pool));
-  app.use('/api/payments', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('memberships'), createPaymentsRouter(pool, { sendPaymentReceiptEmail }));
-  app.use('/api/plans', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('memberships'), createPlansRouter(pool));
-  app.use('/api/reports', rejectControlPlaneRoleOnTenantRoutes, createReportsRouter(pool));
+  app.use('/api/cash-registers', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['pos.cash_registers.view', 'pos.cash_registers.manage'], 'pos.cash_registers.manage'), createCashRegistersRouter(pool));
+  app.use('/api/dashboard', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createDashboardRouter(pool));
+  app.use('/api/payments', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePlanFeature('memberships'), requireMethodPermission(['memberships.plans.manage', 'pos.cash_registers.view'], 'memberships.plans.manage'), createPaymentsRouter(pool, { sendPaymentReceiptEmail }));
+  app.use('/api/plans', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePlanFeature('memberships'), requireMethodPermission(['memberships.plans.manage', 'memberships.contracts.view'], 'memberships.plans.manage'), createPlansRouter(pool));
+  app.use('/api/reports', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.view', 'analytics.export'), createReportsRouter(pool));
   app.use('/api/appointments', rejectControlPlaneRoleOnTenantRoutes, createAppointmentsRouter(pool));
-  app.use('/api/settings', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createSettingsRouter(pool));
+  app.use('/api/settings', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['security.view', 'memberships.plans.manage'], 'security.manage'), createSettingsRouter(pool));
   // Marketing es exclusivo de PRO. Se exentan únicamente el job HMAC programado (sin sesión de tenant)
   // y el pixel público de apertura de correo, que no operan con sesión autenticada de salón.
   const requireMarketingFeature = requirePlanFeature('marketing');
   const marketingPlanGuard = (req, res, next) => {
     if (req.path === '/send-daily-birthdays' || req.path.startsWith('/track-open/')) return next();
-    return requireMarketingFeature(req, res, next);
+    return requireMarketingFeature(req, res, (featErr) => {
+      if (featErr) return next(featErr);
+      return requireMethodPermission(['marketing.view', 'marketing.manage'], 'marketing.manage')(req, res, next);
+    });
   };
   app.use('/api/marketing', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, marketingPlanGuard, createMarketingRouter(pool));
-  app.use('/api/holidays', rejectControlPlaneRoleOnTenantRoutes, createHolidaysRouter(pool));
-  app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPayrollRouter(pool));
-  app.use('/api/services', rejectControlPlaneRoleOnTenantRoutes, createServicesRouter(pool));
+  app.use('/api/holidays', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createHolidaysRouter(pool));
+  app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['payroll.view', 'payroll.approve'], 'payroll.approve'), createPayrollRouter(pool));
+  const servicesGuard = (req, res, next) => {
+    const isRead = ['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
+    if (isRead) return next();
+    return rejectClientRoleOnStaffRoutes(req, res, (err) => {
+      if (err) return next(err);
+      return requirePermission('services.manage')(req, res, next);
+    });
+  };
+  app.use('/api/services', rejectControlPlaneRoleOnTenantRoutes, servicesGuard, createServicesRouter(pool));
   const employeeSecurityRouter = createEmployeeSecurityRouter(pool);
-  app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, employeeSecurityRouter);
-  app.use('/api/employee-discounts', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, (req, res, next) => {
+  app.use('/api/employee-security', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.discounts.apply', 'staff.manage', 'commissions.approve', 'security.manage'), employeeSecurityRouter);
+  app.use('/api/employee-discounts', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.discounts.apply', 'staff.manage', 'commissions.approve', 'security.manage'), (req, res, next) => {
     req.url = '/employee-discounts' + (req.url === '/' ? '' : req.url);
     return employeeSecurityRouter(req, res, next);
   });
@@ -616,9 +633,9 @@ function createApp(dependencies = {}) {
   app.use(['/api/gifts', '/api/admin/gifts', '/api/surveys'], rejectControlPlaneRoleOnTenantRoutes);
   app.use('/api', giftsSurveysRouter);
   const employeesRouter = createEmployeesRouter(pool);
-  app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, employeesRouter);
-  app.use('/api/rrhh/staff', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, employeesRouter);
-  app.use('/api/staff-positions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, (req, res, next) => {
+  app.use('/api/employees', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['staff.view', 'staff.manage', 'attendance.view'], 'staff.manage'), employeesRouter);
+  app.use('/api/rrhh/staff', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['staff.view', 'staff.manage'], 'staff.manage'), employeesRouter);
+  app.use('/api/staff-positions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['staff.view', 'staff.manage'], 'staff.manage'), (req, res, next) => {
     req.url = '/positions' + (req.url === '/' ? '' : req.url);
     return employeesRouter(req, res, next);
   });
@@ -629,9 +646,17 @@ function createApp(dependencies = {}) {
     sendSurveyEmail,
     inventoryService
   });
-  app.use('/api/visits', rejectControlPlaneRoleOnTenantRoutes, visitsRouter);
+  const visitsGuard = (req, res, next) => {
+    const isRead = ['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
+    if (isRead) return requirePermission('pos.visits.view', 'pos.visits.create', 'pos.invoices.view')(req, res, next);
+    if (req.path.includes('/void') || String(req.method || '').toUpperCase() === 'DELETE' || req.path.includes('/delete')) {
+      return requirePermission('pos.invoices.void')(req, res, next);
+    }
+    return requirePermission('pos.visits.create')(req, res, next);
+  };
+  app.use('/api/visits', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, visitsGuard, visitsRouter);
 
-  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions));
+  app.use('/api/commissions', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['commissions.view', 'commissions.approve'], 'commissions.approve'), createCommissionsRouter(pool, processVisitCommissions, processBatchVisitCommissions));
 
   const contractsRouterInstance = createContractsRouter(pool, {
     CARDNET_CONFIG,
@@ -639,7 +664,7 @@ function createApp(dependencies = {}) {
     sendPaymentReceiptEmail,
     sendPaymentFailedEmail
   });
-  app.use('/api/contracts', rejectControlPlaneRoleOnTenantRoutes, requirePlanFeature('memberships'), contractsRouterInstance);
+  app.use('/api/contracts', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePlanFeature('memberships'), requireMethodPermission(['memberships.contracts.view', 'memberships.plans.manage'], 'memberships.plans.manage'), contractsRouterInstance);
 
   app.use('/api/cardnet', rejectControlPlaneRoleOnTenantRoutes, createCardnetRouter(pool, {
     CARDNET_CONFIG,
@@ -653,17 +678,17 @@ function createApp(dependencies = {}) {
     buildAndSignNotaCreditoXml: dgiiService.buildAndSignNotaCreditoXml,
     generateAndTransmitNotaCredito: dgiiService.generateAndTransmitNotaCredito
   });
-  app.use('/api/dgii', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, dgiiRouterInstance);
+  app.use('/api/dgii', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.invoices.view', 'analytics.view', 'security.manage'), dgiiRouterInstance);
 
   const dgii606Router = createDgii606Router(pool);
-  app.use('/api/dgii/report-606', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, dgii606Router);
-  app.use('/api/dgii-606', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, dgii606Router);
+  app.use('/api/dgii/report-606', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.view', 'security.manage'), dgii606Router);
+  app.use('/api/dgii-606', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.view', 'security.manage'), dgii606Router);
 
   const expensesRouter = createExpensesRouter(pool);
-  app.use('/api/expenses', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, expensesRouter);
+  app.use('/api/expenses', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.view', 'security.manage'), expensesRouter);
 
   const { router: invoicesRouter } = createInvoicesRouter(pool);
-  app.use('/api/invoices', rejectControlPlaneRoleOnTenantRoutes, invoicesRouter);
+  app.use('/api/invoices', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('pos.invoices.view', 'pos.visits.create'), invoicesRouter);
 
   const { router: authRouter } = createAuthRouter(pool, { sendSurveyEmail, entitlementsService });
   app.use('/api', authRouter);
@@ -680,8 +705,8 @@ function createApp(dependencies = {}) {
   app.use('/api/saas', createSaasRouter(pool, { entitlementsService, saasCheckoutService, saasFxRateService, cardnetCheckoutProvider }));
   app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTenantRouter(pool, { entitlementsService, tenantBrandingService }));
   app.use('/api/tenant/files', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createFilesRouter(pool));
-  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
-  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createPrivateFilesRoutes({ pool, authMiddleware: authenticate }));
+  app.use('/api/tenant', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('analytics.export', 'security.manage'), createTenantPortabilityRoutes({ pool, authMiddleware: authenticate }));
 
   const contactRouter = createContactRouter(pool);
   app.use('/api/contact', contactRouter);

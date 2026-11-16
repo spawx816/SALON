@@ -1492,6 +1492,16 @@ export const dataService = {
     }
   },
 
+  getRolesCatalog: async () => {
+    try {
+      const res = await fetch(`${API_URL}/roles/catalog`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+
   saveRole: async (role) => {
     const method = role.id ? 'PUT' : 'POST';
     const url = role.id ? `${API_URL}/roles/${role.id}` : `${API_URL}/roles`;
@@ -1507,6 +1517,15 @@ export const dataService = {
     return data;
   },
 
+  deleteRole: async (id) => {
+    const res = await fetch(`${API_URL}/roles/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error ${res.status} al eliminar rol`);
+    }
+    return data;
+  },
+
   getUsers: async () => {
     try {
       const res = await fetch(`${API_URL}/users`);
@@ -1515,23 +1534,27 @@ export const dataService = {
   },
 
   saveUser: async (user) => {
-    try {
-      const method = user.id ? 'PUT' : 'POST';
-      const url = user.id ? `${API_URL}/users/${user.id}` : `${API_URL}/users`;
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(user)
-      });
-      return await res.json();
-    } catch (e) { console.error(e); }
+    const method = user.id ? 'PUT' : 'POST';
+    const url = user.id ? `${API_URL}/users/${user.id}` : `${API_URL}/users`;
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error ${res.status} al guardar usuario`);
+    }
+    return data;
   },
 
   deleteUser: async (id) => {
-    try {
-      const res = await fetch(`${API_URL}/users/${id}`, { method: 'DELETE' });
-      return await res.json();
-    } catch (e) { console.error(e); }
+    const res = await fetch(`${API_URL}/users/${id}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error ${res.status} al eliminar usuario`);
+    }
+    return data;
   },
 
   // CardNet Specific Methods

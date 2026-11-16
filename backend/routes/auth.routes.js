@@ -4,7 +4,14 @@ const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
 const { signAuthToken } = require('../middleware/auth.middleware');
-const { requireRole, getEffectiveRole, canManageRole } = require('../middleware/rbac.middleware');
+const { requireRole, requirePermission, getEffectiveRole, canManageRole, normalizeRole } = require('../middleware/rbac.middleware');
+const {
+  PERMISSION_MODULES,
+  isReservedRoleName,
+  sanitizePermissionsPayload,
+  expandEffectivePermissions,
+  permissionMapGrants,
+} = require('../domain/rbac_catalog');
 
 function getClientIp(req) {
   return req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
@@ -419,10 +426,98 @@ function createAuthRouter(pool, options = {}) {
         code: 'CONTROL_PLANE_ROLE_FORBIDDEN'
       });
     }
+    if (role === 'cliente_b2c' || req.auth?.isClient) {
+      return res.status(403).json({
+        error: 'Acceso denegado: Los clientes B2C no tienen acceso a la gestión de personal o roles.',
+        code: 'CLIENT_FORBIDDEN_STAFF_ACTION'
+      });
+    }
     next();
   };
 
-  router.get('/users', rejectControlPlaneOnTenantUsers, requireRole('propietario', 'admin'), async (req, res) => {
+  async function getAllowAdminRoleDelegation(tenantId) {
+    try {
+      const [rows] = await pool.query(
+        'SELECT allow_admin_role_delegation FROM security_settings WHERE tenant_id = ? LIMIT 1',
+        [tenantId]
+      );
+      return Boolean(rows?.[0]?.allow_admin_role_delegation);
+    } catch {
+      return false;
+    }
+  }
+
+  async function canManageRolesPolicy(req) {
+    const actorRole = getEffectiveRole(req);
+    if (actorRole === 'propietario') return true;
+    if (actorRole === 'admin') {
+      return await getAllowAdminRoleDelegation(req.tenantId);
+    }
+    return false;
+  }
+
+  function validateRoleDelegation(req, targetPermissions) {
+    const actorRole = getEffectiveRole(req);
+    if (actorRole === 'propietario') return { allowed: true };
+    // Admin (solo si tiene delegación habilitada explícitamente) no puede conceder permisos que no posee
+    const actorPerms = req.auth?.permissions || {};
+    const requestedKeys = Object.keys(targetPermissions || {}).filter((k) => targetPermissions[k] === true);
+    const forbidden = requestedKeys.filter((k) => !permissionMapGrants(actorPerms, k));
+    if (forbidden.length > 0) {
+      return {
+        allowed: false,
+        forbidden,
+      };
+    }
+    return { allowed: true };
+  }
+
+  async function validateTenantRoleId(roleId, tenantId) {
+    if (roleId === undefined || roleId === null || roleId === '') {
+      return { valid: true, roleRow: null };
+    }
+    const [rows] = await pool.query(
+      'SELECT id, nombre, permisos, tenant_id FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [roleId, tenantId]
+    );
+    if (!rows || rows.length === 0) {
+      return { valid: false, error: 'El rol personalizado especificado no existe o pertenece a otra empresa.' };
+    }
+    return { valid: true, roleRow: rows[0] };
+  }
+
+  async function validateTenantBranches({ branch_id, salon_id, authorized_branch_ids }, tenantId) {
+    const validateSingle = async (candidate) => {
+      if (candidate === undefined || candidate === null || candidate === '' || String(candidate) === 'all') {
+        return null;
+      }
+      const [rows] = await pool.query(
+        'SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+        [String(candidate), tenantId]
+      );
+      if (!rows || rows.length === 0) {
+        const err = new Error('La sucursal especificada no existe o pertenece a otra empresa.');
+        err.code = 'INVALID_OR_CROSS_TENANT_BRANCH';
+        err.statusCode = 403;
+        throw err;
+      }
+      return rows[0].id;
+    };
+
+    const resolvedBranchId = await validateSingle(branch_id ?? salon_id);
+    let resolvedAuthList = undefined;
+    if (Array.isArray(authorized_branch_ids)) {
+      resolvedAuthList = [];
+      for (const bId of authorized_branch_ids) {
+        const verified = await validateSingle(bId);
+        if (verified !== null) resolvedAuthList.push(String(verified));
+      }
+      resolvedAuthList = Array.from(new Set(resolvedAuthList));
+    }
+    return { resolvedBranchId, resolvedAuthList };
+  }
+
+  router.get('/users', rejectControlPlaneOnTenantUsers, requirePermission('security.view'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
@@ -463,8 +558,54 @@ function createAuthRouter(pool, options = {}) {
     }
   });
 
-  router.post('/users', rejectControlPlaneOnTenantUsers, requireRole('propietario', 'admin'), async (req, res) => {
-    const { nombre, name, username, email, password, role_id, role, salon_id, branch_id, estado, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
+  // Mutex simple por tenant para operaciones críticas de Last-Owner cuando no hay Postgres FOR UPDATE
+  const lastOwnerLocks = new Map();
+  async function withTenantUserLock(tenantId, fn) {
+    const key = String(tenantId);
+    const prev = lastOwnerLocks.get(key) || Promise.resolve();
+    let release;
+    const next = new Promise((res) => { release = res; });
+    lastOwnerLocks.set(key, prev.then(() => next));
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (lastOwnerLocks.get(key) === next) lastOwnerLocks.delete(key);
+    }
+  }
+
+  async function ensureRemainingActiveOwner(queryRunner, tenantId, targetUserId, { newRole, newIsActive }) {
+    const isTargetStillOwner =
+      (!newRole || normalizeRole(newRole) === 'propietario') &&
+      (newIsActive === undefined || newIsActive === true);
+    if (isTargetStillOwner) return;
+
+    const lockClause = pool.isPostgres ? ' FOR UPDATE' : '';
+    const [allTenantUsers] = await queryRunner.query(
+      `SELECT id, role, is_active, estado FROM users WHERE tenant_id = ?${lockClause}`,
+      [tenantId]
+    );
+    const remainingOwners = (allTenantUsers || []).filter((u) => {
+      const r = normalizeRole(u.role);
+      const isAct = u.is_active === true || u.is_active === 1 || String(u.estado || '').toLowerCase() === 'activo';
+      return r === 'propietario' && String(u.id) !== String(targetUserId) && isAct;
+    }).length;
+
+    if (remainingOwners < 1) {
+      const err = new Error('No es posible eliminar, degradar o desactivar al único propietario activo de la empresa.');
+      err.code = 'CANNOT_DEGRADE_LAST_OWNER';
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  router.post('/users', rejectControlPlaneOnTenantUsers, requirePermission('security.manage'), async (req, res) => {
+    const {
+      nombre, name, username, email, password, role_id, role,
+      salon_id, branch_id, authorized_branch_ids, all_branches_access,
+      estado, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos
+    } = req.body;
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
@@ -472,13 +613,28 @@ function createAuthRouter(pool, options = {}) {
       }
 
       const actorRole = getEffectiveRole(req);
-      const targetRole = role ? String(role).trim().toLowerCase() : 'empleado';
+      const targetRole = role ? normalizeRole(role) : 'empleado';
 
-      if (!canManageRole(actorRole, targetRole)) {
+      if (targetRole === 'superadmin' || targetRole === 'cliente_b2c' || !canManageRole(actorRole, targetRole)) {
         return res.status(403).json({
           error: `No tienes autorización para crear usuarios con el rol '${targetRole}'.`,
           code: 'PRIVILEGE_ESCALATION_DENIED'
         });
+      }
+
+      const roleCheck = await validateTenantRoleId(role_id, tenantId);
+      if (!roleCheck.valid) {
+        return res.status(403).json({ error: roleCheck.error, code: 'INVALID_OR_CROSS_TENANT_ROLE' });
+      }
+      if (roleCheck.roleRow) {
+        const rolePerms = sanitizePermissionsPayload(roleCheck.roleRow.permisos);
+        const delegCheck = validateRoleDelegation(req, rolePerms);
+        if (!delegCheck.allowed) {
+          return res.status(403).json({
+            error: `No puedes asignar un rol con permisos que no posees: ${delegCheck.forbidden.join(', ')}`,
+            code: 'DELEGATION_EXCEEDS_ACTOR_PRIVILEGES'
+          });
+        }
       }
 
       const finalName = (nombre || name || '').trim();
@@ -487,7 +643,6 @@ function createAuthRouter(pool, options = {}) {
         return res.status(400).json({ error: 'Nombre, correo electrónico y contraseña son obligatorios.' });
       }
 
-      // Check license limit for users in this tenant
       if (!req.auth?.isSuperAdmin) {
         if (options.entitlementsService) {
           const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users');
@@ -517,26 +672,24 @@ function createAuthRouter(pool, options = {}) {
         }
       }
 
-      // Check email uniqueness
       const [existingEmail] = await pool.query('SELECT id, tenant_id FROM users WHERE LOWER(email) = LOWER(?)', [finalEmail]);
       if (existingEmail.length > 0) {
         return res.status(400).json({ error: 'Ya existe un usuario con ese correo electrónico.' });
       }
 
-      // Resolve branch_id within the same tenant
-      let resolvedBranchId = branch_id || null;
-      if (!resolvedBranchId && salon_id) {
-        const [bRows] = await pool.query('SELECT id FROM branches WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(salon_id), tenantId]);
-        if (bRows.length > 0) resolvedBranchId = bRows[0].id;
-      }
+      let { resolvedBranchId, resolvedAuthList } = await validateTenantBranches(
+        { branch_id, salon_id, authorized_branch_ids },
+        tenantId
+      );
       if (!resolvedBranchId) {
         const [mainBranch] = await pool.query('SELECT id FROM branches WHERE tenant_id = ? ORDER BY is_main DESC, created_at ASC LIMIT 1', [tenantId]);
         if (mainBranch.length > 0) resolvedBranchId = mainBranch[0].id;
       }
 
       const passwordHash = await bcrypt.hash(String(password), 10);
-      const effectiveRole = targetRole !== 'superadmin' ? targetRole : 'admin';
+      const effectiveRole = targetRole !== 'superadmin' ? targetRole : 'empleado';
       const isActive = String(estado || 'Activo').toLowerCase() !== 'inactivo';
+      const finalRoleId = roleCheck.roleRow ? roleCheck.roleRow.id : null;
 
       const [result] = await pool.query(
         `INSERT INTO users (
@@ -553,9 +706,9 @@ function createAuthRouter(pool, options = {}) {
           username || finalEmail,
           finalEmail,
           passwordHash,
-          role_id || 1,
+          finalRoleId,
           effectiveRole,
-          salon_id || (resolvedBranchId ? String(resolvedBranchId) : '1'),
+          resolvedBranchId ? String(resolvedBranchId) : null,
           estado || 'Activo',
           isActive,
           hora_entrada || '09:00:00',
@@ -565,112 +718,246 @@ function createAuthRouter(pool, options = {}) {
         ]
       );
 
-      // Audit log without password
+      const newUserId = result.insertId || result[0]?.id;
+      if (newUserId && (resolvedAuthList !== undefined || all_branches_access !== undefined)) {
+        try {
+          await pool.query(
+            'UPDATE users SET authorized_branch_ids = ?, all_branches_access = ? WHERE id::text = ? AND tenant_id = ?',
+            [
+              JSON.stringify(resolvedAuthList || (resolvedBranchId ? [String(resolvedBranchId)] : [])),
+              Boolean(all_branches_access) && actorRole === 'propietario',
+              String(newUserId),
+              tenantId
+            ]
+          );
+        } catch { /* pre-migration optional columns */ }
+      }
+
       try {
         await pool.query(`
           INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
           VALUES (?, ?, 'USER_CREATED', ?, ?)
-        `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario creado con rol ${effectiveRole}: ${finalEmail}`, tenantId]);
-      } catch (e) { }
+        `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario creado: ${finalEmail} (rol=${effectiveRole}, role_id=${finalRoleId || 'none'})`, tenantId]);
+      } catch { }
 
-      res.json({ id: result.insertId || result[0]?.id, success: true });
+      res.json({ id: newUserId, success: true });
     } catch (err) {
+      if (err.statusCode) {
+        return res.status(err.statusCode).json({ error: err.message, code: err.code });
+      }
       res.status(500).json({ error: err.message });
     }
   });
 
-  router.put('/users/:id', rejectControlPlaneOnTenantUsers, requireRole('propietario', 'admin'), async (req, res) => {
+  router.put('/users/:id', rejectControlPlaneOnTenantUsers, requirePermission('security.manage'), async (req, res) => {
     const { id } = req.params;
-    const { nombre, name, username, email, password, role_id, role, salon_id, branch_id, estado, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos } = req.body;
+    const {
+      nombre, name, username, email, password, role_id, role,
+      salon_id, branch_id, authorized_branch_ids, all_branches_access,
+      estado, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos
+    } = req.body;
     try {
       const tenantId = req.tenantId;
-      // Verify the user belongs to this tenant (anti-IDOR, anti-enumeration: returns 404)
-      const [existing] = await pool.query('SELECT id, tenant_id, role, is_active FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(id), tenantId]);
-      if (!existing || existing.length === 0) {
-        return res.status(404).json({ error: 'Usuario no encontrado en esta empresa.' });
-      }
+      const result = await withTenantUserLock(tenantId, async () => {
+        let txClient = null;
+        const runner = pool.isPostgres && typeof pool.connect === 'function'
+          ? (txClient = await pool.connect())
+          : pool;
 
-      const actorRole = getEffectiveRole(req);
-      const currentTargetRole = String(existing[0].role || 'empleado').toLowerCase();
+        try {
+          if (txClient) await txClient.query('BEGIN');
 
-      // Hierarchy check: can actor manage this existing user?
-      if (!canManageRole(actorRole, currentTargetRole) && String(existing[0].id) !== String(req.auth.userId || req.auth.id)) {
-        return res.status(403).json({
-          error: 'No tienes autorización para modificar a este usuario.',
-          code: 'FORBIDDEN_CANNOT_MANAGE_USER'
-        });
-      }
+          const [existing] = await runner.query(
+            'SELECT id, tenant_id, role, role_id, branch_id, is_active, estado FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+            [String(id), tenantId]
+          );
+          if (!existing || existing.length === 0) {
+            if (txClient) await txClient.query('ROLLBACK');
+            return { status: 404, body: { error: 'Usuario no encontrado en esta empresa.' } };
+          }
 
-      // If updating role, check if actor can assign the new role
-      if (role) {
-        const newTargetRole = String(role).trim().toLowerCase();
-        if (!canManageRole(actorRole, newTargetRole)) {
-          return res.status(403).json({
-            error: `No tienes autorización para asignar el rol '${newTargetRole}'.`,
-            code: 'PRIVILEGE_ESCALATION_DENIED'
-          });
+          const targetUser = existing[0];
+          const actorId = String(req.auth?.id || '');
+          const isSelfEdit = String(targetUser.id) === actorId;
+          const actorRole = getEffectiveRole(req);
+          const currentTargetRole = normalizeRole(targetUser.role || 'empleado');
+
+          if (!canManageRole(actorRole, currentTargetRole) && !isSelfEdit) {
+            if (txClient) await txClient.query('ROLLBACK');
+            return {
+              status: 403,
+              body: { error: 'No tienes autorización para modificar a este usuario.', code: 'FORBIDDEN_CANNOT_MANAGE_USER' }
+            };
+          }
+
+          // Impedir auto-escalada al editarse a sí mismo
+          if (
+            isSelfEdit &&
+            (role !== undefined || role_id !== undefined || authorized_branch_ids !== undefined || all_branches_access !== undefined || estado !== undefined)
+          ) {
+            if (txClient) await txClient.query('ROLLBACK');
+            return {
+              status: 403,
+              body: { error: 'No puedes modificar tu propio rol, permisos, sucursales autorizadas ni estado.', code: 'SELF_PRIVILEGE_MODIFICATION_DENIED' }
+            };
+          }
+
+          if (role) {
+            const newTargetRole = normalizeRole(role);
+            if (newTargetRole === 'superadmin' || newTargetRole === 'cliente_b2c' || !canManageRole(actorRole, newTargetRole)) {
+              if (txClient) await txClient.query('ROLLBACK');
+              return {
+                status: 403,
+                body: { error: `No tienes autorización para asignar el rol '${newTargetRole}'.`, code: 'PRIVILEGE_ESCALATION_DENIED' }
+              };
+            }
+          }
+
+          if (role_id !== undefined) {
+            const roleCheck = await validateTenantRoleId(role_id, tenantId);
+            if (!roleCheck.valid) {
+              if (txClient) await txClient.query('ROLLBACK');
+              return { status: 403, body: { error: roleCheck.error, code: 'INVALID_OR_CROSS_TENANT_ROLE' } };
+            }
+            if (roleCheck.roleRow) {
+              const rolePerms = sanitizePermissionsPayload(roleCheck.roleRow.permisos);
+              const delegCheck = validateRoleDelegation(req, rolePerms);
+              if (!delegCheck.allowed) {
+                if (txClient) await txClient.query('ROLLBACK');
+                return {
+                  status: 403,
+                  body: { error: `No puedes asignar permisos que no posees: ${delegCheck.forbidden.join(', ')}`, code: 'DELEGATION_EXCEEDS_ACTOR_PRIVILEGES' }
+                };
+              }
+            }
+          }
+
+          const { resolvedBranchId, resolvedAuthList } = await validateTenantBranches(
+            { branch_id, salon_id, authorized_branch_ids },
+            tenantId
+          );
+
+          const isActive = estado !== undefined ? (String(estado).toLowerCase() !== 'inactivo') : undefined;
+          const safeRole = role && normalizeRole(role) !== 'superadmin' ? normalizeRole(role) : undefined;
+
+          if (currentTargetRole === 'propietario') {
+            await ensureRemainingActiveOwner(runner, tenantId, targetUser.id, {
+              newRole: safeRole || currentTargetRole,
+              newIsActive: isActive,
+            });
+          }
+
+          const finalName = nombre || name;
+          const privilegeChanged = Boolean(
+            (safeRole && safeRole !== currentTargetRole) ||
+            (role_id !== undefined && String(role_id) !== String(targetUser.role_id)) ||
+            (resolvedBranchId && String(resolvedBranchId) !== String(targetUser.branch_id)) ||
+            resolvedAuthList !== undefined ||
+            all_branches_access !== undefined ||
+            (isActive !== undefined && isActive !== Boolean(targetUser.is_active))
+          );
+
+          let query = `
+            UPDATE users SET 
+              nombre = COALESCE(?, nombre),
+              name = COALESCE(?, name),
+              username = COALESCE(?, username),
+              email = COALESCE(?, email),
+              role = COALESCE(?, role),
+              salon_id = COALESCE(?, salon_id),
+              branch_id = COALESCE(?, branch_id),
+              estado = COALESCE(?, estado),
+              is_active = COALESCE(?, is_active),
+              hora_entrada = COALESCE(?, hora_entrada),
+              hora_salida = COALESCE(?, hora_salida),
+              dias_laborables = COALESCE(?, dias_laborables),
+              tolerancia_minutos = COALESCE(?, tolerancia_minutos)
+          `;
+          const params = [
+            finalName ?? null,
+            finalName ?? null,
+            username ?? null,
+            email ?? null,
+            safeRole ?? null,
+            resolvedBranchId ? String(resolvedBranchId) : null,
+            resolvedBranchId ?? null,
+            estado ?? null,
+            isActive !== undefined ? isActive : null,
+            hora_entrada ?? null,
+            hora_salida ?? null,
+            typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables ?? null),
+            tolerancia_minutos ?? null
+          ];
+
+          if (role_id !== undefined) {
+            query += `, role_id = ?`;
+            params.push(role_id === '' || role_id === null ? null : role_id);
+          }
+          if (password && String(password).trim() !== '') {
+            const hashed = await bcrypt.hash(String(password), 10);
+            query += `, password_hash = ?, password = NULL`;
+            params.push(hashed);
+          }
+          if (privilegeChanged || (password && String(password).trim() !== '')) {
+            query += `, token_version = COALESCE(token_version, 1) + 1`;
+          }
+
+          query += ` WHERE id::text = ? AND tenant_id = ?`;
+          params.push(String(id), tenantId);
+
+          await runner.query(query, params);
+
+          if (resolvedAuthList !== undefined || all_branches_access !== undefined) {
+            try {
+              if (resolvedAuthList !== undefined) {
+                await runner.query(
+                  'UPDATE users SET authorized_branch_ids = ? WHERE id::text = ? AND tenant_id = ?',
+                  [JSON.stringify(resolvedAuthList), String(id), tenantId]
+                );
+              }
+              if (all_branches_access !== undefined && actorRole === 'propietario') {
+                await runner.query(
+                  'UPDATE users SET all_branches_access = ? WHERE id::text = ? AND tenant_id = ?',
+                  [Boolean(all_branches_access), String(id), tenantId]
+                );
+              }
+            } catch { /* pre-migration optional columns */ }
+          }
+
+          if (isActive === false || privilegeChanged) {
+            try {
+              await runner.query(
+                'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ?',
+                [String(id), tenantId]
+              );
+            } catch { }
+          }
+
+          if (txClient) await txClient.query('COMMIT');
+
+          try {
+            await pool.query(`
+              INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+              VALUES (?, ?, 'USER_UPDATED', ?, ?)
+            `, [actorId || 'SYSTEM', req.auth?.name || 'Admin', `Usuario ${id} actualizado (role=${safeRole || 'sin_cambio'}, role_id=${role_id ?? 'sin_cambio'})`, tenantId]);
+          } catch { }
+
+          return { status: 200, body: { success: true } };
+        } catch (innerErr) {
+          if (txClient) {
+            try { await txClient.query('ROLLBACK'); } catch { }
+          }
+          throw innerErr;
+        } finally {
+          if (txClient && typeof txClient.release === 'function') txClient.release();
         }
-      }
+      });
 
-      const finalName = nombre || name;
-      const isActive = estado !== undefined ? (String(estado).toLowerCase() !== 'inactivo') : undefined;
-      const safeRole = role && role !== 'superadmin' ? String(role).toLowerCase() : undefined;
-
-      let query = `
-        UPDATE users SET 
-          nombre = COALESCE(?, nombre),
-          name = COALESCE(?, name),
-          username = COALESCE(?, username),
-          email = COALESCE(?, email),
-          role_id = COALESCE(?, role_id),
-          role = COALESCE(?, role),
-          salon_id = COALESCE(?, salon_id),
-          branch_id = COALESCE(?, branch_id),
-          estado = COALESCE(?, estado),
-          is_active = COALESCE(?, is_active),
-          hora_entrada = COALESCE(?, hora_entrada),
-          hora_salida = COALESCE(?, hora_salida),
-          dias_laborables = COALESCE(?, dias_laborables),
-          tolerancia_minutos = COALESCE(?, tolerancia_minutos)
-      `;
-      const params = [
-        finalName ?? null,
-        finalName ?? null,
-        username ?? null,
-        email ?? null,
-        role_id ?? null,
-        safeRole ?? null,
-        salon_id ?? null,
-        branch_id ?? null,
-        estado ?? null,
-        isActive !== undefined ? isActive : null,
-        hora_entrada ?? null,
-        hora_salida ?? null,
-        typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables ?? null),
-        tolerancia_minutos ?? null
-      ];
-
-      if (password && String(password).trim() !== '') {
-        const hashed = await bcrypt.hash(String(password), 10);
-        query += `, password_hash = ?, password = NULL, token_version = COALESCE(token_version, 1) + 1`;
-        params.push(hashed);
-      }
-
-      query += ` WHERE id::text = ? AND tenant_id = ?`;
-      params.push(String(id), tenantId);
-
-      await pool.query(query, params);
-
-      // Audit log
-      try {
-        await pool.query(`
-          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
-          VALUES (?, ?, 'USER_UPDATED', ?, ?)
-        `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario modificado con ID ${id}`, tenantId]);
-      } catch (e) { }
-
-      res.json({ success: true });
+      return res.status(result.status).json(result.body);
     } catch (err) {
+      if (err.statusCode) {
+        return res.status(err.statusCode).json({ error: err.message, code: err.code });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -679,47 +966,61 @@ function createAuthRouter(pool, options = {}) {
     try {
       const { id } = req.params;
       const tenantId = req.tenantId;
-      const [existing] = await pool.query('SELECT id, tenant_id, role, is_active FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1', [String(id), tenantId]);
-      if (!existing || existing.length === 0) {
-        return res.status(404).json({ error: 'Usuario no encontrado en esta empresa.' });
-      }
+      const result = await withTenantUserLock(tenantId, async () => {
+        let txClient = null;
+        const runner = pool.isPostgres && typeof pool.connect === 'function'
+          ? (txClient = await pool.connect())
+          : pool;
+        try {
+          if (txClient) await txClient.query('BEGIN');
 
-      const targetRole = String(existing[0].role || '').toLowerCase();
-      // Nadie puede eliminar al último propietario activo del tenant
-      if (targetRole === 'propietario' || targetRole === 'owner') {
-        const [allTenantUsers] = await pool.query(
-          "SELECT id, role, is_active, estado FROM users WHERE tenant_id = ?",
-          [tenantId]
-        );
-        const remainingOwners = allTenantUsers.filter(u => {
-          const r = String(u.role || '').toLowerCase();
-          const isAct = u.is_active === true || u.is_active === 1 || String(u.estado || '').toLowerCase() === 'activo';
-          return (r === 'propietario' || r === 'owner') && String(u.id) !== String(id) && isAct;
-        }).length;
+          const [existing] = await runner.query(
+            'SELECT id, tenant_id, role, is_active FROM users WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+            [String(id), tenantId]
+          );
+          if (!existing || existing.length === 0) {
+            if (txClient) await txClient.query('ROLLBACK');
+            return { status: 404, body: { error: 'Usuario no encontrado en esta empresa.' } };
+          }
 
-        if (remainingOwners < 1) {
-          return res.status(409).json({
-            error: 'No es posible eliminar al único propietario activo de la empresa.',
-            code: 'CANNOT_DELETE_LAST_OWNER'
-          });
+          const targetRole = normalizeRole(existing[0].role || '');
+          if (targetRole === 'propietario') {
+            await ensureRemainingActiveOwner(runner, tenantId, existing[0].id, {
+              newRole: 'empleado',
+              newIsActive: false,
+            });
+          }
+
+          await runner.query('DELETE FROM users WHERE id::text = ? AND tenant_id = ?', [String(id), tenantId]);
+          try {
+            await runner.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ?', [String(id), tenantId]);
+          } catch { }
+
+          if (txClient) await txClient.query('COMMIT');
+
+          try {
+            await pool.query(`
+              INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+              VALUES (?, ?, 'USER_DELETED', ?, ?)
+            `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario eliminado con ID ${id}`, tenantId]);
+          } catch { }
+
+          return { status: 200, body: { success: true } };
+        } catch (innerErr) {
+          if (txClient) {
+            try { await txClient.query('ROLLBACK'); } catch { }
+          }
+          throw innerErr;
+        } finally {
+          if (txClient && typeof txClient.release === 'function') txClient.release();
         }
-      }
+      });
 
-      await pool.query('DELETE FROM users WHERE id::text = ? AND tenant_id = ?', [String(id), tenantId]);
-      try {
-        await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ?', [String(id), tenantId]);
-      } catch (e) { }
-
-      // Audit log
-      try {
-        await pool.query(`
-          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
-          VALUES (?, ?, 'USER_DELETED', ?, ?)
-        `, [String(req.auth?.userId || req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario eliminado con ID ${id}`, tenantId]);
-      } catch (e) { }
-
-      res.json({ success: true });
+      return res.status(result.status).json(result.body);
     } catch (err) {
+      if (err.statusCode) {
+        return res.status(err.statusCode).json({ error: err.message, code: err.code });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -750,24 +1051,40 @@ function createAuthRouter(pool, options = {}) {
     }
   });
 
-  router.get('/roles', async (req, res) => {
+  router.get('/roles/catalog', rejectControlPlaneOnTenantUsers, requirePermission('security.view'), async (req, res) => {
+    try {
+      const allowAdminDelegation = await getAllowAdminRoleDelegation(req.tenantId);
+      const canManageRoles = await canManageRolesPolicy(req);
+      res.json({
+        modules: PERMISSION_MODULES,
+        allowAdminDelegation,
+        canManageRoles,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.get('/roles', rejectControlPlaneOnTenantUsers, requirePermission('security.view'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const [rows] = await pool.query(
         'SELECT * FROM roles WHERE tenant_id = ? ORDER BY id ASC',
         [tenantId]
       );
+      const [userCounts] = await pool.query(
+        'SELECT role_id, COUNT(*) as total FROM users WHERE tenant_id = ? AND role_id IS NOT NULL GROUP BY role_id',
+        [tenantId]
+      ).catch(() => [[]]);
+      const countMap = new Map((userCounts || []).map((uc) => [String(uc.role_id), Number(uc.total || 0)]));
+
       res.json(rows.map(r => {
-        let parsedPermisos = {};
-        if (typeof r.permisos === 'string') {
-          try { parsedPermisos = JSON.parse(r.permisos || '{}'); } catch { parsedPermisos = {}; }
-        } else if (r.permisos && typeof r.permisos === 'object') {
-          parsedPermisos = r.permisos;
-        }
+        const sanitizedPerms = sanitizePermissionsPayload(r.permisos);
         return {
           ...r,
           descripcion: r.description ?? r.descripcion ?? '',
-          permisos: parsedPermisos
+          permisos: sanitizedPerms,
+          assigned_users_count: countMap.get(String(r.id)) || 0,
         };
       }));
     } catch (err) {
@@ -775,20 +1092,53 @@ function createAuthRouter(pool, options = {}) {
     }
   });
 
-  router.post('/roles', async (req, res) => {
-    const { nombre, descripcion, description, permisos } = req.body;
-    const cleanName = String(nombre || '').trim();
-    if (!cleanName) {
-      return res.status(400).json({ error: 'El nombre del rol es requerido.' });
-    }
+  router.post('/roles', rejectControlPlaneOnTenantUsers, async (req, res) => {
     try {
+      const allowed = await canManageRolesPolicy(req);
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Solo el Propietario de la empresa puede crear o administrar roles personalizados.',
+          code: 'OWNER_ONLY_ROLE_MANAGEMENT'
+        });
+      }
+
+      const { nombre, descripcion, description, permisos } = req.body;
+      const cleanName = String(nombre || '').trim();
+      if (!cleanName) {
+        return res.status(400).json({ error: 'El nombre del rol es requerido.' });
+      }
+      if (isReservedRoleName(cleanName)) {
+        return res.status(400).json({
+          error: `El nombre '${cleanName}' está reservado para roles del sistema y no puede usarse como rol personalizado.`,
+          code: 'RESERVED_ROLE_NAME'
+        });
+      }
+
+      const sanitizedPerms = sanitizePermissionsPayload(permisos);
+      const delegCheck = validateRoleDelegation(req, sanitizedPerms);
+      if (!delegCheck.allowed) {
+        return res.status(403).json({
+          error: `No puedes conceder permisos que no posees: ${delegCheck.forbidden.join(', ')}`,
+          code: 'DELEGATION_EXCEEDS_ACTOR_PRIVILEGES'
+        });
+      }
+
       const tenantId = req.tenantId;
       const roleDesc = String(description ?? descripcion ?? '').trim();
       const [result] = await pool.query(
         'INSERT INTO roles (nombre, description, permisos, tenant_id) VALUES (?, ?, ?, ?) RETURNING id',
-        [cleanName, roleDesc, JSON.stringify(permisos || {}), tenantId]
+        [cleanName, roleDesc, JSON.stringify(sanitizedPerms), tenantId]
       );
-      res.json({ id: result.insertId || result[0]?.id, success: true });
+      const newRoleId = result.insertId || result[0]?.id;
+
+      try {
+        await pool.query(`
+          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+          VALUES (?, ?, 'ROLE_CREATED', ?, ?)
+        `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Owner', `Rol creado: ${cleanName} (id=${newRoleId})`, tenantId]);
+      } catch { }
+
+      res.json({ id: newRoleId, success: true });
     } catch (err) {
       if (err?.code === '23505') {
         return res.status(409).json({ error: 'Ya existe un rol con este nombre en tu empresa.' });
@@ -797,25 +1147,127 @@ function createAuthRouter(pool, options = {}) {
     }
   });
 
-  router.put('/roles/:id', async (req, res) => {
-    const { id } = req.params;
-    const { nombre, descripcion, description, permisos } = req.body;
-    const cleanName = String(nombre || '').trim();
-    if (!cleanName) {
-      return res.status(400).json({ error: 'El nombre del rol es requerido.' });
-    }
+  router.put('/roles/:id', rejectControlPlaneOnTenantUsers, async (req, res) => {
     try {
+      const allowed = await canManageRolesPolicy(req);
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Solo el Propietario de la empresa puede modificar roles personalizados.',
+          code: 'OWNER_ONLY_ROLE_MANAGEMENT'
+        });
+      }
+
+      const { id } = req.params;
       const tenantId = req.tenantId;
+      const [existingRoles] = await pool.query(
+        'SELECT id, nombre FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!existingRoles || existingRoles.length === 0) {
+        return res.status(404).json({ error: 'Rol no encontrado en esta empresa.' });
+      }
+      if (isReservedRoleName(existingRoles[0].nombre)) {
+        return res.status(403).json({ error: 'Los roles reservados del sistema no pueden ser modificados.', code: 'RESERVED_ROLE_PROTECTED' });
+      }
+
+      const { nombre, descripcion, description, permisos } = req.body;
+      const cleanName = String(nombre || '').trim();
+      if (!cleanName) {
+        return res.status(400).json({ error: 'El nombre del rol es requerido.' });
+      }
+      if (isReservedRoleName(cleanName)) {
+        return res.status(400).json({
+          error: `El nombre '${cleanName}' está reservado para roles del sistema.`,
+          code: 'RESERVED_ROLE_NAME'
+        });
+      }
+
+      const sanitizedPerms = sanitizePermissionsPayload(permisos);
+      const delegCheck = validateRoleDelegation(req, sanitizedPerms);
+      if (!delegCheck.allowed) {
+        return res.status(403).json({
+          error: `No puedes conceder permisos que no posees: ${delegCheck.forbidden.join(', ')}`,
+          code: 'DELEGATION_EXCEEDS_ACTOR_PRIVILEGES'
+        });
+      }
+
       const roleDesc = String(description ?? descripcion ?? '').trim();
       await pool.query(
         'UPDATE roles SET nombre = ?, description = ?, permisos = ? WHERE id = ? AND tenant_id = ?',
-        [cleanName, roleDesc, JSON.stringify(permisos || {}), id, tenantId]
+        [cleanName, roleDesc, JSON.stringify(sanitizedPerms), id, tenantId]
       );
+
+      // Invalidar tokens/sesiones de usuarios con este rol para aplicar revocación inmediata
+      try {
+        await pool.query(
+          'UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE role_id = ? AND tenant_id = ?',
+          [id, tenantId]
+        );
+      } catch { }
+
+      try {
+        await pool.query(`
+          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+          VALUES (?, ?, 'ROLE_UPDATED', ?, ?)
+        `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Owner', `Rol actualizado: ${cleanName} (id=${id})`, tenantId]);
+      } catch { }
+
       res.json({ success: true });
     } catch (err) {
       if (err?.code === '23505') {
         return res.status(409).json({ error: 'Ya existe un rol con este nombre en tu empresa.' });
       }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.delete('/roles/:id', rejectControlPlaneOnTenantUsers, async (req, res) => {
+    try {
+      const allowed = await canManageRolesPolicy(req);
+      if (!allowed) {
+        return res.status(403).json({
+          error: 'Solo el Propietario de la empresa puede eliminar roles personalizados.',
+          code: 'OWNER_ONLY_ROLE_MANAGEMENT'
+        });
+      }
+
+      const { id } = req.params;
+      const tenantId = req.tenantId;
+      const [existingRoles] = await pool.query(
+        'SELECT id, nombre FROM roles WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!existingRoles || existingRoles.length === 0) {
+        return res.status(404).json({ error: 'Rol no encontrado en esta empresa.' });
+      }
+      if (isReservedRoleName(existingRoles[0].nombre)) {
+        return res.status(403).json({ error: 'Los roles reservados del sistema no pueden ser eliminados.', code: 'RESERVED_ROLE_PROTECTED' });
+      }
+
+      const [assigned] = await pool.query(
+        'SELECT COUNT(*) as total FROM users WHERE role_id = ? AND tenant_id = ?',
+        [id, tenantId]
+      );
+      const assignedCount = Number(assigned?.[0]?.total || 0);
+      if (assignedCount > 0) {
+        return res.status(409).json({
+          error: `No se puede eliminar el rol porque tiene ${assignedCount} usuario(s) asignado(s). Reasigna esos usuarios antes de eliminarlo.`,
+          code: 'ROLE_IN_USE',
+          assignedUsersCount: assignedCount,
+        });
+      }
+
+      await pool.query('DELETE FROM roles WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+
+      try {
+        await pool.query(`
+          INSERT INTO security_audit_logs (user_id, user_name, action, details, tenant_id)
+          VALUES (?, ?, 'ROLE_DELETED', ?, ?)
+        `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Owner', `Rol eliminado: ${existingRoles[0].nombre} (id=${id})`, tenantId]);
+      } catch { }
+
+      res.json({ success: true });
+    } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -929,13 +1381,10 @@ function createAuthRouter(pool, options = {}) {
           });
 
           let resolvedPermissions = {};
-          const isAdminLike = isSuperAdmin || ['owner', 'propietario', 'admin', 'administrador'].includes(effectiveRole);
+          const normalizedSysRole = normalizeRole(effectiveRole);
+          const isAdminLike = isSuperAdmin || ['propietario', 'admin'].includes(normalizedSysRole);
           if (u.role_permissions) {
-            if (typeof u.role_permissions === 'string') {
-              try { resolvedPermissions = JSON.parse(u.role_permissions || '{}'); } catch { resolvedPermissions = {}; }
-            } else if (typeof u.role_permissions === 'object') {
-              resolvedPermissions = u.role_permissions;
-            }
+            resolvedPermissions = expandEffectivePermissions(u.role_permissions);
           } else if (isAdminLike) {
             resolvedPermissions = ['all'];
           }

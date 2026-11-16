@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
+const { getBranchScope, isBranchAuthorized } = require('../middleware/rbac.middleware');
 
 /**
  * Cash Registers (Cajas de Jornada), Movements & Close Reports Router (Scoped strictly by tenant_id)
@@ -41,7 +42,26 @@ function createCashRegistersRouter(pool) {
       `;
       const params = [tenantId];
 
-      if (salon_id && salon_id !== 'all') {
+      const scope = getBranchScope(req);
+      if (!scope.allBranches) {
+        if (salon_id && salon_id !== 'all') {
+          if (!isBranchAuthorized(req, salon_id)) {
+            return res.status(403).json({
+              error: 'No tienes acceso autorizado a la sucursal solicitada.',
+              code: 'BRANCH_ACCESS_DENIED'
+            });
+          }
+          query += ' AND (cr.branch_id::text = ? OR cr.salon_id::text = ?)';
+          params.push(String(salon_id), String(salon_id));
+        } else {
+          if (scope.branchIds.length === 0) {
+            return res.json([]);
+          }
+          const placeholders = scope.branchIds.map(() => '?').join(', ');
+          query += ` AND (cr.branch_id::text IN (${placeholders}) OR cr.salon_id::text IN (${placeholders}))`;
+          params.push(...scope.branchIds, ...scope.branchIds);
+        }
+      } else if (salon_id && salon_id !== 'all') {
         query += ' AND (cr.branch_id::text = ? OR cr.salon_id::text = ?)';
         params.push(String(salon_id), String(salon_id));
       }
@@ -60,7 +80,10 @@ function createCashRegistersRouter(pool) {
 
       query += ' ORDER BY cr.opened_at DESC LIMIT 200';
       const [rows] = await pool.query(query, params);
-      res.json(rows || []);
+      const filtered = scope.allBranches
+        ? (rows || [])
+        : (rows || []).filter((r) => isBranchAuthorized(req, r.branch_id ?? r.salon_id));
+      res.json(filtered);
     } catch (err) {
       console.error('Error listing cash registers:', err);
       res.status(500).json({ error: 'Error consultando listado de cajas' });
@@ -166,6 +189,12 @@ function createCashRegistersRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { salon_id = 1, opening_balance = 0, notes = '' } = req.body || {};
+      if (!isBranchAuthorized(req, salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para abrir cajas en esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
       // Operador extraído estrictamente de req.auth para prevenir suplantación de identidad (REM-P1-08)
       const effectiveOpenedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.opened_by || 'Recepción';
 

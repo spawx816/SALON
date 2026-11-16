@@ -158,7 +158,7 @@ async function runTests() {
     app.use(express.json());
     app.use((req, _res, next) => {
       req.tenantId = req.headers['x-test-tenant'] || tenantId;
-      req.auth = { userId: 'u1' };
+      req.auth = { userId: 'u1', role: 'propietario' };
       next();
     });
     app.use('/api/saas/billing', createSaasBillingRouter({
