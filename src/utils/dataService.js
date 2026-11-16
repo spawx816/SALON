@@ -1493,16 +1493,18 @@ export const dataService = {
   },
 
   saveRole: async (role) => {
-    try {
-      const method = role.id ? 'PUT' : 'POST';
-      const url = role.id ? `${API_URL}/roles/${role.id}` : `${API_URL}/roles`;
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(role)
-      });
-      return await res.json();
-    } catch (e) { console.error(e); }
+    const method = role.id ? 'PUT' : 'POST';
+    const url = role.id ? `${API_URL}/roles/${role.id}` : `${API_URL}/roles`;
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(role)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Error ${res.status} al guardar rol`);
+    }
+    return data;
   },
 
   getUsers: async () => {

@@ -757,40 +757,65 @@ function createAuthRouter(pool, options = {}) {
         'SELECT * FROM roles WHERE tenant_id = ? ORDER BY id ASC',
         [tenantId]
       );
-      res.json(rows.map(r => ({
-        ...r,
-        permisos: typeof r.permisos === 'string' ? JSON.parse(r.permisos || '[]') : (r.permisos || [])
-      })));
+      res.json(rows.map(r => {
+        let parsedPermisos = {};
+        if (typeof r.permisos === 'string') {
+          try { parsedPermisos = JSON.parse(r.permisos || '{}'); } catch { parsedPermisos = {}; }
+        } else if (r.permisos && typeof r.permisos === 'object') {
+          parsedPermisos = r.permisos;
+        }
+        return {
+          ...r,
+          descripcion: r.description ?? r.descripcion ?? '',
+          permisos: parsedPermisos
+        };
+      }));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   router.post('/roles', async (req, res) => {
-    const { nombre, descripcion, permisos } = req.body;
+    const { nombre, descripcion, description, permisos } = req.body;
+    const cleanName = String(nombre || '').trim();
+    if (!cleanName) {
+      return res.status(400).json({ error: 'El nombre del rol es requerido.' });
+    }
     try {
       const tenantId = req.tenantId;
+      const roleDesc = String(description ?? descripcion ?? '').trim();
       const [result] = await pool.query(
-        'INSERT INTO roles (nombre, descripcion, permisos, tenant_id) VALUES (?, ?, ?, ?) RETURNING id',
-        [nombre, descripcion || '', JSON.stringify(permisos || []), tenantId]
+        'INSERT INTO roles (nombre, description, permisos, tenant_id) VALUES (?, ?, ?, ?) RETURNING id',
+        [cleanName, roleDesc, JSON.stringify(permisos || {}), tenantId]
       );
       res.json({ id: result.insertId || result[0]?.id, success: true });
     } catch (err) {
+      if (err?.code === '23505') {
+        return res.status(409).json({ error: 'Ya existe un rol con este nombre en tu empresa.' });
+      }
       res.status(500).json({ error: err.message });
     }
   });
 
   router.put('/roles/:id', async (req, res) => {
     const { id } = req.params;
-    const { nombre, descripcion, permisos } = req.body;
+    const { nombre, descripcion, description, permisos } = req.body;
+    const cleanName = String(nombre || '').trim();
+    if (!cleanName) {
+      return res.status(400).json({ error: 'El nombre del rol es requerido.' });
+    }
     try {
       const tenantId = req.tenantId;
+      const roleDesc = String(description ?? descripcion ?? '').trim();
       await pool.query(
-        'UPDATE roles SET nombre = ?, descripcion = ?, permisos = ? WHERE id = ? AND tenant_id = ?',
-        [nombre, descripcion || '', JSON.stringify(permisos || []), id, tenantId]
+        'UPDATE roles SET nombre = ?, description = ?, permisos = ? WHERE id = ? AND tenant_id = ?',
+        [cleanName, roleDesc, JSON.stringify(permisos || {}), id, tenantId]
       );
       res.json({ success: true });
     } catch (err) {
+      if (err?.code === '23505') {
+        return res.status(409).json({ error: 'Ya existe un rol con este nombre en tu empresa.' });
+      }
       res.status(500).json({ error: err.message });
     }
   });
