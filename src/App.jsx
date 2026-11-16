@@ -1134,6 +1134,9 @@ const AppContent = () => {
                   <Route path="/" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <ClientDashboard /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)))} />
                   <Route path="/dashboard" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <ClientDashboard /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)))} />
                   <Route path="/dashboard/*" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isClient ? <ClientDashboard /> : (isAccountant ? <Navigate to="/egresos" replace /> : (isReceptionProfile ? <ReceptionDashboard /> : <Dashboard />)))} />
+                  <Route path="/registro" element={<Navigate to={isSuperAdmin ? "/saas" : "/"} replace />} />
+                  <Route path="/login" element={<Navigate to={isSuperAdmin ? "/saas" : "/"} replace />} />
+                  <Route path="/iniciar-sesion" element={<Navigate to={isSuperAdmin ? "/saas" : "/"} replace />} />
                   <Route path="/saas" element={isSuperAdmin ? <SuperAdminDashboard initialTab="tenants" /> : <Navigate to="/" replace />} />
                   <Route path="/saas/salones" element={isSuperAdmin ? <SuperAdminDashboard initialTab="tenants" /> : <Navigate to="/" replace />} />
                   <Route path="/saas/planes" element={isSuperAdmin ? <SuperAdminDashboard initialTab="plans" /> : <Navigate to="/" replace />} />
