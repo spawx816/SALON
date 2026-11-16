@@ -484,7 +484,7 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     }
   };
 
-  // Forgot & Reset Password
+  // Forgot & Reset Password (Email Link Flow + Safe JSON)
   const handleForgotPassword = async (e) => {
     e.preventDefault();
     setForgotError('');
@@ -495,8 +495,10 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emailOrCedula: forgotEmail.trim() })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'No se pudo enviar el código.');
+      const raw = await res.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch { data = {}; }
+      if (!res.ok) throw new Error(data.error || `No se pudo procesar la solicitud (HTTP ${res.status}).`);
       setForgotStep(2);
     } catch (err) {
       setForgotError(err.message);
@@ -1763,8 +1765,8 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               <h2 id="forgot-modal-title">Recuperar contraseña</h2>
               <p className="et-login-subtitle">
                 {forgotStep === 1
-                  ? 'Ingresa tu correo o cédula para recibir un código de recuperación.'
-                  : 'Ingresa el código recibido y define tu nueva contraseña.'}
+                  ? 'Ingresa tu correo o cédula para recibir un enlace seguro de recuperación.'
+                  : 'Revisa tu bandeja de entrada (y spam) para abrir el enlace de restablecimiento.'}
               </p>
 
               {forgotError && (
@@ -1796,41 +1798,22 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                     className="et-btn-primary et-cta-full"
                     disabled={forgotLoading}
                   >
-                    {forgotLoading ? 'Enviando...' : 'Enviar código →'}
+                    {forgotLoading ? 'Enviando...' : 'Enviar enlace de recuperación →'}
                   </button>
                 </form>
               ) : (
-                <form onSubmit={handleResetPassword}>
-                  <div className="et-field">
-                    <label htmlFor="reset-code">Código de verificación</label>
-                    <input
-                      id="reset-code"
-                      type="text"
-                      className="et-input"
-                      value={resetCode}
-                      onChange={(e) => setResetCode(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="et-field">
-                    <label htmlFor="reset-new-pass">Nueva contraseña</label>
-                    <input
-                      id="reset-new-pass"
-                      type="password"
-                      className="et-input"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      required
-                    />
+                <div>
+                  <div className="et-alert-success" role="status" style={{ marginBottom: '16px' }}>
+                    Si la cuenta existe en el sistema, hemos enviado un enlace de recuperación a tu correo registrado.
                   </div>
                   <button
-                    type="submit"
+                    type="button"
                     className="et-btn-primary et-cta-full"
-                    disabled={forgotLoading}
+                    onClick={closeAllModals}
                   >
-                    {forgotLoading ? 'Guardando...' : 'Actualizar contraseña →'}
+                    Entendido
                   </button>
-                </form>
+                </div>
               )}
             </div>
           </div>

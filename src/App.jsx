@@ -39,6 +39,7 @@ const SatisfactionSurvey = lazyWithRetry(() => import('./components/surveys/Sati
 const GiftCertificates = lazyWithRetry(() => import('./components/surveys/GiftCertificates'), 'GiftCertificates');
 const ClientServices = lazyWithRetry(() => import('./components/clients/ClientServices'), 'ClientServices');
 const ActivateAccount = lazyWithRetry(() => import('./pages/ActivateAccount'), 'ActivateAccount');
+const ResetPassword = lazyWithRetry(() => import('./pages/ResetPassword'), 'ResetPassword');
 const CardNetTest = lazyWithRetry(() => import('./pages/CardNetTest'), 'CardNetTest');
 const DigitalContract = lazyWithRetry(() => import('./components/contracts/DigitalContract'), 'DigitalContract');
 const ServiceManagement = lazyWithRetry(() => import('./components/services/ServiceManagement'), 'ServiceManagement');
@@ -172,7 +173,7 @@ const AppContent = () => {
   ];
   
   const isPublicRoute = publicIndexablePaths.some(p => location.pathname === p || (p === '/salones' && location.pathname.startsWith('/salones/'))) ||
-    location.pathname === '/login' || location.pathname === '/registro' || location.pathname === '/encuesta' || location.pathname === '/activar' || location.pathname === '/asistencia';
+    location.pathname === '/login' || location.pathname === '/registro' || location.pathname === '/encuesta' || location.pathname === '/activar' || location.pathname === '/asistencia' || location.pathname === '/restablecer-contrasena';
 
   const handleLogout = () => {
     logout();
@@ -292,6 +293,16 @@ const AppContent = () => {
       );
     }
     
+    if (location.pathname === '/restablecer-contrasena') {
+      return (
+        <Suspense fallback={<WorkspaceSkeleton />}>
+          <Routes>
+            <Route path="/restablecer-contrasena" element={<ResetPassword />} />
+          </Routes>
+        </Suspense>
+      );
+    }
+
     if (location.pathname === '/login') {
       return <Landing initialIsLogin={true} initialAuthModal={true} />;
     }
@@ -1164,6 +1175,7 @@ const AppContent = () => {
                   <Route path="/regalar" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <GiftCertificates />} />
                   <Route path="/mis-servicios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : <ClientServices />} />
                   <Route path="/activar" element={<ActivateAccount />} />
+                  <Route path="/restablecer-contrasena" element={<ResetPassword />} />
                   <Route path="/equipo" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || user?.permissions?.manage_staff) ? <StaffModule /> : <Navigate to="/" />))} />
                   <Route path="/nomina" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (isAccountant ? <Navigate to="/egresos" replace /> : ((isAdmin || user?.permissions?.manage_payroll) ? <PayrollModule /> : <Navigate to="/" />))} />
                   <Route path="/nomina/historial" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_payroll) ? <PayrollModule initialTab="historical" /> : <Navigate to="/" />)} />

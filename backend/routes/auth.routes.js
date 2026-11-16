@@ -5,6 +5,12 @@ const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
 const { signAuthToken } = require('../middleware/auth.middleware');
 const { resolveTransporterForTenant } = require('../services/platform_email.service');
+const {
+  resolveAuthorizedPublicOrigin,
+  resolveAuthorizedAssetOrigin,
+  buildPasswordResetEmail,
+  buildPasswordChangedEmail,
+} = require('../services/password_reset_email.template');
 const { requireRole, requirePermission, getEffectiveRole, canManageRole, normalizeRole } = require('../middleware/rbac.middleware');
 const {
   PERMISSION_MODULES,
@@ -57,6 +63,23 @@ function createAuthRouter(pool, options = {}) {
     }
   };
 
+  // Per-account rate limiter (in-memory sliding window, anti-enumeration)
+  const accountRecoveryHits = new Map();
+  const isAccountRecoveryRateLimited = (identifierKey) => {
+    const key = String(identifierKey || '').toLowerCase().trim();
+    if (!key) return false;
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000;
+    const entries = (accountRecoveryHits.get(key) || []).filter((ts) => now - ts < windowMs);
+    if (entries.length >= 5) {
+      accountRecoveryHits.set(key, entries);
+      return true;
+    }
+    entries.push(now);
+    accountRecoveryHits.set(key, entries);
+    return false;
+  };
+
   // === PASSWORD RECOVERY & ACCOUNT ACTIVATION (STRICT TENANT-BOUND & ANTI-ENUMERATION) ===
   const handleForgotPassword = async (req, res) => {
     const { email, cedula, username, emailOrCedula } = req.body;
@@ -70,8 +93,12 @@ function createAuthRouter(pool, options = {}) {
     // Generic response message to prevent account enumeration
     const genericSuccess = {
       success: true,
-      message: 'Si la cuenta existe en el sistema, hemos enviado un código de verificación al correo registrado.'
+      message: 'Si la cuenta existe en el sistema, hemos enviado un enlace de recuperación al correo registrado.'
     };
+
+    if (process.env.NODE_ENV !== 'test' && isAccountRecoveryRateLimited(identifier)) {
+      return res.json(genericSuccess);
+    }
 
     try {
       let targetUser = null;
@@ -131,28 +158,38 @@ function createAuthRouter(pool, options = {}) {
       const userTenantId = targetUser.tenant_id || null;
       const targetUserId = isSystemUser ? `USER-${targetUser.id}` : String(targetUser.id);
 
-      // Invalidate prior unused password_reset codes for this specific tenant & user
+      // Invalidate ALL prior unused password reset tokens/codes for this specific tenant & user
       if (userTenantId) {
         await pool.query(
-          "UPDATE verification_codes SET is_used = 1 WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0",
+          "UPDATE verification_codes SET is_used = 1 WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose IN ('password_reset', 'password_reset_link') AND is_used = 0",
           [userTenantId, targetUserId, targetUserId]
         );
       } else {
         await pool.query(
-          "UPDATE verification_codes SET is_used = 1 WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0",
+          "UPDATE verification_codes SET is_used = 1 WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose IN ('password_reset', 'password_reset_link') AND is_used = 0",
           [targetUserId, targetUserId]
         );
       }
 
-      // High entropy random code and cryptographic SHA-256 hash
-      const code = crypto.randomInt(100000, 999999).toString();
-      const codeHash = crypto.createHash('sha256').update(code).digest('hex');
-      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      // High entropy 256-bit cryptographic token; persist ONLY its SHA-256 hash
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const ttlMinutes = Math.max(5, Math.min(120, parseInt(process.env.PASSWORD_RESET_TTL_MINUTES, 10) || 15));
+      const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
 
       await pool.query(
         'INSERT INTO verification_codes (tenant_id, user_id, client_id, identity, purpose, channel, code, code_hash, attempts, max_attempts, expires_at, is_used) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 0, 5, ?, 0)',
-        [userTenantId, targetUserId, targetUserId, recipientEmail, 'password_reset', 'email', codeHash, expiresAt]
+        [userTenantId, targetUserId, targetUserId, recipientEmail, 'password_reset_link', 'email', tokenHash, expiresAt]
       );
+
+      const publicOrigin = resolveAuthorizedPublicOrigin();
+      const logoUrl = `${resolveAuthorizedAssetOrigin()}/icon-192x192.png`;
+      const resetUrl = `${publicOrigin}/restablecer-contrasena?token=${rawToken}`;
+      const mailContent = buildPasswordResetEmail({
+        logoUrl,
+        resetUrl,
+        ttlMinutes,
+      });
 
       try {
         const { transporter, fromAddress } = await resolveTransporterForTenant(pool, userTenantId, 'Etereas');
@@ -161,22 +198,12 @@ function createAuthRouter(pool, options = {}) {
           await transporter.sendMail({
             from: fromAddress,
             to: recipientEmail,
-            subject: `🔐 Código de Recuperación de Contraseña: ${code}`,
-            text: `Hola ${targetUser.nombre || 'Usuario'}, tu código de verificación para restablecer tu contraseña es: ${code}. Válido por 15 minutos.`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff; text-align: center;">
-                <h2 style="color: #09090b; margin-top: 0;">Recuperación de Contraseña</h2>
-                <p style="color: #475569; font-size: 15px;">Hola <strong>${targetUser.nombre || 'Usuario'}</strong>,</p>
-                <p style="color: #475569; font-size: 14px;">Usa el siguiente código de 6 dígitos para restablecer tu contraseña:</p>
-                <div style="margin: 24px 0; padding: 16px 28px; background: #f8fafc; border: 2px dashed #09090b; border-radius: 12px; display: inline-block;">
-                  <span style="font-size: 32px; font-weight: 900; letter-spacing: 8px; color: #09090b; font-family: monospace;">${code}</span>
-                </div>
-                <p style="color: #94a3b8; font-size: 12px;">Este código expirará en 15 minutos.</p>
-              </div>
-            `
+            subject: mailContent.subject,
+            text: mailContent.text,
+            html: mailContent.html,
           });
         } else {
-          console.warn('[FORGOT PASSWORD EMAIL WARN]: No hay transporte SMTP configurado para enviar el código.');
+          console.warn('[FORGOT PASSWORD EMAIL WARN]: No hay transporte SMTP configurado.');
         }
       } catch (mailErr) {
         console.warn('[FORGOT PASSWORD EMAIL WARN]:', mailErr.message);
@@ -244,9 +271,37 @@ function createAuthRouter(pool, options = {}) {
   router.post('/auth/verify-code', recoveryLimiter, handleVerifyCode);
   router.post('/verify-code', recoveryLimiter, handleVerifyCode);
 
+  // GET /api/auth/reset-password/validate - Validate link token WITHOUT consuming it (scanner-safe)
+  const handleValidateResetToken = async (req, res) => {
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cache-Control', 'no-store');
+    const rawToken = String(req.query?.token || '').trim();
+    if (!rawToken || !/^[0-9a-f]{32,128}$/i.test(rawToken)) {
+      return res.status(400).json({ valid: false, error: 'El enlace de recuperación es inválido o ha expirado.' });
+    }
+    try {
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const [rows] = await pool.query(
+        "SELECT id FROM verification_codes WHERE code_hash = ? AND purpose = 'password_reset_link' AND is_used = 0 AND expires_at > NOW() LIMIT 1",
+        [tokenHash]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(400).json({ valid: false, error: 'El enlace de recuperación es inválido o ha expirado.' });
+      }
+      return res.json({ valid: true });
+    } catch {
+      return res.status(500).json({ valid: false, error: 'No se pudo validar el enlace de recuperación.' });
+    }
+  };
+  router.get('/auth/reset-password/validate', recoveryLimiter, handleValidateResetToken);
+  router.get('/reset-password/validate', recoveryLimiter, handleValidateResetToken);
+
   const handleResetPassword = async (req, res) => {
-    const { code, newPassword, password, clientId, userId, emailOrCedula, email, username, cedula } = req.body;
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cache-Control', 'no-store');
+    const { token, code, newPassword, password, clientId, userId, emailOrCedula, email, username, cedula } = req.body;
     const finalPassword = newPassword || password;
+    const rawToken = String(token || '').trim();
     const cleanCode = String(code || '').trim();
     const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
     let targetUserId = String(userId || clientId || '').trim();
@@ -254,6 +309,73 @@ function createAuthRouter(pool, options = {}) {
 
     if (!finalPassword || String(finalPassword).length < 4) {
       return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 4 caracteres.' });
+    }
+
+    if (rawToken) {
+      try {
+        const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        // Atomic single-use consumption: only one concurrent request can win UPDATE ... RETURNING
+        const [consumedRows] = await pool.query(
+          "UPDATE verification_codes SET is_used = 1, used_at = NOW() WHERE code_hash = ? AND purpose = 'password_reset_link' AND is_used = 0 AND expires_at > NOW() RETURNING id, tenant_id, user_id, client_id, identity",
+          [tokenHash]
+        );
+        if (!consumedRows || consumedRows.length === 0) {
+          return res.status(400).json({ error: 'El enlace de recuperación es inválido, ya fue utilizado o ha expirado.' });
+        }
+        const rec = consumedRows[0];
+        const hashedPass = await bcrypt.hash(String(finalPassword), 10);
+        const resolvedUserId = rec.user_id || rec.client_id;
+
+        if (resolvedUserId && String(resolvedUserId).startsWith('USER-')) {
+          const realUserId = String(resolvedUserId).replace('USER-', '');
+          let uQuery = 'UPDATE users SET password_hash = ?, password = NULL, token_version = COALESCE(token_version, 1) + 1 WHERE id::text = ?';
+          const uParams = [hashedPass, realUserId];
+          if (rec.tenant_id) {
+            uQuery += ' AND tenant_id = ?';
+            uParams.push(rec.tenant_id);
+          } else {
+            uQuery += ' AND tenant_id IS NULL';
+          }
+          await pool.query(uQuery, uParams);
+        } else if (resolvedUserId) {
+          let cQuery = 'UPDATE clients SET password = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?';
+          const cParams = [hashedPass, resolvedUserId];
+          if (rec.tenant_id) {
+            cQuery += ' AND tenant_id = ?';
+            cParams.push(rec.tenant_id);
+          } else {
+            cQuery += ' AND tenant_id IS NULL';
+          }
+          await pool.query(cQuery, cParams);
+        } else {
+          return res.status(404).json({ error: 'No se encontró la cuenta vinculada al enlace.' });
+        }
+
+        // Send password-changed notification without including the new password
+        if (rec.identity) {
+          try {
+            const { transporter, fromAddress } = await resolveTransporterForTenant(pool, rec.tenant_id || null, 'Etereas');
+            if (transporter) {
+              const changedAtRd = new Date().toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' });
+              const changedMail = buildPasswordChangedEmail({ changedAtRd });
+              await transporter.sendMail({
+                from: fromAddress,
+                to: rec.identity,
+                subject: changedMail.subject,
+                text: changedMail.text,
+                html: changedMail.html,
+              });
+            }
+          } catch (notifyErr) {
+            console.warn('[PASSWORD CHANGED NOTIFY WARN]:', notifyErr.message);
+          }
+        }
+
+        return res.json({ success: true, message: 'Contraseña actualizada exitosamente. Tus sesiones anteriores fueron cerradas.' });
+      } catch (err) {
+        console.error('[RESET PASSWORD TOKEN ERROR]:', err.message);
+        return res.status(500).json({ error: 'Error restableciendo la contraseña.' });
+      }
     }
 
     if (!cleanCode || (!targetUserId && !rawIdentifier)) {

@@ -400,6 +400,7 @@ function createApp(dependencies = {}) {
       pathUrl === '/api/forgot-password' || pathUrl === '/api/auth/forgot-password' ||
       pathUrl === '/api/verify-code' || pathUrl === '/api/auth/verify-code' ||
       pathUrl === '/api/reset-password' || pathUrl === '/api/auth/reset-password' ||
+      pathUrl === '/api/reset-password/validate' || pathUrl === '/api/auth/reset-password/validate' ||
       pathUrl === '/api/activate' || pathUrl === '/api/auth/activate' ||
       pathUrl === '/api/users/verify'
     ) return true;
