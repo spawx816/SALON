@@ -58,8 +58,8 @@ function createAuthRouter(pool, options = {}) {
 
   // === PASSWORD RECOVERY & ACCOUNT ACTIVATION (STRICT TENANT-BOUND & ANTI-ENUMERATION) ===
   const handleForgotPassword = async (req, res) => {
-    const { email, cedula, username } = req.body;
-    const identifier = String(email || username || cedula || '').trim();
+    const { email, cedula, username, emailOrCedula } = req.body;
+    const identifier = String(emailOrCedula || email || username || cedula || '').trim();
     const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
 
     if (!identifier) {
@@ -76,12 +76,13 @@ function createAuthRouter(pool, options = {}) {
       let targetUser = null;
       let isSystemUser = false;
       const cleanId = identifier;
+      const cleanDigits = cleanId.replace(/\D/g, '');
 
       if (tenantId) {
         // Scoped lookup within tenant
         const [clients] = await pool.query(
           "SELECT id, nombre, email, cedula, tenant_id FROM clients WHERE tenant_id = ? AND (LOWER(email) = LOWER(?) OR cedula = ? OR REPLACE(cedula, '-', '') = ?) LIMIT 1",
-          [tenantId, cleanId, cleanId, cleanId.replace(/\D/g, '')]
+          [tenantId, cleanId, cleanId, cleanDigits]
         );
 
         if (clients.length > 0) {
@@ -97,14 +98,22 @@ function createAuthRouter(pool, options = {}) {
           }
         }
       } else {
-        // Superadmin lookup (where tenant_id IS NULL)
+        // Public landing lookup (no tenant context): check system users (superadmin, owners, staff) then clients
         const [users] = await pool.query(
-          "SELECT id, COALESCE(nombre, name) as nombre, email, username, tenant_id FROM users WHERE tenant_id IS NULL AND role = 'superadmin' AND (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) LIMIT 1",
+          "SELECT id, COALESCE(nombre, name) as nombre, email, username, tenant_id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) ORDER BY CASE WHEN tenant_id IS NULL THEN 0 ELSE 1 END, id DESC LIMIT 1",
           [cleanId, cleanId]
         );
         if (users.length > 0) {
           targetUser = users[0];
           isSystemUser = true;
+        } else {
+          const [clients] = await pool.query(
+            "SELECT id, nombre, email, cedula, tenant_id FROM clients WHERE LOWER(email) = LOWER(?) OR (LENGTH(?) >= 5 AND (cedula = ? OR REPLACE(cedula, '-', '') = ?)) ORDER BY id DESC LIMIT 1",
+            [cleanId, cleanDigits, cleanId, cleanDigits]
+          );
+          if (clients.length > 0) {
+            targetUser = clients[0];
+          }
         }
       }
 
@@ -145,24 +154,41 @@ function createAuthRouter(pool, options = {}) {
       );
 
       try {
+        let transporter = null;
+        let fromAddress = process.env.SMTP_FROM || '"Etereas" <notificaciones@etereas.com>';
+
         const [smtpRows] = await pool.query(
           userTenantId
-            ? 'SELECT * FROM email_settings WHERE tenant_id = ? LIMIT 1'
+            ? 'SELECT * FROM email_settings WHERE tenant_id = ? OR tenant_id IS NULL ORDER BY tenant_id DESC NULLS LAST LIMIT 1'
             : 'SELECT * FROM email_settings WHERE tenant_id IS NULL LIMIT 1',
           userTenantId ? [userTenantId] : []
         );
         if (smtpRows.length > 0 && smtpRows[0].smtp_host) {
           const s = smtpRows[0];
-          const transporter = nodemailer.createTransport({
+          transporter = nodemailer.createTransport({
             host: s.smtp_host,
-            port: parseInt(s.smtp_port) || 587,
-            secure: parseInt(s.smtp_port) === 465 || s.smtp_secure === 1,
+            port: parseInt(s.smtp_port, 10) || 587,
+            secure: parseInt(s.smtp_port, 10) === 465 || s.smtp_secure === 1,
             auth: { user: s.smtp_user, pass: s.smtp_pass },
             tls: { rejectUnauthorized: false }
           });
+          fromAddress = `"${s.smtp_from || 'Etereas'}" <${s.smtp_user}>`;
+        } else if (process.env.SMTP_HOST) {
+          transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST,
+            port: parseInt(process.env.SMTP_PORT, 10) || 587,
+            secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
+            auth: {
+              user: process.env.SMTP_USER,
+              pass: process.env.SMTP_PASS
+            },
+            tls: { rejectUnauthorized: false }
+          });
+        }
 
+        if (transporter) {
           await transporter.sendMail({
-            from: `"${s.smtp_from || 'PLAN BEAUTY RD'}" <${s.smtp_user}>`,
+            from: fromAddress,
             to: recipientEmail,
             subject: `🔐 Código de Recuperación de Contraseña: ${code}`,
             text: `Hola ${targetUser.nombre || 'Usuario'}, tu código de verificación para restablecer tu contraseña es: ${code}. Válido por 15 minutos.`,
@@ -178,6 +204,8 @@ function createAuthRouter(pool, options = {}) {
               </div>
             `
           });
+        } else {
+          console.warn('[FORGOT PASSWORD EMAIL WARN]: No hay transporte SMTP configurado para enviar el código.');
         }
       } catch (mailErr) {
         console.warn('[FORGOT PASSWORD EMAIL WARN]:', mailErr.message);
@@ -246,27 +274,78 @@ function createAuthRouter(pool, options = {}) {
   router.post('/verify-code', recoveryLimiter, handleVerifyCode);
 
   const handleResetPassword = async (req, res) => {
-    const { code, newPassword, password, clientId, userId } = req.body;
+    const { code, newPassword, password, clientId, userId, emailOrCedula, email, username, cedula } = req.body;
     const finalPassword = newPassword || password;
     const cleanCode = String(code || '').trim();
     const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
-    const targetUserId = String(userId || clientId || '').trim();
+    let targetUserId = String(userId || clientId || '').trim();
+    const rawIdentifier = String(emailOrCedula || email || username || cedula || '').trim();
 
     if (!finalPassword || String(finalPassword).length < 4) {
       return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 4 caracteres.' });
     }
 
-    if (!cleanCode || !targetUserId) {
+    if (!cleanCode || (!targetUserId && !rawIdentifier)) {
       return res.status(400).json({ error: 'Código de verificación e identificador de cuenta requeridos.' });
     }
 
     try {
       const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
 
-      const verifySql = tenantId
-        ? "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
-        : "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
-      const verifyParams = tenantId ? [tenantId, targetUserId, targetUserId] : [targetUserId, targetUserId];
+      let verifySql;
+      let verifyParams;
+
+      if (targetUserId) {
+        verifySql = tenantId
+          ? "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
+          : "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
+        verifyParams = tenantId ? [tenantId, targetUserId, targetUserId] : [targetUserId, targetUserId];
+      } else {
+        // Resolve userId/clientId from emailOrCedula when resetting from public Landing
+        const cleanDigits = rawIdentifier.replace(/\D/g, '');
+        let resolvedAccount = null;
+        if (tenantId) {
+          const [uRows] = await pool.query(
+            "SELECT id, tenant_id FROM users WHERE tenant_id = ? AND (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) LIMIT 1",
+            [tenantId, rawIdentifier, rawIdentifier]
+          );
+          if (uRows.length > 0) {
+            resolvedAccount = { targetId: `USER-${uRows[0].id}`, tenantId: uRows[0].tenant_id };
+          } else {
+            const [cRows] = await pool.query(
+              "SELECT id, tenant_id FROM clients WHERE tenant_id = ? AND (LOWER(email) = LOWER(?) OR cedula = ? OR REPLACE(cedula, '-', '') = ?) LIMIT 1",
+              [tenantId, rawIdentifier, rawIdentifier, cleanDigits]
+            );
+            if (cRows.length > 0) resolvedAccount = { targetId: String(cRows[0].id), tenantId: cRows[0].tenant_id };
+          }
+        } else {
+          const [uRows] = await pool.query(
+            "SELECT id, tenant_id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) ORDER BY CASE WHEN tenant_id IS NULL THEN 0 ELSE 1 END, id DESC LIMIT 1",
+            [rawIdentifier, rawIdentifier]
+          );
+          if (uRows.length > 0) {
+            resolvedAccount = { targetId: `USER-${uRows[0].id}`, tenantId: uRows[0].tenant_id };
+          } else {
+            const [cRows] = await pool.query(
+              "SELECT id, tenant_id FROM clients WHERE LOWER(email) = LOWER(?) OR (LENGTH(?) >= 5 AND (cedula = ? OR REPLACE(cedula, '-', '') = ?)) ORDER BY id DESC LIMIT 1",
+              [rawIdentifier, cleanDigits, rawIdentifier, cleanDigits]
+            );
+            if (cRows.length > 0) resolvedAccount = { targetId: String(cRows[0].id), tenantId: cRows[0].tenant_id };
+          }
+        }
+
+        if (!resolvedAccount) {
+          return res.status(400).json({ error: 'El código de verificación es inválido o ha expirado.' });
+        }
+
+        targetUserId = resolvedAccount.targetId;
+        verifySql = resolvedAccount.tenantId
+          ? "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
+          : "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
+        verifyParams = resolvedAccount.tenantId
+          ? [resolvedAccount.tenantId, targetUserId, targetUserId]
+          : [targetUserId, targetUserId];
+      }
 
       const [rows] = await pool.query(verifySql, verifyParams);
 
