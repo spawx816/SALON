@@ -411,6 +411,7 @@ function createApp(dependencies = {}) {
 
     // 5. Public Onboarding tenant registration & safe visual branding
     if (method === 'POST' && pathUrl === '/api/public/onboarding') return true;
+    if (method === 'GET' && pathUrl.startsWith('/api/public/terms')) return true;
     if (method === 'GET' && pathUrl.startsWith('/api/public/branding')) return true;
 
     // 6. Public SaaS billing webhooks (HMAC authenticated)

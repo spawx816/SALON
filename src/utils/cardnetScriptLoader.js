@@ -20,11 +20,12 @@ export const loadCardNetScript = (publicKey, captureUrl) => {
       console.warn("[CARDNET SDK] Conflicto de entorno. Recargando la librería para el entorno correcto...");
     }
 
-    // En producción CardNet requiere cargar PWCheckout.js desde su dominio oficial TR-TSP (tr-tsp.gtp-seglan.com)
+    // El script oficial PWCheckout.js se sirve desde el endpoint de tokens de CardNet (servicios/tokens/v1)
     const isProdCapture = captureUrl.includes("servicios.cardnet.com.do") && !captureUrl.includes("labservicios");
-    const baseUrl = isProdCapture
-      ? "https://tr-tsp.gtp-seglan.com/tr-tsp-mw-cardnet/v1"
-      : (captureUrl.split('/Capture')[0] || "https://labservicios.cardnet.com.do/servicios/tokens/v1");
+    const baseUrl = captureUrl.split('/Capture')[0] || 
+      (isProdCapture 
+        ? "https://servicios.cardnet.com.do/servicios/tokens/v1" 
+        : "https://labservicios.cardnet.com.do/servicios/tokens/v1");
     const scriptUrl = `${baseUrl}/Scripts/PWCheckout.js?key=${publicKey}`;
 
     console.log("[CARDNET SDK] Iniciando carga dinámica:", scriptUrl);
