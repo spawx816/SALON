@@ -33,7 +33,7 @@ const Toggle = ({ checked, onChange }) => (
 
 const MarketingModule = () => {
   const [settings, setSettings]           = useState(DEFAULT_SETTINGS);
-  const [subject, setSubject]             = useState('¡Nueva promoción exclusiva en PLAN BEAUTY! ✨');
+  const [subject, setSubject]             = useState('¡Nueva promoción exclusiva en MEMBRESÍA! ✨');
   const [campaignType, setCampaignType]   = useState('text'); // 'text' | 'image'
   const [campaignFlyerUrl, setCampaignFlyerUrl] = useState('');
   const [audienceFilter, setAudienceFilter]     = useState('all');
@@ -500,7 +500,7 @@ const AUDIENCE_OPTIONS = [
                     <div style={{ width: '40px', height: '40px', background: '#0f172a', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '1rem', flexShrink: 0 }}>S</div>
                     <div>
                       <p style={{ fontWeight: 800, color: '#0f172a', marginBottom: '0.15rem', fontSize: '0.9rem' }}>
-                        PLAN BEAUTY <span style={{ color: '#64748b', fontWeight: 500, fontSize: '0.85rem' }}>{'<promo@planbeauty.do>'}</span>
+                        MEMBRESÍA <span style={{ color: '#64748b', fontWeight: 500, fontSize: '0.85rem' }}>{'<promo@planbeauty.do>'}</span>
                       </p>
                       <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Para: Maria Garcia</p>
                     </div>
@@ -528,7 +528,7 @@ const AUDIENCE_OPTIONS = [
 
                   {/* Footer */}
                   <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '0.875rem', fontSize: '0.65rem', color: '#94a3b8', textAlign: 'center', lineHeight: 1.5 }}>
-                    © 2026 PLAN BEAUTY. Av. San Vicente de Paúl, Santo Domingo Este.<br />
+                    © 2026 MEMBRESÍA. Av. San Vicente de Paúl, Santo Domingo Este.<br />
                     Si no desea recibir estos correos, <span style={{ textDecoration: 'underline', cursor: 'pointer', color: '#64748b' }}>cancele su suscripción aquí</span>.
                   </div>
                 </div>
@@ -597,7 +597,7 @@ const AUDIENCE_OPTIONS = [
                     <div style={{ width: '40px', height: '40px', background: '#d946ef', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: '1rem', flexShrink: 0 }}>🎂</div>
                     <div>
                       <p style={{ fontWeight: 800, color: '#0f172a', marginBottom: '0.15rem', fontSize: '0.9rem' }}>
-                        PLAN BEAUTY <span style={{ color: '#64748b', fontWeight: 500, fontSize: '0.85rem' }}>{'<cumpleanos@planbeauty.do>'}</span>
+                        MEMBRESÍA <span style={{ color: '#64748b', fontWeight: 500, fontSize: '0.85rem' }}>{'<cumpleanos@planbeauty.do>'}</span>
                       </p>
                       <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Para: Maria Garcia</p>
                     </div>
@@ -608,7 +608,7 @@ const AUDIENCE_OPTIONS = [
                       .replace(/\{\{descuento\}\}/g, settings.birthday_discount || '15')}
                   </p>
                   <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '0.875rem', fontSize: '0.65rem', color: '#94a3b8', textAlign: 'center', lineHeight: 1.5 }}>
-                    © 2026 PLAN BEAUTY. Av. San Vicente de Paúl, Santo Domingo Este.
+                    © 2026 MEMBRESÍA. Av. San Vicente de Paúl, Santo Domingo Este.
                   </div>
                 </div>
 

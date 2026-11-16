@@ -2543,7 +2543,7 @@ const AttendanceLogs = () => {
           <div id="weekly-schedule-print-area" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Title visible only in print */}
             <div className="print-only" style={{ display: 'none', marginBottom: '1.5rem', borderBottom: '2px solid #cbd5e1', paddingBottom: '0.75rem' }}>
-              <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#09090b' }}>Plan Beauty RD</h2>
+              <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#09090b' }}>Membresía</h2>
               <h3 style={{ margin: '0.25rem 0 0 0', fontSize: '1.1rem', fontWeight: 700, color: '#475569' }}>Horario de Trabajo Semanal</h3>
               <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.8rem', color: '#64748b', fontWeight: 650 }}>
                 {filters.salonId ? `Sucursal: ${salons.find(s => String(s.id) === String(filters.salonId))?.name || ''}` : 'Todas las sucursales'}

@@ -76,7 +76,7 @@ export const CONTRACT_VARIABLES = [
   { tag: '{{CLIENTE_NUMERO}}', label: 'Número Casa/Apto', sample: '12' },
   { tag: '{{CLIENTE_SECTOR}}', label: 'Sector', sample: 'Alma Rosa I' },
   { tag: '{{CLIENTE_CIUDAD}}', label: 'Ciudad / Localidad', sample: 'Santo Domingo Este' },
-  { tag: '{{PLAN_NOMBRE}}', label: 'Nombre del Plan', sample: 'Plan Beauty Plus' },
+  { tag: '{{PLAN_NOMBRE}}', label: 'Nombre del Plan', sample: 'Membresía Plus' },
   { tag: '{{PLAN_PRECIO}}', label: 'Precio Mensual (RD$)', sample: '1,950.00' },
   { tag: '{{PLAN_SERVICIOS}}', label: 'Servicios Incluidos', sample: '4 Lavados y Secados regulares por mes' },
   { tag: '{{PLAN_CUPO}}', label: 'Cupo Máximo Mensual', sample: '4' },
@@ -122,7 +122,7 @@ export const interpolateContract = (template, clientOrOptions = {}, planArg = {}
   const clientSector = client?.sector || '________________';
   const clientCiudad = client?.ciudad || client?.localidad || 'Santo Domingo';
 
-  const planTitle = plan?.title || plan?.nombre || plan?.plan_name || plan?.planTitle || 'Plan Beauty';
+  const planTitle = plan?.title || plan?.nombre || plan?.plan_name || plan?.planTitle || 'Membresía';
   const planPrice = parseFloat(plan?.price || plan?.contract_price || plan?.amount || 1950).toLocaleString('en-US', { minimumFractionDigits: 2 });
   const planServices = Array.isArray(plan?.services || plan?.contract_services) 
     ? (plan.services || plan.contract_services).join(', ') 

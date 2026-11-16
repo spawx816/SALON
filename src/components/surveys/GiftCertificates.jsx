@@ -111,7 +111,7 @@ const GiftCertificates = () => {
 
       // 2. Configurar el Iframe de CardNet (sin logo externo roto)
       window.PWCheckout.SetProperties({
-        "name": user?.salon_name || "SalonPro / Plan Beauty",
+        "name": user?.salon_name || "SalonPro / Membresía",
         "email": user?.email || "correo@default.com",
         "button_label": `Pagar Regalo RD$ ${preview.m}`,
         "description": "Compra de Tarjeta de Regalo",

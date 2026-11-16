@@ -162,7 +162,7 @@ const Payments = () => {
         payment.cardnet_customer_id,
         payment.payment_profile_id || payment.gateway_ref,
         payment.amount,
-        `Reintento Manual: ${payment.description || 'Plan Beauty'}`,
+        `Reintento Manual: ${payment.description || 'Membresía'}`,
         payment.client_id
       );
 
@@ -189,7 +189,7 @@ const Payments = () => {
     const cleanPhone = rawPhone.length === 10 ? `1${rawPhone}` : rawPhone;
     const clientName = payment.client_name ? payment.client_name.split(' ')[0] : 'Estimada clienta';
     const message = encodeURIComponent(
-      `Hola ${clientName}, te saludamos de tu empresa en Plan Beauty RD ✨\n\nTe escribimos porque tuvimos un inconveniente al procesar el cobro automático de tu suscripción de RD$ ${payment.amount}.\n\nPor favor contáctanos o ingresa a tu perfil para actualizar tu tarjeta y mantener tus beneficios de lavado y belleza activos sin interrupciones 💕`
+      `Hola ${clientName}, te saludamos de tu empresa en Membresía ✨\n\nTe escribimos porque tuvimos un inconveniente al procesar el cobro automático de tu suscripción de RD$ ${payment.amount}.\n\nPor favor contáctanos o ingresa a tu perfil para actualizar tu tarjeta y mantener tus beneficios de lavado y belleza activos sin interrupciones 💕`
     );
     window.open(`https://wa.me/${cleanPhone}?text=${message}`, '_blank');
   };

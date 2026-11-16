@@ -267,7 +267,7 @@ export const CashRegisterClosePrintModal = ({
                   )}
                   {planBeautyTotal > 0 && (
                     <tr style={{ borderBottom: '1px dashed #e2e8f0' }}>
-                      <td style={{ padding: '3px 0' }}>💎 Plan Beauty (Canjes)</td>
+                      <td style={{ padding: '3px 0' }}>💎 Membresía (Canjes)</td>
                       <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 700 }}>{fmtRD(planBeautyTotal)}</td>
                     </tr>
                   )}
@@ -425,7 +425,7 @@ export const CashRegisterClosePrintModal = ({
 
             {/* PIE DEL TICKET */}
             <div style={{ textAlign: 'center', fontSize: '9.5px', color: '#64748b', marginTop: '14px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-              Sistema POS & Gestión Empresa Pro • Plan Beauty RD<br />
+              Sistema POS & Gestión Empresa Pro • Membresía<br />
               Reporte Oficial de Cierre y Arqueo de Caja
             </div>
 

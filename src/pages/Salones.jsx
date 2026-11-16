@@ -26,8 +26,8 @@ const DEFAULT_SALONS = [
 
 const Salones = () => {
   useDocumentMetadata({
-    title: 'Empresas afiliados a Plan Beauty en República Dominicana',
-    description: 'Encuentra las sucursales y empresas de belleza asociados a Plan Beauty. Consulta direcciones, teléfonos, horarios de atención y disponibilidad.',
+    title: 'Empresas afiliados a Membresía en República Dominicana',
+    description: 'Encuentra las sucursales y empresas de belleza asociados a Membresía. Consulta direcciones, teléfonos, horarios de atención y disponibilidad.',
     canonicalUrl: 'https://planbeautyrd.com/salones',
     robots: 'index, follow'
   });

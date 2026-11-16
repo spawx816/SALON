@@ -24,7 +24,7 @@ const getWhatsAppUrl = (phone, clientName) => {
   const digits = String(phone).replace(/\D/g, '');
   if (!digits || digits.length < 7) return null;
   const cleanNumber = digits.length === 10 ? `1${digits}` : digits;
-  const msg = encodeURIComponent(`¡Hola ${clientName || ''}! Te saludamos de Plan Beauty RD / SalonPro.`);
+  const msg = encodeURIComponent(`¡Hola ${clientName || ''}! Te saludamos de Membresía / SalonPro.`);
   return `https://wa.me/${cleanNumber}?text=${msg}`;
 };
 
@@ -373,7 +373,7 @@ const ClientProfile = () => {
     const p = targetPlan 
       || (allPlansList || []).find(pl => pl.id === c.plan_id) 
       || (activePlans || []).find(pl => pl.id === c.plan_id) 
-      || { price: c.contract_price || '1950.00', title: c.planTitle || 'Plan Beauty' };
+      || { price: c.contract_price || '1950.00', title: c.planTitle || 'Membresía' };
     
     const clientName = client?.nombre || 'la clienta';
     if (window.confirm(`¿Estás seguro de registrar un cobro en Efectivo/POS de RD$ ${parseFloat(p.price).toLocaleString()} para reactivar la membresía "${p.title}" de ${clientName}?`)) {
@@ -483,7 +483,7 @@ const ClientProfile = () => {
 
       // Configurar propiedades correctas para el Iframe (sin imagen rota de Imgur)
       window.PWCheckout.SetProperties({
-        "name": client.salon_name || "Plan Beauty RD / SalonPro",
+        "name": client.salon_name || "Membresía / SalonPro",
         "email": client.email || "correo@default.com",
         "button_label": "Guardar Tarjeta",
         "description": "Actualización de Método de Pago",
@@ -694,7 +694,7 @@ const ClientProfile = () => {
         client.cardnet_customer_id,
         cardToUse.PaymentProfileId,
         amount,
-        `Cobro Verificado PLAN BEAUTY - ${client.nombre}`,
+        `Cobro Verificado MEMBRESÍA - ${client.nombre}`,
         client.id
       );
 
@@ -1762,7 +1762,7 @@ const ClientProfile = () => {
                     <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '1.25rem', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                         <p style={{ fontWeight: 800, color: '#991b1b', margin: 0, fontSize: '0.9rem' }}>
-                          {contracts.find(c => c.status === 'Cancelled')?.planTitle || 'Plan Beauty'}
+                          {contracts.find(c => c.status === 'Cancelled')?.planTitle || 'Membresía'}
                         </p>
                         <span style={{ fontSize: '0.65rem', background: '#dc2626', color: 'white', padding: '0.2rem 0.6rem', borderRadius: '99px', fontWeight: 900 }}>
                           ✕ CANCELADO
@@ -2280,7 +2280,7 @@ const ClientProfile = () => {
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'var(--bg-canvas)', border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
                     <div>
                       <p style={{ fontWeight: 700, fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <FileSignature size={14} color="#64748b" /> Contrato #{c.id || c.contract_id || 'Digital'} - {c.planTitle || 'Plan Beauty'}
+                        <FileSignature size={14} color="#64748b" /> Contrato #{c.id || c.contract_id || 'Digital'} - {c.planTitle || 'Membresía'}
                       </p>
                       <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                         Firmado el: {new Date(c.created_at || c.signed_at).toLocaleDateString()}
@@ -2792,7 +2792,7 @@ const ClientProfile = () => {
                                   {isActive ? (
                                     <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '0.25rem 0.65rem', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                                       <span style={{ width: '6px', height: '6px', background: '#22c55e', borderRadius: '50%' }}></span>
-                                      {c.planName || 'Plan Beauty'}
+                                      {c.planName || 'Membresía'}
                                     </span>
                                   ) : isPendingRetry ? (
                                     <span style={{ background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', padding: '0.25rem 0.65rem', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
@@ -2898,7 +2898,7 @@ const ClientProfile = () => {
                         titleColor = '#dc2626';
                         titleText = '✕ ESTADO DE MEMBRESÍA';
                         valueColor = '#991b1b';
-                        valueText = `✕ Cancelado (${c.planName || 'Plan Beauty'})`;
+                        valueText = `✕ Cancelado (${c.planName || 'Membresía'})`;
                       } else if (isSuspended) {
                         topBarColor = '#7f1d1d';
                         boxBg = '#fef2f2';
@@ -2914,7 +2914,7 @@ const ClientProfile = () => {
                         titleColor = '#d97706';
                         titleText = '⚠️ COBRO PENDIENTE';
                         valueColor = '#b45309';
-                        valueText = `Tarjeta declinada (${c.planName || 'Plan Beauty'})`;
+                        valueText = `Tarjeta declinada (${c.planName || 'Membresía'})`;
                       } else if (isActive) {
                         topBarColor = '#10b981';
                         boxBg = '#f0fdf4';
@@ -3483,7 +3483,7 @@ const ClientProfile = () => {
               <div style={{ background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)', width: '70px', height: '70px', borderRadius: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', boxShadow: '0 10px 20px rgba(245, 158, 11, 0.2)' }}>
                 <Award size={36} color="white" />
               </div>
-              <h3 style={{ fontSize: '2rem', fontWeight: 900, color: '#1e293b', marginBottom: '0.75rem', letterSpacing: '-0.025em' }}>Tu Experiencia en Plan Beauty</h3>
+              <h3 style={{ fontSize: '2rem', fontWeight: 900, color: '#1e293b', marginBottom: '0.75rem', letterSpacing: '-0.025em' }}>Tu Experiencia en Membresía</h3>
               <p style={{ color: '#64748b', fontSize: '1rem', fontWeight: 500 }}>Ayúdanos a brindarte un servicio de excelencia cada día.</p>
             </div>
 

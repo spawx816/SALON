@@ -433,22 +433,22 @@ export const BusinessIntelligence = ({ standalone = true }) => {
       // Dynamic rows based on selected bar
       const clientRowsByBin = {
         '0_visits': [
-          { cliente: 'Laura Pérez', membresia: 'Plan Beauty', visitas: 0, ultimo_lavado: '25 sept 2026', sucursal: 'San Vicente', telefono: '8095551234' },
-          { cliente: 'María Gómez', membresia: 'Plan Beauty', visitas: 0, ultimo_lavado: '18 sept 2026', sucursal: 'Villa Mella', telefono: '8095552345' },
-          { cliente: 'Ana Martínez', membresia: 'Plan Beauty', visitas: 0, ultimo_lavado: 'Sin registro', sucursal: 'San Vicente', telefono: '8095553456' },
-          { cliente: 'Carmen Rosario', membresia: 'Plan Beauty', visitas: 0, ultimo_lavado: '20 sept 2026', sucursal: 'San Vicente', telefono: '8095554567' },
-          { cliente: 'Yomaira Batista', membresia: 'Plan Beauty', visitas: 0, ultimo_lavado: '12 sept 2026', sucursal: 'Villa Mella', telefono: '8095555678' }
+          { cliente: 'Laura Pérez', membresia: 'Membresía', visitas: 0, ultimo_lavado: '25 sept 2026', sucursal: 'San Vicente', telefono: '8095551234' },
+          { cliente: 'María Gómez', membresia: 'Membresía', visitas: 0, ultimo_lavado: '18 sept 2026', sucursal: 'Villa Mella', telefono: '8095552345' },
+          { cliente: 'Ana Martínez', membresia: 'Membresía', visitas: 0, ultimo_lavado: 'Sin registro', sucursal: 'San Vicente', telefono: '8095553456' },
+          { cliente: 'Carmen Rosario', membresia: 'Membresía', visitas: 0, ultimo_lavado: '20 sept 2026', sucursal: 'San Vicente', telefono: '8095554567' },
+          { cliente: 'Yomaira Batista', membresia: 'Membresía', visitas: 0, ultimo_lavado: '12 sept 2026', sucursal: 'Villa Mella', telefono: '8095555678' }
         ],
         '1_visits': [
-          { cliente: 'Patricia Reyes', membresia: 'Plan Beauty', visitas: 1, ultimo_lavado: '5 oct 2026', sucursal: 'San Vicente', telefono: '8095556789' },
-          { cliente: 'Altagracia Soto', membresia: 'Plan Beauty', visitas: 1, ultimo_lavado: '8 oct 2026', sucursal: 'Villa Mella', telefono: '8095557890' },
-          { cliente: 'Griselda Méndez', membresia: 'Plan Beauty', visitas: 1, ultimo_lavado: '10 oct 2026', sucursal: 'San Vicente', telefono: '8095558901' }
+          { cliente: 'Patricia Reyes', membresia: 'Membresía', visitas: 1, ultimo_lavado: '5 oct 2026', sucursal: 'San Vicente', telefono: '8095556789' },
+          { cliente: 'Altagracia Soto', membresia: 'Membresía', visitas: 1, ultimo_lavado: '8 oct 2026', sucursal: 'Villa Mella', telefono: '8095557890' },
+          { cliente: 'Griselda Méndez', membresia: 'Membresía', visitas: 1, ultimo_lavado: '10 oct 2026', sucursal: 'San Vicente', telefono: '8095558901' }
         ]
       };
 
       const selectedBin = frequencyBins.find(b => b.key === interactiveSelectedGroup || b.label === interactiveSelectedGroup) || frequencyBins[0];
       const activeRows = clientRowsByBin[selectedBin.key] || [
-        { cliente: 'Socia Registrada', membresia: 'Plan Beauty', visitas: selectedBin.label, ultimo_lavado: '3 oct 2026', sucursal: 'San Vicente', telefono: '8095559999' }
+        { cliente: 'Socia Registrada', membresia: 'Membresía', visitas: selectedBin.label, ultimo_lavado: '3 oct 2026', sucursal: 'San Vicente', telefono: '8095559999' }
       ];
 
       setReportData({
@@ -584,8 +584,8 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             { key: 'contacto', label: 'Acción WhatsApp', align: 'center' }
           ],
           rows: [
-            { cliente: 'Yomaira Batista', telefono: '8095551122', tipo: 'Plan Beauty', ultima_visita: '12 sept 2026', dias_ausente: 30 },
-            { cliente: 'Francisca Santana', telefono: '8095553344', tipo: 'Plan Beauty', ultima_visita: '05 sept 2026', dias_ausente: 37 },
+            { cliente: 'Yomaira Batista', telefono: '8095551122', tipo: 'Membresía', ultima_visita: '12 sept 2026', dias_ausente: 30 },
+            { cliente: 'Francisca Santana', telefono: '8095553344', tipo: 'Membresía', ultima_visita: '05 sept 2026', dias_ausente: 37 },
             { cliente: 'Dilenia Corporán', telefono: '8095557788', tipo: 'Regular', ultima_visita: '28 ago 2026', dias_ausente: 45 }
           ],
           footerNote: 'Al pulsar "Contactar" se abre el canal de WhatsApp sin enviar mensajes de forma no autorizada.'
@@ -786,7 +786,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
 
       {/* Institutional Header Visible Only on Print/PDF */}
       <div className="bi-print-header">
-        <h1>SISTEMA SALON PRO &amp; PLAN BEAUTY RD</h1>
+        <h1>SISTEMA SALON PRO &amp; MEMBRESÍA</h1>
         <p>
           <strong>Reporte:</strong> {reportData?.title || currentReportConfig.name} &nbsp;|&nbsp;
           <strong>Período evaluado:</strong> {reportData?.periodText || `${startDate} al ${endDate}`} &nbsp;|&nbsp;
@@ -1109,7 +1109,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                   {Array.from(new Set([
                     ...(reportData?.available_services || []),
                     ...servicesCatalog
-                      .map(s => String(s.nombre || s.name || '').replace(/\s*\(Plan Beauty\)\s*/i, '').trim())
+                      .map(s => String(s.nombre || s.name || '').replace(/\s*\(Membresía\)\s*/i, '').trim())
                       .filter(n => n && !n.toLowerCase().includes('producto prueba'))
                   ])).sort((a, b) => a.localeCompare(b, 'es')).map(srvName => (
                     <option key={srvName} value={srvName}>{srvName}</option>
@@ -1148,7 +1148,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
                     <option key={p.id} value={p.id}>{p.title}</option>
                   ))}
                   {plans.length === 0 && (
-                    <option value="Plan Beauty">Plan Beauty</option>
+                    <option value="Plan Beauty">Membresía</option>
                   )}
                 </select>
                 <ChevronDown size={15} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />

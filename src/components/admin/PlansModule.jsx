@@ -463,7 +463,7 @@ const PlansModule = () => {
                     className="input-field" 
                     value={formTitle} 
                     onChange={(e) => setFormTitle(e.target.value)} 
-                    placeholder="Ej: Plan Beauty VIP" 
+                    placeholder="Ej: Membresía VIP" 
                     style={{ borderRadius: '10px', padding: '0.65rem' }}
                   />
                 </div>
@@ -529,7 +529,7 @@ const PlansModule = () => {
                   onChange={(e) => setFormLocation(e.target.value)}
                   style={{ borderRadius: '10px', padding: '0.65rem', background: 'white' }}
                 >
-                  <option value="Todas las Sedes">Todas las Sedes (Red Afiliada Plan Beauty)</option>
+                  <option value="Todas las Sedes">Todas las Sedes (Red Afiliada Membresía)</option>
                   {salons.map(s => (
                     <option key={s.id} value={s.name}>{s.name}</option>
                   ))}

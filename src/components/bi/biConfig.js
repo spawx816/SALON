@@ -1,7 +1,7 @@
 /**
  * Configuración oficial del Módulo de Inteligencia de Negocios
  * Catálogo vigente de 30 reportes aprobados (12 de octubre de 2026)
- * Basado en la Guía para el Desarrollador de Empresa Pro & Plan Beauty RD
+ * Basado en la Guía para el Desarrollador de Empresa Pro & Membresía
  */
 
 export const BI_CATEGORIES = [

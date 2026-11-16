@@ -615,7 +615,7 @@ const VisitRecorder = () => {
         servicesList,
         totalAvailableCount,
         washesAvailable: primaryWashAvailable,
-        planName: chosenContract.planTitle || chosenContract.plan_name || matchedPlan?.title || 'Plan Beauty'
+        planName: chosenContract.planTitle || chosenContract.plan_name || matchedPlan?.title || 'Membresía'
       });
     } catch (err) {
       console.error('Error loading ticket client membership:', err);
@@ -628,10 +628,10 @@ const VisitRecorder = () => {
   // Modal: Frases Motivacionales de Recepción (Pantalla al abrir caja y rotación 30 min)
   const [showMotivationalModal, setShowMotivationalModal] = useState(false);
 
-  // Aplicar 20% de descuento a todos los servicios adicionales para socias Plan Beauty
+  // Aplicar 20% de descuento a todos los servicios adicionales para socias Membresía
   const handleApply20PercentPlanDiscount = () => {
     if (!lineItems || lineItems.length === 0) {
-      alert('Agrega servicios adicionales a la lista para aplicar el 20% de descuento de socia Plan Beauty.');
+      alert('Agrega servicios adicionales a la lista para aplicar el 20% de descuento de socia Membresía.');
       return;
     }
     const updated = lineItems.map(item => {
@@ -720,7 +720,7 @@ const VisitRecorder = () => {
     }
   };
 
-  // OTP Verification for Plan Beauty Consumption
+  // OTP Verification for Membresía Consumption
   const [showOtpVerificationModal, setShowOtpVerificationModal] = useState(false);
   const [otpCodeInput, setOtpCodeInput] = useState('');
   const [pendingPlanService, setPendingPlanService] = useState(null);
@@ -1039,7 +1039,7 @@ const VisitRecorder = () => {
           if (Array.isArray(parsed)) {
             parsed.forEach(i => {
               const iName = (i.nombre || i.servicio || '').toLowerCase();
-              if (i.isPromoGift || iName.includes('regalo plan beauty') || iName.includes('plan beauty promo') || (i.service_id && String(i.service_id).includes('promo'))) {
+              if (i.isPromoGift || iName.includes('regalo membresía') || iName.includes('membresía promo') || (i.service_id && String(i.service_id).includes('promo'))) {
                 visitPromoCount += (Number(i.cantidad) || 1);
               }
             });
@@ -1050,7 +1050,7 @@ const VisitRecorder = () => {
     });
 
     // In-cart promo gifts in current lineItems
-    const inCartPromoCount = (lineItems || []).filter(i => i.isPromoGift || (i.nombre && i.nombre.includes('Regalo Plan Beauty'))).length;
+    const inCartPromoCount = (lineItems || []).filter(i => i.isPromoGift || (i.nombre && i.nombre.includes('Regalo Membresía'))).length;
 
     // Excess washes beyond base quota also consume promo wash
     const excessWashes = Math.max(0, totalCycleWashesUsed - totalAllowedWashes);
@@ -1342,7 +1342,7 @@ const VisitRecorder = () => {
       setSelectedEmployeeForTicket(null);
       await fetchPendingTickets();
 
-      // Detect if client has active Plan Beauty or Birthday
+      // Detect if client has active Membresía or Birthday
       const isClientBday = checkClientBirthday(selectedClientForTicket);
       let isPlanActive = ticketType === 'plan_beauty' || (currentMembership?.hasContract && (currentMembership?.status === 'Active' || currentMembership?.status === 'Activo'));
       let washesAvailable = currentMembership?.washesAvailable !== undefined
@@ -1577,7 +1577,7 @@ const VisitRecorder = () => {
         };
       });
 
-    // Automatic Employee / Plan Beauty / Guest Detection (Strict check to prevent ID collision with clients)
+    // Automatic Employee / Membresía / Guest Detection (Strict check to prevent ID collision with clients)
     const isEmpTicket = Boolean(
       String(ticket.client_id || '').startsWith('EMP-') ||
       ticket.client_id === 'EMPLEADO' ||
@@ -1879,7 +1879,7 @@ const VisitRecorder = () => {
           ...matchedPlan,
           id: contract.plan_id || '1',
           contract_id: contract.id,
-          title: contract.planTitle || matchedPlan?.title || 'Plan Beauty',
+          title: contract.planTitle || matchedPlan?.title || 'Membresía',
           services: allServices.length > 0 ? allServices : ['Lavado y Secado', 'Tratamiento Profundo'],
           baseServices: baseArray,
           promoServices: promoArray,
@@ -1903,7 +1903,7 @@ const VisitRecorder = () => {
       if (planesConContrato.length === 0 && ticketObj?.plan_beauty_id) {
         planesConContrato = [{
           id: ticketObj.plan_beauty_id,
-          title: 'Plan Beauty',
+          title: 'Membresía',
           services: ['Lavado y Secado', 'Tratamiento Profundo'],
           used_washes: 0,
           total_washes: 4,
@@ -2243,7 +2243,7 @@ const VisitRecorder = () => {
     }
   };
 
-  // Plan Beauty Wash Direct Redemption (RD$ 0.00 Included) & Welcome Promo Gift
+  // Membresía Wash Direct Redemption (RD$ 0.00 Included) & Welcome Promo Gift
   const addPlanWashToTicket = (isPromoTreatment = false) => {
     if (isPendingPayment) {
       alert('Membresía con cobro pendiente. Regularice el pago para utilizar sus beneficios.');
@@ -2255,12 +2255,12 @@ const VisitRecorder = () => {
     const totalAvail = getBenefitsCount();
 
     if (!hasActivePlan || totalAvail <= 0) {
-      alert('El cliente no tiene beneficios disponibles en su Plan Beauty para este ciclo.');
+      alert('El cliente no tiene beneficios disponibles en su Membresía para este ciclo.');
       return;
     }
     const alreadyHasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && (i.nombre.includes('Plan Beauty') || i.nombre.includes('Regalo Plan Beauty'))));
     if (alreadyHasPlanWash) {
-      alert('ℹ️ Ya se ha incluido un beneficio de Plan Beauty en esta factura.');
+      alert('ℹ️ Ya se ha incluido un beneficio de Membresía en esta factura.');
       return;
     }
 
@@ -2272,7 +2272,7 @@ const VisitRecorder = () => {
       const newPromoTreatmentItem = {
         id: Date.now() + Math.random(),
         service_id: 'plan-beauty-treatment-promo',
-        nombre: 'Tratamiento Profundo (Regalo Plan Beauty)',
+        nombre: 'Tratamiento Profundo (Regalo Membresía)',
         precioBase: 0,
         precioAplicado: 0,
         descuento: 0,
@@ -2289,8 +2289,8 @@ const VisitRecorder = () => {
 
     const isExtra = regWashes <= 0 && extraWashes > 0;
     const washTitle = isExtra 
-      ? 'Lavado Extra (Regalo Plan Beauty)'
-      : 'Lavado y Secado (Plan Beauty)';
+      ? 'Lavado Extra (Regalo Membresía)'
+      : 'Lavado y Secado (Membresía)';
 
     const newWashItem = {
       id: Date.now() + Math.random(),
@@ -2352,7 +2352,7 @@ const VisitRecorder = () => {
     const newItem = {
       id: Date.now() + Math.random(),
       service_id: match?.id || service.id || `srv-${Date.now()}`,
-      nombre: isCoveredByPlan ? `${realName} (Plan Beauty)` : realName,
+      nombre: isCoveredByPlan ? `${realName} (Membresía)` : realName,
       precioBase: basePrice,
       precioAplicado: basePrice,
       cantidad: 1,
@@ -2371,9 +2371,9 @@ const VisitRecorder = () => {
     const updated = [...lineItems];
     const item = updated[index];
 
-    // Regla Plan Beauty: Incluye 1 solo lavado por facturación. Si se eleva a 2, el segundo se cobra a precio regular estándar (RD$ 600).
+    // Regla Membresía: Incluye 1 solo lavado por facturación. Si se eleva a 2, el segundo se cobra a precio regular estándar (RD$ 600).
     if (item.isPlanWash && delta > 0) {
-      const cleanName = item.nombre.replace(' (Plan Beauty)', '').trim();
+      const cleanName = item.nombre.replace(' (Membresía)', '').trim();
       const matchedSrv = availableServices.find(s => isLavadoSencillo(s.nombre));
       const regularPrice = matchedSrv ? (parseFloat(matchedSrv.precio) || 600) : 600;
       const secondWash = {
@@ -2392,7 +2392,7 @@ const VisitRecorder = () => {
         aplica_itbis: matchedSrv?.aplica_itbis ? 1 : 0
       };
       setLineItems([...lineItems, secondWash]);
-      alert('ℹ️ Plan Beauty incluye 1 solo lavado en cada facturación.\nEl lavado adicional se ha agregado automáticamente a precio regular (RD$ ' + regularPrice.toLocaleString('es-DO', { minimumFractionDigits: 2 }) + ').');
+      alert('ℹ️ Membresía incluye 1 solo lavado en cada facturación.\nEl lavado adicional se ha agregado automáticamente a precio regular (RD$ ' + regularPrice.toLocaleString('es-DO', { minimumFractionDigits: 2 }) + ').');
       return;
     }
 
@@ -2668,7 +2668,7 @@ const VisitRecorder = () => {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
-  // Calculate Plan Beauty discount when consumePlanWash is ON and client has active plan with available quota
+  // Calculate Membresía discount when consumePlanWash is ON and client has active plan with available quota
   const calculatePlanDiscount = () => {
     if (!consumePlanWash || !activePlans || activePlans.length === 0) return 0;
     const availableBenefits = getBenefitsCount();
@@ -2691,7 +2691,7 @@ const VisitRecorder = () => {
     if (washItem) {
       return (washItem.precioAplicado * 1);
     }
-    // If paymentMethod is Plan Beauty and items exist, cover the first item only if benefits available
+    // If paymentMethod is Membresía and items exist, cover the first item only if benefits available
     if (paymentMethod === 'Plan Beauty' && lineItems.length > 0) {
       return (lineItems[0].precioAplicado * 1);
     }
@@ -2741,7 +2741,7 @@ const VisitRecorder = () => {
   const isPlanZeroTotal = finalTotalAmount === 0 && lineItems.length > 0 && (hasPlanWashInItems || (hasActivePlan && hasAvailablePlanBenefits));
   const isFinalizeEnabled = lineItems.length > 0 && (isPlanZeroTotal || (pendienteAmount <= 0.01 && appliedPayments.length > 0));
 
-  // Initialize default single cash payment in blank so cashier types, or Plan Beauty if covered
+  // Initialize default single cash payment in blank so cashier types, or Membresía if covered
   useEffect(() => {
     const hasPlanWash = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
     const hasBenefits = getBenefitsCount() > 0;
@@ -2768,7 +2768,7 @@ const VisitRecorder = () => {
         }
       ]);
     } else if (finalTotalAmount > 0 && appliedPayments.some(p => p.method === 'Plan Beauty')) {
-      // Remove automatic 0 Plan Beauty payment method if total is now > 0
+      // Remove automatic 0 Membresía payment method if total is now > 0
       setAppliedPayments(prev => prev.filter(p => p.method !== 'Plan Beauty'));
     }
   }, [finalTotalAmount, lineItems, hasActivePlan]);
@@ -3129,7 +3129,7 @@ const VisitRecorder = () => {
       }
     }
 
-    // Check if invoice includes a Plan Beauty wash that requires client email OTP verification
+    // Check if invoice includes a Membresía wash that requires client email OTP verification
     if (hasPlanWash) {
       const cId = clientFound?.id || selectedTicket?.client_id;
       const cEmail = clientFound?.email || selectedTicket?.client_email;
@@ -3819,7 +3819,7 @@ const VisitRecorder = () => {
                           : (isGuestClient 
                             ? 'Cliente General' 
                             : (hasActivePlan 
-                              ? 'Plan Beauty Activo' 
+                              ? 'Membresía Activo' 
                               : (!isGuestClient && isPendingPayment 
                                 ? 'Suspendido falta de pago' 
                                 : (!isGuestClient && isContractCancelled 
@@ -3860,7 +3860,7 @@ const VisitRecorder = () => {
                           letterSpacing: '0.06em',
                           textTransform: 'uppercase'
                         }}>
-                          {isGuestClient ? 'SIN PLAN BEAUTY ACTIVO' : (isPendingPayment ? 'BENEFICIOS DISPONIBLES (SUSPENDIDO)' : (isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : (benefitsCount === 1 ? 'BENEFICIO DISPONIBLE' : 'BENEFICIOS DISPONIBLES')))}
+                          {isGuestClient ? 'SIN MEMBRESÍA ACTIVO' : (isPendingPayment ? 'BENEFICIOS DISPONIBLES (SUSPENDIDO)' : (isContractCancelled ? 'BENEFICIOS DISPONIBLES (CANCELADO)' : (benefitsCount === 1 ? 'BENEFICIO DISPONIBLE' : 'BENEFICIOS DISPONIBLES')))}
                         </span>
 
                         <button
@@ -4474,7 +4474,7 @@ const VisitRecorder = () => {
               <strong style={{ color: '#18181b' }}>RD$ 0.00</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: totalDiscounts > 0 ? '#ef4444' : '#71717a' }}>
-              <span>Descuentos {planDiscountAmount > 0 ? '(Plan Beauty)' : ''}</span>
+              <span>Descuentos {planDiscountAmount > 0 ? '(Membresía)' : ''}</span>
               <strong style={{ color: totalDiscounts > 0 ? '#ef4444' : '#71717a' }}>
                 - RD$ {totalDiscounts.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
               </strong>
@@ -5116,7 +5116,7 @@ const VisitRecorder = () => {
                     </div>
                   </div>
 
-                  {/* TAB 2: PLAN BEAUTY (SOLO EN PLAN PRO) */}
+                  {/* TAB 2: MEMBRESÍA (SOLO EN PLAN PRO) */}
                   {hasProPlan && (
                     <div
                       onClick={() => {
@@ -5136,7 +5136,7 @@ const VisitRecorder = () => {
                       </div>
                       <div style={{ overflow: 'hidden' }}>
                         <strong style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: ticketType === 'plan_beauty' ? '#be185d' : '#0f172a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                          Plan Beauty
+                          Membresía
                         </strong>
                         <span style={{ fontSize: '0.68rem', color: '#64748b', whiteSpace: 'nowrap' }}>
                           Cliente registrado
@@ -5225,10 +5225,10 @@ const VisitRecorder = () => {
                         💎
                       </div>
                       <h4 style={{ margin: '0 0 0.2rem', fontSize: '1.05rem', fontWeight: 900, color: '#0f172a' }}>
-                        Plan Beauty
+                        Membresía
                       </h4>
                       <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>
-                        Busca un cliente registrado con membresía Plan Beauty.
+                        Busca un cliente registrado con membresía Membresía.
                       </p>
                     </div>
 
@@ -5866,7 +5866,7 @@ const VisitRecorder = () => {
                               </span>
                             ) : isPlanRedemption ? (
                               <span style={{ background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
-                                💎 Plan Beauty (RD$ 0.00)
+                                💎 Membresía (RD$ 0.00)
                               </span>
                             ) : (
                               <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', padding: '4px 10px', borderRadius: '8px', fontSize: '0.825rem', fontWeight: 900 }}>
@@ -6231,7 +6231,7 @@ const VisitRecorder = () => {
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.8rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ color: '#475569' }}>💎 Plan Beauty (Cantidad)</span>
+                            <span style={{ color: '#475569' }}>💎 Membresía (Cantidad)</span>
                             <strong style={{ color: '#be185d', fontWeight: 800 }}>
                               {registerMovements.filter(m => (m.payment_method || '').toLowerCase().includes('plan')).length || 0} atenciones
                             </strong>
@@ -6641,7 +6641,7 @@ const VisitRecorder = () => {
                 <div>💳 Tarjeta: <strong>RD$ {(registerSummary?.tarjetaTotal || 0).toFixed(2)}</strong></div>
                 <div>🏦 Transferencia: <strong>RD$ {(registerSummary?.transferenciaTotal || 0).toFixed(2)}</strong></div>
                 <div>🎁 Gift Card: <strong>RD$ {(registerSummary?.giftCardTotal || 0).toFixed(2)}</strong></div>
-                <div>✨ Plan Beauty: <strong>RD$ {(registerSummary?.planBeautyTotal || 0).toFixed(2)}</strong></div>
+                <div>✨ Membresía: <strong>RD$ {(registerSummary?.planBeautyTotal || 0).toFixed(2)}</strong></div>
                 <div>👤 Consumo Empleados: <strong>RD$ {(registerSummary?.consumoTotal || 0).toFixed(2)}</strong></div>
               </div>
 
@@ -7145,7 +7145,7 @@ const VisitRecorder = () => {
             <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: isPendingPayment ? '#b45309' : (isContractCancelled ? '#991b1b' : '#0f172a'), letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                  {(isPendingPayment || isContractCancelled) ? 'ESTADO DE SUSCRIPCIÓN' : 'DETALLE PLAN BEAUTY'}
+                  {(isPendingPayment || isContractCancelled) ? 'ESTADO DE SUSCRIPCIÓN' : 'DETALLE MEMBRESÍA'}
                 </h3>
                 {isPendingPayment && (
                   <span style={{ fontSize: '0.72rem', fontWeight: 800, background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: '8px', border: '1px solid #fde68a' }}>
@@ -7190,7 +7190,7 @@ const VisitRecorder = () => {
                   <span style={{ fontSize: '1.35rem', lineHeight: 1 }}>🚫</span>
                   <div>
                     <div style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.95rem' }}>
-                      Suscripción Plan Beauty Cancelada
+                      Suscripción Membresía Cancelada
                     </div>
                     <div style={{ color: '#b91c1c', fontSize: '0.85rem', marginTop: '4px', lineHeight: 1.4 }}>
                       Este cliente no tiene una membresía activa. Todos los servicios deben facturarse a su tarifa regular.

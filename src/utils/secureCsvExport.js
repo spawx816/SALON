@@ -1,5 +1,5 @@
 /**
- * Secure CSV Export Utility (Empresa Pro & Plan Beauty RD)
+ * Secure CSV Export Utility (Empresa Pro & Membresía)
  * 
  * Provides native, secure CSV generation with zero external dependencies.
  * Defends against CSV / Excel Formula Injection (CWE-1236):
@@ -73,7 +73,7 @@ export function generateCsvContent({
   const lines = [];
 
   if (title) {
-    lines.push(formatCsvRow([`SISTEMA SALON PRO & PLAN BEAUTY RD - ${title.toUpperCase()}`], delimiter));
+    lines.push(formatCsvRow([`SISTEMA SALON PRO & MEMBRESÍA - ${title.toUpperCase()}`], delimiter));
     lines.push(formatCsvRow([`Fecha de generación: ${new Date().toLocaleString('es-DO')}`], delimiter));
   }
 

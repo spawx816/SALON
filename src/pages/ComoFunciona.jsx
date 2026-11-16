@@ -5,8 +5,8 @@ import { UserPlus, CreditCard, MapPin, Smile, ArrowRight } from 'lucide-react';
 
 const ComoFunciona = () => {
   useDocumentMetadata({
-    title: '¿Cómo funciona Plan Beauty? Suscripción, citas y beneficios',
-    description: 'Descubre el funcionamiento de Plan Beauty. Elige tu plan, suscríbete online, asiste a tu empresa sin necesidad de cita previa y disfruta de tu lavado profesional.',
+    title: '¿Cómo funciona Membresía? Suscripción, citas y beneficios',
+    description: 'Descubre el funcionamiento de Membresía. Elige tu plan, suscríbete online, asiste a tu empresa sin necesidad de cita previa y disfruta de tu lavado profesional.',
     canonicalUrl: 'https://planbeautyrd.com/como-funciona',
     robots: 'index, follow'
   });
@@ -21,7 +21,7 @@ const ComoFunciona = () => {
             TU CABELLO PERFECTO EN <span style={{ color: '#d4af37' }}>4 SIMPLES PASOS</span>
           </h1>
           <p style={{ maxWidth: '600px', margin: '1rem auto 0', color: '#64748b', fontSize: '1.05rem', lineHeight: 1.6 }}>
-            Olvídate de pagar por cada servicio de peluquería por separado. Descubre cómo Plan Beauty simplifica tu rutina de cuidado del cabello.
+            Olvídate de pagar por cada servicio de peluquería por separado. Descubre cómo Membresía simplifica tu rutina de cuidado del cabello.
           </p>
         </div>
 
@@ -83,7 +83,7 @@ const ComoFunciona = () => {
           <div style={{ flex: 1 }}>
             <h2 style={{ fontSize: '1.75rem', fontWeight: 900, color: '#09090b', marginBottom: '1rem' }}>Olvídate de agendar con antelación</h2>
             <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.6, margin: 0 }}>
-              Sabemos que tu tiempo es valioso y que los imprevistos suceden. Con Plan Beauty, no tienes que lidiar con agendas llenas ni programaciones rígidas. Simplemente asiste a tu peluquería asociada dentro de su horario de atención regular. Al llegar, se validará tu servicio en segundos con tu cédula en recepción, y pasarás de forma directa según orden de llegada.
+              Sabemos que tu tiempo es valioso y que los imprevistos suceden. Con Membresía, no tienes que lidiar con agendas llenas ni programaciones rígidas. Simplemente asiste a tu peluquería asociada dentro de su horario de atención regular. Al llegar, se validará tu servicio en segundos con tu cédula en recepción, y pasarás de forma directa según orden de llegada.
             </p>
             <div style={{ display: 'flex', gap: '1.5rem', marginTop: '2rem' }}>
               <Link to="/registro" className="landing-btn btn-primary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

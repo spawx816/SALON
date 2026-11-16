@@ -11,8 +11,8 @@ const SalonDetalle = () => {
     'abatte-san-vicente': {
       id: 1,
       name: 'Abatte Peluquería San Vicente',
-      title: 'Plan Beauty en Abatte San Vicente | Lavados mensuales',
-      description: 'Utiliza tu Plan Beauty en Abatte Peluquería San Vicente. Ubicado en Av. San Vicente de Paul, Santo Domingo Este. Lavados y peinados profesionales.',
+      title: 'Membresía en Abatte San Vicente | Lavados mensuales',
+      description: 'Utiliza tu Membresía en Abatte Peluquería San Vicente. Ubicado en Av. San Vicente de Paul, Santo Domingo Este. Lavados y peinados profesionales.',
       address: 'Av. San Vicente de Paul esq. Puerto Rico, Plaza El Poder Local 1F',
       sector: 'Alma Rosa I',
       municipio: 'Santo Domingo Este',
@@ -36,8 +36,8 @@ const SalonDetalle = () => {
     'abatte-sirena-villa-mella': {
       id: 4,
       name: 'Abatte Peluquería Sirena Villa Mella',
-      title: 'Plan Beauty en Abatte Sirena Villa Mella | Lavados mensuales',
-      description: 'Utiliza tu Plan Beauty en Abatte Peluquería Sirena Villa Mella. Ubicado en Av. Hermanas Mirabal, dentro del Multicentro La Sirena. Lavados y peinados profesionales.',
+      title: 'Membresía en Abatte Sirena Villa Mella | Lavados mensuales',
+      description: 'Utiliza tu Membresía en Abatte Peluquería Sirena Villa Mella. Ubicado en Av. Hermanas Mirabal, dentro del Multicentro La Sirena. Lavados y peinados profesionales.',
       address: 'Av. Hermanas Mirabal, Villa Mella, dentro del Multicentro La Sirena',
       sector: 'Villa Mella',
       municipio: 'Santo Domingo Norte',
@@ -61,8 +61,8 @@ const SalonDetalle = () => {
     'abatte-peluqueria-sirena-villa-mella': {
       id: 4,
       name: 'Abatte Peluquería Sirena Villa Mella',
-      title: 'Plan Beauty en Abatte Sirena Villa Mella | Lavados mensuales',
-      description: 'Utiliza tu Plan Beauty en Abatte Peluquería Sirena Villa Mella. Ubicado en Av. Hermanas Mirabal, dentro del Multicentro La Sirena. Lavados y peinados profesionales.',
+      title: 'Membresía en Abatte Sirena Villa Mella | Lavados mensuales',
+      description: 'Utiliza tu Membresía en Abatte Peluquería Sirena Villa Mella. Ubicado en Av. Hermanas Mirabal, dentro del Multicentro La Sirena. Lavados y peinados profesionales.',
       address: 'Av. Hermanas Mirabal, Villa Mella, dentro del Multicentro La Sirena',
       sector: 'Villa Mella',
       municipio: 'Santo Domingo Norte',
@@ -113,7 +113,7 @@ const SalonDetalle = () => {
               Sucursal Afiliada
             </span>
             <h1 style={{ fontSize: '2.25rem', fontWeight: 900, marginTop: '1.25rem', color: '#09090b', lineHeight: 1.2 }}>
-              Utiliza tu Plan Beauty en <span style={{ color: '#d4af37' }}>{empresa.name}</span>
+              Utiliza tu Membresía en <span style={{ color: '#d4af37' }}>{empresa.name}</span>
             </h1>
             
             <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.6, margin: '1rem 0 2rem' }}>

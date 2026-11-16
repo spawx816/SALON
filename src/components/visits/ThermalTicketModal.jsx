@@ -243,7 +243,7 @@ export const ThermalTicketModal = ({
               </div>
             </div>
 
-            {/* 3. CAJA DE BENEFICIOS (PLAN BEAUTY Y CUMPLEAÑOS) */}
+            {/* 3. CAJA DE BENEFICIOS (MEMBRESÍA Y CUMPLEAÑOS) */}
             <div style={{
               border: '1.5px solid #000000',
               borderRadius: '4px',
@@ -252,11 +252,11 @@ export const ThermalTicketModal = ({
               padding: '4px 5px',
               alignItems: 'center'
             }}>
-              {/* Tarjeta Plan Beauty */}
+              {/* Tarjeta Membresía */}
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px', borderRight: '1.5px solid #000000', paddingRight: '4px' }}>
                 <span style={{ fontSize: '14px', lineHeight: 1 }}>💎</span>
                 <div style={{ fontSize: '7px', lineHeight: 1.15 }}>
-                  <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>PLAN BEAUTY ACTIVO</div>
+                  <div style={{ fontWeight: 900, textTransform: 'uppercase' }}>MEMBRESÍA ACTIVO</div>
                   <div style={{ fontSize: '9.5px', fontWeight: 900, marginTop: '1px' }}>
                     {ticket.isPlanBeauty ? (ticket.planWashesAvailable ? `${ticket.planWashesAvailable} disp.` : 'Lavado disp.') : 'Lavado disp.'}
                   </div>

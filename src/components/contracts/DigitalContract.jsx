@@ -418,7 +418,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
        
         // 4. Configurar Propiedades y Abrir
         window.PWCheckout.SetProperties({
-            "name": "Suscripción PLAN BEAUTY",
+            "name": "Suscripción MEMBRESÍA",
             "email": client?.email || "correo@default.com",
             "button_label": "Asociar Tarjeta",
             "description": "Activación de Suscripción Recurrente",
@@ -776,7 +776,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-primary)' }}>
-                Afiliación y Contrato Digital Plan Beauty
+                Afiliación y Contrato Digital Membresía
               </h2>
               <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 Cliente: <strong style={{ color: 'var(--text-primary)' }}>{client?.nombre || initialClient?.nombre || 'Seleccione cliente'}</strong>
@@ -1012,7 +1012,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                 <div style={{ background: '#ffffff', padding: '1.25rem 1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
                   <div>
                     <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 900, color: '#0f172a' }}>
-                      Selecciona el Plan Beauty para {client.nombre || client.name}
+                      Selecciona el Membresía para {client.nombre || client.name}
                     </h4>
                     <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
                       Este plan será vinculado al contrato digital y la facturación recurrente.
@@ -1049,7 +1049,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                     setClient(prev => ({ ...(prev || {}), ...(savedClient || {}), id: savedClient?.id || prev?.id })); 
                     setStep(1); 
                   }} 
-                  submitButtonText="Guardar Datos y Continuar al Plan Beauty" 
+                  submitButtonText="Guardar Datos y Continuar al Membresía" 
                   isModal={true} 
                 />
               </div>
@@ -1104,7 +1104,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
                 dangerouslySetInnerHTML={{ 
                   __html: markdownToHtml(interpolateContract(contractSettings.content, {
                     client: client,
-                    plan: plans.find(p => p.id === selectedPlanId) || { title: 'PLAN BEAUTY', price: '1950.00' },
+                    plan: plans.find(p => p.id === selectedPlanId) || { title: 'MEMBRESÍA', price: '1950.00' },
                     settings: contractSettings,
                     date: new Date()
                   })) 
@@ -1134,7 +1134,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
         <div style={{ display: step === 3 ? 'flex' : 'none', flexDirection: 'column', gap: '2rem' }}>
             <h3 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Método de Pago (Configuración Recurrente)</h3>
             <p style={{ color: 'var(--text-secondary)' }}>
-              Por favor vincula la tarjeta para los cargos mensuales del plan <strong>{plans.find(p => String(p.id) === String(selectedPlanId))?.title || 'Plan Beauty'}</strong>.
+              Por favor vincula la tarjeta para los cargos mensuales del plan <strong>{plans.find(p => String(p.id) === String(selectedPlanId))?.title || 'Membresía'}</strong>.
             </p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center', background: 'var(--bg-canvas)', borderRadius: 'var(--radius-lg)', padding: '3rem', border: '1px solid var(--border-subtle)' }}>
@@ -1203,7 +1203,7 @@ const DigitalContract = ({ initialClient = null, isModal = false, onContractCrea
             <div style={{ textAlign: 'center' }}>
               <h3 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '0.5rem' }}>Firma y Activación Final</h3>
               <p style={{ color: 'var(--text-secondary)' }}>
-                Al firmar, confirmas la suscripción al plan <strong>{plans.find(p => String(p.id) === String(selectedPlanId))?.title || 'Plan Beauty'}</strong> y autorizas los cargos recurrentes.
+                Al firmar, confirmas la suscripción al plan <strong>{plans.find(p => String(p.id) === String(selectedPlanId))?.title || 'Membresía'}</strong> y autorizas los cargos recurrentes.
               </p>
             </div>
             

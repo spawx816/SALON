@@ -5,8 +5,8 @@ import { Percent, Award, Heart, Gift, Coffee, ShieldAlert } from 'lucide-react';
 
 const Beneficios = () => {
   useDocumentMetadata({
-    title: 'Beneficios de tu membresía de belleza | Plan Beauty RD',
-    description: 'Conoce los beneficios de afiliarte a Plan Beauty. Disfruta de un ahorro constante, atención profesional en empresas certificados, bebidas de cortesía y ofertas exclusivas.',
+    title: 'Beneficios de tu membresía de belleza | Membresía',
+    description: 'Conoce los beneficios de afiliarte a Membresía. Disfruta de un ahorro constante, atención profesional en empresas certificados, bebidas de cortesía y ofertas exclusivas.',
     canonicalUrl: 'https://planbeautyrd.com/beneficios',
     robots: 'index, follow'
   });
@@ -21,7 +21,7 @@ const Beneficios = () => {
             MÁS QUE UN SIMPLE <span style={{ color: '#d4af37' }}>PLAN DE LAVADOS</span>
           </h1>
           <p style={{ maxWidth: '600px', margin: '1rem auto 0', color: '#64748b', fontSize: '1.05rem', lineHeight: 1.6 }}>
-            Formar parte de Plan Beauty te da acceso a una experiencia de cuidado integral y beneficios diseñados especialmente para potenciar tu belleza y bienestar.
+            Formar parte de Membresía te da acceso a una experiencia de cuidado integral y beneficios diseñados especialmente para potenciar tu belleza y bienestar.
           </p>
         </div>
 

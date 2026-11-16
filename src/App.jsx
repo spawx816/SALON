@@ -1217,7 +1217,7 @@ const AppContent = () => {
         isOpen={isMotivationalModalOpen}
         onClose={() => setIsMotivationalModalOpen(false)}
         userName={user?.nombre || user?.name || 'Recepción'}
-        salonName={user?.salon_name || 'Plan Beauty'}
+        salonName={user?.salon_name || 'Membresía'}
       />
     </div>
   );

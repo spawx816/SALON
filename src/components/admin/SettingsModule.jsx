@@ -16,7 +16,7 @@ const SettingsModule = () => {
     smtp_port: 587,
     smtp_user: '',
     smtp_pass: '',
-    smtp_from: 'PLAN BEAUTY',
+    smtp_from: 'MEMBRESÍA',
     smtp_secure: true
   });
 
@@ -219,7 +219,7 @@ const SettingsModule = () => {
                   <input 
                     type="text" 
                     className="input-field"
-                    placeholder="PLAN BEAUTY System"
+                    placeholder="MEMBRESÍA System"
                     value={emailSettings.smtp_from}
                     onChange={e => setEmailSettings({...emailSettings, smtp_from: e.target.value})}
                   />

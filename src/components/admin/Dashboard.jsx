@@ -60,7 +60,7 @@ const WeeklyBilling8BarsChart = ({ billingData, loading = false, error = null, o
   // Copy Summary to Clipboard
   const handleCopySummary = () => {
     const weekTotal = days.reduce((sum, d) => sum + (Number(d.currentAmount) || 0), 0);
-    const summaryText = `📊 Resumen de Facturación Plan Beauty:
+    const summaryText = `📊 Resumen de Facturación Membresía:
 • Total Semana en Curso: RD$ ${weekTotal.toLocaleString()}
 • Acumulado Mes (${month.subtitle}): RD$ ${Number(month.total || 0).toLocaleString()} (Variación: ${month.variationPercent >= 0 ? '+' : ''}${month.variationPercent}%)`;
     navigator.clipboard.writeText(summaryText);
@@ -1208,7 +1208,7 @@ const Dashboard = () => {
           <div className="chart-header" style={{ marginBottom: '1.25rem' }}>
             <div>
               <h3 className="chart-title">{t('dash.recent.title')}</h3>
-              <p className="chart-subtitle">{hasProPlan ? 'Últimas socias Plan Beauty atendidas' : 'Últimas atenciones registradas en POS'}</p>
+              <p className="chart-subtitle">{hasProPlan ? 'Últimas socias Membresía atendidas' : 'Últimas atenciones registradas en POS'}</p>
             </div>
             <button
               onClick={handleViewAllVisits}
@@ -1251,10 +1251,10 @@ const Dashboard = () => {
             <div style={{ padding: '1.75rem 2rem', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(to right, #fafafa, #ffffff)' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <CalendarCheck size={20} color="#8b5cf6" /> {hasProPlan ? 'Historial de Visitas Plan Beauty' : 'Historial de Atenciones POS'}
+                  <CalendarCheck size={20} color="#8b5cf6" /> {hasProPlan ? 'Historial de Visitas Membresía' : 'Historial de Atenciones POS'}
                 </h3>
                 <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                  {hasProPlan ? 'Registro detallado de visitas de socias Plan Beauty' : 'Registro detallado de atenciones y ventas en empresa'}
+                  {hasProPlan ? 'Registro detallado de visitas de socias Membresía' : 'Registro detallado de atenciones y ventas en empresa'}
                 </p>
               </div>
               <button
@@ -1338,7 +1338,7 @@ const Dashboard = () => {
                   {activeDetailModal === 'dailySales' && <><TrendingUp size={22} color="#c084fc" /> Desglose de Ventas Diarias (Hoy)</>}
                 </h3>
                 <p style={{ margin: '0.35rem 0 0 0', fontSize: '0.8rem', color: '#a1a1aa' }}>
-                  {activeDetailModal === 'visits' && 'Distribución en tiempo real por sucursal y tipo de atención (Plan Beauty vs. Genérica).'}
+                  {activeDetailModal === 'visits' && 'Distribución en tiempo real por sucursal y tipo de atención (Membresía vs. Genérica).'}
                   {activeDetailModal === 'memberships' && 'Cantidad de contratos activos segmentados por sucursal de afiliación.'}
                   {activeDetailModal === 'dailySales' && 'Ingresos facturados y cobrados en el día clasificados por sucursal.'}
                 </p>
@@ -1386,7 +1386,7 @@ const Dashboard = () => {
                             <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '1.25rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#3b82f6' }}></span>
-                                Plan Beauty (Membresía)
+                                Membresía (Membresía)
                               </td>
                               {salons.map(s => (
                                 <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 800, fontSize: '1.05rem', color: '#0f172a' }}>
@@ -1517,7 +1517,7 @@ const Dashboard = () => {
                       {hasProPlan && (
                         <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '1rem 1.25rem' }}>
                           <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>Plan Beauty</span>
+                            <span>Membresía</span>
                             <span style={{ color: '#8b5cf6' }}>{grandTotalSales > 0 ? Math.round((totalPlanSales / grandTotalSales) * 100) : 0}%</span>
                           </div>
                           <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#09090b', marginTop: '0.25rem' }}>
@@ -1557,7 +1557,7 @@ const Dashboard = () => {
                             <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                               <td style={{ padding: '1.25rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#8b5cf6' }}></span>
-                                Plan Beauty (Suscripciones / Cuotas)
+                                Membresía (Suscripciones / Cuotas)
                               </td>
                               {salons.map(s => (
                                 <td key={s.id} style={{ padding: '1.25rem', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>

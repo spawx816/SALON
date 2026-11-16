@@ -5,7 +5,7 @@ import { CheckCircle2, ShieldCheck, Sparkles, HelpCircle, ChevronDown, ChevronUp
 
 const PlanBelleza = () => {
   useDocumentMetadata({
-    title: 'Plan de lavados por RD$1,950 al mes | Plan Beauty RD',
+    title: 'Plan de lavados por RD$1,950 al mes | Membresía',
     description: 'Conoce nuestro plan único de belleza mensual. Incluye 4 lavados profesionales, secado y atención premium en empresas afiliados de República Dominicana.',
     canonicalUrl: 'https://planbeautyrd.com/plan-de-belleza',
     robots: 'index, follow'
@@ -19,12 +19,12 @@ const PlanBelleza = () => {
 
   const faqs = [
     {
-      question: '¿Qué es Plan Beauty RD?',
-      answer: 'Plan Beauty es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en empresas afiliados de República Dominicana por una tarifa plana fija.'
+      question: '¿Qué es Membresía?',
+      answer: 'Membresía es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en empresas afiliados de República Dominicana por una tarifa plana fija.'
     },
     {
-      question: '¿Qué incluye Plan Beauty?',
-      answer: 'Plan Beauty incluye hasta 4 lavados profesionales con secado a blower (o rolos/plancha de tu elección) durante cada ciclo de 30 días.'
+      question: '¿Qué incluye Membresía?',
+      answer: 'Membresía incluye hasta 4 lavados profesionales con secado a blower (o rolos/plancha de tu elección) durante cada ciclo de 30 días.'
     },
     {
       question: '¿Los lavados se acumulan si no los utilizo?',
@@ -75,7 +75,7 @@ const PlanBelleza = () => {
       answer: 'Tu nuevo ciclo inicia automáticamente cada 30 días, contados desde la fecha de activación o renovación de tu membresía. En ese momento se habilitan nuevamente tus lavados disponibles.'
     },
     {
-      question: '¿Cómo puedo contactar a Plan Beauty si tengo alguna duda?',
+      question: '¿Cómo puedo contactar a Membresía si tengo alguna duda?',
       answer: 'Puedes comunicarte con nosotros a través de nuestros canales de atención o visitar la sucursal donde te afiliaste para recibir asistencia directa.'
     }
   ];
@@ -90,7 +90,7 @@ const PlanBelleza = () => {
             CUIDA TU CABELLO TODO EL MES POR <span style={{ color: '#d4af37' }}>RD$1,950</span>
           </h1>
           <p style={{ maxWidth: '600px', margin: '1rem auto 0', color: '#64748b', fontSize: '1rem', lineHeight: 1.6 }}>
-            Plan Beauty es una suscripción mensual que te permite disfrutar de 4 lavados profesionales y peinados en empresas afiliados de República Dominicana.
+            Membresía es una suscripción mensual que te permite disfrutar de 4 lavados profesionales y peinados en empresas afiliados de República Dominicana.
           </p>
         </div>
 
@@ -197,7 +197,7 @@ const PlanBelleza = () => {
 
               {/* Title & Subtitle */}
               <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.75rem', fontWeight: 900, color: '#854d0e', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                <span>¡Oferta de Bienvenida de Plan Beauty!</span>
+                <span>¡Oferta de Bienvenida de Membresía!</span>
                 <span style={{ fontSize: '1.5rem' }}>🎉</span>
               </h3>
               <p style={{ margin: '0 0 2rem 0', fontSize: '0.95rem', color: '#713f12', fontWeight: 700, lineHeight: 1.6, maxWidth: '800px' }}>
@@ -263,7 +263,7 @@ const PlanBelleza = () => {
                 <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#d4af37' }}>Pioneros en Innovación</h4>
               </div>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#a1a1aa', lineHeight: 1.6 }}>
-                Plan Beauty es la primera membresía para empresas de belleza en República Dominicana con pago automático mediante CardNet y en funcionamiento, ofreciendo una experiencia moderna, segura y completamente digital.
+                Membresía es la primera membresía para empresas de belleza en República Dominicana con pago automático mediante CardNet y en funcionamiento, ofreciendo una experiencia moderna, segura y completamente digital.
               </p>
             </div>
 
@@ -362,7 +362,7 @@ const PlanBelleza = () => {
               </div>
               <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>20% Descuento en Empresa</h4>
               <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', lineHeight: 1.6 }}>
-                Como miembro de Plan Beauty tendrás un <strong>20% de descuento exclusivo</strong> en todos los demás procesos y servicios adicionales que realices en la empresa (tintes, hidrataciones, botox, cortes y más).
+                Como miembro de Membresía tendrás un <strong>20% de descuento exclusivo</strong> en todos los demás procesos y servicios adicionales que realices en la empresa (tintes, hidrataciones, botox, cortes y más).
               </p>
             </div>
 

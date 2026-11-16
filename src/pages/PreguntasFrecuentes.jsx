@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 
 const PreguntasFrecuentes = () => {
   useDocumentMetadata({
-    title: 'Preguntas Frecuentes | Plan Beauty RD',
+    title: 'Preguntas Frecuentes | Membresía',
     description: 'Encuentra respuestas a tus dudas sobre el plan de belleza, cobro de suscripción mensual, políticas de acumulación de lavados, cancelación y cambio de empresa.',
     canonicalUrl: 'https://planbeautyrd.com/preguntas-frecuentes',
     robots: 'index, follow'
@@ -12,12 +12,12 @@ const PreguntasFrecuentes = () => {
 
   const faqs = [
     {
-      question: '¿Qué es Plan Beauty RD?',
-      answer: 'Plan Beauty es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en empresas afiliados de República Dominicana por una tarifa plana fija.'
+      question: '¿Qué es Membresía?',
+      answer: 'Membresía es una membresía de suscripción mensual que te permite disfrutar de lavados y peinados profesionales en empresas afiliados de República Dominicana por una tarifa plana fija.'
     },
     {
-      question: '¿Qué incluye Plan Beauty?',
-      answer: 'Plan Beauty incluye hasta 4 lavados profesionales con secado a blower (o rolos/plancha de tu elección) durante cada ciclo de 30 días.'
+      question: '¿Qué incluye Membresía?',
+      answer: 'Membresía incluye hasta 4 lavados profesionales con secado a blower (o rolos/plancha de tu elección) durante cada ciclo de 30 días.'
     },
     {
       question: '¿Los lavados se acumulan si no los utilizo?',
@@ -68,7 +68,7 @@ const PreguntasFrecuentes = () => {
       answer: 'Tu nuevo ciclo inicia automáticamente cada 30 días, contados desde la fecha de activación o renovación de tu membresía. En ese momento se habilitan nuevamente tus lavados disponibles.'
     },
     {
-      question: '¿Cómo puedo contactar a Plan Beauty si tengo alguna duda?',
+      question: '¿Cómo puedo contactar a Membresía si tengo alguna duda?',
       answer: 'Puedes comunicarte con nosotros a través de nuestros canales de atención o visitar la sucursal donde te afiliaste para recibir asistencia directa.'
     }
   ];
@@ -90,7 +90,7 @@ const PreguntasFrecuentes = () => {
             PREGUNTAS <span style={{ color: '#d4af37' }}>FRECUENTES</span>
           </h1>
           <p style={{ margin: '1rem auto 0', color: '#64748b', fontSize: '1rem', lineHeight: 1.6 }}>
-            ¿Tienes alguna duda sobre el funcionamiento de tu membresía Plan Beauty? Aquí encontrarás respuestas inmediatas a las consultas más habituales.
+            ¿Tienes alguna duda sobre el funcionamiento de tu membresía Membresía? Aquí encontrarás respuestas inmediatas a las consultas más habituales.
           </p>
         </div>
 

@@ -124,7 +124,7 @@ const ContractSettingsModule = () => {
   };
 
   const samplePlan = {
-    title: 'Plan Beauty VIP Gold',
+    title: 'Membresía VIP Gold',
     price: '1950.00',
     services_description: '4 Lavados y Secados Premium al mes + Masaje Capilar',
     quota: '4'

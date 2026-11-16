@@ -51,7 +51,7 @@ export default function InvoiceHistory() {
   const [searchTerm, setSearchTerm] = useState('');
   const [salonFilter, setSalonFilter] = useState('all'); // 'all' | salonId
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'Facturado' | 'Anulado' | 'Pendiente'
-  const [paymentFilter, setPaymentFilter] = useState('all'); // 'all' | 'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Plan Beauty' | 'Mixto'
+  const [paymentFilter, setPaymentFilter] = useState('all'); // 'all' | 'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Membresía' | 'Mixto'
   const [dateFilter, setDateFilter] = useState('month'); // 'today' | 'yesterday' | 'week' | 'month' | 'last_month' | 'all' | 'custom'
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -311,20 +311,20 @@ export default function InvoiceHistory() {
     };
   };
 
-  // Helper to extract payment breakdown (Efectivo, Tarjeta, Transferencia, Plan Beauty)
+  // Helper to extract payment breakdown (Efectivo, Tarjeta, Transferencia, Membresía)
   const getPaymentBreakdown = (visit) => {
     const isVoided = visit.status === 'Anulado';
     const total = Number(visit.total || 0);
     const rawMethod = (visit.metodo_pago || '').toLowerCase();
 
-    // Check if it's a Plan Beauty redemption
+    // Check if it's a Membresía redemption
     const isPlan = rawMethod.includes('plan') || total === 0 || 
       (visit.servicios && String(visit.servicios).toLowerCase().includes('plan beauty')) || 
       (visit.items_detail && String(visit.items_detail).toLowerCase().includes('plan beauty'));
 
     if (isPlan && total === 0) {
       return {
-        displayMethod: 'Plan Beauty',
+        displayMethod: 'Membresía',
         isPlanBeauty: true,
         efectivo: 0,
         tarjeta: 0,
@@ -410,10 +410,10 @@ export default function InvoiceHistory() {
       };
     }
 
-    // Pure Plan Beauty / Cuota / Suscripción
+    // Pure Membresía / Cuota / Suscripción
     if (rawMethod.includes('plan')) {
       return {
-        displayMethod: 'Plan Beauty',
+        displayMethod: 'Membresía',
         isPlanBeauty: true,
         efectivo: 0,
         tarjeta: 0,
@@ -498,7 +498,7 @@ export default function InvoiceHistory() {
         if (paymentFilter === 'Efectivo' && (breakdown.efectivo <= 0 || breakdown.displayMethod === 'Mixto')) return false;
         if (paymentFilter === 'Tarjeta' && (breakdown.tarjeta <= 0 || breakdown.displayMethod === 'Mixto')) return false;
         if (paymentFilter === 'Transferencia' && (breakdown.transferencia <= 0 || breakdown.displayMethod === 'Mixto')) return false;
-        if (paymentFilter === 'Plan Beauty' && !breakdown.isPlanBeauty) return false;
+        if (paymentFilter === 'Membresía' && !breakdown.isPlanBeauty) return false;
         if (paymentFilter === 'Mixto' && breakdown.displayMethod !== 'Mixto') return false;
         if (paymentFilter === 'Gift Card' && breakdown.displayMethod !== 'Gift Card') return false;
       }
@@ -532,7 +532,7 @@ export default function InvoiceHistory() {
     });
   }, [visits, searchTerm, salonFilter, statusFilter, paymentFilter, dateFilter, startDate, endDate]);
 
-  // Filter Logic for Plan Beauty Subscription Payments
+  // Filter Logic for Membresía Subscription Payments
   const filteredPayments = useMemo(() => {
     return payments.filter(p => {
       // Empresa / Localidad filter
@@ -615,7 +615,7 @@ export default function InvoiceHistory() {
 
       let displayService = sNames.join(' + ');
       if (!displayService || displayService === 'Ticket en Construcción') {
-        displayService = breakdown.isPlanBeauty ? 'Lavado y Secado (Plan Beauty)' : 'Servicio General';
+        displayService = breakdown.isPlanBeauty ? 'Lavado y Secado (Membresía)' : 'Servicio General';
       }
 
       return {
@@ -667,11 +667,11 @@ export default function InvoiceHistory() {
       }
     });
 
-    // Total Ingresos por Suscripciones / Cuotas Plan Beauty
+    // Total Ingresos por Suscripciones / Cuotas Membresía
     const totalPlanBeauty = filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
     const planPaymentCount = filteredPayments.length;
 
-    // Gran Total Facturado = POS (Efectivo + Tarjeta + Transferencia) + Ingresos Plan Beauty
+    // Gran Total Facturado = POS (Efectivo + Tarjeta + Transferencia) + Ingresos Membresía
     totalBilled = totalCash + totalCard + totalTransfer + totalPlanBeauty;
 
     return {
@@ -746,7 +746,7 @@ export default function InvoiceHistory() {
     const excelRows = [];
 
     // Header metadata
-    excelRows.push(['PLAN BEAUTY RD - SALON & SPA']);
+    excelRows.push(['MEMBRESÍA - SALON & SPA']);
     excelRows.push(['REPORTE GENERAL DE FACTURACIÓN Y VENTAS POR MÉTODOS DE PAGO']);
     excelRows.push([`Sucursal: ${getSalonLabel()}`, `Período: ${periodStr}`, `Fecha de Emisión: ${generationDate}`]);
     excelRows.push([
@@ -804,7 +804,7 @@ export default function InvoiceHistory() {
         } catch (e) {}
       }
       if (!displayService || displayService === 'Ticket en Construcción') {
-        displayService = breakdown.isPlanBeauty ? 'Lavado y Secado (Plan Beauty)' : 'Servicio General';
+        displayService = breakdown.isPlanBeauty ? 'Lavado y Secado (Membresía)' : 'Servicio General';
       }
 
       excelRows.push([
@@ -1001,9 +1001,9 @@ export default function InvoiceHistory() {
           <span style={{ fontSize: '0.65rem', color: '#64748b' }}>Bancos / Transfer</span>
         </div>
 
-        {/* PLAN BEAUTY (INGRESOS POR SUSCRIPCIONES / CUOTAS) */}
+        {/* MEMBRESÍA (INGRESOS POR SUSCRIPCIONES / CUOTAS) */}
         <div style={{ background: '#ffffff', borderRadius: '14px', border: '1px solid #fce7f3', padding: '0.85rem 1rem', boxShadow: '0 2px 6px rgba(219,39,119,0.04)' }}>
-          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Plan Beauty</span>
+          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: '#be185d', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Membresía</span>
           <h3 style={{ margin: '0.2rem 0 0.1rem', fontSize: '1.25rem', fontWeight: 900, color: '#be185d', whiteSpace: 'nowrap' }}>
             RD$ {kpis.totalPlanBeauty.toLocaleString('es-DO', { minimumFractionDigits: 2 })}
           </h3>
@@ -1121,7 +1121,7 @@ export default function InvoiceHistory() {
               <option value="Efectivo">Efectivo</option>
               <option value="Tarjeta">Tarjeta</option>
               <option value="Transferencia">Transferencia</option>
-              <option value="Plan Beauty">Plan Beauty</option>
+              <option value="Plan Beauty">Membresía</option>
               <option value="Gift Card">Gift Card</option>
               <option value="Mixto">Pago Mixto</option>
             </select>
@@ -1157,7 +1157,7 @@ export default function InvoiceHistory() {
             📋 Mostrando {filteredVisits.length} facturas registradas ({getPeriodLabel()})
           </span>
           <span style={{ fontSize: '0.725rem', color: '#64748b' }}>
-            {kpis.activeCount} activas • {kpis.voidedCount} anuladas • {kpis.planRedemptionCount} canjes Plan Beauty
+            {kpis.activeCount} activas • {kpis.voidedCount} anuladas • {kpis.planRedemptionCount} canjes Membresía
           </span>
         </div>
 
@@ -1272,7 +1272,7 @@ export default function InvoiceHistory() {
                       <td style={{ padding: '0.55rem 0.65rem', whiteSpace: 'nowrap' }}>
                         {breakdown.isPlanBeauty ? (
                           <span style={{ background: '#fdf2f8', color: '#be185d', border: '1px solid #fbcfe8', padding: '2px 6px', borderRadius: '5px', fontSize: '0.65rem', fontWeight: 800 }}>
-                            💎 Plan Beauty
+                            💎 Membresía
                           </span>
                         ) : breakdown.displayMethod === 'Mixto' ? (
                           <span style={{ background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a', padding: '2px 6px', borderRadius: '5px', fontSize: '0.65rem', fontWeight: 800 }}>
@@ -1316,7 +1316,7 @@ export default function InvoiceHistory() {
                       <td style={{ padding: '0.55rem 0.65rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {breakdown.isPlanBeauty ? (
                           <span style={{ color: '#be185d', fontWeight: 800, fontSize: '0.7rem' }}>
-                            💎 Plan Beauty
+                            💎 Membresía
                           </span>
                         ) : (
                           <strong style={{ fontSize: '0.825rem', fontWeight: 900, color: isVoided ? '#991b1b' : '#0f172a', textDecoration: isVoided ? 'line-through' : 'none' }}>
@@ -1629,7 +1629,7 @@ export default function InvoiceHistory() {
                 <div style={{ borderBottom: '2px solid #0f172a', paddingBottom: '1rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <h2 style={{ margin: '0 0 0.25rem', fontSize: '1.4rem', fontWeight: 900, color: '#be185d' }}>
-                      PLAN BEAUTY RD
+                      MEMBRESÍA
                     </h2>
                     <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>
                       Reporte Financiero Oficial de Facturación y Ventas
@@ -1672,7 +1672,7 @@ export default function InvoiceHistory() {
                     </div>
                   </div>
                   <div style={{ border: '1px solid #fbcfe8', background: '#fdf2f8', padding: '0.55rem', borderRadius: '8px' }}>
-                    <span style={{ fontSize: '0.6rem', color: '#9d174d', fontWeight: 700, textTransform: 'uppercase' }}>Plan Beauty</span>
+                    <span style={{ fontSize: '0.6rem', color: '#9d174d', fontWeight: 700, textTransform: 'uppercase' }}>Membresía</span>
                     <div style={{ fontSize: '0.95rem', fontWeight: 900, color: '#be185d' }}>
                       {kpis.totalPlanBeauty > 0 ? `RD$ ${kpis.totalPlanBeauty.toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : `${kpis.planCount} canjes`}
                     </div>
@@ -1718,7 +1718,7 @@ export default function InvoiceHistory() {
 
                       let displayService = sNames.join(' + ');
                       if (!displayService || displayService === 'Ticket en Construcción') {
-                        displayService = b.isPlanBeauty ? 'Lavado y Secado (Plan Beauty)' : (v.servicios || 'Servicio General');
+                        displayService = b.isPlanBeauty ? 'Lavado y Secado (Membresía)' : (v.servicios || 'Servicio General');
                       }
 
                       return (
@@ -1734,7 +1734,7 @@ export default function InvoiceHistory() {
                           <td style={{ padding: '4px 5px', textAlign: 'right' }}>{b.efectivo > 0 ? b.efectivo.toFixed(2) : '-'}</td>
                           <td style={{ padding: '4px 5px', textAlign: 'right' }}>{b.tarjeta > 0 ? b.tarjeta.toFixed(2) : '-'}</td>
                           <td style={{ padding: '4px 5px', textAlign: 'right' }}>{b.transferencia > 0 ? b.transferencia.toFixed(2) : '-'}</td>
-                          <td style={{ padding: '4px 5px', textAlign: 'right', fontWeight: 800 }}>{b.isPlanBeauty ? 'Plan Beauty' : `RD$ ${b.total.toFixed(2)}`}</td>
+                          <td style={{ padding: '4px 5px', textAlign: 'right', fontWeight: 800 }}>{b.isPlanBeauty ? 'Membresía' : `RD$ ${b.total.toFixed(2)}`}</td>
                           <td style={{ padding: '4px 5px', textAlign: 'center' }}>{isV ? 'ANULADA' : 'OK'}</td>
                         </tr>
                       );

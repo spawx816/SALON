@@ -320,7 +320,7 @@ const ClientDashboard = () => {
       return;
     }
     
-    const currentPlan = selectedPlan || availablePlans.find(p => parseFloat(p.price) === 1950) || availablePlans[0] || { id: 'plan_monthly_1', name: 'PLAN BEAUTY', price: 1950 };
+    const currentPlan = selectedPlan || availablePlans.find(p => parseFloat(p.price) === 1950) || availablePlans[0] || { id: 'plan_monthly_1', name: 'MEMBRESÍA', price: 1950 };
     if (!selectedPlan) {
       setSelectedPlan(currentPlan);
     }
@@ -353,7 +353,7 @@ const ClientDashboard = () => {
         }
 
         window.PWCheckout.SetProperties({
-          "name": user?.salon_name || user?.tenant?.business_name || "Plan Beauty RD",
+          "name": user?.salon_name || user?.tenant?.business_name || "Membresía",
           "email": user.email || "correo@default.com",
           "button_label": `Suscribir RD$ ${currentPlan?.price || '0'}`,
           "description": `Suscripción a ${currentPlan?.title || 'Plan'}`,
@@ -847,7 +847,7 @@ const ClientDashboard = () => {
                     <p style={{ color: '#64748b', fontSize: '0.9rem', maxWidth: '350px', margin: '1rem auto 2rem', lineHeight: 1.6 }}>Realiza tu pago inicial para desbloquear todos tus beneficios exclusivos.</p>
                     <button 
                       onClick={() => {
-                        const plan = availablePlans.find(p => parseFloat(p.price) === 1950) || availablePlans[0] || { id: 'plan_monthly_1', name: 'PLAN BEAUTY', price: 1950 };
+                        const plan = availablePlans.find(p => parseFloat(p.price) === 1950) || availablePlans[0] || { id: 'plan_monthly_1', name: 'MEMBRESÍA', price: 1950 };
                         setSelectedPlan(plan);
                         setIsCheckoutOpen(true);
                       }}
@@ -1296,7 +1296,7 @@ const ClientDashboard = () => {
 
                           <button 
                             onClick={() => {
-                              const plan = availablePlans.find(p => parseFloat(p.price) === 1950) || availablePlans[0] || { id: 'plan_monthly_1', name: 'PLAN BEAUTY', price: 1950 };
+                              const plan = availablePlans.find(p => parseFloat(p.price) === 1950) || availablePlans[0] || { id: 'plan_monthly_1', name: 'MEMBRESÍA', price: 1950 };
                               setSelectedPlan(plan);
                               setCheckoutStep(2);
                             }}

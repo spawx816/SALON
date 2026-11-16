@@ -47,7 +47,7 @@ export const generateCsvContent = ({
   const lines = [];
 
   // Metadata headers
-  lines.push(`"SISTEMA SALON PRO & PLAN BEAUTY RD"`);
+  lines.push(`"SISTEMA SALON PRO & MEMBRESÍA"`);
   lines.push(`"REPORTE: ${String(title).toUpperCase()}"`);
   if (periodText) lines.push(`"Período evaluado: ${periodText}"`);
   lines.push(`"Fecha de Generación: ${new Date().toLocaleString('es-DO')}"`);
