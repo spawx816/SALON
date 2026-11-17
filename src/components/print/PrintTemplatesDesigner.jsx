@@ -66,6 +66,8 @@ export default function PrintTemplatesDesigner() {
   const [error, setError] = useState('');
 
   // Quick Turn Ticket test/emit panel
+  const [catalogItems, setCatalogItems] = useState([]);
+  const [catalogFilter, setCatalogFilter] = useState('');
   const [turnService, setTurnService] = useState('');
   const [turnObs, setTurnObs] = useState('');
   const [issuedTurn, setIssuedTurn] = useState(null);
@@ -75,21 +77,25 @@ export default function PrintTemplatesDesigner() {
     setLoading(true);
     setError('');
     try {
-      const [availRes, tplRes, salonsRes, turnsRes] = await Promise.all([
+      const [availRes, tplRes, salonsRes, turnsRes, servicesRes] = await Promise.all([
         fetch('/api/print-templates/availability', { credentials: 'include' }),
         fetch('/api/print-templates', { credentials: 'include' }),
         fetch('/api/salons', { credentials: 'include' }),
         fetch('/api/turn-tickets', { credentials: 'include' }),
+        fetch('/api/services', { credentials: 'include' }),
       ]);
       const availJson = await availRes.json().catch(() => ({}));
       const tplJson = await tplRes.json().catch(() => ({}));
       const salonsJson = await salonsRes.json().catch(() => []);
       const turnsJson = await turnsRes.json().catch(() => ({}));
+      const servicesJson = await servicesRes.json().catch(() => []);
 
       setAvailability(availJson);
       setTemplates(Array.isArray(tplJson.templates) ? tplJson.templates : []);
       setBranches(Array.isArray(salonsJson) ? salonsJson : (salonsJson.salons || []));
       setRecentTurns(Array.isArray(turnsJson.tickets) ? turnsJson.tickets : []);
+      const rawCatalog = Array.isArray(servicesJson) ? servicesJson : (servicesJson.services || []);
+      setCatalogItems(rawCatalog.filter((it) => it && it.activo !== false && it.is_active !== false));
     } catch (err) {
       setError(err.message || 'No se pudieron cargar las plantillas de impresión.');
     } finally {
@@ -374,6 +380,75 @@ export default function PrintTemplatesDesigner() {
             <input type="checkbox" checked={config.show_logo !== false} onChange={(e) => setConfig({ ...config, show_logo: e.target.checked })} />
             Mostrar logo de la empresa
           </label>
+
+          {selectedDocType === 'ticket_venta' && (
+            <div style={{ padding: '0.9rem', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                Productos y servicios en el Ticket de Venta
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
+                <select
+                  value={config.checklist_mode || 'catalog_checklist'}
+                  onChange={(e) => setConfig({ ...config, checklist_mode: e.target.value })}
+                  style={{ padding: '0.45rem 0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                >
+                  <option value="catalog_checklist">Lista pre-impresa de productos/servicios (RD$ ______)</option>
+                  <option value="cart_items">Solo ítems cobrados en la venta</option>
+                </select>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.83rem', fontWeight: 600 }}>
+                  <input type="checkbox" checked={config.show_benefits_box !== false} onChange={(e) => setConfig({ ...config, show_benefits_box: e.target.checked })} />
+                  Caja de beneficios (Membresía / Cumpleaños)
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.83rem', fontWeight: 600 }}>
+                  <input type="checkbox" checked={config.show_qr_menu !== false} onChange={(e) => setConfig({ ...config, show_qr_menu: e.target.checked })} />
+                  Código QR Menú de servicios
+                </label>
+              </div>
+
+              {(config.checklist_mode || 'catalog_checklist') === 'catalog_checklist' && (
+                <div>
+                  <input
+                    type="text"
+                    placeholder="Buscar producto o servicio del catálogo..."
+                    value={catalogFilter}
+                    onChange={(e) => setCatalogFilter(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.7rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem', marginBottom: '0.5rem' }}
+                  />
+                  {catalogItems.length === 0 ? (
+                    <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                      No hay productos ni servicios activos en tu catálogo todavía.
+                    </div>
+                  ) : (
+                    <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '0.35rem', padding: '0.25rem' }}>
+                      {catalogItems
+                        .filter((it) => !catalogFilter || String(it.nombre || it.name || '').toLowerCase().includes(catalogFilter.toLowerCase()))
+                        .map((it) => {
+                          const itemId = String(it.id);
+                          const itemName = it.nombre || it.name;
+                          const selectedList = Array.isArray(config.checklist_items) ? config.checklist_items : [];
+                          const isChecked = selectedList.some((c) => String(c.id) === itemId);
+                          return (
+                            <label key={itemId} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: isChecked ? '#e0f2fe' : '#ffffff', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const nextList = e.target.checked
+                                    ? [...selectedList, { id: itemId, name: itemName }]
+                                    : selectedList.filter((c) => String(c.id) !== itemId);
+                                  setConfig({ ...config, checklist_items: nextList });
+                                }}
+                              />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemName}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.5rem' }}>Orden, visibilidad, alineación y tamaño de bloques</div>

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Printer, X } from 'lucide-react';
 import { QRCodeSVG } from '../../utils/qrCodeGenerator';
 import { useTenantBranding } from '../../context/TenantBrandingContext';
@@ -14,9 +14,20 @@ export const ThermalTicketModal = ({
   currentUser = null
 }) => {
   const { branding } = useTenantBranding();
+  const [activeTemplate, setActiveTemplate] = useState(null);
 
   useEffect(() => {
     if (!isOpen || !printableTicketData) return undefined;
+
+    const branchParam = printableTicketData.branch_id || printableTicketData.salon_id || '';
+    fetch(`/api/print-templates/active?document_type=ticket_venta${branchParam ? `&branch_id=${encodeURIComponent(branchParam)}` : ''}`, {
+      credentials: 'include',
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.template) setActiveTemplate(data.template);
+      })
+      .catch(() => {});
 
     const timer = setTimeout(() => {
       window.print();
@@ -28,6 +39,12 @@ export const ThermalTicketModal = ({
   if (!isOpen || !printableTicketData) return null;
 
   const ticket = printableTicketData;
+  const tplCfg = activeTemplate?.config_json || {};
+  const customChecklist = Array.isArray(tplCfg.checklist_items) && tplCfg.checklist_items.length > 0
+    ? tplCfg.checklist_items.map((it) => it.name)
+    : null;
+  const showBenefitsBox = tplCfg.show_benefits_box !== false;
+  const showQrMenu = tplCfg.show_qr_menu !== false;
 
   const businessName =
     ticket.business_name ||
@@ -35,10 +52,11 @@ export const ThermalTicketModal = ({
     branding?.business_name ||
     'SalonPro';
 
-  const logoUrl = ticket.logo_url || branding?.logo_url;
+  const logoUrl = tplCfg.logo_url || ticket.logo_url || branding?.logo_url;
   const receiptHeader =
     ticket.receipt_header || branding?.receipt_header || '';
   const receiptFooter =
+    tplCfg.footer_text ||
     ticket.receipt_footer ||
     branding?.receipt_footer ||
     '¡Gracias por preferirnos! ♡';
@@ -244,6 +262,7 @@ export const ThermalTicketModal = ({
             </div>
 
             {/* 3. CAJA DE BENEFICIOS (MEMBRESÍA Y CUMPLEAÑOS) */}
+            {showBenefitsBox && (
             <div style={{
               border: '1.5px solid #000000',
               borderRadius: '4px',
@@ -274,6 +293,7 @@ export const ThermalTicketModal = ({
                 </div>
               </div>
             </div>
+            )}
 
             {/* 4. TABLA DE SERVICIOS PRE-IMPRESA */}
             <div style={{
@@ -291,7 +311,7 @@ export const ThermalTicketModal = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {[
+              {(customChecklist || [
                 'Lavado y secado con línea',
                 'Lavado y secado',
                 'Corte',
@@ -306,7 +326,7 @@ export const ThermalTicketModal = ({
                 'Gel',
                 'Uñas acrílicas',
                 'Extensiones'
-              ].map((srv, idx) => {
+              ]).map((srv, idx) => {
                 const matchedService = ticket.services?.find?.(s =>
                   s.nombre?.toLowerCase()?.trim() === srv.toLowerCase().trim() ||
                   s.nombre?.toLowerCase()?.includes(srv.toLowerCase()) ||
@@ -347,6 +367,7 @@ export const ThermalTicketModal = ({
             </div>
 
             {/* 6. PIE DEL TICKET CON QR REAL Y MENÚ DE SERVICIOS / DGII */}
+            {showQrMenu && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', margin: '6px 0 4px 0' }}>
               <div style={{ background: '#ffffff', padding: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <QRCodeSVG 
@@ -381,6 +402,7 @@ export const ThermalTicketModal = ({
                 )}
               </div>
             </div>
+            )}
 
             {/* Pie de agradecimiento de la empresa */}
             <div style={{

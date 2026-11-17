@@ -55,7 +55,7 @@ const DEFAULT_TEMPLATES = Object.freeze({
     },
   },
   ticket_venta: {
-    name: 'Ticket de Venta POS Estándar',
+    name: 'Ticket de Venta / Pre-Cuenta POS',
     paper_width: '80mm',
     numbering_mode: 'continuous',
     timezone: 'America/Santo_Domingo',
@@ -63,16 +63,20 @@ const DEFAULT_TEMPLATES = Object.freeze({
       monochrome: true,
       show_logo: true,
       logo_url: '',
-      title_text: 'TICKET DE VENTA',
+      title_text: 'TICKET DE SERVICIOS',
       footer_text: '¡Gracias por preferirnos! ♡',
+      checklist_mode: 'catalog_checklist',
+      show_benefits_box: true,
+      show_qr_menu: true,
+      checklist_items: [],
       blocks: [
         { id: 'logo', label: 'Logo de la empresa', visible: true, align: 'center', size: 'md' },
         { id: 'business_name', label: 'Nombre de la empresa', visible: true, align: 'center', size: 'lg' },
-        { id: 'datetime', label: 'Fecha, hora y ticket', visible: true, align: 'left', size: 'sm' },
-        { id: 'customer', label: 'Cliente', visible: true, align: 'left', size: 'sm' },
-        { id: 'items_table', label: 'Detalle de ítems (datos reales)', visible: true, align: 'left', size: 'sm' },
-        { id: 'totals', label: 'Totales e impuestos (datos reales)', visible: true, align: 'right', size: 'md' },
-        { id: 'qr', label: 'Código QR', visible: true, align: 'center', size: 'sm' },
+        { id: 'datetime', label: 'Ticket No., fecha y hora', visible: true, align: 'left', size: 'sm' },
+        { id: 'customer', label: 'Cliente y recepcionista', visible: true, align: 'left', size: 'sm' },
+        { id: 'items_table', label: 'Listado de productos/servicios', visible: true, align: 'left', size: 'sm' },
+        { id: 'totals', label: 'Caja TOTAL RD$', visible: true, align: 'right', size: 'md' },
+        { id: 'qr', label: 'Código QR Menú', visible: true, align: 'center', size: 'sm' },
         { id: 'footer', label: 'Mensaje inferior', visible: true, align: 'center', size: 'sm' },
       ],
     },
@@ -179,12 +183,26 @@ function sanitizeTemplateConfig(rawConfig, documentType) {
     }
   }
 
+  const sanitizedChecklist = Array.isArray(src.checklist_items)
+    ? src.checklist_items
+        .filter((it) => it && typeof it === 'object' && stripUnsafeText(it.name, 100))
+        .slice(0, 30)
+        .map((it) => ({
+          id: stripUnsafeText(String(it.id || it.name), 80),
+          name: stripUnsafeText(it.name, 100),
+        }))
+    : [];
+
   return {
     monochrome: src.monochrome === undefined ? Boolean(baseDefault.config_json.monochrome) : Boolean(src.monochrome),
     show_logo: src.show_logo === undefined ? Boolean(baseDefault.config_json.show_logo) : Boolean(src.show_logo),
     logo_url: sanitizeLogoUrl(src.logo_url),
     title_text: stripUnsafeText(src.title_text ?? baseDefault.config_json.title_text, 80),
     footer_text: stripUnsafeText(src.footer_text ?? baseDefault.config_json.footer_text, 240),
+    checklist_mode: src.checklist_mode === 'cart_items' ? 'cart_items' : 'catalog_checklist',
+    show_benefits_box: src.show_benefits_box === undefined ? true : Boolean(src.show_benefits_box),
+    show_qr_menu: src.show_qr_menu === undefined ? true : Boolean(src.show_qr_menu),
+    checklist_items: sanitizedChecklist,
     blocks: sanitizedBlocks,
   };
 }

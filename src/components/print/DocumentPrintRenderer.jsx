@@ -176,6 +176,43 @@ export function DocumentPrintRenderer({
         );
 
       case 'items_table': {
+        if (docType === 'ticket_venta' && cfg.checklist_mode !== 'cart_items') {
+          const checklist = Array.isArray(cfg.checklist_items) && cfg.checklist_items.length > 0
+            ? cfg.checklist_items.map((c) => c.name)
+            : (isPreview
+                ? ['Lavado y secado', 'Corte', 'Tinte', 'Manicure', 'Pedicure']
+                : []);
+          if (checklist.length === 0) return null;
+          return (
+            <div key="items_table" style={{ margin: '6px 0' }}>
+              {cfg.show_benefits_box !== false && (
+                <div style={{ border: '1.5px solid #000000', borderRadius: '4px', display: 'flex', marginBottom: '6px', padding: '4px 5px', fontSize: '8px' }}>
+                  <div style={{ flex: 1, borderRight: '1px solid #000000', paddingRight: '4px', fontWeight: 700 }}>
+                    MEMBRESÍA ACTIVO<br />Lavado disp.
+                  </div>
+                  <div style={{ flex: 1, paddingLeft: '5px', fontWeight: 700 }}>
+                    SEMANA CUMPLEAÑOS<br />15% DESC. DISPONIBLE
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '10px', borderBottom: '1.5px solid #000000', paddingBottom: '2px', marginBottom: '4px' }}>
+                <span>SERVICIO / PRODUCTO</span>
+                <span>PRECIO</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                {checklist.map((itemName, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: sizes.fontSize }}>
+                    <span style={{ fontWeight: 600 }}>{itemName}</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>
+                      RD$ <span style={{ display: 'inline-block', width: '44px', borderBottom: '1px solid #555555' }} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
         const items = Array.isArray(data.items) && data.items.length > 0
           ? data.items
           : (isPreview ? [{ name: 'Servicio de ejemplo', qty: 1, total: 'RD$ 600.00' }] : []);
@@ -213,6 +250,16 @@ export function DocumentPrintRenderer({
       }
 
       case 'totals':
+        if (docType === 'ticket_venta' && cfg.checklist_mode !== 'cart_items') {
+          return (
+            <div key="totals" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '8px 0', color: '#000000' }}>
+              <span style={{ fontSize: sizes.heading, fontWeight: 900 }}>TOTAL RD$</span>
+              <span style={{ border: '1.5px solid #000000', width: '78px', height: '20px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: sizes.fontSize }}>
+                {data.total || ''}
+              </span>
+            </div>
+          );
+        }
         return (
           <div key="totals" style={{ textAlign: align, fontSize: sizes.fontSize, margin: '6px 0', color: '#000000' }}>
             {data.subtotal && <div>Subtotal: {data.subtotal}</div>}
@@ -224,9 +271,10 @@ export function DocumentPrintRenderer({
         );
 
       case 'qr':
+        if (cfg.show_qr_menu === false) return null;
         return (
-          <div key="qr" style={{ textAlign: align, fontSize: '9px', margin: '6px 0', color: '#000000' }}>
-            {data.qr_note || '[QR Verificación]'}
+          <div key="qr" style={{ textAlign: align, fontSize: '9px', margin: '6px 0', color: '#000000', fontWeight: 700 }}>
+            {data.qr_note || '[QR] MENÚ DE SERVICIOS'}
           </div>
         );
 
