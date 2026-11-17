@@ -5,7 +5,7 @@ import { useTenantBranding } from '../../context/TenantBrandingContext';
 
 const DOC_TYPE_LABELS = {
   ticket_turno: 'Ticket de turno (Car Wash)',
-  ticket_venta: 'Ticket de venta (POS)',
+  ticket_venta: 'Ticket de Servicio / Pre-Cuenta (Hoja de trabajo)',
   factura_comercial: 'Factura comercial',
   comanda_restaurante: 'Comanda de restaurante',
 };
@@ -68,6 +68,7 @@ export default function PrintTemplatesDesigner() {
   // Quick Turn Ticket test/emit panel
   const [catalogItems, setCatalogItems] = useState([]);
   const [catalogFilter, setCatalogFilter] = useState('');
+  const [customChecklistLine, setCustomChecklistLine] = useState('');
   const [turnService, setTurnService] = useState('');
   const [turnObs, setTurnObs] = useState('');
   const [issuedTurn, setIssuedTurn] = useState(null);
@@ -386,70 +387,162 @@ export default function PrintTemplatesDesigner() {
           </label>
 
           {selectedDocType === 'ticket_venta' && (
-            <div style={{ padding: '0.9rem', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
-                Productos y servicios en el Ticket de Venta
+            <div style={{ padding: '0.9rem', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0f172a' }}>
+                Personalización completa del Ticket de Servicio / Hoja de Trabajo (para marcar a mano)
               </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.65rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.2rem' }}>Subtítulo (opcional)</label>
+                  <input type="text" placeholder="Ej. MEMBRESÍA / CAR WASH" value={config.subtitle_text || ''} onChange={(e) => setConfig({ ...config, subtitle_text: e.target.value })} style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.2rem' }}>Etiqueta de personal</label>
+                  <input type="text" placeholder="RECEPCIONISTA:" value={config.staff_label || ''} onChange={(e) => setConfig({ ...config, staff_label: e.target.value })} style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '0.2rem' }}>Formato de líneas</label>
+                  <select value={config.checklist_style || 'price_line'} onChange={(e) => setConfig({ ...config, checklist_style: e.target.value })} style={{ width: '100%', padding: '0.45rem 0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem' }}>
+                    <option value="price_line">Línea de precio (RD$ ______)</option>
+                    <option value="checkbox_price">Casilla ☐ + Línea RD$ ______</option>
+                    <option value="checkbox_only">Solo casilla ☐ para marcar</option>
+                  </select>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center' }}>
                 <select
                   value={config.checklist_mode || 'catalog_checklist'}
                   onChange={(e) => setConfig({ ...config, checklist_mode: e.target.value })}
-                  style={{ padding: '0.45rem 0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                  style={{ padding: '0.45rem 0.65rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem' }}
                 >
-                  <option value="catalog_checklist">Lista pre-impresa de productos/servicios (RD$ ______)</option>
+                  <option value="catalog_checklist">Lista pre-impresa para marcar con bolígrafo</option>
                   <option value="cart_items">Solo ítems cobrados en la venta</option>
                 </select>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.83rem', fontWeight: 600 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: 600 }}>
                   <input type="checkbox" checked={config.show_benefits_box !== false} onChange={(e) => setConfig({ ...config, show_benefits_box: e.target.checked })} />
-                  Caja de beneficios (Membresía / Cumpleaños)
+                  Caja de beneficios
                 </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.83rem', fontWeight: 600 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: 600 }}>
+                  <input type="checkbox" checked={config.show_total_box !== false} onChange={(e) => setConfig({ ...config, show_total_box: e.target.checked })} />
+                  Caja TOTAL RD$
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: 600 }}>
                   <input type="checkbox" checked={config.show_qr_menu !== false} onChange={(e) => setConfig({ ...config, show_qr_menu: e.target.checked })} />
-                  Código QR Menú de servicios
+                  Código QR Menú
                 </label>
               </div>
 
               {(config.checklist_mode || 'catalog_checklist') === 'catalog_checklist' && (
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Buscar producto o servicio del catálogo..."
-                    value={catalogFilter}
-                    onChange={(e) => setCatalogFilter(e.target.value)}
-                    style={{ width: '100%', padding: '0.45rem 0.7rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem', marginBottom: '0.5rem' }}
-                  />
-                  {catalogItems.length === 0 ? (
-                    <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
-                      No hay productos ni servicios activos en tu catálogo todavía.
-                    </div>
-                  ) : (
-                    <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '0.35rem', padding: '0.25rem' }}>
-                      {catalogItems
-                        .filter((it) => !catalogFilter || String(it.nombre || it.name || '').toLowerCase().includes(catalogFilter.toLowerCase()))
-                        .map((it) => {
-                          const itemId = String(it.id);
-                          const itemName = it.nombre || it.name;
-                          const selectedList = Array.isArray(config.checklist_items) ? config.checklist_items : [];
-                          const isChecked = selectedList.some((c) => String(c.id) === itemId);
-                          return (
-                            <label key={itemId} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: isChecked ? '#e0f2fe' : '#ffffff', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  const nextList = e.target.checked
-                                    ? [...selectedList, { id: itemId, name: itemName }]
-                                    : selectedList.filter((c) => String(c.id) !== itemId);
-                                  setConfig({ ...config, checklist_items: nextList });
-                                }}
-                              />
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemName}</span>
-                            </label>
-                          );
-                        })}
+                <>
+                  {/* Productos / servicios seleccionados con ordenamiento */}
+                  {Array.isArray(config.checklist_items) && config.checklist_items.length > 0 && (
+                    <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.6rem' }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                        Orden en el ticket ({config.checklist_items.length} seleccionados):
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: '170px', overflowY: 'auto' }}>
+                        {config.checklist_items.map((item, idx) => (
+                          <div key={`${item.id}-${idx}`} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.25rem 0.4rem', background: '#f8fafc', borderRadius: '6px' }}>
+                            <span style={{ flex: 1, fontWeight: 600 }}>{idx + 1}. {item.name}</span>
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => {
+                                const next = [...config.checklist_items];
+                                [next[idx], next[idx - 1]] = [next[idx - 1], next[idx]];
+                                setConfig({ ...config, checklist_items: next });
+                              }}
+                              style={{ padding: '0.15rem 0.35rem', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}
+                            >↑</button>
+                            <button
+                              type="button"
+                              disabled={idx === config.checklist_items.length - 1}
+                              onClick={() => {
+                                const next = [...config.checklist_items];
+                                [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                setConfig({ ...config, checklist_items: next });
+                              }}
+                              style={{ padding: '0.15rem 0.35rem', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}
+                            >↓</button>
+                            <button
+                              type="button"
+                              onClick={() => setConfig({ ...config, checklist_items: config.checklist_items.filter((_, i) => i !== idx) })}
+                              style={{ padding: '0.15rem 0.4rem', borderRadius: '4px', border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}
+                            >×</button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
-                </div>
+
+                  {/* Agregar línea personalizada libre */}
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input
+                      type="text"
+                      placeholder="Agregar línea personalizada (ej. Lavado de motor)..."
+                      value={customChecklistLine}
+                      onChange={(e) => setCustomChecklistLine(e.target.value)}
+                      style={{ flex: 1, padding: '0.45rem 0.7rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const txt = customChecklistLine.trim();
+                        if (!txt) return;
+                        const current = Array.isArray(config.checklist_items) ? config.checklist_items : [];
+                        setConfig({ ...config, checklist_items: [...current, { id: `custom_${Date.now()}`, name: txt }] });
+                        setCustomChecklistLine('');
+                      }}
+                      style={{ padding: '0.45rem 0.85rem', borderRadius: '8px', border: '1px solid #0f172a', background: '#0f172a', color: '#fff', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      + Agregar
+                    </button>
+                  </div>
+
+                  {/* Elegir del catálogo */}
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Buscar producto o servicio de tu catálogo..."
+                      value={catalogFilter}
+                      onChange={(e) => setCatalogFilter(e.target.value)}
+                      style={{ width: '100%', padding: '0.45rem 0.7rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.83rem', marginBottom: '0.5rem' }}
+                    />
+                    {catalogItems.length === 0 ? (
+                      <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                        No hay productos ni servicios activos en tu catálogo todavía (puedes agregar líneas personalizadas arriba).
+                      </div>
+                    ) : (
+                      <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.35rem', padding: '0.25rem' }}>
+                        {catalogItems
+                          .filter((it) => !catalogFilter || String(it.nombre || it.name || '').toLowerCase().includes(catalogFilter.toLowerCase()))
+                          .map((it) => {
+                            const itemId = String(it.id);
+                            const itemName = it.nombre || it.name;
+                            const selectedList = Array.isArray(config.checklist_items) ? config.checklist_items : [];
+                            const isChecked = selectedList.some((c) => String(c.id) === itemId);
+                            return (
+                              <label key={itemId} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', padding: '0.35rem 0.5rem', borderRadius: '6px', background: isChecked ? '#e0f2fe' : '#ffffff', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    const nextList = e.target.checked
+                                      ? [...selectedList, { id: itemId, name: itemName }]
+                                      : selectedList.filter((c) => String(c.id) !== itemId);
+                                    setConfig({ ...config, checklist_items: nextList });
+                                  }}
+                                />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemName}</span>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           )}

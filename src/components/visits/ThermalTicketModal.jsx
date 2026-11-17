@@ -40,9 +40,16 @@ export const ThermalTicketModal = ({
 
   const ticket = printableTicketData;
   const tplCfg = activeTemplate?.config_json || {};
+  const paperWidth = activeTemplate?.paper_width || '80mm';
+  const printSafeWidth = paperWidth === '58mm' ? '46mm' : '60mm';
   const customChecklist = Array.isArray(tplCfg.checklist_items) && tplCfg.checklist_items.length > 0
     ? tplCfg.checklist_items.map((it) => it.name)
     : null;
+  const checklistStyle = tplCfg.checklist_style || 'price_line';
+  const showTotalBox = tplCfg.show_total_box !== false;
+  const staffLabel = tplCfg.staff_label || 'RECEPCIONISTA:';
+  const subtitleText = tplCfg.subtitle_text || '';
+  const customQrUrl = tplCfg.qr_url || '';
   const showBenefitsBox = tplCfg.show_benefits_box !== false;
   const showQrMenu = tplCfg.show_qr_menu !== false;
 
@@ -89,8 +96,8 @@ export const ThermalTicketModal = ({
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 60mm !important;
-            max-width: 60mm !important;
+            width: ${printSafeWidth} !important;
+            max-width: ${printSafeWidth} !important;
             margin: 0 !important;
             padding: 1mm 1mm 6mm 0.5mm !important;
             background: #ffffff !important;
@@ -179,6 +186,18 @@ export const ThermalTicketModal = ({
               }}>
                 {businessName}
               </div>
+              {subtitleText ? (
+                <div style={{
+                  fontSize: '9.5px',
+                  fontWeight: 800,
+                  letterSpacing: '1.2px',
+                  marginTop: '2px',
+                  color: '#000000',
+                  textTransform: 'uppercase'
+                }}>
+                  {subtitleText}
+                </div>
+              ) : null}
               {receiptHeader ? (
                 <div style={{
                   fontSize: '9px',
@@ -254,7 +273,7 @@ export const ThermalTicketModal = ({
               )}
 
               <div style={{ display: 'flex', alignItems: 'baseline' }}>
-                <span style={{ fontWeight: 800, minWidth: '90px' }}>RECEPCIONISTA:</span>
+                <span style={{ fontWeight: 800, minWidth: '90px' }}>{staffLabel}</span>
                 <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600, textTransform: 'capitalize' }}>
                   {ticket.receptionistName || currentUser?.nombre || currentUser?.name || 'Staff Recepción'}
                 </span>
@@ -307,7 +326,9 @@ export const ThermalTicketModal = ({
               marginBottom: '3px'
             }}>
               <span>SERVICIO</span>
-              <span style={{ paddingRight: '4px' }}>PRECIO</span>
+              {checklistStyle !== 'checkbox_only' && (
+                <span style={{ paddingRight: '4px' }}>PRECIO</span>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -332,21 +353,27 @@ export const ThermalTicketModal = ({
                   s.nombre?.toLowerCase()?.includes(srv.toLowerCase()) ||
                   srv.toLowerCase()?.includes(s.nombre?.toLowerCase() || '')
                 );
+                const showCheckbox = checklistStyle === 'checkbox_price' || checklistStyle === 'checkbox_only';
                 return (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '9px', padding: '2px 0' }}>
-                    <span style={{ fontWeight: 600, color: '#000000' }}>{srv}</span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', minWidth: '74px', justifyContent: 'flex-end', paddingRight: '2px' }}>
-                      <span style={{ fontWeight: 700, marginRight: '3px', fontSize: '8px' }}>RD$</span>
-                      <span style={{ borderBottom: '1px solid #777777', width: '46px', display: 'inline-block', textAlign: 'right', fontWeight: 800, fontSize: '8.5px' }}>
-                        {matchedService?.precio ? Number(matchedService.precio).toLocaleString('es-DO') : ''}
-                      </span>
-                    </div>
+                    <span style={{ fontWeight: 600, color: '#000000' }}>
+                      {showCheckbox ? '☐ ' : ''}{srv}
+                    </span>
+                    {checklistStyle !== 'checkbox_only' && (
+                      <div style={{ display: 'flex', alignItems: 'baseline', minWidth: '74px', justifyContent: 'flex-end', paddingRight: '2px' }}>
+                        <span style={{ fontWeight: 700, marginRight: '3px', fontSize: '8px' }}>RD$</span>
+                        <span style={{ borderBottom: '1px solid #777777', width: '46px', display: 'inline-block', textAlign: 'right', fontWeight: 800, fontSize: '8.5px' }}>
+                          {matchedService?.precio ? Number(matchedService.precio).toLocaleString('es-DO') : ''}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
             {/* 5. SECCIÓN TOTAL RD$ */}
+            {showTotalBox && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '7px 0 5px 0', paddingTop: '2px' }}>
               <span style={{ fontSize: '13px', fontWeight: 900, letterSpacing: '0.5px' }}>
                 TOTAL RD$
@@ -365,6 +392,7 @@ export const ThermalTicketModal = ({
                 {ticket.totalAmount ? `RD$ ${Number(ticket.totalAmount).toLocaleString('es-DO', { minimumFractionDigits: 2 })}` : ''}
               </div>
             </div>
+            )}
 
             {/* 6. PIE DEL TICKET CON QR REAL Y MENÚ DE SERVICIOS / DGII */}
             {showQrMenu && (
@@ -377,7 +405,7 @@ export const ThermalTicketModal = ({
                       ? (ticket.ncf.startsWith('E32') && Number(ticket.totalAmount || 0) < 250000
                           ? `https://fc.dgii.gov.do/eCF/ConsultaTimbreFC?RncEmisor=131917038&ENCF=${ticket.ncf}&MontoTotal=${Number(ticket.totalAmount || 0).toFixed(2)}&CodigoSeguridad=${ticket.securityCode || '000000'}`
                           : `https://ecf.dgii.gov.do/eCF/ConsultaTimbre?RncEmisor=131917038&RncComprador=${ticket.clientRnc || ''}&ENCF=${ticket.ncf}&MontoTotal=${Number(ticket.totalAmount || 0).toFixed(2)}&FechaEmision=05-11-2026&FechaFirma=05-11-2026%2008%3A53%3A42&CodigoSeguridad=${ticket.securityCode || '000000'}`)
-                      : 'https://planbeauty.do/servicios'
+                      : (customQrUrl || 'https://planbeauty.do/servicios')
                     )
                   } 
                   size={58} 

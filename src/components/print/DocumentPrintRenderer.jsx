@@ -88,6 +88,9 @@ export function DocumentPrintRenderer({
             }}
           >
             {businessName}
+            {cfg.subtitle_text && (
+              <div style={{ fontSize: '10px', fontWeight: 700, marginTop: '2px', letterSpacing: '0.08em' }}>{cfg.subtitle_text}</div>
+            )}
             {data.branch_name && (
               <div style={{ fontSize: '10px', fontWeight: 600, marginTop: '2px' }}>{data.branch_name}</div>
             )}
@@ -158,10 +161,15 @@ export function DocumentPrintRenderer({
         );
 
       case 'customer':
-        if (!data.customer_name && !isPreview) return null;
+        if (!data.customer_name && !isPreview && docType !== 'ticket_venta') return null;
         return (
           <div key="customer" style={{ textAlign: align, fontSize: sizes.fontSize, marginBottom: '6px', color: '#000000' }}>
-            <strong>Cliente:</strong> {data.customer_name || 'Consumidor Final'}
+            <div><strong>CLIENTE:</strong> {data.customer_name || (isPreview ? 'PRUE' : '________________')}</div>
+            {docType === 'ticket_venta' && (
+              <div style={{ marginTop: '2px' }}>
+                <strong>{cfg.staff_label || 'RECEPCIONISTA:'}</strong> {data.staff_name || (isPreview ? 'Elvys Rodriguez' : '________________')}
+              </div>
+            )}
             {data.customer_rnc && <div>RNC/Cédula: {data.customer_rnc}</div>}
           </div>
         );
@@ -202,10 +210,14 @@ export function DocumentPrintRenderer({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {checklist.map((itemName, idx) => (
                   <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: sizes.fontSize }}>
-                    <span style={{ fontWeight: 600 }}>{itemName}</span>
-                    <span style={{ whiteSpace: 'nowrap' }}>
-                      RD$ <span style={{ display: 'inline-block', width: '44px', borderBottom: '1px solid #555555' }} />
+                    <span style={{ fontWeight: 600 }}>
+                      {(cfg.checklist_style === 'checkbox_price' || cfg.checklist_style === 'checkbox_only') ? '☐ ' : ''}{itemName}
                     </span>
+                    {cfg.checklist_style !== 'checkbox_only' && (
+                      <span style={{ whiteSpace: 'nowrap' }}>
+                        RD$ <span style={{ display: 'inline-block', width: '44px', borderBottom: '1px solid #555555' }} />
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -251,6 +263,7 @@ export function DocumentPrintRenderer({
 
       case 'totals':
         if (docType === 'ticket_venta' && cfg.checklist_mode !== 'cart_items') {
+          if (cfg.show_total_box === false) return null;
           return (
             <div key="totals" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '8px 0', color: '#000000' }}>
               <span style={{ fontSize: sizes.heading, fontWeight: 900 }}>TOTAL RD$</span>
