@@ -5746,7 +5746,7 @@ const VisitRecorder = () => {
       <TurnTicketModal
         isOpen={showTurnTicketModal}
         onClose={() => setShowTurnTicketModal(false)}
-        branchId={selectedSalonId || currentUser?.branch_id || 'default'}
+        branchId={salonId || currentUser?.branch_id || 'default'}
       />
 
       {/* MODAL: IMPRESIÓN DEL TICKET FÍSICO 80MM (HOMOLOGADO AL SALÓN - PRE-CUENTA) */}

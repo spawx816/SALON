@@ -92,7 +92,11 @@ export default function PrintTemplatesDesigner() {
 
       setAvailability(availJson);
       setTemplates(Array.isArray(tplJson.templates) ? tplJson.templates : []);
-      setBranches(Array.isArray(salonsJson) ? salonsJson : (salonsJson.salons || []));
+      setBranches(
+        Array.isArray(salonsJson)
+          ? salonsJson
+          : (Array.isArray(salonsJson?.salons) ? salonsJson.salons : [])
+      );
       setRecentTurns(Array.isArray(turnsJson.tickets) ? turnsJson.tickets : []);
       const rawCatalog = Array.isArray(servicesJson) ? servicesJson : (servicesJson.services || []);
       setCatalogItems(rawCatalog.filter((it) => it && it.activo !== false && it.is_active !== false));
