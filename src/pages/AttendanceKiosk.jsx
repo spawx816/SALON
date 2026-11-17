@@ -990,10 +990,8 @@ const AttendanceKiosk = () => {
                           }
                         }
                         setPunchType(nextType);
-                        setStep(3);
-                        setMatchingStatus('matching');
-                        setStatusMessage('Iniciando cámara...');
-                        startCamera();
+                        setPassword('');
+                        setStep(2);
                       }}
                       style={{
                         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem',
