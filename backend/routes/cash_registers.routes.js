@@ -1,9 +1,133 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
 const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
 const { getBranchScope, isBranchAuthorized } = require('../middleware/rbac.middleware');
+const { getGlobalSmtpConfig, resolveTransporterForTenant } = require('../services/platform_email.service');
+
+const escapeHtml = (v) => String(v ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const fmtMoney = (n) => `RD$ ${Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+async function sendCashRegisterCloseEmail(pool, {
+  tenantId,
+  registerId,
+  openedAt,
+  openedBy,
+  closedBy,
+  openingBalance,
+  cashSales,
+  ingresos,
+  salidas,
+  expectedBalance,
+  closingBalance,
+  difference,
+  discrepancyReason,
+  notes,
+}) {
+  try {
+    const [tenantRows] = await pool.query(
+      'SELECT business_name, name, owner_email FROM tenants WHERE id = ? LIMIT 1',
+      [tenantId]
+    );
+    const tenant = tenantRows?.[0] || {};
+    const businessName = tenant.business_name || tenant.name || 'Etereas';
+
+    const [adminUsers] = await pool.query(
+      "SELECT email FROM users WHERE tenant_id = ? AND role IN ('propietario', 'admin') AND email IS NOT NULL AND email != ''",
+      [tenantId]
+    );
+
+    const recipients = Array.from(new Set([
+      ...(adminUsers || []).map((u) => String(u.email).trim().toLowerCase()),
+      ...(tenant.owner_email ? [String(tenant.owner_email).trim().toLowerCase()] : []),
+    ].filter(Boolean)));
+
+    if (recipients.length === 0) return { sent: false, reason: 'no_recipients' };
+
+    // Prioriza el SMTP global configurado por el Administrador de la plataforma
+    let transporter = null;
+    let fromAddress = null;
+    const globalCfg = await getGlobalSmtpConfig(pool);
+    if (globalCfg) {
+      fromAddress = `"${globalCfg.fromName || 'Etereas'}" <${globalCfg.user}>`;
+      transporter = nodemailer.createTransport({
+        host: globalCfg.host,
+        port: globalCfg.port,
+        secure: globalCfg.secure,
+        auth: { user: globalCfg.user, pass: globalCfg.pass },
+        tls: { rejectUnauthorized: false },
+      });
+    } else {
+      const resolved = await resolveTransporterForTenant(pool, tenantId, businessName);
+      transporter = resolved.transporter;
+      fromAddress = resolved.fromAddress;
+    }
+
+    if (!transporter || !fromAddress) return { sent: false, reason: 'no_smtp_configured' };
+
+    const closedAtStr = new Date().toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' });
+    const openedAtStr = openedAt ? new Date(openedAt).toLocaleString('es-DO', { timeZone: 'America/Santo_Domingo' }) : 'N/A';
+    const diffColor = difference === 0 ? '#16a34a' : (difference < 0 ? '#dc2626' : '#d97706');
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px;">
+          <h2 style="margin: 0 0 6px; color: #0f172a; font-size: 18px;">Cierre / Cuadre de Caja — ${escapeHtml(businessName)}</h2>
+          <p style="margin: 0 0 16px; color: #64748b; font-size: 13px;">Caja #${escapeHtml(registerId)} · Cerrada el ${escapeHtml(closedAtStr)}</p>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #1e293b;">
+            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Apertura</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(openedAtStr)} (${escapeHtml(openedBy || 'N/A')})</td></tr>
+            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Cerrada por</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;"><strong>${escapeHtml(closedBy)}</strong></td></tr>
+            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Fondo inicial</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(fmtMoney(openingBalance))}</td></tr>
+            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Ventas en efectivo</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(fmtMoney(cashSales))}</td></tr>
+            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Ingresos manuales</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">${escapeHtml(fmtMoney(ingresos))}</td></tr>
+            <tr><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;">Salidas manuales</td><td style="padding: 6px 0; border-bottom: 1px solid #f1f5f9; text-align: right;">-${escapeHtml(fmtMoney(salidas))}</td></tr>
+            <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: 700;">Saldo esperado</td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">${escapeHtml(fmtMoney(expectedBalance))}</td></tr>
+            <tr><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: 700;">Saldo real contado</td><td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; text-align: right; font-weight: 700;">${escapeHtml(fmtMoney(closingBalance))}</td></tr>
+            <tr><td style="padding: 8px 0; font-weight: 800; color: ${diffColor};">Diferencia</td><td style="padding: 8px 0; text-align: right; font-weight: 800; color: ${diffColor};">${escapeHtml(fmtMoney(difference))}</td></tr>
+          </table>
+          ${discrepancyReason ? `<p style="margin: 14px 0 0; padding: 10px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #991b1b; font-size: 12px;"><strong>Motivo de diferencia:</strong> ${escapeHtml(discrepancyReason)}</p>` : ''}
+          ${notes ? `<p style="margin: 10px 0 0; color: #475569; font-size: 12px;"><strong>Observaciones:</strong> ${escapeHtml(notes)}</p>` : ''}
+        </div>
+      </div>
+    `;
+
+    const text = [
+      `Cierre / Cuadre de Caja - ${businessName}`,
+      `Caja #${registerId} | Cerrada: ${closedAtStr}`,
+      `Cerrada por: ${closedBy}`,
+      `Fondo inicial: ${fmtMoney(openingBalance)}`,
+      `Ventas efectivo: ${fmtMoney(cashSales)}`,
+      `Ingresos manuales: ${fmtMoney(ingresos)}`,
+      `Salidas manuales: -${fmtMoney(salidas)}`,
+      `Saldo esperado: ${fmtMoney(expectedBalance)}`,
+      `Saldo contado: ${fmtMoney(closingBalance)}`,
+      `Diferencia: ${fmtMoney(difference)}`,
+      discrepancyReason ? `Motivo diferencia: ${discrepancyReason}` : '',
+      notes ? `Observaciones: ${notes}` : '',
+    ].filter(Boolean).join('\n');
+
+    await transporter.sendMail({
+      from: fromAddress,
+      to: recipients.join(', '),
+      subject: `Cuadre de Caja - ${businessName} (${closedAtStr})`,
+      text,
+      html,
+    });
+
+    return { sent: true, recipients_count: recipients.length };
+  } catch (err) {
+    console.error('[CASH REGISTER CLOSE EMAIL ERROR]:', err?.message || err);
+    return { sent: false, reason: 'send_failed' };
+  }
+}
 
 /**
  * Cash Registers (Cajas de Jornada), Movements & Close Reports Router (Scoped strictly by tenant_id)
@@ -398,6 +522,23 @@ function createCashRegistersRouter(pool) {
         ]
       );
 
+      const emailResult = await sendCashRegisterCloseEmail(pool, {
+        tenantId,
+        registerId: id,
+        openedAt: register.opened_at,
+        openedBy: register.opened_by_name || register.opened_by,
+        closedBy: effectiveClosedBy,
+        openingBalance,
+        cashSales,
+        ingresos,
+        salidas,
+        expectedBalance,
+        closingBalance: actualClosing,
+        difference,
+        discrepancyReason: discrepancy_reason ? String(discrepancy_reason).trim() : null,
+        notes: notes || null,
+      });
+
       res.json({
         success: true,
         id,
@@ -414,7 +555,8 @@ function createCashRegistersRouter(pool) {
         discrepancy_reason: discrepancy_reason ? String(discrepancy_reason).trim() : null,
         supervisor_authorized: Boolean(supervisorUserId),
         authorization_event_type: authorizationEventType,
-        correlation_id: correlationId
+        correlation_id: correlationId,
+        email_sent: Boolean(emailResult?.sent),
       });
     } catch (err) {
       console.error('[CASH REGISTER CLOSE ERROR]:', err);

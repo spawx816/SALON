@@ -4860,43 +4860,6 @@ const VisitRecorder = () => {
               <span>🎟️ Ticket de Turno (Sin Cobro)</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setPrintableTicketData({
-                  ticketNumber: `HOJA-${String(Date.now()).slice(-4)}`,
-                  salon_id: salonId,
-                  branch_id: salonId,
-                  clientName: clientFound?.nombre || clientSearchInput || '________________',
-                  receptionistName: currentUser?.nombre || currentUser?.name || '________________',
-                  services: [],
-                  totalAmount: '',
-                  isPrecuenta: false,
-                  isHandwrittenWorksheet: true,
-                });
-                setShowPrintModal(true);
-              }}
-              style={{
-                width: '100%',
-                background: '#fefce8',
-                color: '#854d0e',
-                border: '1.5px solid #fde047',
-                padding: '0.6rem',
-                borderRadius: '12px',
-                fontWeight: 700,
-                fontSize: '0.825rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.4rem',
-              }}
-              title="Imprimir ticket pre-impreso con lista de productos/servicios para llenar con bolígrafo"
-            >
-              <Printer size={15} />
-              <span>📝 Ticket para Llenar a Mano</span>
-            </button>
-
             {/* CARGAR A NÓMINA — solo visible en tickets de empleado */}
             {isEmployeeClient && (
               <button
