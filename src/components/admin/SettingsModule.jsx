@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../../utils/dataService';
 import { useNotification } from '../../context/NotificationContext';
-import { Mail, Shield, Server, Check, Save, AlertTriangle, Sliders, FileSignature, Printer } from 'lucide-react';
+import { Mail, Shield, Server, Check, Save, AlertTriangle, Sliders, FileSignature, Printer, Tablet } from 'lucide-react';
 import { motion } from 'framer-motion';
 import ContractSettingsModule from './ContractSettingsModule';
 import PrintTemplatesDesigner from '../print/PrintTemplatesDesigner';
+import KioskDevicesPanel from '../settings/KioskDevicesPanel';
 
 const SettingsModule = () => {
   const { showNotification } = useNotification();
@@ -134,6 +135,27 @@ const SettingsModule = () => {
         >
           <Printer size={17} /> Plantillas de impresión
         </button>
+
+        <button
+          onClick={() => setActiveTab('kiosks')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.7rem 1.25rem',
+            borderRadius: '12px',
+            border: 'none',
+            background: activeTab === 'kiosks' ? '#0ea5e9' : '#f1f5f9',
+            color: activeTab === 'kiosks' ? '#fff' : '#475569',
+            fontWeight: 700,
+            fontSize: '0.875rem',
+            cursor: 'pointer',
+            boxShadow: activeTab === 'kiosks' ? '0 4px 12px rgba(14, 165, 233, 0.25)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Tablet size={17} /> Kioscos y Biometría
+        </button>
       </div>
 
       {activeTab === 'contract' && (
@@ -142,6 +164,10 @@ const SettingsModule = () => {
 
       {activeTab === 'print_templates' && (
         <PrintTemplatesDesigner />
+      )}
+
+      {activeTab === 'kiosks' && (
+        <KioskDevicesPanel />
       )}
 
       {activeTab === 'email' && (

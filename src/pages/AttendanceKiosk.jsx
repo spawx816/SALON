@@ -13,8 +13,12 @@ const AttendanceKiosk = () => {
   const { t } = useTranslation();
   const [employees, setEmployees] = useState([]);
   const [salons, setSalons] = useState([]);
-  const [kioskSalonId, setKioskSalonId] = useState(localStorage.getItem('kiosk_salon_id') || '');
-  const [kioskActive, setKioskActive] = useState(localStorage.getItem('kiosk_active') === 'true');
+  const [kioskSalonId, setKioskSalonId] = useState('');
+  const [deviceName, setDeviceName] = useState('');
+  const [kioskActive, setKioskActive] = useState(false);
+  const [kioskSessionInfo, setKioskSessionInfo] = useState(null);
+  const [punchToken, setPunchToken] = useState('');
+  const [kioskBannerError, setKioskBannerError] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [activationError, setActivationError] = useState('');
@@ -79,34 +83,56 @@ const AttendanceKiosk = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Refresh today's real punches from the lightweight endpoint
+  // Refresh today's real punches from device-scoped kiosk endpoint
   const refreshTodayPunches = async () => {
     try {
-      const res = await fetch('/api/attendance/today');
-      const data = res.ok ? await res.json() : [];
-      setTodayPunches(data);
+      const res = await fetch('/api/kiosk/today', { credentials: 'include', cache: 'no-store' });
+      if (res.status === 401) {
+        setKioskActive(false);
+        setKioskSessionInfo(null);
+        setKioskBannerError('Este dispositivo fue revocado o su sesión expiró. Vuelve a vincularlo.');
+        return;
+      }
+      const data = res.ok ? await res.json() : { punches: [] };
+      setTodayPunches(Array.isArray(data?.punches) ? data.punches : []);
     } catch {
       setTodayPunches([]);
     }
   };
 
-  // Fetch employees and salons on mount
-  useEffect(() => {
-    const loadKioskData = async () => {
-      try {
-        const staff = await dataService.getEmployees();
-        const sal = await dataService.getSalons();
+  const loadBoundKioskState = async () => {
+    try {
+      // Limpiar llaves legacy inseguras de localStorage (requieren revinculación autorizada)
+      localStorage.removeItem('kiosk_active');
+      localStorage.removeItem('kiosk_salon_id');
 
-        setEmployees(staff || []);
+      const sessRes = await fetch('/api/kiosk/session', { credentials: 'include', cache: 'no-store' });
+      const sessData = sessRes.ok ? await sessRes.json() : { bound: false };
+
+      if (sessData?.bound) {
+        setKioskActive(true);
+        setKioskSessionInfo(sessData);
+        setKioskSalonId(sessData.branch?.id || '');
+        const [empRes] = await Promise.all([
+          fetch('/api/kiosk/employees', { credentials: 'include', cache: 'no-store' }),
+          refreshTodayPunches(),
+        ]);
+        const empData = empRes.ok ? await empRes.json() : { employees: [] };
+        setEmployees(Array.isArray(empData?.employees) ? empData.employees : []);
+      } else {
+        setKioskActive(false);
+        setKioskSessionInfo(null);
+        const sal = await dataService.getSalons().catch(() => []);
         setSalons(sal || []);
-
-        // Load today's real punches (lightweight endpoint — no absent generation)
-        await refreshTodayPunches();
-      } catch (err) {
-        console.error("Error loading kiosk data:", err);
       }
-    };
-    loadKioskData();
+    } catch (err) {
+      console.error('Error loading kiosk state:', err);
+    }
+  };
+
+  // Check bound kiosk session on mount
+  useEffect(() => {
+    loadBoundKioskState();
   }, []);
 
   // Start Camera
@@ -135,28 +161,40 @@ const AttendanceKiosk = () => {
     }
   };
 
-  // Verify PIN/Password on Kiosk
+  // Verify PIN/Password on Kiosk via device-scoped endpoint
   const handleVerifyPassword = async (e) => {
     e.preventDefault();
     if (!selectedEmployee) return;
 
     try {
-      const res = await dataService.verifyUserPassword(selectedEmployee.id, password);
-      if (res && res.success) {
+      const res = await fetch('/api/kiosk/verify-employee', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: selectedEmployee.id, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && data.code === 'KIOSK_DEVICE_UNBOUND') {
+        setKioskActive(false);
+        setKioskSessionInfo(null);
+        setKioskBannerError(data.error || 'Dispositivo revocado.');
+        return;
+      }
+      if (res.ok && data.success && data.punch_token) {
         setPassword('');
+        setPunchToken(data.punch_token);
         setStep(3);
         setMatchingStatus('matching');
-        setStatusMessage("Preparando cámara...");
-        // Iniciar cámara de forma asíncrona
+        setStatusMessage('Preparando cámara...');
         setTimeout(() => {
           startCamera();
         }, 100);
       } else {
-        alert("Contraseña o PIN incorrecto.");
+        alert(data.error || 'Contraseña o PIN incorrecto.');
       }
     } catch (err) {
       console.error(err);
-      alert("Error al verificar contraseña.");
+      alert('Error al verificar contraseña.');
     }
   };
 
@@ -164,8 +202,9 @@ const AttendanceKiosk = () => {
     console.log("Webcam video started playing.");
     setMatchingStatus('matching');
     
-    // Si el empleado no tiene foto registrada, no es necesario hacer cuenta regresiva biométrica
-    if (!selectedEmployee || !selectedEmployee.profile_photo) {
+    const requireFaceMatch = kioskSessionInfo?.biometricPolicy?.mode === 'pin_face_verify';
+    // Si el modo es PIN + foto (sin biometría facial obligatoria), permitir confirmación directa
+    if (!requireFaceMatch || !selectedEmployee || !selectedEmployee.has_profile_photo) {
       setStatusMessage("Cámara activa. Presione Confirmar Ponche.");
       return;
     }
@@ -194,7 +233,8 @@ const AttendanceKiosk = () => {
 
   // Perform Clock-in or Clock-out
   const handlePunch = async () => {
-    // Limpiar intervalo de captura automática si está corriendo
+    if (isPunchingRef.current) return;
+    isPunchingRef.current = true;
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
@@ -203,10 +243,9 @@ const AttendanceKiosk = () => {
 
     setLoading(true);
     setMatchingStatus('matching');
-    setStatusMessage("Enviando foto al servidor para verificación facial...");
+    setStatusMessage('Registrando ponche de forma segura...');
 
     try {
-      // Capturar la imagen de la cámara actual con alta resolución para la precisión de Azure
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = 640;
       tempCanvas.height = 480;
@@ -216,7 +255,6 @@ const AttendanceKiosk = () => {
       }
       const capturedPhoto = tempCanvas.toDataURL('image/jpeg', 0.85);
 
-      // Obtener GPS con un timeout de seguridad de 3 segundos
       let gpsStr = null;
       try {
         if (navigator.geolocation) {
@@ -224,39 +262,53 @@ const AttendanceKiosk = () => {
             navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 3000, enableHighAccuracy: false });
           });
           const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('GPS Timeout')), 3000));
-          
           const position = await Promise.race([gpsPromise, timeoutPromise]);
           gpsStr = `${position.coords.latitude},${position.coords.longitude}`;
         }
       } catch (e) {
-        console.warn("GPS Location access denied or timed out:", e.message);
+        console.warn('GPS Location access denied or timed out:', e.message);
       }
 
-      const payload = {
-        employeeId: selectedEmployee.id,
-        type: punchType,
-        photo: capturedPhoto,
-        geolocation: gpsStr,
-        deviceInfo: navigator.userAgent
-      };
-
-      const res = await dataService.saveAttendancePunch(payload);
-      if (res && res.success) {
-        setMatchingStatus('matched');
-        setStatusMessage("Identidad verificada con éxito.");
+      const idempotencyKey = `KPU-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const res = await fetch('/api/kiosk/punch', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: selectedEmployee.id,
+          type: punchType,
+          photo: capturedPhoto,
+          geolocation: gpsStr,
+          deviceInfo: navigator.userAgent,
+          punch_token: punchToken,
+          idempotency_key: idempotencyKey,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401 && data.code === 'KIOSK_DEVICE_UNBOUND') {
         stopCamera();
-        // Refresh today's punches immediately so the badge updates correctly on next login
+        setKioskActive(false);
+        setKioskSessionInfo(null);
+        setKioskBannerError(data.error || 'Este dispositivo fue revocado.');
+        return;
+      }
+      if (res.ok && data.success) {
+        setMatchingStatus('matched');
+        setStatusMessage(data.message || 'Ponche registrado con éxito.');
+        setPunchToken('');
+        stopCamera();
         await refreshTodayPunches();
         setStep(4);
       } else {
         setMatchingStatus('error');
-        setStatusMessage(res?.error || 'Error al validar rostro.');
+        setStatusMessage(data.error || 'Error al validar o registrar el ponche.');
       }
     } catch (err) {
       setMatchingStatus('error');
       setStatusMessage('Error del sistema al procesar el ponche.');
-      console.error("Error during punch action:", err);
+      console.error('Error during punch action:', err);
     } finally {
+      isPunchingRef.current = false;
       setLoading(false);
     }
   };
@@ -265,37 +317,52 @@ const AttendanceKiosk = () => {
     e.preventDefault();
     setLoading(true);
     setActivationError('');
+    setKioskBannerError('');
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: adminEmail, password: adminPassword })
+        body: JSON.stringify({ email: adminEmail, password: adminPassword }),
       });
-      const data = await res.json();
-      
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setActivationError(data.error || 'Error de autenticación.');
         return;
       }
-      
-      const roleName = (data.role_name || '').toLowerCase();
-      const isAuthorized = roleName.includes('admin') || roleName.includes('recep') || data.role === 'admin';
-      
-      if (!isAuthorized) {
-        setActivationError('Acceso denegado. Se requiere un rol de Administrador o Recepcionista.');
+
+      let targetBranchId = kioskSalonId;
+      if (!targetBranchId) {
+        const sal = await dataService.getSalons().catch(() => []);
+        setSalons(sal || []);
+        if (sal && sal.length === 1) {
+          targetBranchId = sal[0].id;
+          setKioskSalonId(targetBranchId);
+        } else {
+          setActivationError('Por favor selecciona una sucursal.');
+          return;
+        }
+      }
+
+      const bindRes = await fetch('/api/kiosk/bind', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch_id: targetBranchId,
+          device_name: deviceName || undefined,
+        }),
+      });
+      const bindData = await bindRes.json().catch(() => ({}));
+      if (!bindRes.ok || !bindData.success) {
+        setActivationError(bindData.error || 'No tienes permiso para vincular este dispositivo.');
         return;
       }
-      
-      if (!kioskSalonId) {
-        setActivationError('Por favor selecciona una sucursal.');
-        return;
-      }
-      
-      localStorage.setItem('kiosk_active', 'true');
-      localStorage.setItem('kiosk_salon_id', kioskSalonId);
-      setKioskActive(true);
+
       setAdminEmail('');
       setAdminPassword('');
+      setDeviceName('');
+      await loadBoundKioskState();
     } catch (err) {
       setActivationError('Error de red o servidor.');
       console.error(err);
@@ -309,33 +376,29 @@ const AttendanceKiosk = () => {
     setLoading(true);
     setDeactivateError('');
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/kiosk/deactivate', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: deactivateEmail, password: deactivatePassword })
+        body: JSON.stringify({ email: deactivateEmail, password: deactivatePassword }),
       });
-      const data = await res.json();
-      
-      if (!res.ok) {
-        setDeactivateError(data.error || 'Error de autenticación.');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        setDeactivateError(data.error || 'Credenciales inválidas o sin permiso.');
         return;
       }
-      
-      const roleName = (data.role_name || '').toLowerCase();
-      const isAuthorized = roleName.includes('admin') || roleName.includes('recep') || data.role === 'admin';
-      
-      if (!isAuthorized) {
-        setDeactivateError('Acceso denegado. Se requiere un rol de Administrador o Recepcionista.');
-        return;
-      }
-      
+
       localStorage.removeItem('kiosk_active');
       localStorage.removeItem('kiosk_salon_id');
       setKioskActive(false);
+      setKioskSessionInfo(null);
       setKioskSalonId('');
+      setEmployees([]);
+      setTodayPunches([]);
       setShowDeactivateModal(false);
       setDeactivateEmail('');
       setDeactivatePassword('');
+      handleCancelKiosk();
     } catch (err) {
       setDeactivateError('Error de red o servidor.');
       console.error(err);
@@ -345,7 +408,6 @@ const AttendanceKiosk = () => {
   };
 
   const handleCancelKiosk = () => {
-    // Clear any running auto-capture countdown
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
@@ -355,10 +417,11 @@ const AttendanceKiosk = () => {
     consecutiveMismatchesRef.current = 0;
     isPunchingRef.current = false;
     stopCamera();
+    setPunchToken('');
+    setPassword('');
     setSelectedEmployee(null);
     setMatchingStatus('idle');
     setStep(1);
-    // Reset commission & payslip mode
     setCommissionMode(false);
     setKioskViewTab('commissions');
     setCommissionPin('');
@@ -372,6 +435,7 @@ const AttendanceKiosk = () => {
     setEmployeeSlip(null);
     setSlipLoading(false);
     setSlipError('');
+    fetch('/api/kiosk/self-service/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
   };
 
   // --- Commission & Payslip Flow Handlers ---
@@ -392,40 +456,26 @@ const AttendanceKiosk = () => {
     setSlipError('');
   };
 
-  const handleSendCommissionPin = async (emp, overrideEmail) => {
+  const handleSendCommissionPin = async (emp) => {
     const employee = emp || selectedEmployee;
     if (!employee) return;
-    const emailToSend = (overrideEmail || customCommissionEmail || employee.email || '').trim();
-    if (!emailToSend || !emailToSend.includes('@')) {
-      setCommissionPinError('Por favor ingresa un correo electrónico válido para recibir tu PIN.');
-      return;
-    }
     setCommissionPinSending(true);
     setCommissionPinError('');
     try {
-      const res = await fetch('/api/employees/commission-pin', {
+      const res = await fetch('/api/kiosk/self-service/request-otp', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          employee_id: employee.id, 
-          email: emailToSend,
-          save_email: true 
-        })
+        body: JSON.stringify({ employee_id: employee.id }),
       });
-      let data = {};
-      try {
-        data = await res.json();
-      } catch (e) {
-        data = {};
-      }
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
         setCommissionPinSent(true);
-        employee.email = emailToSend;
       } else {
-        setCommissionPinError(data.error || 'Error enviando PIN al correo.');
+        setCommissionPinError(data.error || 'Error enviando código al correo.');
       }
-    } catch (err) {
-      setCommissionPinError('Error de conexión al enviar PIN.');
+    } catch {
+      setCommissionPinError('Error de conexión al enviar código.');
     } finally {
       setCommissionPinSending(false);
     }
@@ -493,36 +543,43 @@ const AttendanceKiosk = () => {
     return periods;
   };
 
-  const fetchCommissionsForPeriod = async (empId, startDate, endDate) => {
-    if (!empId) return;
+  const fetchCommissionsForPeriod = async (_empId, startDate, endDate) => {
     setCommissionLoading(true);
     try {
-      const url = `/api/commissions?employee_id=${empId}&start_date=${startDate}&end_date=${endDate}`;
-      const commRes = await fetch(url);
-      const commData = commRes.ok ? await commRes.json() : [];
-      setEmployeeCommissions(Array.isArray(commData) ? commData : (commData.commissions || []));
-    } catch (err) {
+      const url = `/api/kiosk/self-service/commissions?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+      const commRes = await fetch(url, { credentials: 'include', cache: 'no-store' });
+      if (commRes.status === 401) {
+        handleCancelKiosk();
+        return;
+      }
+      const commData = commRes.ok ? await commRes.json() : { commissions: [] };
+      setEmployeeCommissions(Array.isArray(commData?.commissions) ? commData.commissions : []);
+    } catch {
       setEmployeeCommissions([]);
     } finally {
       setCommissionLoading(false);
     }
   };
 
-  const fetchEmployeeSlipForPeriod = async (empId, startDate, endDate) => {
-    if (!empId) return;
+  const fetchEmployeeSlipForPeriod = async (_empId, startDate, endDate) => {
     setSlipLoading(true);
     setSlipError('');
     try {
-      const url = `/api/payroll/employee-slip?employee_id=${empId}&start_date=${startDate}&end_date=${endDate}`;
-      const res = await fetch(url);
+      const url = `/api/kiosk/self-service/payslip?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+      const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
+      if (res.status === 401) {
+        handleCancelKiosk();
+        return;
+      }
       const data = res.ok ? await res.json() : null;
-      if (data && data.success && data.item) {
-        setEmployeeSlip(data);
+      const latestItem = Array.isArray(data?.payslips) && data.payslips.length > 0 ? data.payslips[0] : null;
+      if (latestItem) {
+        setEmployeeSlip({ success: true, item: latestItem });
       } else {
         setEmployeeSlip(null);
         setSlipError(data?.error || 'No hay volante registrado para este período.');
       }
-    } catch (err) {
+    } catch {
       setEmployeeSlip(null);
       setSlipError('Error al consultar volante de pago.');
     } finally {
@@ -545,42 +602,30 @@ const AttendanceKiosk = () => {
     setCommissionPinVerifying(true);
     setCommissionPinError('');
     try {
-      const res = await fetch('/api/employees/verify-commission-pin', {
+      const res = await fetch('/api/kiosk/self-service/verify', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: selectedEmployee.id, pin: cleanPin })
+        body: JSON.stringify({ employee_id: selectedEmployee.id, pin: cleanPin }),
       });
-      let data = {};
-      try {
-        data = await res.json();
-      } catch (e) {
-        data = {};
-      }
+      const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
-        // Calcular períodos de quincenas (mes anterior y actual)
         const periods = generateQuincenaPeriods();
         setQuincenaPeriods(periods);
-        
-        // Seleccionar la quincena actual por defecto (o la más reciente)
         const defaultPeriod = periods.find(p => p.isCurrent) || periods[0];
         setSelectedQuincenaKey(defaultPeriod ? defaultPeriod.key : '');
-
-        // Iniciar temporizador de 10 minutos (600 segundos)
         setCommissionRemainingSeconds(600);
-
-        // Cargar comisiones y volante de la quincena seleccionada
         if (defaultPeriod) {
           await Promise.all([
             fetchCommissionsForPeriod(selectedEmployee.id, defaultPeriod.startDate, defaultPeriod.endDate),
             fetchEmployeeSlipForPeriod(selectedEmployee.id, defaultPeriod.startDate, defaultPeriod.endDate)
           ]);
         }
-
         setStep(5);
       } else {
         setCommissionPinError(data.error || 'PIN incorrecto. Intenta nuevamente.');
       }
-    } catch (err) {
+    } catch {
       setCommissionPinError('Error de red. Intenta nuevamente.');
     } finally {
       setCommissionPinVerifying(false);
@@ -725,31 +770,39 @@ const AttendanceKiosk = () => {
     }
   }, [step]);
 
-  const filteredEmployees = employees.filter(emp => {
-    if (!kioskSalonId) return false;
-    // Si el empleado no tiene sucursal asignada (es null o vacío), se considera Global y se muestra en todas!
-    if (emp.salon_id === null || emp.salon_id === undefined || emp.salon_id === '') return true;
-    return String(emp.salon_id) === String(kioskSalonId);
-  });
+  const filteredEmployees = employees;
 
   return (
     <div style={{ minHeight: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column', background: '#09090b', color: '#f8fafc', padding: '2rem 1.5rem', fontFamily: '"Plus Jakarta Sans", sans-serif' }}>
       
       {/* Kiosk Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1f1f23', paddingBottom: '1.5rem', marginBottom: '2.5rem' }}>
-        <div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0, color: '#ffffff', letterSpacing: '-0.5px' }}>
-            Kiosco de Asistencia
-          </h2>
-          <p style={{ fontSize: '0.85rem', color: '#a1a1aa', margin: '0.25rem 0 0 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span>Poncheo biométrico rápido para personal</span>
-            {kioskSalonId && (
-              <>
-                <span style={{ color: '#27272a' }}>•</span>
-                <span style={{ color: '#10b981', fontWeight: 800 }}>📍 {salons.find(s => String(s.id) === String(kioskSalonId))?.name || 'Cargando...'}</span>
-              </>
-            )}
-          </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1f1f23', paddingBottom: '1.5rem', marginBottom: '2.5rem', gap: '1rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          {kioskSessionInfo?.tenant?.logo_url && (
+            <img
+              src={kioskSessionInfo.tenant.logo_url}
+              alt={kioskSessionInfo.tenant.name || 'Logo'}
+              style={{ width: '44px', height: '44px', borderRadius: '10px', objectFit: 'contain', background: '#ffffff', padding: '4px' }}
+            />
+          )}
+          <div>
+            <h2 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0, color: '#ffffff', letterSpacing: '-0.5px' }}>
+              {kioskSessionInfo?.tenant?.name ? `${kioskSessionInfo.tenant.name} — Kiosco` : 'Kiosco de Asistencia'}
+            </h2>
+            <p style={{ fontSize: '0.85rem', color: '#a1a1aa', margin: '0.25rem 0 0 0', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              <span>{kioskActive ? `Dispositivo: ${kioskSessionInfo?.device?.device_name || 'Vinculado'}` : 'Dispositivo no vinculado'}</span>
+              {kioskActive && kioskSessionInfo?.branch?.name && (
+                <>
+                  <span style={{ color: '#27272a' }}>•</span>
+                  <span style={{ color: '#10b981', fontWeight: 800 }}>📍 {kioskSessionInfo.branch.name}</span>
+                  <span style={{ color: '#27272a' }}>•</span>
+                  <span style={{ color: '#38bdf8', fontWeight: 700 }}>
+                    {kioskSessionInfo?.biometricPolicy?.mode === 'pin_face_verify' ? '🛡️ PIN + Biometría Facial' : '📸 PIN + Fotografía'}
+                  </span>
+                </>
+              )}
+            </p>
+          </div>
         </div>
         
         {/* Real-time Clock */}
@@ -773,10 +826,15 @@ const AttendanceKiosk = () => {
             <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
               <ShieldCheck size={30} />
             </div>
-            <h3 style={{ fontSize: '1.4rem', fontWeight: 900, marginBottom: '0.5rem', color: '#ffffff', textAlign: 'center', fontFamily: '"Plus Jakarta Sans", sans-serif' }}>Activar Kiosco</h3>
-            <p style={{ fontSize: '0.8rem', color: '#a1a1aa', marginBottom: '2rem', textAlign: 'center', lineHeight: 1.4, fontFamily: '"Plus Jakarta Sans", sans-serif' }}>
-              Ingresa tus credenciales de Administrador o Recepcionista para activar este dispositivo en una sucursal.
+            <h3 style={{ fontSize: '1.4rem', fontWeight: 900, marginBottom: '0.5rem', color: '#ffffff', textAlign: 'center', fontFamily: '"Plus Jakarta Sans", sans-serif' }}>Vincular Kiosco</h3>
+            <p style={{ fontSize: '0.8rem', color: '#a1a1aa', marginBottom: '1.5rem', textAlign: 'center', lineHeight: 1.4, fontFamily: '"Plus Jakarta Sans", sans-serif' }}>
+              Ingresa tus credenciales de Administrador/Propietario para vincular este dispositivo a una sucursal. La sesión administrativa se cerrará automáticamente tras vincular.
             </p>
+            {kioskBannerError && (
+              <div style={{ color: '#fbbf24', fontSize: '0.78rem', fontWeight: 700, background: 'rgba(245,158,11,0.12)', padding: '0.75rem', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.3)', textAlign: 'center', marginBottom: '1rem' }}>
+                ⚠️ {kioskBannerError}
+              </div>
+            )}
 
             <form onSubmit={handleActivateKiosk} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div>
@@ -803,6 +861,21 @@ const AttendanceKiosk = () => {
                   placeholder="••••••••"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
+                  style={{
+                    width: '100%', height: '48px', background: '#09090b', border: '1px solid #27272a',
+                    borderRadius: '12px', padding: '0 1rem', color: 'white', fontSize: '0.9rem', outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a1a1aa', display: 'block', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nombre del Dispositivo (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Tablet Recepción"
+                  value={deviceName}
+                  onChange={(e) => setDeviceName(e.target.value)}
                   style={{
                     width: '100%', height: '48px', background: '#09090b', border: '1px solid #27272a',
                     borderRadius: '12px', padding: '0 1rem', color: 'white', fontSize: '0.9rem', outline: 'none',

@@ -73,6 +73,11 @@ function createAttendanceRouter(pool) {
     try {
       const { id } = req.params;
       const tenantId = req.verifiedTenantId;
+      const role = String(req.auth?.role || '').toLowerCase();
+      const isSelf = String(req.auth?.id || '') === String(id);
+      if (!isSelf && !['propietario', 'admin', 'gerente', 'supervisor'].includes(role)) {
+        return res.status(403).json({ error: 'No tienes permiso para acceder a fotografías biométricas.' });
+      }
 
       const [rows] = await pool.query(
         'SELECT profile_photo, profile_photo_file_id FROM users WHERE id::text = ? AND tenant_id = ?',
@@ -344,11 +349,11 @@ function createAttendanceRouter(pool) {
   }
 
   async function verifyFacesWithCompreFace(webCamBuffer, refPhotoBuffer) {
-    const compreFaceUrl = process.env.COMPREFACE_URL || 'http://localhost:8000';
-    const apiKey = process.env.COMPREFACE_API_KEY || '';
+    const compreFaceUrl = process.env.COMPREFACE_URL;
+    const apiKey = process.env.COMPREFACE_API_KEY;
 
-    if (!apiKey) {
-      return { isIdentical: true, confidence: 1.0, mocked: true };
+    if (!compreFaceUrl || !apiKey) {
+      throw new Error('Servicio de verificación facial (CompreFace) no configurado en el servidor.');
     }
 
     try {
@@ -357,7 +362,7 @@ function createAttendanceRouter(pool) {
       form.append('source_image', refPhotoBuffer, { filename: 'ref.jpg', contentType: 'image/jpeg' });
       form.append('target_image', webCamBuffer, { filename: 'webcam.jpg', contentType: 'image/jpeg' });
 
-      const response = await axios.post(`${compreFaceUrl}/api/v1/verification/verify`, form, {
+      const response = await axios.post(`${compreFaceUrl.replace(/\/$/, '')}/api/v1/verification/verify`, form, {
         headers: {
           ...form.getHeaders(),
           'x-api-key': apiKey
@@ -399,12 +404,12 @@ function createAttendanceRouter(pool) {
       }
       
       let [employees] = await pool.query(
-        'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo FROM staff_records WHERE id::text = ? AND tenant_id = ?', 
+        'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo, profile_photo_file_id FROM staff_records WHERE id::text = ? AND tenant_id = ?', 
         [String(employeeId), tenantId]
       );
       if (employees.length === 0) {
         const [systemUsers] = await pool.query(
-          'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo FROM users WHERE id::text = ? AND tenant_id = ?',
+          'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, profile_photo, profile_photo_file_id FROM users WHERE id::text = ? AND tenant_id = ?',
           [String(employeeId), tenantId]
         );
         if (systemUsers.length === 0) {
@@ -415,10 +420,17 @@ function createAttendanceRouter(pool) {
       
       const emp = employees[0];
 
-      if (emp.profile_photo) {
+      if (emp.profile_photo_file_id || emp.profile_photo) {
         try {
           const webCamBuffer = base64ToBuffer(photo);
-          const refPhotoBuffer = base64ToBuffer(emp.profile_photo);
+          let refPhotoBuffer = null;
+          if (emp.profile_photo_file_id) {
+            const storage = getPrivateStorageAdapter({ pool });
+            const fileData = await storage.readFile({ tenantId, fileId: emp.profile_photo_file_id });
+            if (fileData?.buffer) refPhotoBuffer = fileData.buffer;
+          } else if (emp.profile_photo) {
+            refPhotoBuffer = base64ToBuffer(emp.profile_photo);
+          }
 
           if (!webCamBuffer) {
             return res.status(400).json({ error: 'La captura de cámara enviada no es válida.' });

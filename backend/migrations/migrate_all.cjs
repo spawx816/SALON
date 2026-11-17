@@ -36,6 +36,7 @@ const { up: upTenantTermsAndWelcome } = require('./20261115_tenant_terms_and_wel
 const { up: upRbacHardening } = require('./20261115_rbac_hardening.cjs');
 const { up: upPlatformEmailSettings } = require('./20261116_platform_email_settings.cjs');
 const { up: upPrintTemplatesAndTurnTickets } = require('./20261116_print_templates_and_turn_tickets.cjs');
+const { up: upKioskDevicesHardening } = require('./20261117_kiosk_devices_hardening.cjs');
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -261,6 +262,13 @@ const MIGRATIONS_REGISTRY = [
     description: 'Tablas print_templates, turn_ticket_counters y turn_tickets para diseñador de impresión y turnos Car Wash',
     execute: async (targetPool, targetSchema) => {
       return upPrintTemplatesAndTurnTickets(targetPool, targetSchema);
+    }
+  },
+  {
+    version: '20261117_kiosk_devices_hardening',
+    description: 'Tablas kiosk_devices y kiosk_employee_sessions, modo biométrico por empresa e idempotencia de ponches',
+    execute: async (targetPool, targetSchema) => {
+      return upKioskDevicesHardening(targetPool, targetSchema);
     }
   }
 ];

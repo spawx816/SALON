@@ -38,6 +38,7 @@ const { createServicesRouter } = require('./routes/services.routes');
 const { createCommissionsRouter } = require('./routes/commissions.routes');
 const { createMarketingRouter } = require('./routes/marketing.routes');
 const { createAttendanceRouter } = require('./routes/attendance.routes');
+const { createKioskRouter } = require('./routes/kiosk.routes');
 const { createDgiiRouter } = require('./routes/dgii.routes');
 const { createDgii606Router } = require('./routes/dgii_606.routes');
 const createExpensesRouter = require('./routes/expenses.routes');
@@ -350,7 +351,14 @@ function createApp(dependencies = {}) {
       }
     }
 
-    const hasCookieAuth = Boolean((req.cookies && req.cookies.auth_token) || (req.headers.cookie && req.headers.cookie.includes('auth_token=')));
+    const hasCookieAuth = Boolean(
+      (req.cookies && (req.cookies.auth_token || req.cookies.kiosk_device_token || req.cookies.kiosk_emp_session)) ||
+      (req.headers.cookie && (
+        req.headers.cookie.includes('auth_token=') ||
+        req.headers.cookie.includes('kiosk_device_token=') ||
+        req.headers.cookie.includes('kiosk_emp_session=')
+      ))
+    );
     const hasBearerAuth = Boolean(req.headers['authorization'] && req.headers['authorization'].toLowerCase().startsWith('bearer '));
 
     // Si la solicitud depende de cookies (o si trae origin/referer explícito), se exige verificación estricta de origen
@@ -435,6 +443,19 @@ function createApp(dependencies = {}) {
 
     // 11. Public Demo mode status
     if (pathUrl.startsWith('/api/demo')) return true;
+
+    // 12. Kiosk device-authenticated routes (authenticated via HttpOnly kiosk_device_token inside kioskRouter)
+    if (
+      pathUrl === '/api/kiosk/session' ||
+      pathUrl === '/api/kiosk/deactivate' ||
+      pathUrl === '/api/kiosk/employees' ||
+      pathUrl === '/api/kiosk/today' ||
+      pathUrl === '/api/kiosk/verify-employee' ||
+      pathUrl === '/api/kiosk/punch' ||
+      pathUrl.startsWith('/api/kiosk/self-service/')
+    ) {
+      return true;
+    }
 
     return false;
   };
@@ -724,6 +745,9 @@ function createApp(dependencies = {}) {
 
   const attendanceRouter = createAttendanceRouter(pool);
   app.use('/api/attendance', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, attendanceRouter);
+
+  const kioskRouter = createKioskRouter(pool, { authenticate });
+  app.use('/api/kiosk', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, kioskRouter);
 
   if (process.env.NODE_ENV === 'test' && process.env.ENABLE_TEST_ROUTES === 'true') {
     app.use('/api/test', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, createTestRouter(pool, { CARDNET_CONFIG, getCardNetAuthHeaders }));
