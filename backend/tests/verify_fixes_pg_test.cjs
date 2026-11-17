@@ -5,7 +5,7 @@
 const assert = require('assert');
 const http = require('http');
 const crypto = require('crypto');
-const { pool } = require('../db');
+const { validateTestEnvironment, createIsolatedTestPool } = require('../utils/test_env_guard.cjs');
 const { createApp } = require('../app');
 const { signAuthToken } = require('../middleware/auth.middleware');
 const { InventoryRepository } = require('../repositories/inventory.repository');
@@ -43,6 +43,18 @@ async function req(server, { method = 'GET', path, headers = {}, body = null }) 
 }
 
 async function main() {
+  const testConfig = validateTestEnvironment();
+  const pool = createIsolatedTestPool(testConfig);
+  const [ctxRows] = await pool.query('SELECT current_database() AS db, current_user AS usr');
+  const dbName = String(ctxRows?.[0]?.db || '');
+  const dbUser = String(ctxRows?.[0]?.usr || '');
+  if (dbName !== testConfig.database || dbName === testConfig.productionDatabase) {
+    throw new Error(`[FATAL] Base conectada (${dbName}) no coincide con TEST_DB_NAME (${testConfig.database}).`);
+  }
+  if (/prod|staging/i.test(dbUser)) {
+    throw new Error(`[FATAL] Usuario de base (${dbUser}) no corresponde a un rol aislado de pruebas.`);
+  }
+
   const app = createApp({ pool });
   const server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));

@@ -16,7 +16,7 @@
     "lint:backend": "eslint backend",
     "preview": "vite preview",
     "test:infrastructure-preflight": "node backend/scripts/infrastructure_preflight.cjs",
-    "test:runner-guards": "node backend/scripts/test_runner_negative_checks.cjs",
+    "test:runner-guards": "node backend/scripts/test_runner_negative_checks.cjs && node backend/scripts/verify_test_isolation.cjs",
     "test:quarantine:synthetic": "node backend/scripts/test_synthetic_quarantine_all7.cjs",
     "test:phase1": "node backend/test_phase1_multitenant_security.cjs",
     "test:restore:legacy": "node backend/scripts/test_backup_restoration.cjs",
