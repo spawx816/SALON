@@ -1,5 +1,3 @@
-const { pool: defaultPool } = require('../db');
-
 /**
  * Migración Canónica: Hardening Multi-Tenant del Kiosco de Asistencia
  * - kiosk_devices: vinculación opaca de dispositivos por empresa y sucursal, revocable y con expiración.
@@ -7,8 +5,9 @@ const { pool: defaultPool } = require('../db');
  * - security_settings: modo biométrico explícito ('pin_photo' | 'pin_face_verify') y umbral facial configurable.
  * - attendance: kiosk_device_id e idempotency_key único por tenant para evitar ponches duplicados.
  */
-async function up(targetPool = defaultPool, targetSchema = 'public') {
-  const conn = await targetPool.getConnection();
+async function up(targetPool = null, targetSchema = 'public') {
+  const effectivePool = targetPool || require('../db').pool;
+  const conn = await effectivePool.getConnection();
   try {
     const schema = targetSchema || 'public';
     await conn.query('BEGIN');
