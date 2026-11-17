@@ -887,7 +887,7 @@ const AttendanceKiosk = () => {
               <div>
                 <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a1a1aa', display: 'block', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sucursal del Kiosco</label>
                 <select
-                  required
+                  required={salons.length > 0}
                   value={kioskSalonId}
                   onChange={(e) => setKioskSalonId(e.target.value)}
                   style={{
