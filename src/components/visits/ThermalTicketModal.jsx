@@ -15,6 +15,7 @@ export const ThermalTicketModal = ({
 }) => {
   const { branding } = useTenantBranding();
   const [activeTemplate, setActiveTemplate] = useState(null);
+  const [tenantServices, setTenantServices] = useState([]);
   const [templateReady, setTemplateReady] = useState(false);
 
   useEffect(() => {
@@ -26,19 +27,34 @@ export const ThermalTicketModal = ({
     let cancelled = false;
     setTemplateReady(false);
     setActiveTemplate(null);
+    setTenantServices([]);
 
     const branchParam = printableTicketData.branch_id || printableTicketData.salon_id || '';
-    fetch(`/api/print-templates/active?document_type=ticket_venta${branchParam ? `&branch_id=${encodeURIComponent(branchParam)}` : ''}`, {
+    const tplFetch = fetch(`/api/print-templates/active?document_type=ticket_venta${branchParam ? `&branch_id=${encodeURIComponent(branchParam)}` : ''}`, {
       credentials: 'include',
       cache: 'no-store',
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.template) {
-          setActiveTemplate(data.template);
-        }
+      .catch(() => null);
+
+    const srvFetch = fetch(`/api/services${branchParam ? `?salon_id=${encodeURIComponent(branchParam)}` : ''}`, {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+
+    Promise.all([tplFetch, srvFetch])
+      .then(([tplData, srvData]) => {
+        if (cancelled) return;
+        if (tplData?.template) setActiveTemplate(tplData.template);
+        const list = Array.isArray(srvData) ? srvData : (Array.isArray(srvData?.services) ? srvData.services : []);
+        const names = list
+          .filter((s) => s && s.activo !== 0 && s.activo !== false && (s.nombre || s.name))
+          .map((s) => String(s.nombre || s.name).trim())
+          .filter(Boolean);
+        setTenantServices(names);
       })
-      .catch(() => {})
       .finally(() => {
         if (!cancelled) setTemplateReady(true);
       });
@@ -71,11 +87,11 @@ export const ThermalTicketModal = ({
   const showTotalBox = ticket.isHandwrittenWorksheet
     ? false
     : (tplCfg.show_total_box !== false);
-  const staffLabel = tplCfg.staff_label || 'RECEPCIONISTA:';
+  const staffLabel = tplCfg.staff_label || 'ATENDIDO POR:';
   const subtitleText = tplCfg.subtitle_text || '';
   const customQrUrl = tplCfg.qr_url || '';
-  const showBenefitsBox = tplCfg.show_benefits_box !== false;
-  const showQrMenu = tplCfg.show_qr_menu !== false;
+  const showBenefitsBox = tplCfg.show_benefits_box === true;
+  const showQrMenu = tplCfg.show_qr_menu === true || Boolean(ticket.ncf || ticket.qrUrl);
 
   const businessName =
     ticket.business_name ||
@@ -358,22 +374,14 @@ export const ThermalTicketModal = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {(customChecklist || [
-                'Lavado y secado con línea',
-                'Lavado y secado',
-                'Corte',
-                'Tinte',
-                'Texturizado',
-                'Aplicación productos',
-                'Maquillaje',
-                'Cejas',
-                'Depilación tintado',
-                'Manicure',
-                'Pedicure',
-                'Gel',
-                'Uñas acrílicas',
-                'Extensiones'
-              ]).map((srv, idx) => {
+              {(customChecklist || (tenantServices.length > 0 ? tenantServices : [
+                '________________________',
+                '________________________',
+                '________________________',
+                '________________________',
+                '________________________',
+                '________________________',
+              ])).map((srv, idx) => {
                 const matchedService = ticket.services?.find?.(s =>
                   s.nombre?.toLowerCase()?.trim() === srv.toLowerCase().trim() ||
                   s.nombre?.toLowerCase()?.includes(srv.toLowerCase()) ||

@@ -18,15 +18,15 @@ const SAMPLE_DATA_BY_TYPE = {
     issued_at: new Date().toISOString(),
   },
   ticket_venta: {
-    ticket_number: 'V-00142',
-    customer_name: 'María Pérez',
+    ticket_number: 'HOJA-001',
+    customer_name: 'Cliente Ejemplo',
+    staff_name: 'Personal en turno',
     items: [
-      { name: 'Lavado y Secado', qty: 1, total: 'RD$ 600.00' },
-      { name: 'Hidratación Profunda', qty: 1, total: 'RD$ 900.00' },
+      { name: 'Servicio de ejemplo', qty: 1, total: 'RD$ 0.00' },
     ],
-    subtotal: 'RD$ 1,500.00',
+    subtotal: 'RD$ 0.00',
     tax: 'RD$ 0.00',
-    total: 'RD$ 1,500.00',
+    total: 'RD$ 0.00',
     issued_at: new Date().toISOString(),
   },
   factura_comercial: {
@@ -580,7 +580,10 @@ export default function PrintTemplatesDesigner() {
           </div>
           <DocumentPrintRenderer
             template={issuedTurn ? issuedTurn.template_snapshot : activeTemplateForPreview}
-            data={issuedTurn || SAMPLE_DATA_BY_TYPE[selectedDocType] || SAMPLE_DATA_BY_TYPE.ticket_turno}
+            data={issuedTurn || {
+              ...(SAMPLE_DATA_BY_TYPE[selectedDocType] || SAMPLE_DATA_BY_TYPE.ticket_turno),
+              catalog_items: catalogItems.map((it) => it.name),
+            }}
             branding={branding}
             isPreview={!issuedTurn}
             printableId="etereas-designer-print-doc"

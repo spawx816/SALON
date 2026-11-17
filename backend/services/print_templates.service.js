@@ -67,9 +67,10 @@ const DEFAULT_TEMPLATES = Object.freeze({
       footer_text: '¡Gracias por preferirnos! ♡',
       checklist_mode: 'catalog_checklist',
       checklist_style: 'checkbox_only',
+      staff_label: 'ATENDIDO POR:',
       show_total_box: false,
-      show_benefits_box: true,
-      show_qr_menu: true,
+      show_benefits_box: false,
+      show_qr_menu: false,
       checklist_items: [],
       blocks: [
         { id: 'logo', label: 'Logo de la empresa', visible: true, align: 'center', size: 'md' },

@@ -191,9 +191,9 @@ export function DocumentPrintRenderer({
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline' }}>
-                <span style={{ fontWeight: 800, minWidth: '88px' }}>{cfg.staff_label || 'RECEPCIONISTA:'}</span>
+                <span style={{ fontWeight: 800, minWidth: '88px' }}>{cfg.staff_label || 'ATENDIDO POR:'}</span>
                 <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600 }}>
-                  {data.staff_name || (isPreview ? 'Ceasca' : '________________')}
+                  {data.staff_name || (isPreview ? 'Personal en turno' : '________________')}
                 </span>
               </div>
             </div>
@@ -217,15 +217,15 @@ export function DocumentPrintRenderer({
 
       case 'items_table': {
         if (docType === 'ticket_venta' && cfg.checklist_mode !== 'cart_items') {
+          const catalogNames = Array.isArray(data.catalog_items) ? data.catalog_items.filter(Boolean) : [];
           const checklist = Array.isArray(cfg.checklist_items) && cfg.checklist_items.length > 0
             ? cfg.checklist_items.map((c) => c.name)
-            : (isPreview
-                ? ['Lavado y secado', 'Corte', 'Tinte', 'Manicure', 'Pedicure']
-                : []);
-          if (checklist.length === 0) return null;
+            : (catalogNames.length > 0
+                ? catalogNames
+                : ['________________________', '________________________', '________________________', '________________________', '________________________']);
           return (
             <div key="items_table" style={{ margin: '6px 0' }}>
-              {cfg.show_benefits_box !== false && (
+              {cfg.show_benefits_box === true && (
                 <div style={{ border: '1.5px solid #000000', borderRadius: '4px', display: 'flex', marginBottom: '6px', padding: '4px 5px', fontSize: '8px' }}>
                   <div style={{ flex: 1, borderRight: '1px solid #000000', paddingRight: '4px', fontWeight: 700 }}>
                     MEMBRESÍA ACTIVO<br />Lavado disp.
