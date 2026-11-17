@@ -352,9 +352,9 @@ export const ThermalTicketModal = ({
               marginBottom: '3px'
             }}>
               <span>SERVICIO</span>
-              {checklistStyle !== 'checkbox_only' && (
-                <span style={{ paddingRight: '4px' }}>PRECIO</span>
-              )}
+              <span style={{ paddingRight: '4px' }}>
+                {checklistStyle === 'checkbox_only' ? 'MARCAR' : 'PRECIO'}
+              </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -379,13 +379,14 @@ export const ThermalTicketModal = ({
                   s.nombre?.toLowerCase()?.includes(srv.toLowerCase()) ||
                   srv.toLowerCase()?.includes(s.nombre?.toLowerCase() || '')
                 );
-                const showCheckbox = checklistStyle === 'checkbox_price' || checklistStyle === 'checkbox_only';
                 return (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: '9px', padding: '2px 0' }}>
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '9px', padding: '2px 0' }}>
                     <span style={{ fontWeight: 600, color: '#000000' }}>
-                      {showCheckbox ? '☐ ' : ''}{srv}
+                      {checklistStyle === 'checkbox_price' ? '☐ ' : ''}{srv}
                     </span>
-                    {checklistStyle !== 'checkbox_only' && (
+                    {checklistStyle === 'checkbox_only' ? (
+                      <span style={{ display: 'inline-block', width: '11px', height: '11px', border: '1.3px solid #000000', marginRight: '10px', flexShrink: 0 }} />
+                    ) : (
                       <div style={{ display: 'flex', alignItems: 'baseline', minWidth: '74px', justifyContent: 'flex-end', paddingRight: '2px' }}>
                         <span style={{ fontWeight: 700, marginRight: '3px', fontSize: '8px' }}>RD$</span>
                         <span style={{ borderBottom: '1px solid #777777', width: '46px', display: 'inline-block', textAlign: 'right', fontWeight: 800, fontSize: '8.5px' }}>

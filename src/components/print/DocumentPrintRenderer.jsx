@@ -137,6 +137,25 @@ export function DocumentPrintRenderer({
         );
 
       case 'datetime':
+        if (docType === 'ticket_venta') {
+          const [datePart, timePart] = formattedDate.split(',').map((s) => s.trim());
+          return (
+            <div key="datetime" style={{ textAlign: 'left', fontSize: sizes.fontSize, lineHeight: 1.35, marginBottom: '2px', color: '#000000', borderTop: '1.5px dotted #000000', paddingTop: '5px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                <span style={{ fontWeight: 800, minWidth: '72px' }}>TICKET No.:</span>
+                <span style={{ fontWeight: 900, fontSize: sizes.heading }}>{data.ticket_number || 'SD-0251'}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                <span style={{ fontWeight: 800, minWidth: '48px' }}>FECHA:</span>
+                <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600 }}>{datePart || formattedDate}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                <span style={{ fontWeight: 800, minWidth: '48px' }}>HORA:</span>
+                <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600 }}>{timePart || '08:28 p. m.'}</span>
+              </div>
+            </div>
+          );
+        }
         return (
           <div key="datetime" style={{ textAlign: align, fontSize: sizes.fontSize, marginBottom: '4px', color: '#000000' }}>
             {formattedDate}
@@ -162,14 +181,27 @@ export function DocumentPrintRenderer({
 
       case 'customer':
         if (!data.customer_name && !isPreview && docType !== 'ticket_venta') return null;
+        if (docType === 'ticket_venta') {
+          return (
+            <div key="customer" style={{ textAlign: 'left', fontSize: sizes.fontSize, lineHeight: 1.35, marginBottom: '6px', color: '#000000' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px' }}>
+                <span style={{ fontWeight: 800, minWidth: '52px' }}>CLIENTE:</span>
+                <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 800, textTransform: 'uppercase' }}>
+                  {data.customer_name || (isPreview ? 'CAE' : '________________')}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                <span style={{ fontWeight: 800, minWidth: '88px' }}>{cfg.staff_label || 'RECEPCIONISTA:'}</span>
+                <span style={{ borderBottom: '1px solid #000000', flex: 1, paddingLeft: '3px', fontWeight: 600 }}>
+                  {data.staff_name || (isPreview ? 'Ceasca' : '________________')}
+                </span>
+              </div>
+            </div>
+          );
+        }
         return (
           <div key="customer" style={{ textAlign: align, fontSize: sizes.fontSize, marginBottom: '6px', color: '#000000' }}>
             <div><strong>CLIENTE:</strong> {data.customer_name || (isPreview ? 'PRUE' : '________________')}</div>
-            {docType === 'ticket_venta' && (
-              <div style={{ marginTop: '2px' }}>
-                <strong>{cfg.staff_label || 'RECEPCIONISTA:'}</strong> {data.staff_name || (isPreview ? 'Elvys Rodriguez' : '________________')}
-              </div>
-            )}
             {data.customer_rnc && <div>RNC/Cédula: {data.customer_rnc}</div>}
           </div>
         );
@@ -204,16 +236,18 @@ export function DocumentPrintRenderer({
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '10px', borderBottom: '1.5px solid #000000', paddingBottom: '2px', marginBottom: '4px' }}>
-                <span>SERVICIO / PRODUCTO</span>
-                <span>PRECIO</span>
+                <span>SERVICIO</span>
+                <span>{cfg.checklist_style === 'checkbox_only' ? 'MARCAR' : 'PRECIO'}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {checklist.map((itemName, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: sizes.fontSize }}>
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: sizes.fontSize }}>
                     <span style={{ fontWeight: 600 }}>
-                      {(cfg.checklist_style === 'checkbox_price' || cfg.checklist_style === 'checkbox_only') ? '☐ ' : ''}{itemName}
+                      {cfg.checklist_style === 'checkbox_price' ? '☐ ' : ''}{itemName}
                     </span>
-                    {cfg.checklist_style !== 'checkbox_only' && (
+                    {cfg.checklist_style === 'checkbox_only' ? (
+                      <span style={{ display: 'inline-block', width: '11px', height: '11px', border: '1.3px solid #000000', marginRight: '8px', flexShrink: 0 }} />
+                    ) : (
                       <span style={{ whiteSpace: 'nowrap' }}>
                         RD$ <span style={{ display: 'inline-block', width: '44px', borderBottom: '1px solid #555555' }} />
                       </span>
