@@ -832,7 +832,7 @@ function createKioskRouter(pool, { authenticate }) {
 
       const { start_date, end_date } = req.query || {};
       let sql = `
-        SELECT id, employee_id, employee_name, service_name, amount, commission_amount, status, created_at
+        SELECT *
         FROM employee_commissions_log
         WHERE tenant_id = ? AND employee_id::text = ?
       `;
