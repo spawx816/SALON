@@ -2,6 +2,12 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
+
+if (process.env.DB_NAME !== 'salon_saas_test') {
+  console.error(`❌ [ABORTED] test_kiosk_security_and_isolation.cjs solo puede ejecutarse contra DB_NAME=salon_saas_test (actual: ${process.env.DB_NAME || 'no definido'}).`);
+  process.exit(1);
+}
+
 const { pool } = require('../db');
 const { up: upRbacHardening } = require('../migrations/20261115_rbac_hardening.cjs');
 const { up: upKiosk } = require('../migrations/20261117_kiosk_devices_hardening.cjs');
@@ -140,6 +146,51 @@ async function run() {
     const [activeSs] = await pool.query('SELECT COUNT(*) AS cnt FROM kiosk_employee_sessions WHERE device_id = ? AND is_active = TRUE', [bound.device.id]);
     assert.strictEqual(Number(activeSs[0].cnt), 0, 'Revocar kiosco debe invalidar sesiones de empleado abiertas');
     console.log('  ✅ 5. Revocación remota e invalidación inmediata de sesiones verificadas.');
+
+    // 7. Verificar que modo pin_face_verify sin CompreFace configurado falla cerrado (503) y nunca acepta automáticamente
+    const express = require('express');
+    const http = require('http');
+    const { createKioskRouter } = require('../routes/kiosk.routes');
+    const savedUrl = process.env.COMPREFACE_URL;
+    const savedKey = process.env.COMPREFACE_API_KEY;
+    delete process.env.COMPREFACE_URL;
+    delete process.env.COMPREFACE_API_KEY;
+    try {
+      await pool.query(
+        "INSERT INTO security_settings (tenant_id, kiosk_biometric_mode, kiosk_face_match_threshold) VALUES (?, 'pin_face_verify', 0.75) ON CONFLICT (tenant_id) DO UPDATE SET kiosk_biometric_mode = 'pin_face_verify'",
+        [tenantA]
+      );
+      const boundBio = await bindKioskDevice(pool, { tenantId: tenantA, branchId: branchA1, deviceName: 'BioTest', actorUserId: userAMultiId, actorName: 'Owner A' });
+      const bioSess = await createKioskEmployeeSession(pool, { deviceId: boundBio.device.id, tenantId: tenantA, branchId: branchA1, employeeId: empA1Id, purpose: 'punch' });
+      await pool.query("UPDATE staff_records SET profile_photo = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' WHERE id = ?", [Number(empA1Id)]);
+
+      const testApp = express();
+      testApp.use(express.json());
+      testApp.use('/api/kiosk', createKioskRouter(pool, { authenticate: (_req, _res, next) => next() }));
+      const srv = testApp.listen(0);
+      const port = srv.address().port;
+      const resp = await fetch(`http://127.0.0.1:${port}/api/kiosk/punch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: `${KIOSK_DEVICE_COOKIE}=${boundBio.rawToken}`,
+        },
+        body: JSON.stringify({
+          employeeId: empA1Id,
+          type: 'Check-In',
+          photo: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==',
+          punch_token: bioSess.rawToken,
+        }),
+      });
+      const respJson = await resp.json();
+      srv.close();
+      assert.strictEqual(resp.status, 503, 'Debe devolver 503 cuando falta CompreFace en modo pin_face_verify');
+      assert.strictEqual(respJson.code, 'BIOMETRIC_PROVIDER_UNAVAILABLE');
+      console.log('  ✅ 6. Modo pin_face_verify sin CompreFace devuelve 503 BIOMETRIC_PROVIDER_UNAVAILABLE (fail-closed).');
+    } finally {
+      if (savedUrl !== undefined) process.env.COMPREFACE_URL = savedUrl;
+      if (savedKey !== undefined) process.env.COMPREFACE_API_KEY = savedKey;
+    }
 
     console.log('\n🎉 TODAS LAS PRUEBAS DE SEGURIDAD DEL KIOSCO PASARON.');
   } finally {
