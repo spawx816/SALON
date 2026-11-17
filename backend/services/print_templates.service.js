@@ -66,6 +66,8 @@ const DEFAULT_TEMPLATES = Object.freeze({
       title_text: 'TICKET DE SERVICIOS',
       footer_text: '¡Gracias por preferirnos! ♡',
       checklist_mode: 'catalog_checklist',
+      checklist_style: 'checkbox_only',
+      show_total_box: false,
       show_benefits_box: true,
       show_qr_menu: true,
       checklist_items: [],

@@ -15,26 +15,46 @@ export const ThermalTicketModal = ({
 }) => {
   const { branding } = useTenantBranding();
   const [activeTemplate, setActiveTemplate] = useState(null);
+  const [templateReady, setTemplateReady] = useState(false);
 
   useEffect(() => {
-    if (!isOpen || !printableTicketData) return undefined;
+    if (!isOpen || !printableTicketData) {
+      setTemplateReady(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setTemplateReady(false);
+    setActiveTemplate(null);
 
     const branchParam = printableTicketData.branch_id || printableTicketData.salon_id || '';
     fetch(`/api/print-templates/active?document_type=ticket_venta${branchParam ? `&branch_id=${encodeURIComponent(branchParam)}` : ''}`, {
       credentials: 'include',
+      cache: 'no-store',
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data?.template) setActiveTemplate(data.template);
+        if (!cancelled && data?.template) {
+          setActiveTemplate(data.template);
+        }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setTemplateReady(true);
+      });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, printableTicketData]);
+
+  useEffect(() => {
+    if (!isOpen || !printableTicketData || !templateReady) return undefined;
     const timer = setTimeout(() => {
       window.print();
     }, 250);
-
     return () => clearTimeout(timer);
-  }, [isOpen, printableTicketData]);
+  }, [isOpen, printableTicketData, templateReady]);
 
   if (!isOpen || !printableTicketData) return null;
 
@@ -45,8 +65,12 @@ export const ThermalTicketModal = ({
   const customChecklist = Array.isArray(tplCfg.checklist_items) && tplCfg.checklist_items.length > 0
     ? tplCfg.checklist_items.map((it) => it.name)
     : null;
-  const checklistStyle = tplCfg.checklist_style || 'price_line';
-  const showTotalBox = tplCfg.show_total_box !== false;
+  const checklistStyle = ticket.isHandwrittenWorksheet
+    ? 'checkbox_only'
+    : (tplCfg.checklist_style || 'price_line');
+  const showTotalBox = ticket.isHandwrittenWorksheet
+    ? false
+    : (tplCfg.show_total_box !== false);
   const staffLabel = tplCfg.staff_label || 'RECEPCIONISTA:';
   const subtitleText = tplCfg.subtitle_text || '';
   const customQrUrl = tplCfg.qr_url || '';
@@ -135,7 +159,9 @@ export const ThermalTicketModal = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Printer size={18} style={{ color: '#be185d' }} />
             <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>
-              {ticket.isPrecuenta ? 'Precuenta POS (Pendiente de Pago)' : 'Ticket Térmico 80mm'}
+              {ticket.isHandwrittenWorksheet
+                ? 'Hoja de Trabajo (Para Llenar a Mano)'
+                : (ticket.isPrecuenta ? 'Precuenta POS (Pendiente de Pago)' : 'Ticket Térmico 80mm')}
             </span>
           </div>
           <button

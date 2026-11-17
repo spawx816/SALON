@@ -4869,9 +4869,10 @@ const VisitRecorder = () => {
                   branch_id: salonId,
                   clientName: clientFound?.nombre || clientSearchInput || '________________',
                   receptionistName: currentUser?.nombre || currentUser?.name || '________________',
-                  services: lineItems.map((it) => ({ nombre: it.nombre || it.name, precio: it.precio || it.price })),
-                  totalAmount: total > 0 ? total : '',
-                  isPrecuenta: true,
+                  services: [],
+                  totalAmount: '',
+                  isPrecuenta: false,
+                  isHandwrittenWorksheet: true,
                 });
                 setShowPrintModal(true);
               }}
