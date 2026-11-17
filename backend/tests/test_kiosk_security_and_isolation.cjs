@@ -2,13 +2,7 @@
 
 const assert = require('assert');
 const crypto = require('crypto');
-
-if (process.env.DB_NAME !== 'salon_saas_test') {
-  console.error(`❌ [ABORTED] test_kiosk_security_and_isolation.cjs solo puede ejecutarse contra DB_NAME=salon_saas_test (actual: ${process.env.DB_NAME || 'no definido'}).`);
-  process.exit(1);
-}
-
-const { pool } = require('../db');
+const { validateTestEnvironment, createIsolatedTestPool } = require('../utils/test_env_guard.cjs');
 const { up: upRbacHardening } = require('../migrations/20261115_rbac_hardening.cjs');
 const { up: upKiosk } = require('../migrations/20261117_kiosk_devices_hardening.cjs');
 const {
@@ -25,7 +19,19 @@ const {
 } = require('../services/kiosk_device.service');
 
 async function run() {
-  console.log('🔐 Iniciando pruebas de Seguridad y Aislamiento Multi-Tenant del Kiosco...');
+  const testConfig = validateTestEnvironment();
+  const pool = createIsolatedTestPool(testConfig);
+
+  const [ctxRows] = await pool.query('SELECT current_database() AS db, current_user AS usr');
+  const dbName = String(ctxRows?.[0]?.db || '');
+  const dbUser = String(ctxRows?.[0]?.usr || '');
+  if (dbName !== testConfig.database || dbName === testConfig.productionDatabase) {
+    throw new Error(`[FATAL] Base conectada (${dbName}) no coincide con TEST_DB_NAME (${testConfig.database}).`);
+  }
+  if (/prod|staging/i.test(dbUser)) {
+    throw new Error(`[FATAL] Usuario de base (${dbUser}) no corresponde a un rol aislado de pruebas.`);
+  }
+  console.log(`🔐 Iniciando pruebas de Seguridad Kiosco en db="${dbName}" como "${dbUser}"...`);
 
   // 1. Idempotencia de migración
   await upRbacHardening(pool, 'public');
