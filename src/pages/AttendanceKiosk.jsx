@@ -972,22 +972,13 @@ const AttendanceKiosk = () => {
                         const empPunches = todayPunches.filter(p => String(p.employee_id) === String(emp.id));
                         const lastPunch = empPunches[empPunches.length - 1];
                         
-                        // Reconocimiento inteligente de horario (sin hora fija):
+                        // Si no hay ponches previos hoy, el primer ponche SIEMPRE debe ser Entrada (Check-In).
+                        // Nunca auto-asignar Salida en el primer ponche por hora o turno de la tarde.
+                        // Si el último ponche registrado hoy fue Entrada, el siguiente es Salida (Check-Out).
+                        // Si el último ponche fue Salida, el siguiente vuelve a ser Entrada (Check-In).
                         let nextType = 'Check-In';
                         if (lastPunch && lastPunch.type === 'Check-In') {
                           nextType = 'Check-Out';
-                        } else if (!lastPunch && emp.hora_entrada && emp.hora_salida) {
-                          const now = new Date();
-                          const nowMins = now.getHours() * 60 + now.getMinutes();
-                          const [inH, inM] = emp.hora_entrada.split(':').map(Number);
-                          const [outH, outM] = emp.hora_salida.split(':').map(Number);
-                          let schedInMins = inH * 60 + inM;
-                          let schedOutMins = outH * 60 + outM;
-                          if (schedOutMins < schedInMins) schedOutMins += 1440; // Turno nocturno
-                          const midpoint = schedInMins + (schedOutMins - schedInMins) / 2;
-                          if (nowMins >= midpoint) {
-                            nextType = 'Check-Out';
-                          }
                         }
                         setPunchType(nextType);
                         setPassword('');
