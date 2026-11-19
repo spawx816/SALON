@@ -22,6 +22,7 @@ const {
   revokeKioskDevice,
   isEmployeeAuthorizedForBranch,
   createKioskEmployeeSession,
+  validatePunchSession,
   consumePunchSession,
   resolveSelfServiceSession,
   invalidateSelfServiceSession,
@@ -461,19 +462,11 @@ function createKioskRouter(pool, { authenticate }) {
       clearPinFailures(device.id, String(employee_id));
 
       const hasProfilePhoto = Boolean(emp.profile_photo_file_id || emp.profile_photo);
-      if (biometricPolicy.mode === 'pin_face_verify') {
-        if (!hasProfilePhoto) {
-          return res.status(400).json({
-            error: 'Este empleado no tiene foto biométrica registrada. Solicita a administración enrolar su rostro antes de marcar.',
-            code: 'BIOMETRIC_ENROLLMENT_REQUIRED',
-          });
-        }
-        if (!biometricPolicy.providerConfigured) {
-          return res.status(503).json({
-            error: 'El modo biométrico facial está activo, pero el servicio de verificación facial no está disponible.',
-            code: 'BIOMETRIC_PROVIDER_UNAVAILABLE',
-          });
-        }
+      if (hasProfilePhoto && biometricPolicy.mode === 'pin_face_verify' && !biometricPolicy.providerConfigured) {
+        return res.status(503).json({
+          error: 'El modo biométrico facial está activo, pero el servicio de verificación facial no está disponible.',
+          code: 'BIOMETRIC_PROVIDER_UNAVAILABLE',
+        });
       }
 
       const session = await createKioskEmployeeSession(pool, {
@@ -524,8 +517,8 @@ function createKioskRouter(pool, { authenticate }) {
         }
       }
 
-      // 1. Verificar sesión breve vinculada a (device, tenant, employeeId) — bloquea verificar A y ponchar B
-      const punchCheck = await consumePunchSession(pool, {
+      // 1. Validar sesión breve vinculada a (device, tenant, employeeId) sin consumir aún (permite reintentar ante fallo biométrico)
+      const punchCheck = await validatePunchSession(pool, {
         rawToken: punch_token,
         deviceId: device.id,
         tenantId: device.tenant_id,
@@ -550,8 +543,13 @@ function createKioskRouter(pool, { authenticate }) {
         return res.status(400).json({ error: 'La captura de cámara enviada no es válida.' });
       }
 
-      // 3. Verificación facial estricta si la empresa exige pin_face_verify (NO degradar silenciosamente)
-      if (biometricPolicy.mode === 'pin_face_verify') {
+      // 3. Verificación facial cuando el colaborador tiene foto de referencia (sin degradar a modo manual si falla CompreFace)
+      const hasRefPhoto = Boolean(emp.profile_photo_file_id || emp.profile_photo);
+      let faceVerified = false;
+      let verificationMethod = 'pin_photo_sin_verificacion_facial';
+      let faceConfidence = null;
+
+      if (hasRefPhoto && (biometricPolicy.mode === 'pin_face_verify' || biometricPolicy.providerConfigured)) {
         let refPhotoBuffer = null;
         if (emp.profile_photo_file_id) {
           const storage = getPrivateStorageAdapter({ pool });
@@ -562,9 +560,9 @@ function createKioskRouter(pool, { authenticate }) {
         }
 
         if (!refPhotoBuffer) {
-          return res.status(400).json({
-            error: 'Falta la fotografía de referencia biométrica para este colaborador.',
-            code: 'BIOMETRIC_ENROLLMENT_REQUIRED',
+          return res.status(503).json({
+            error: 'No se pudo cargar la fotografía de referencia biométrica del colaborador. Intenta nuevamente o contacta a administración.',
+            code: 'BIOMETRIC_REFERENCE_UNREADABLE',
           });
         }
 
@@ -579,6 +577,9 @@ function createKioskRouter(pool, { authenticate }) {
             code: 'BIOMETRIC_MISMATCH',
           });
         }
+        faceVerified = true;
+        verificationMethod = 'compreface';
+        faceConfidence = verifyResult.confidence;
       }
 
       // 4. Cálculo horario con zona horaria de la sucursal/empresa
@@ -648,6 +649,20 @@ function createKioskRouter(pool, { authenticate }) {
         console.warn('[KIOSK_STORAGE_WARN]', storageErr.message);
       }
 
+      // 4b. Consumir atómicamente la sesión de ponche justo antes de insertar (bloquea doble clic / concurrencia)
+      const punchConsume = await consumePunchSession(pool, {
+        rawToken: punch_token,
+        deviceId: device.id,
+        tenantId: device.tenant_id,
+        employeeId: String(employeeId),
+      });
+      if (!punchConsume.valid) {
+        return res.status(403).json({
+          error: punchConsume.reason,
+          code: 'PUNCH_VERIFICATION_INVALID',
+        });
+      }
+
       const punchId = `ATT-${Date.now()}-${String(employeeId)}-${type.toUpperCase()}`;
       await pool.query(
         `INSERT INTO attendance (
@@ -671,11 +686,15 @@ function createKioskRouter(pool, { authenticate }) {
         ]
       );
 
+      const verificationLabel = faceVerified ? '' : ' (sin verificación facial)';
       res.json({
         success: true,
         id: punchId,
         status,
-        message: `Ponche de ${type === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status} correctamente.`,
+        face_verified: faceVerified,
+        verification_method: verificationMethod,
+        confidence: faceConfidence,
+        message: `Ponche de ${type === 'Check-In' ? 'Entrada' : 'Salida'} registrado como ${status}${verificationLabel} correctamente.`,
         name: emp.nombre,
       });
     } catch (err) {

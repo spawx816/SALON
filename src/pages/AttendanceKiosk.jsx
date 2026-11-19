@@ -201,10 +201,17 @@ const AttendanceKiosk = () => {
   const handleVideoPlay = () => {
     console.log("Webcam video started playing.");
     setMatchingStatus('matching');
-    
-    const requireFaceMatch = kioskSessionInfo?.biometricPolicy?.mode === 'pin_face_verify';
-    // Si el modo es PIN + foto (sin biometría facial obligatoria), permitir confirmación directa
-    if (!requireFaceMatch || !selectedEmployee || !selectedEmployee.has_profile_photo) {
+
+    // Si no tiene foto de referencia, permitir confirmación manual con PIN + fotografía de evidencia
+    if (!selectedEmployee || !selectedEmployee.has_profile_photo) {
+      setStatusMessage("Cámara activa. Presione Confirmar Ponche (sin verificación facial).");
+      return;
+    }
+
+    const useFaceCountdown =
+      kioskSessionInfo?.biometricPolicy?.mode === 'pin_face_verify' ||
+      kioskSessionInfo?.biometricPolicy?.providerConfigured;
+    if (!useFaceCountdown) {
       setStatusMessage("Cámara activa. Presione Confirmar Ponche.");
       return;
     }
@@ -1231,20 +1238,43 @@ const AttendanceKiosk = () => {
             <canvas ref={canvasRef} width="640" height="480"
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />
 
-            {/* Premium Error Overlay */}
+            {/* Error Overlay con mensaje real y botón Reintentar */}
             {matchingStatus === 'error' && (
               <div style={{
                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                background: 'rgba(9, 9, 11, 0.85)',
+                background: 'rgba(9, 9, 11, 0.88)',
                 backdropFilter: 'blur(8px)',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 padding: '2rem', textAlign: 'center', zIndex: 15
               }}>
-                <ShieldAlert size={48} color="#ef4444" style={{ marginBottom: '1rem' }} />
-                <h4 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ffffff', margin: '0 0 0.5rem 0' }}>Biometría No Disponible</h4>
-                <p style={{ fontSize: '0.82rem', color: '#a1a1aa', maxWidth: '340px', margin: 0, lineHeight: 1.5 }}>
-                  Su foto de perfil es demasiado oscura o borrosa. Por favor, solicite al administrador actualizar su foto con mejor iluminación.
+                <ShieldAlert size={48} color="#ef4444" style={{ marginBottom: '0.85rem' }} />
+                <h4 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#ffffff', margin: '0 0 0.5rem 0' }}>
+                  Verificación No Completada
+                </h4>
+                <p style={{ fontSize: '0.85rem', color: '#fca5a5', maxWidth: '360px', margin: '0 0 1.25rem 0', lineHeight: 1.5, fontWeight: 600 }}>
+                  {statusMessage || 'No se pudo completar la verificación facial. Intenta nuevamente.'}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMatchingStatus('matching');
+                    setStatusMessage('Reintentando verificación...');
+                    handlePunch();
+                  }}
+                  disabled={loading}
+                  style={{
+                    padding: '0.65rem 1.4rem',
+                    borderRadius: '999px',
+                    border: '1px solid rgba(59,130,246,0.5)',
+                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    color: '#ffffff',
+                    fontWeight: 800,
+                    fontSize: '0.88rem',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Reintentar
+                </button>
               </div>
             )}
 
@@ -1312,9 +1342,9 @@ const AttendanceKiosk = () => {
             </div>
 
             {/* No photo warning — top bar */}
-            {!selectedEmployee.profile_photo && (
+            {!selectedEmployee.has_profile_photo && (
               <div style={{ position: 'absolute', top: '1rem', left: '1rem', right: '1rem', background: 'rgba(120,53,15,0.9)', backdropFilter: 'blur(8px)', border: '1px solid #d97706', padding: '0.6rem 0.9rem', borderRadius: '12px', color: '#fef3c7', fontSize: '0.72rem', fontWeight: 600, textAlign: 'center', zIndex: 20 }}>
-                ⚠️ Sin foto registrada — el ponche se validará sin biométrico.
+                ⚠️ Sin foto de referencia — el ponche se registrará con PIN y fotografía de evidencia (sin verificación facial).
               </div>
             )}
           </div>

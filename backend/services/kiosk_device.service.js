@@ -306,6 +306,30 @@ async function createKioskEmployeeSession(pool, { deviceId, tenantId, branchId, 
   return { sessionId, rawToken, expiresAt };
 }
 
+async function validatePunchSession(pool, { rawToken, deviceId, tenantId, employeeId }) {
+  if (!rawToken) return { valid: false, reason: 'Verificación de empleado requerida.' };
+  const tokenHash = hashToken(rawToken);
+
+  const [rows] = await pool.query(
+    `SELECT id FROM kiosk_employee_sessions
+     WHERE token_hash = ?
+       AND device_id = ?
+       AND tenant_id = ?
+       AND employee_id = ?
+       AND purpose = 'punch'
+       AND is_active = TRUE
+       AND consumed_at IS NULL
+       AND expires_at > NOW()
+     LIMIT 1`,
+    [tokenHash, deviceId, tenantId, String(employeeId)]
+  );
+
+  if (!rows || rows.length === 0) {
+    return { valid: false, reason: 'La verificación del empleado expiró, ya fue utilizada o corresponde a otro colaborador.' };
+  }
+  return { valid: true, sessionId: rows[0].id };
+}
+
 async function consumePunchSession(pool, { rawToken, deviceId, tenantId, employeeId }) {
   if (!rawToken) return { valid: false, reason: 'Verificación de empleado requerida.' };
   const tokenHash = hashToken(rawToken);
@@ -381,6 +405,7 @@ module.exports = {
   revokeKioskDevice,
   isEmployeeAuthorizedForBranch,
   createKioskEmployeeSession,
+  validatePunchSession,
   consumePunchSession,
   resolveSelfServiceSession,
   invalidateSelfServiceSession,
