@@ -82,7 +82,10 @@ async function verifyFacesWithCompreFaceStrict(webCamBuffer, refPhotoBuffer, thr
 
     const data = response.data;
     if (data && Array.isArray(data.result) && data.result.length > 0) {
-      const similarity = Number(data.result[0].similarity || 0);
+      const firstResult = data.result[0];
+      const similarity = Array.isArray(firstResult?.face_matches) && firstResult.face_matches.length > 0
+        ? firstResult.face_matches.reduce((max, m) => Math.max(max, Number(m?.similarity || 0)), 0)
+        : Number(firstResult?.similarity || 0);
       return {
         isIdentical: similarity >= threshold,
         confidence: similarity,
