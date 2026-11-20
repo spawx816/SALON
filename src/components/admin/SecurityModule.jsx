@@ -175,6 +175,11 @@ export default function SecurityModule() {
 
     try {
       const isKioskReserved = userForm.role_id === '__KIOSK_RESERVED__';
+      const isEditingOwner = editingUser && ['propietario', 'owner'].includes(String(editingUser.role || '').toLowerCase());
+      if (!isEditingOwner && !userForm.role_id) {
+        alert('Debes seleccionar un rol para el usuario.');
+        return;
+      }
       if (isKioskReserved && !userForm.salon_id) {
         alert('Debes seleccionar una sucursal obligatoria para el usuario Kiosco de Asistencia.');
         return;
@@ -257,7 +262,7 @@ export default function SecurityModule() {
       nombre: u.nombre || '',
       email: u.email || '',
       password: '', // En blanco para no sobreescribir si no se desea
-      role_id: isKioskUser ? '__KIOSK_RESERVED__' : (u.role_id || ''),
+      role_id: isKioskUser ? '__KIOSK_RESERVED__' : (u.role_id ? String(u.role_id) : ''),
       salon_id: primaryBranch ? String(primaryBranch) : '',
       authorized_branch_ids: isKioskUser
         ? (primaryBranch ? [String(primaryBranch)] : [])
@@ -676,7 +681,7 @@ export default function SecurityModule() {
                   nombre: '',
                   email: '',
                   password: '',
-                  role_id: roles[0]?.id || '',
+                  role_id: roles[0]?.id ? String(roles[0].id) : '__KIOSK_RESERVED__',
                   salon_id: defaultBranch,
                   authorized_branch_ids: defaultBranch ? [defaultBranch] : [],
                   all_branches_access: false,
@@ -769,15 +774,21 @@ export default function SecurityModule() {
                       </td>
                       <td style={{ padding: '1rem 1.5rem' }}>
                         <span style={{
-                          background: u.role_name === 'Administrador' ? 'rgba(212,175,55,0.15)' : 'rgba(59,130,246,0.1)',
-                          color: u.role_name === 'Administrador' ? '#b45309' : '#2563eb',
+                          background: String(u.role || '').toLowerCase() === 'kiosco_asistencia'
+                            ? '#ecfdf5'
+                            : (u.role_name === 'Administrador' ? 'rgba(212,175,55,0.15)' : 'rgba(59,130,246,0.1)'),
+                          color: String(u.role || '').toLowerCase() === 'kiosco_asistencia'
+                            ? '#047857'
+                            : (u.role_name === 'Administrador' ? '#b45309' : '#2563eb'),
                           padding: '0.25rem 0.65rem',
                           borderRadius: '8px',
                           fontWeight: 700,
                           fontSize: '0.8rem',
                           display: 'inline-block'
                         }}>
-                          {u.role_name || 'Sin Rol'}
+                          {String(u.role || '').toLowerCase() === 'kiosco_asistencia'
+                            ? '🖥️ Kiosco de Asistencia'
+                            : (u.role_name || 'Sin Rol')}
                         </span>
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
@@ -1565,11 +1576,14 @@ export default function SecurityModule() {
                       cursor: 'pointer'
                     }}
                   >
+                    <option value="" disabled style={{ color: '#64748b', background: '#ffffff' }}>
+                      -- Seleccionar rol --
+                    </option>
                     <option value="__KIOSK_RESERVED__" style={{ color: '#047857', background: '#ecfdf5', fontWeight: 800 }}>
                       🖥️ Kiosco de Asistencia (Sin licencia)
                     </option>
                     {(roles || []).map(r => (
-                      <option key={r.id} value={r.id} style={{ color: '#0f172a', background: '#ffffff' }}>
+                      <option key={r.id} value={String(r.id)} style={{ color: '#0f172a', background: '#ffffff' }}>
                         {r.nombre}
                       </option>
                     ))}
