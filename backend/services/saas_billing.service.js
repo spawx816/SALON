@@ -395,11 +395,18 @@ class SaasBillingService {
   async handleWebhook({ provider, rawBody, signatureHeader, secret }) {
     if (!provider) throw new Error('provider es obligatorio en webhook');
 
-    // 1. Verificar firma criptográfica sobre el body crudo
+    // 1. Verificar firma criptográfica sobre el body crudo (fail-closed: sin secreto hardcodeado)
     const webhookSecret = secret ||
       process.env[`SAAS_WEBHOOK_SECRET_${String(provider).toUpperCase()}`] ||
       this.gatewayPort?.webhookSecret ||
-      'whsec_fake_secret_key_123';
+      null;
+
+    if (!webhookSecret) {
+      const err = new Error('Secreto de webhook no configurado para el proveedor');
+      err.code = 'INVALID_WEBHOOK_SIGNATURE';
+      err.statusCode = 401;
+      throw err;
+    }
 
     const isValidSig = this.gatewayPort.verifyWebhookSignature({
       rawBody,
@@ -427,30 +434,85 @@ class SaasBillingService {
     const eventId = event.id || event.eventId;
     if (!eventId) throw new Error('El evento de webhook no contiene identificador');
 
-    // 3. Idempotencia por eventId
+    // 3. Fast-path de idempotencia por (provider, eventId)
     const existing = await this.billingRepo.getWebhookEvent(provider, eventId);
     if (existing) {
-      return { success: true, idempotentReplay: true, eventId };
+      return { success: true, idempotentReplay: true, eventId, resolvedTenantId: existing.tenant_id || null };
     }
 
-    // 4. Resolver internamente el tenant (Anti-Tamper):
-    // REGLA ESTRICTA: Rechazar o ignorar tenant enviado directamente en el payload
-    const providerCustomerId = event.data?.customer || event.customer;
-    let resolvedTenantId = null;
+    // 4. Resolver internamente el tenant SOLO desde referencias confiables en BD (Anti-Tamper):
+    // REGLA ESTRICTA: NUNCA confiar en tenant_id ni metadata.internalTenantId enviados en el payload.
+    const obj = event.data?.object && typeof event.data.object === 'object' ? event.data.object : {};
+    const orderNumber = event.data?.order_number || event.data?.orderNumber || obj.order_number || obj.orderNumber || event.order_number || null;
+    const orderId = event.data?.order_id || event.data?.orderId || obj.order_id || obj.orderId || null;
+    const paymentId = event.data?.payment_id || event.data?.paymentId || obj.payment_id || obj.paymentId || null;
+    const gatewayReference = event.data?.gateway_reference || event.data?.transaction_id || obj.gateway_reference || obj.transaction_id || obj.id || null;
+    const providerCustomerId = event.data?.customer || obj.customer || event.customer || null;
 
-    if (providerCustomerId) {
-      // Buscar tenant_id asociado a este customer_id en payment_methods
-      for (const m of this.billingRepo.paymentMethods.values()) {
-        if (m.provider_customer_id === providerCustomerId) {
-          resolvedTenantId = m.tenant_id;
-          break;
+    let orderRef = null;
+    let paymentRef = null;
+    let paymentMethodRef = null;
+
+    if (typeof this.billingRepo.resolveWebhookReference === 'function') {
+      const resolved = await this.billingRepo.resolveWebhookReference({
+        orderNumber,
+        orderId,
+        paymentId,
+        gatewayReference,
+        providerCustomerId
+      });
+      orderRef = resolved?.order || null;
+      paymentRef = resolved?.payment || null;
+      paymentMethodRef = resolved?.paymentMethod || null;
+    }
+
+    // 4a. Rechazar discrepancias cross-tenant entre referencias internas del evento (orden / pago / cliente)
+    const matchedTenants = new Set(
+      [orderRef?.tenant_id, paymentRef?.tenant_id, paymentMethodRef?.tenant_id].filter(Boolean).map(String)
+    );
+    if (matchedTenants.size > 1) {
+      const err = new Error('Discrepancia de empresa entre las referencias internas del evento de webhook');
+      err.code = 'WEBHOOK_TENANT_MISMATCH';
+      err.statusCode = 422;
+      throw err;
+    }
+
+    const resolvedTenantId = matchedTenants.size === 1 ? Array.from(matchedTenants)[0] : null;
+
+    // 4b. Rechazar discrepancias de importe y moneda frente a la orden o pago interno confiable
+    const primaryFinancialRef = orderRef || paymentRef || null;
+    const rawEventAmount = event.data?.amount_minor ?? event.data?.amount ?? obj.amount_minor ?? obj.amount;
+    const rawEventCurrency = event.data?.currency ?? obj.currency ?? event.currency;
+
+    if (primaryFinancialRef) {
+      if (rawEventAmount !== undefined && rawEventAmount !== null && rawEventAmount !== '') {
+        let parsedEventAmount;
+        try {
+          parsedEventAmount = BigInt(rawEventAmount);
+        } catch (_) {
+          const err = new Error('Importe de webhook inválido');
+          err.code = 'WEBHOOK_AMOUNT_MISMATCH';
+          err.statusCode = 422;
+          throw err;
+        }
+        if (parsedEventAmount !== BigInt(primaryFinancialRef.expected_amount_minor)) {
+          const err = new Error('Discrepancia de importe entre el evento de webhook y la orden/pago interno');
+          err.code = 'WEBHOOK_AMOUNT_MISMATCH';
+          err.statusCode = 422;
+          throw err;
         }
       }
-    }
 
-    // Si no se encuentra por customerId, buscar por metadata interna segura
-    if (!resolvedTenantId && event.data?.metadata?.internalTenantId) {
-      resolvedTenantId = event.data.metadata.internalTenantId;
+      if (rawEventCurrency !== undefined && rawEventCurrency !== null && String(rawEventCurrency).trim() !== '') {
+        const normalizedEventCurrency = String(rawEventCurrency).trim().toUpperCase();
+        const expectedCurrency = String(primaryFinancialRef.expected_currency || '').trim().toUpperCase();
+        if (expectedCurrency && normalizedEventCurrency !== expectedCurrency) {
+          const err = new Error('Discrepancia de moneda entre el evento de webhook y la orden/pago interno');
+          err.code = 'WEBHOOK_CURRENCY_MISMATCH';
+          err.statusCode = 422;
+          throw err;
+        }
+      }
     }
 
     // 5. Sanitizar payload (cero tokens sensibles, firmas o PAN)
@@ -458,23 +520,40 @@ class SaasBillingService {
       type: event.type,
       id: event.id,
       created: event.created,
-      amount: event.data?.amount,
-      currency: event.data?.currency,
-      status: event.data?.status
+      amount: rawEventAmount,
+      currency: rawEventCurrency ? String(rawEventCurrency).trim().toUpperCase() : undefined,
+      status: event.data?.status ?? obj.status,
+      order_number: orderNumber || undefined
     };
 
-    // 6. Persistir evento sanitizado
-    await this.billingRepo.recordWebhookEvent({
+    // 6. Deduplicación atómica por (provider, event_id) mediante ON CONFLICT DO NOTHING RETURNING
+    const persisted = await this.billingRepo.recordWebhookEvent({
       provider,
       event_id: eventId,
       tenant_id: resolvedTenantId,
       event_type: event.type,
       payload_sanitized: sanitizedPayload,
+      status: resolvedTenantId ? 'received' : 'unresolved_tenant',
       idempotency_key: eventId
     });
 
-    // 7. Si hay un jobScheduler registrado, encolar el procesamiento en outbox
-    if (this.jobScheduler && resolvedTenantId) {
+    if (persisted && persisted._inserted === false) {
+      return { success: true, idempotentReplay: true, eventId, resolvedTenantId: persisted.tenant_id || null };
+    }
+
+    // 7. Si no se pudo resolver la empresa desde una referencia interna confiable, NO aplicar efectos
+    if (!resolvedTenantId) {
+      return {
+        success: true,
+        processed: false,
+        unresolvedTenant: true,
+        eventId,
+        resolvedTenantId: null
+      };
+    }
+
+    // 8. Si hay un jobScheduler registrado y el tenant fue resuelto confiablemente, encolar en outbox
+    if (this.jobScheduler) {
       await this.jobScheduler.scheduleJob({
         jobType: 'PROCESS_WEBHOOK_EVENT',
         tenantId: resolvedTenantId,

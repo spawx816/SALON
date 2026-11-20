@@ -81,10 +81,10 @@ function runTest(name, fn) {
   testIndex++;
   try {
     fn();
-    console.log(`  [PASS ${testIndex}/35] ${name}`);
+    console.log(`  [PASS ${testIndex}/39] ${name}`);
     passedCount++;
   } catch (err) {
-    console.error(`  ❌ [FAIL ${testIndex}/35] ${name}`);
+    console.error(`  ❌ [FAIL ${testIndex}/39] ${name}`);
     console.error(err);
     throw err;
   }
@@ -94,10 +94,10 @@ async function runAsyncTest(name, fn) {
   testIndex++;
   try {
     await fn();
-    console.log(`  [PASS ${testIndex}/35] ${name}`);
+    console.log(`  [PASS ${testIndex}/39] ${name}`);
     passedCount++;
   } catch (err) {
-    console.error(`  ❌ [FAIL ${testIndex}/35] ${name}`);
+    console.error(`  ❌ [FAIL ${testIndex}/39] ${name}`);
     console.error(err);
     throw err;
   }
@@ -881,6 +881,178 @@ async function main() {
 
     assert.strictEqual(second.idempotentReplay, true);
     assert.strictEqual(billingRepo.webhookEvents.size, 1);
+  });
+
+  // TEST 28B: Webhook atomic deduplication under concurrent replay + single side-effect
+  await runAsyncTest('Test 28B: Webhook deduplica atómicamente entregas repetidas y encola efectos 1 sola vez', async () => {
+    const billingRepo = new InMemorySaasBillingRepository();
+    const gateway = new FakePaymentGatewayAdapter();
+    const scheduler = new FakeBillingJobSchedulerAdapter();
+    const billingService = new SaasBillingService({
+      billingRepo,
+      gatewayPort: gateway,
+      jobScheduler: scheduler
+    });
+
+    await billingRepo.saveCheckoutOrder({
+      tenant_id: 'tenant-wh-atomic',
+      order_number: 'ORD-ATOMIC-001',
+      amount_minor: 590000n,
+      currency: 'DOP'
+    });
+
+    const payload = JSON.stringify({
+      id: 'evt_atomic_dup_1',
+      type: 'checkout.paid',
+      data: { order_number: 'ORD-ATOMIC-001', amount_minor: 590000, currency: 'DOP' }
+    });
+    const sig = gateway.signWebhookPayload(payload);
+
+    const [r1, r2] = await Promise.all([
+      billingService.handleWebhook({ provider: 'cardnet', rawBody: payload, signatureHeader: sig }),
+      billingService.handleWebhook({ provider: 'cardnet', rawBody: payload, signatureHeader: sig })
+    ]);
+
+    assert.strictEqual(billingRepo.webhookEvents.size, 1, 'Only 1 webhook record must exist');
+    assert.strictEqual(scheduler.jobs.length, 1, 'Job must be scheduled strictly once');
+    assert.strictEqual([r1.idempotentReplay, r2.idempotentReplay].filter(Boolean).length, 1, 'One of the concurrent deliveries must be treated as replay');
+  });
+
+  // TEST 28C: Manipulated tenant_id & metadata.internalTenantId without internal reference applies ZERO side effects
+  await runAsyncTest('Test 28C: Webhook con tenant_id manipulado sin referencia interna confiable no aplica efectos', async () => {
+    const billingRepo = new InMemorySaasBillingRepository();
+    const gateway = new FakePaymentGatewayAdapter();
+    const scheduler = new FakeBillingJobSchedulerAdapter();
+    const billingService = new SaasBillingService({
+      billingRepo,
+      gatewayPort: gateway,
+      jobScheduler: scheduler
+    });
+
+    const payload = JSON.stringify({
+      id: 'evt_manipulated_tenant_only',
+      type: 'invoice.paid',
+      tenant_id: 'tenant-victim-99',
+      data: {
+        tenant_id: 'tenant-victim-99',
+        metadata: { internalTenantId: 'tenant-victim-99' },
+        amount: 290000,
+        currency: 'DOP'
+      }
+    });
+    const sig = gateway.signWebhookPayload(payload);
+
+    const res = await billingService.handleWebhook({
+      provider: 'cardnet',
+      rawBody: payload,
+      signatureHeader: sig
+    });
+
+    assert.strictEqual(res.resolvedTenantId, null, 'Payload tenant_id/metadata.internalTenantId must NEVER be trusted');
+    assert.strictEqual(res.unresolvedTenant, true, 'Event without trusted internal reference must be marked unresolvedTenant');
+    assert.strictEqual(res.processed, false, 'Unresolved webhook must not be marked processed');
+    assert.strictEqual(scheduler.jobs.length, 0, 'ZERO side effects may be scheduled when tenant is unresolved');
+    const saved = await billingRepo.getWebhookEvent('cardnet', 'evt_manipulated_tenant_only');
+    assert.strictEqual(saved.tenant_id, null);
+    assert.strictEqual(saved.status, 'unresolved_tenant');
+  });
+
+  // TEST 28D: Cross-tenant reference mismatch (order of Tenant B + customer of Tenant A) is rejected
+  await runAsyncTest('Test 28D: Webhook con referencia cruzada de otra empresa es rechazado con 422 sin efectos', async () => {
+    const billingRepo = new InMemorySaasBillingRepository();
+    const gateway = new FakePaymentGatewayAdapter();
+    const scheduler = new FakeBillingJobSchedulerAdapter();
+    const billingService = new SaasBillingService({
+      billingRepo,
+      gatewayPort: gateway,
+      jobScheduler: scheduler
+    });
+
+    await billingRepo.savePaymentMethod({
+      tenant_id: 'tenant-alpha',
+      token_reference: 'pm_tok_alpha',
+      provider_customer_id: 'cus_alpha_1',
+      is_default: true
+    });
+    await billingRepo.saveCheckoutOrder({
+      tenant_id: 'tenant-beta',
+      order_number: 'ORD-BETA-999',
+      amount_minor: 590000n,
+      currency: 'DOP'
+    });
+
+    const crossPayload = JSON.stringify({
+      id: 'evt_cross_tenant_ref',
+      type: 'checkout.paid',
+      customer: 'cus_alpha_1',
+      data: { order_number: 'ORD-BETA-999', amount_minor: 590000, currency: 'DOP' }
+    });
+    const sig = gateway.signWebhookPayload(crossPayload);
+
+    await assert.rejects(
+      async () => billingService.handleWebhook({
+        provider: 'cardnet',
+        rawBody: crossPayload,
+        signatureHeader: sig
+      }),
+      (err) => {
+        assert.strictEqual(err.code, 'WEBHOOK_TENANT_MISMATCH');
+        assert.strictEqual(err.statusCode, 422);
+        return true;
+      }
+    );
+    assert.strictEqual(scheduler.jobs.length, 0, 'Zero side effects on cross-tenant mismatch');
+  });
+
+  // TEST 28E: Amount and currency discrepancies against internal order are rejected
+  await runAsyncTest('Test 28E: Webhook rechaza discrepancias de importe y moneda frente a la orden interna', async () => {
+    const billingRepo = new InMemorySaasBillingRepository();
+    const gateway = new FakePaymentGatewayAdapter();
+    const scheduler = new FakeBillingJobSchedulerAdapter();
+    const billingService = new SaasBillingService({
+      billingRepo,
+      gatewayPort: gateway,
+      jobScheduler: scheduler
+    });
+
+    await billingRepo.saveCheckoutOrder({
+      tenant_id: 'tenant-fin-check',
+      order_number: 'ORD-FIN-500',
+      amount_minor: 590000n,
+      currency: 'DOP'
+    });
+
+    // 1. Amount mismatch
+    const badAmountPayload = JSON.stringify({
+      id: 'evt_bad_amount_1',
+      type: 'checkout.paid',
+      data: { order_number: 'ORD-FIN-500', amount_minor: 100, currency: 'DOP' }
+    });
+    await assert.rejects(
+      async () => billingService.handleWebhook({
+        provider: 'cardnet',
+        rawBody: badAmountPayload,
+        signatureHeader: gateway.signWebhookPayload(badAmountPayload)
+      }),
+      (err) => err.code === 'WEBHOOK_AMOUNT_MISMATCH' && err.statusCode === 422
+    );
+
+    // 2. Currency mismatch
+    const badCurrencyPayload = JSON.stringify({
+      id: 'evt_bad_currency_1',
+      type: 'checkout.paid',
+      data: { order_number: 'ORD-FIN-500', amount_minor: 590000, currency: 'USD' }
+    });
+    await assert.rejects(
+      async () => billingService.handleWebhook({
+        provider: 'cardnet',
+        rawBody: badCurrencyPayload,
+        signatureHeader: gateway.signWebhookPayload(badCurrencyPayload)
+      }),
+      (err) => err.code === 'WEBHOOK_CURRENCY_MISMATCH' && err.statusCode === 422
+    );
+
+    assert.strictEqual(scheduler.jobs.length, 0, 'Zero side effects on amount/currency mismatch');
   });
 
   // TEST 29: Concurrent job scheduling concurrency lock

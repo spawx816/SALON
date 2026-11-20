@@ -259,8 +259,80 @@ class InMemorySaasBillingRepository extends SaasBillingRepository {
     return this.billingEvents.get(`${tenantId}:${idempotencyKey}`) || null;
   }
 
-  async recordWebhookEvent({ provider, event_id, tenant_id = null, event_type, payload_sanitized = {}, idempotency_key }) {
+  async saveCheckoutOrder(orderData) {
+    if (!orderData.tenant_id) throw new Error('tenant_id es obligatorio en saveCheckoutOrder');
+    if (!this.checkoutOrders) this.checkoutOrders = new Map();
+    const id = orderData.id || `ord_${crypto.randomBytes(8).toString('hex')}`;
+    const record = {
+      id,
+      tenant_id: orderData.tenant_id,
+      order_number: orderData.order_number || id,
+      invoice_id: orderData.invoice_id || null,
+      amount_minor: BigInt(orderData.amount_minor || 0n),
+      currency: String(orderData.currency || 'DOP').trim().toUpperCase(),
+      status: orderData.status || 'pending',
+      cardnet_transaction_id: orderData.cardnet_transaction_id || null,
+      created_at: orderData.created_at || new Date().toISOString()
+    };
+    this.checkoutOrders.set(id, record);
+    return { ...record };
+  }
+
+  async resolveWebhookReference({ orderNumber = null, orderId = null, paymentId = null, gatewayReference = null, providerCustomerId = null } = {}) {
+    let order = null;
+    let payment = null;
+    let paymentMethod = null;
+
+    if (this.checkoutOrders && (orderNumber || orderId || gatewayReference)) {
+      for (const o of this.checkoutOrders.values()) {
+        if (
+          (orderNumber && o.order_number === orderNumber) ||
+          (orderId && String(o.id) === String(orderId)) ||
+          (gatewayReference && o.cardnet_transaction_id === gatewayReference)
+        ) {
+          order = {
+            ...o,
+            expected_amount_minor: BigInt(o.amount_minor),
+            expected_currency: String(o.currency || 'DOP').trim().toUpperCase()
+          };
+          break;
+        }
+      }
+    }
+
+    if (paymentId || gatewayReference) {
+      for (const p of this.payments.values()) {
+        if (
+          (paymentId && String(p.id) === String(paymentId)) ||
+          (gatewayReference && p.gateway_reference === gatewayReference)
+        ) {
+          payment = {
+            ...p,
+            expected_amount_minor: BigInt(p.amount_minor),
+            expected_currency: String(p.currency || 'DOP').trim().toUpperCase()
+          };
+          break;
+        }
+      }
+    }
+
+    if (providerCustomerId) {
+      for (const m of this.paymentMethods.values()) {
+        if (m.provider_customer_id === providerCustomerId) {
+          paymentMethod = { ...m };
+          break;
+        }
+      }
+    }
+
+    return { order, payment, paymentMethod };
+  }
+
+  async recordWebhookEvent({ provider, event_id, tenant_id = null, event_type, payload_sanitized = {}, status = 'received', idempotency_key }) {
     const key = `${provider}:${event_id || idempotency_key}`;
+    if (this.webhookEvents.has(key)) {
+      return { ...this.webhookEvents.get(key), _inserted: false };
+    }
     const record = {
       id: `wh_${crypto.randomBytes(8).toString('hex')}`,
       provider,
@@ -268,12 +340,12 @@ class InMemorySaasBillingRepository extends SaasBillingRepository {
       tenant_id,
       event_type,
       payload_sanitized,
-      status: 'received',
+      status,
       idempotency_key: idempotency_key || event_id,
       created_at: new Date().toISOString()
     };
     this.webhookEvents.set(key, record);
-    return { ...record };
+    return { ...record, _inserted: true };
   }
 
   async getWebhookEvent(provider, eventId) {

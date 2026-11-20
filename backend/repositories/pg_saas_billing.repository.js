@@ -594,16 +594,94 @@ class PgSaasBillingRepository extends SaasBillingRepository {
     return rows[0] || null;
   }
 
-  async recordWebhookEvent({ provider, event_id, tenant_id = null, event_type, payload_sanitized = {}, idempotency_key }) {
+  async resolveWebhookReference({ orderNumber = null, orderId = null, paymentId = null, gatewayReference = null, providerCustomerId = null } = {}) {
+    let order = null;
+    let payment = null;
+    let paymentMethod = null;
+
+    if (orderNumber || orderId || gatewayReference) {
+      try {
+        const [orderRows] = await this.pool.query(
+          `SELECT o.id, o.tenant_id, o.order_number, o.invoice_id, o.amount_minor, o.currency, o.status, o.cardnet_transaction_id
+           FROM saas_checkout_orders o
+           INNER JOIN tenants t ON o.tenant_id = t.id
+           WHERE o.order_number = ?::text
+              OR o.id::text = ?::text
+              OR o.cardnet_transaction_id = ?::text
+           ORDER BY o.created_at DESC
+           LIMIT 1`,
+          [
+            orderNumber ? String(orderNumber) : null,
+            orderId ? String(orderId) : null,
+            gatewayReference ? String(gatewayReference) : null
+          ]
+        );
+        if (orderRows.length > 0) {
+          const o = orderRows[0];
+          order = {
+            ...o,
+            expected_amount_minor: toBigInt(o.amount_minor),
+            expected_currency: String(o.currency || 'DOP').trim().toUpperCase()
+          };
+        }
+      } catch (err) {
+        if (err && err.code !== '42P01') throw err;
+      }
+    }
+
+    if (paymentId || gatewayReference) {
+      const [payRows] = await this.pool.query(
+        `SELECT p.id, p.tenant_id, p.invoice_id, p.amount_minor, p.currency, p.status, p.gateway_reference
+         FROM saas_payments p
+         INNER JOIN tenants t ON p.tenant_id = t.id
+         WHERE p.id::text = ?::text
+            OR p.gateway_reference = ?::text
+         ORDER BY p.created_at DESC
+         LIMIT 1`,
+        [
+          paymentId ? String(paymentId) : null,
+          gatewayReference ? String(gatewayReference) : null
+        ]
+      );
+      if (payRows.length > 0) {
+        const p = payRows[0];
+        payment = {
+          ...p,
+          expected_amount_minor: toBigInt(p.amount_minor),
+          expected_currency: String(p.currency || 'DOP').trim().toUpperCase()
+        };
+      }
+    }
+
+    if (providerCustomerId) {
+      const [pmRows] = await this.pool.query(
+        `SELECT pm.id, pm.tenant_id, pm.provider_customer_id
+         FROM saas_payment_methods pm
+         INNER JOIN tenants t ON pm.tenant_id = t.id
+         WHERE pm.provider_customer_id = ?
+         ORDER BY pm.created_at DESC
+         LIMIT 1`,
+        [String(providerCustomerId)]
+      );
+      if (pmRows.length > 0) {
+        paymentMethod = pmRows[0];
+      }
+    }
+
+    return { order, payment, paymentMethod };
+  }
+
+  async recordWebhookEvent({ provider, event_id, tenant_id = null, event_type, payload_sanitized = {}, status = 'received', idempotency_key }) {
     const [rows] = await this.pool.query(
       `INSERT INTO saas_webhook_events (provider, event_id, tenant_id, event_type, payload_sanitized, status, idempotency_key)
-       VALUES (?, ?, ?, ?, ?::jsonb, 'received', ?)
+       VALUES (?, ?, ?, ?, ?::jsonb, ?, ?)
        ON CONFLICT (provider, event_id) DO NOTHING
        RETURNING *`,
-      [provider, event_id, tenant_id, event_type, JSON.stringify(payload_sanitized || {}), idempotency_key || event_id]
+      [provider, event_id, tenant_id, event_type, JSON.stringify(payload_sanitized || {}), status, idempotency_key || event_id]
     );
-    if (rows.length > 0) return rows[0];
-    return this.getWebhookEvent(provider, event_id);
+    if (rows.length > 0) return { ...rows[0], _inserted: true };
+    const existing = await this.getWebhookEvent(provider, event_id);
+    return existing ? { ...existing, _inserted: false } : null;
   }
 
   async getWebhookEvent(provider, eventId) {

@@ -126,21 +126,31 @@ function createAuthRouter(pool, options = {}) {
           }
         }
       } else {
-        // Public landing lookup (no tenant context): check system users (superadmin, owners, staff) then clients
+        // Public landing lookup (no tenant context):
+        // 1. Check system users (superadmin, owners, staff) WITHOUT filtering by active tenant
+        //    so Owners of suspended tenants can still recover access to pay or cancel.
+        // 2. Use LIMIT 2 to detect multi-tenant ambiguity and NEVER arbitrarily pick one account.
         const [users] = await pool.query(
-          "SELECT id, COALESCE(nombre, name) as nombre, email, username, tenant_id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) ORDER BY CASE WHEN tenant_id IS NULL THEN 0 ELSE 1 END, id DESC LIMIT 1",
+          "SELECT id, COALESCE(nombre, name) as nombre, email, username, tenant_id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) ORDER BY CASE WHEN tenant_id IS NULL THEN 0 ELSE 1 END, id DESC LIMIT 2",
           [cleanId, cleanId]
         );
-        if (users.length > 0) {
+        if (users.length === 1) {
           targetUser = users[0];
           isSystemUser = true;
+        } else if (users.length > 1) {
+          // Ambiguous across multiple accounts/tenants: do NOT arbitrarily select one and do NOT leak existence
+          return res.json(genericSuccess);
         } else {
           const [clients] = await pool.query(
-            "SELECT c.id, c.nombre, c.email, c.cedula, c.tenant_id FROM clients c INNER JOIN tenants t ON c.tenant_id = t.id WHERE t.status = 'active' AND (LOWER(c.email) = LOWER(?) OR (LENGTH(?) >= 5 AND (c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?))) ORDER BY c.id DESC LIMIT 1",
+            "SELECT c.id, c.nombre, c.email, c.cedula, c.tenant_id FROM clients c INNER JOIN tenants t ON c.tenant_id = t.id WHERE t.status = 'active' AND (LOWER(c.email) = LOWER(?) OR (LENGTH(?) >= 5 AND (c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?))) ORDER BY c.id DESC LIMIT 2",
             [cleanId, cleanDigits, cleanId, cleanDigits]
           );
-          if (clients.length > 0) {
+          if (clients.length === 1) {
             targetUser = clients[0];
+          } else if (clients.length > 1) {
+            // Same B2C email/cedula exists in 2+ active companies without tenant context:
+            // Do NOT arbitrarily choose a tenant and keep anti-enumeration response identical.
+            return res.json(genericSuccess);
           }
         }
       }
@@ -314,6 +324,26 @@ function createAuthRouter(pool, options = {}) {
     if (rawToken) {
       try {
         const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        // Pre-verify explicit caller-supplied account/tenant overrides before consuming:
+        // a token is strictly bound to its (user_id/client_id, tenant_id) and cannot be retargeted.
+        if (targetUserId || tenantId) {
+          const [peekRows] = await pool.query(
+            "SELECT id, tenant_id, user_id, client_id FROM verification_codes WHERE code_hash = ? AND purpose = 'password_reset_link' AND is_used = 0 AND expires_at > NOW() LIMIT 1",
+            [tokenHash]
+          );
+          if (!peekRows || peekRows.length === 0) {
+            return res.status(400).json({ error: 'El enlace de recuperación es inválido, ya fue utilizado o ha expirado.' });
+          }
+          const boundRec = peekRows[0];
+          const boundUserId = String(boundRec.user_id || boundRec.client_id || '');
+          const boundTenantId = boundRec.tenant_id ? String(boundRec.tenant_id) : '';
+          if (targetUserId && targetUserId !== boundUserId && `USER-${targetUserId}` !== boundUserId) {
+            return res.status(400).json({ error: 'El enlace de recuperación es inválido, ya fue utilizado o ha expirado.' });
+          }
+          if (tenantId && String(tenantId) !== boundTenantId) {
+            return res.status(400).json({ error: 'El enlace de recuperación es inválido, ya fue utilizado o ha expirado.' });
+          }
+        }
         // Atomic single-use consumption: only one concurrent request can win UPDATE ... RETURNING
         const [consumedRows] = await pool.query(
           "UPDATE verification_codes SET is_used = 1, used_at = NOW() WHERE code_hash = ? AND purpose = 'password_reset_link' AND is_used = 0 AND expires_at > NOW() RETURNING id, tenant_id, user_id, client_id, identity",
@@ -338,7 +368,7 @@ function createAuthRouter(pool, options = {}) {
           }
           await pool.query(uQuery, uParams);
         } else if (resolvedUserId) {
-          let cQuery = 'UPDATE clients SET password = ?, token_version = COALESCE(token_version, 1) + 1 WHERE id = ?';
+          let cQuery = 'UPDATE clients SET password = ?, must_change_password = 0 WHERE id = ?';
           const cParams = [hashedPass, resolvedUserId];
           if (rec.tenant_id) {
             cQuery += ' AND tenant_id = ?';
@@ -407,17 +437,17 @@ function createAuthRouter(pool, options = {}) {
           }
         } else {
           const [uRows] = await pool.query(
-            "SELECT id, tenant_id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) ORDER BY CASE WHEN tenant_id IS NULL THEN 0 ELSE 1 END, id DESC LIMIT 1",
+            "SELECT id, tenant_id FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) ORDER BY CASE WHEN tenant_id IS NULL THEN 0 ELSE 1 END, id DESC LIMIT 2",
             [rawIdentifier, rawIdentifier]
           );
-          if (uRows.length > 0) {
+          if (uRows.length === 1) {
             resolvedAccount = { targetId: `USER-${uRows[0].id}`, tenantId: uRows[0].tenant_id };
-          } else {
+          } else if (uRows.length === 0) {
             const [cRows] = await pool.query(
-              "SELECT c.id, c.tenant_id FROM clients c INNER JOIN tenants t ON c.tenant_id = t.id WHERE t.status = 'active' AND (LOWER(c.email) = LOWER(?) OR (LENGTH(?) >= 5 AND (c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?))) ORDER BY c.id DESC LIMIT 1",
+              "SELECT c.id, c.tenant_id FROM clients c INNER JOIN tenants t ON c.tenant_id = t.id WHERE t.status = 'active' AND (LOWER(c.email) = LOWER(?) OR (LENGTH(?) >= 5 AND (c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?))) ORDER BY c.id DESC LIMIT 2",
               [rawIdentifier, cleanDigits, rawIdentifier, cleanDigits]
             );
-            if (cRows.length > 0) resolvedAccount = { targetId: String(cRows[0].id), tenantId: cRows[0].tenant_id };
+            if (cRows.length === 1) resolvedAccount = { targetId: String(cRows[0].id), tenantId: cRows[0].tenant_id };
           }
         }
 
