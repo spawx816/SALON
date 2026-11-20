@@ -1152,12 +1152,9 @@ const AttendanceKiosk = () => {
                         setPunchType(nextType);
                         setPassword('');
 
-                        // Si CompreFace está activo, ir directo a cámara/verificación facial sin pedir contraseña
-                        if (kioskSessionInfo?.biometricPolicy?.providerConfigured) {
-                          if (!emp.has_profile_photo) {
-                            alert('Este colaborador no tiene foto de referencia registrada. Sube su foto en el módulo de Personal para usar reconocimiento facial.');
-                            return;
-                          }
+                        // Si CompreFace está activo y el colaborador tiene foto de referencia, iniciar ponche biométrico directo;
+                        // si NO tiene foto de referencia, continuar a Step 2 (PIN + fotografía de evidencia manual sin verificación facial).
+                        if (kioskSessionInfo?.biometricPolicy?.providerConfigured && emp.has_profile_photo) {
                           try {
                             const res = await fetch('/api/kiosk/start-face-punch', {
                               method: 'POST',
