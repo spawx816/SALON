@@ -684,8 +684,8 @@ function createKioskRouter(pool, { authenticate }) {
       const todayName = dayNames[nowLocalDate.getDay()];
 
       const [overrides] = await pool.query(
-        "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
-        [String(employeeId), todayDateStr]
+        "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo' AND tenant_id = ?",
+        [String(employeeId), todayDateStr, device.tenant_id]
       );
 
       let baseHoraEntrada = emp.hora_entrada;
