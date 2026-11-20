@@ -9,6 +9,8 @@
 
 const express = require('express');
 const { getPrivateStorageAdapter } = require('../services/private_storage_adapter');
+const { getEffectiveRole } = require('../middleware/rbac.middleware');
+const { permissionMapGrants } = require('../domain/rbac_catalog');
 
 function createPrivateFilesRoutes({ pool, authMiddleware }) {
   const router = express.Router();
@@ -35,14 +37,20 @@ function createPrivateFilesRoutes({ pool, authMiddleware }) {
 
       const fileResult = await storageAdapter.readFile({ tenantId, fileId });
 
-      // Sensitivity check: contract signatures and ID documents restricted to admins/owners/superadmins
+      // Sensitivity check: contract signatures and ID documents restricted to Owner, Admin, authorized contract role, or owning B2C client
       const SENSITIVE_CATEGORIES = ['contract_signature', 'contract_document', 'contract_selfie'];
       if (SENSITIVE_CATEGORIES.includes(fileResult.category)) {
-        const allowedRoles = ['admin', 'owner', 'superadmin'];
-        if (!allowedRoles.includes(req.user.role)) {
+        const effRole = getEffectiveRole(req);
+        const hasContractPerm =
+          effRole === 'propietario' ||
+          (effRole === 'admin' && !req.auth?.roleId) ||
+          permissionMapGrants(req.auth?.permissions, 'memberships.contracts.view') ||
+          permissionMapGrants(req.auth?.permissions, 'security.manage');
+
+        if (!hasContractPerm) {
           // If requester is a client, verify if contract belongs to this client
           let isOwnerClient = false;
-          if (req.user.role === 'client' && req.user.id) {
+          if ((effRole === 'cliente_b2c' || req.auth?.isClient) && req.user.id) {
             const [contractRows] = await pool.query(
               `SELECT id FROM contracts 
                WHERE tenant_id = $1 AND client_id::text = $2 

@@ -125,8 +125,8 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
                COALESCE(s.client_name, c.nombre) as client_name,
                COALESCE(s.salon_name, sal.name) as salon_name
         FROM surveys s
-        LEFT JOIN clients c ON s.client_id = c.id AND c.tenant_id = s.tenant_id
-        LEFT JOIN salons sal ON s.salon_id = sal.id AND sal.tenant_id = s.tenant_id
+        LEFT JOIN clients c ON s.client_id::text = c.id::text AND c.tenant_id = s.tenant_id
+        LEFT JOIN salons sal ON s.salon_id::text = sal.id::text AND sal.tenant_id = s.tenant_id
         WHERE s.tenant_id = ?
       `;
 
@@ -535,7 +535,7 @@ function createGiftsSurveysRouter(pool, helpers = {}) {
       const [cards] = await pool.query(`
         SELECT g.*, c.nombre as purchaser_name 
         FROM gift_cards g 
-        LEFT JOIN clients c ON g.client_id = c.id AND c.tenant_id = g.tenant_id
+        LEFT JOIN clients c ON g.client_id::text = c.id::text AND c.tenant_id = g.tenant_id
         WHERE g.tenant_id = ?
         ORDER BY g.created_at DESC
       `, [tenantId]);

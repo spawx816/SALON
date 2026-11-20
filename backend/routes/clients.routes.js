@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { decodeCursor, computeFilterHash, buildPaginatedResponse } = require('../utils/cursor_pagination');
+const { getEffectiveRole, requirePermission } = require('../middleware/rbac.middleware');
 
 const MEMBERSHIP_RESPONSE_FIELDS = Object.freeze([
   'contract_id', 'plan_id', 'plan_name', 'contract_status', 'wash_Quota', 'washes_used',
@@ -11,6 +12,34 @@ const MEMBERSHIP_RESPONSE_FIELDS = Object.freeze([
 function createClientsRouter(pool, options = {}) {
   const router = express.Router();
   const { entitlementsService } = options;
+
+  // Guard RBAC y aislamiento B2C para /api/clients:
+  // - Clientes B2C solo pueden consultar su propio perfil (GET /:id cuando id === req.auth.id)
+  // - Personal requiere permisos granulares (clients.view / clients.create / clients.edit)
+  router.use((req, res, next) => {
+    const role = getEffectiveRole(req);
+    const method = String(req.method || '').toUpperCase();
+    const cleanPath = String(req.path || '/');
+
+    if (role === 'cliente_b2c' || req.auth?.isClient) {
+      const idMatch = cleanPath.match(/^\/([^/]+)$/);
+      if (method === 'GET' && idMatch && idMatch[1] !== 'search' && String(idMatch[1]) === String(req.auth?.id || '')) {
+        return next();
+      }
+      return res.status(403).json({
+        error: 'Acceso denegado: los clientes solo pueden consultar su propio perfil.',
+        code: 'CLIENT_FORBIDDEN_STAFF_ACTION',
+      });
+    }
+
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+      return requirePermission('clients.view', 'clients.create', 'clients.edit', 'pos.visits.view', 'pos.visits.create')(req, res, next);
+    }
+    if (method === 'POST') {
+      return requirePermission('clients.create', 'clients.edit')(req, res, next);
+    }
+    return requirePermission('clients.edit')(req, res, next);
+  });
 
   /**
    * Clientes/CRM está incluido en BASE y PRO, pero las capacidades de membresía (contratos, planes, cupos)

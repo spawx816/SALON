@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { createQuarantineGuard } = require('../middleware/quarantine.middleware.cjs');
 const { getConfiguredPricing } = require('../services/saas_catalog.constants');
+const { getEffectiveRole, getBranchScope, requirePermission } = require('../middleware/rbac.middleware');
 
 /**
  * Salons / Branches Management Router (Scoped strictly by tenant_id)
@@ -18,21 +19,28 @@ function createSalonsRouter(poolOrOptions, options = {}) {
   const billingRepo = opts.billingRepo || null;
   const entitlementsService = opts.entitlementsService || null;
 
-  // Authorization helper: Solo el Propietario/Owner o SuperAdmin pueden gestionar y contratar sucursales
-  const requireOwnerOrAdmin = (req, res, next) => {
-    if (req.auth?.isSuperAdmin) return next();
-    const role = String(req.auth?.role || '').toLowerCase();
-    if (role === 'owner' || role === 'propietario' || role === 'admin') {
+  // Authorization helper: Acciones comerciales SaaS exclusivas del Propietario (Owner)
+  const requireOwnerOnly = (req, res, next) => {
+    const role = getEffectiveRole(req);
+    if (role === 'propietario') {
       return next();
     }
     return res.status(403).json({
-      error: 'Acceso denegado: Se requieren permisos de propietario o administrador.',
-      code: 'FORBIDDEN_ROLE',
+      error: 'Acceso denegado: la contratación de sucursales y acciones comerciales SaaS son exclusivas del Propietario.',
+      code: 'OWNER_ONLY_SAAS_BILLING',
     });
   };
 
+  // Authorization helper: Gestión operativa de sucursales (Owner, Admin o permiso branches.manage)
+  const requireOwnerOrAdmin = (req, res, next) => {
+    const role = getEffectiveRole(req);
+    if (role === 'propietario') return next();
+    if (role === 'admin' && !req.auth?.roleId) return next();
+    return requirePermission('branches.manage')(req, res, next);
+  };
+
   // GET /api/salons/licensing-status - Consulta estado de licencias de sucursales disponibles y precios
-  router.get('/licensing-status', async (req, res) => {
+  router.get('/licensing-status', requirePermission('branches.manage', 'security.view'), async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
@@ -54,7 +62,7 @@ function createSalonsRouter(poolOrOptions, options = {}) {
 
       const pricing = getConfiguredPricing();
       let defaultPaymentMethod = null;
-      if (billingRepo && typeof billingRepo.getDefaultPaymentMethod === 'function') {
+      if (getEffectiveRole(req) === 'propietario' && billingRepo && typeof billingRepo.getDefaultPaymentMethod === 'function') {
         const pm = await billingRepo.getDefaultPaymentMethod(tenantId);
         if (pm && pm.token_reference) {
           defaultPaymentMethod = {
@@ -84,8 +92,8 @@ function createSalonsRouter(poolOrOptions, options = {}) {
     }
   });
 
-  // POST /api/salons/quote-add-branch - Cotización canónica de sucursal adicional (backend-only)
-  router.post('/quote-add-branch', requireOwnerOrAdmin, async (req, res) => {
+  // POST /api/salons/quote-add-branch - Cotización canónica de sucursal adicional (exclusivo Owner)
+  router.post('/quote-add-branch', requireOwnerOnly, async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
@@ -103,7 +111,7 @@ function createSalonsRouter(poolOrOptions, options = {}) {
       });
 
       let defaultPaymentMethod = null;
-      if (billingRepo && typeof billingRepo.getDefaultPaymentMethod === 'function') {
+      if (getEffectiveRole(req) === 'propietario' && billingRepo && typeof billingRepo.getDefaultPaymentMethod === 'function') {
         const pm = await billingRepo.getDefaultPaymentMethod(tenantId);
         if (pm && pm.token_reference) {
           defaultPaymentMethod = {
@@ -130,8 +138,8 @@ function createSalonsRouter(poolOrOptions, options = {}) {
     }
   });
 
-  // POST /api/salons/contract-branch - Contrata o activa sucursal adicional con confirmación personal
-  router.post('/contract-branch', requireOwnerOrAdmin, async (req, res) => {
+  // POST /api/salons/contract-branch - Contrata o activa sucursal adicional (exclusivo Owner)
+  router.post('/contract-branch', requireOwnerOnly, async (req, res) => {
     try {
       const tenantId = req.tenantId;
       if (!tenantId) {
@@ -276,12 +284,19 @@ function createSalonsRouter(poolOrOptions, options = {}) {
         ORDER BY is_main DESC, created_at ASC
       `, [tenantId]);
 
+      const scope = getBranchScope(req);
+      const filterByScope = (list) => {
+        if (scope.allBranches || getEffectiveRole(req) === 'cliente_b2c') return list;
+        if (!scope.branchIds || scope.branchIds.length === 0) return [];
+        return list.filter((b) => scope.branchIds.includes(String(b.id)));
+      };
+
       if (branches && branches.length > 0) {
-        return res.json(branches);
+        return res.json(filterByScope(branches));
       }
 
       const [rows] = await pool.query('SELECT * FROM salons WHERE tenant_id = ? ORDER BY id ASC', [tenantId]);
-      res.json(rows);
+      res.json(filterByScope(rows || []));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

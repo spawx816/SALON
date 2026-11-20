@@ -22,9 +22,9 @@ function createPrintTemplatesRouter(pool) {
 
   const canManageTemplates = (req) => {
     const role = getEffectiveRole(req);
-    if (role === 'propietario' || role === 'admin' || req.auth?.isSuperAdmin) return true;
-    const perms = expandEffectivePermissions(req.user?.permissions || {});
-    return permissionMapGrants(perms, 'manage_settings');
+    if (role === 'propietario' || (role === 'admin' && !req.auth?.roleId)) return true;
+    const perms = expandEffectivePermissions(req.auth?.permissions || req.user?.permissions || {});
+    return permissionMapGrants(perms, 'security.manage');
   };
 
   const canOperateTurnTickets = (req) => {

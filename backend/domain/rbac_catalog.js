@@ -240,7 +240,9 @@ function expandEffectivePermissions(rawPermissions) {
         expanded[ck] = true;
       }
     }
-    if (canonicalKeys.some((ck) => clean[ck] === true)) {
+    // Solo marcar la clave legacy si TODAS las acciones canónicas equivalentes están concedidas;
+    // nunca escalar un permiso granular de solo lectura (*.view) a *.manage / *.approve / *.export.
+    if (canonicalKeys.length > 0 && canonicalKeys.every((ck) => expanded[ck] === true)) {
       expanded[legacyKey] = true;
     }
   }

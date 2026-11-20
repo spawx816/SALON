@@ -1,12 +1,13 @@
 const express = require('express');
+const { getBranchScope } = require('../middleware/rbac.middleware');
 
 /**
- * Reports and Financial Analytics Router (Scoped strictly by tenant_id)
+ * Reports and Financial Analytics Router (Scoped strictly by tenant_id + branch scope)
  */
 function createReportsRouter(pool) {
   const router = express.Router();
 
-  // GET /api/reports/bi - Reporte operativo BI real por tenant
+  // GET /api/reports/bi - Reporte operativo BI real por tenant y alcance de sucursal
   router.get('/bi', async (req, res) => {
     try {
       const tenantId = req.tenantId;
@@ -17,6 +18,30 @@ function createReportsRouter(pool) {
         salonId = 'all'
       } = req.query;
 
+      const scope = getBranchScope(req);
+      let effectiveBranchIds = null; // null => all branches in tenant
+      if (!scope.allBranches) {
+        if (!scope.branchIds || scope.branchIds.length === 0) {
+          return res.status(403).json({
+            error: 'No tienes sucursales autorizadas para consultar reportes.',
+            code: 'FORBIDDEN_BRANCH_SCOPE',
+          });
+        }
+        if (salonId && salonId !== 'all') {
+          if (!scope.branchIds.includes(String(salonId))) {
+            return res.status(403).json({
+              error: 'Acceso denegado: no tienes autorización para consultar reportes de esta sucursal.',
+              code: 'FORBIDDEN_BRANCH_SCOPE',
+            });
+          }
+          effectiveBranchIds = [String(salonId)];
+        } else {
+          effectiveBranchIds = scope.branchIds;
+        }
+      } else if (salonId && salonId !== 'all') {
+        effectiveBranchIds = [String(salonId)];
+      }
+
       const start = startDate && /^\d{4}-\d{2}-\d{2}$/.test(String(startDate))
         ? String(startDate)
         : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -24,9 +49,11 @@ function createReportsRouter(pool) {
         ? String(endDate)
         : new Date().toISOString().split('T')[0];
 
-      const salonFilterV = salonId && salonId !== 'all' ? ' AND v.salon_id::text = ?' : '';
-      const vParams = salonId && salonId !== 'all'
-        ? [tenantId, start, end + ' 23:59:59', String(salonId)]
+      const salonFilterV = effectiveBranchIds
+        ? ` AND v.salon_id::text IN (${effectiveBranchIds.map(() => '?').join(', ')})`
+        : '';
+      const vParams = effectiveBranchIds
+        ? [tenantId, start, end + ' 23:59:59', ...effectiveBranchIds]
         : [tenantId, start, end + ' 23:59:59'];
 
       const [visitAggRows] = await pool.query(`
@@ -57,10 +84,13 @@ function createReportsRouter(pool) {
       const fmt = (n) => `RD$ ${Math.round(Number(n || 0)).toLocaleString('en-US')}`;
 
       if (reportId === 'cash_flow') {
-        const expParams = salonId && salonId !== 'all'
-          ? [tenantId, start, end, String(salonId), String(salonId)]
+        const expPlaceholders = effectiveBranchIds ? effectiveBranchIds.map(() => '?').join(', ') : '';
+        const salonFilterE = effectiveBranchIds
+          ? ` AND (branch_id::text IN (${expPlaceholders}) OR salon_id::text IN (${expPlaceholders}))`
+          : '';
+        const expParams = effectiveBranchIds
+          ? [tenantId, start, end, ...effectiveBranchIds, ...effectiveBranchIds]
           : [tenantId, start, end];
-        const salonFilterE = salonId && salonId !== 'all' ? ' AND (branch_id::text = ? OR salon_id::text = ?)' : '';
         const [expRows] = await pool.query(
           `SELECT COALESCE(SUM(amount), 0) as total_egresos FROM expenses WHERE tenant_id = ? AND COALESCE(date, expense_date) BETWEEN ? AND ? ${salonFilterE}`,
           expParams

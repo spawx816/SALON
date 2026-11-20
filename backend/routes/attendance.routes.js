@@ -666,7 +666,7 @@ function createAttendanceRouter(pool) {
       }
 
       const [rangeOverrides] = await pool.query(
-        `SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') AS "dateStr", new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'`,
+        `SELECT employee_id, TO_CHAR(date, 'YYYY-MM-DD') AS "dateStr", new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'`,
         [tenantId, start, end]
       );
       const overrideMap = new Map();
@@ -675,7 +675,7 @@ function createAttendanceRouter(pool) {
       });
 
       const [existingPunches] = await pool.query(
-        `SELECT employee_id, DATE_FORMAT(timestamp, '%Y-%m-%d') AS "dateStr", type FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?`,
+        `SELECT employee_id, TO_CHAR(timestamp, 'YYYY-MM-DD') AS "dateStr", type FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?`,
         [tenantId, `${start} 00:00:00`, `${end} 23:59:59`]
       );
 
@@ -812,7 +812,7 @@ function createAttendanceRouter(pool) {
       }
 
       const [rangeOverrides] = await pool.query(
-        `SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') AS "dateStr", new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'`,
+        `SELECT employee_id, TO_CHAR(date, 'YYYY-MM-DD') AS "dateStr", new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'`,
         [tenantId, start, end]
       );
       const overrideMap = new Map();
@@ -821,7 +821,7 @@ function createAttendanceRouter(pool) {
       });
 
       const [punches] = await pool.query(
-        `SELECT id, employee_id, type, DATE_FORMAT(timestamp, '%Y-%m-%d') AS "dateStr", DATE_FORMAT(timestamp, '%H:%i:%s') AS "timeStr", timestamp, status, is_manual, modified_by, modified_at, modification_reason FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?`,
+        `SELECT id, employee_id, type, TO_CHAR(timestamp, 'YYYY-MM-DD') AS "dateStr", TO_CHAR(timestamp, 'HH24:MI:SS') AS "timeStr", timestamp, status, is_manual, modified_by, modified_at, modification_reason FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?`,
         [tenantId, `${start} 00:00:00`, `${end} 23:59:59`]
       );
 

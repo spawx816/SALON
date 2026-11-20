@@ -165,3 +165,33 @@ El sistema opera actualmente con **dos modelos paralelos desconectados** entre s
 - `npm run lint`: **0 errores** (272 warnings preexistentes).
 - `npm run build` & `npm run verify:release`: **PASS** (53 chunks JS, 236 imports verificados).
 
+---
+
+## 8. Cierre Pre-Producción de Roles y Aislamiento (2026-11-20)
+
+### A. Hallazgos Adicionales Encontrados y Corregidos
+
+| # | Hallazgo | Severidad | Corrección Aplicada | Prueba Ejecutada y Resultado |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | **Escalada implícita `*.view → legacyKey → *.manage`** en `backend/domain/rbac_catalog.js` (`expandEffectivePermissions` activaba la clave legacy con `.some(...)`, promoviendo cualquier permiso de solo lectura como `attendance.view` a `manage_attendance` → `attendance.manage`). | **P0 (Crítico)** | Cambiado a `.every(...)` en `expandEffectivePermissions`: una clave legacy solo se emite si TODAS las acciones canónicas equivalentes están concedidas. | `test_rbac_closure_matrix.cjs` (`Analista B1` con `attendance.view` → `GET /api/attendance/history` `200`, `POST /api/holidays` `403`). **PASS**. |
+| 2 | **`/api/clients` sin guard RBAC ni aislamiento B2C**: cualquier empleado sin permisos o cliente B2C podía listar/modificar otros clientes de la empresa. | **P0 (Crítico)** | Guard router-level en `backend/routes/clients.routes.js`: `cliente_b2c` solo puede consultar `GET /:id` propio; personal requiere `clients.view` / `clients.create` / `clients.edit`. | `test_rbac_closure_matrix.cjs` (8 actores en `GET /api/clients`, `C1` lee `C1` `200`, `C1` sobre `C2`/`T2` `403`). **PASS**. |
+| 3 | **`/api/appointments` sin RBAC ni aislamiento B2C**: `cliente_b2c` veía todas las citas de la empresa y podía crear citas con `clientId` de otro cliente. | **P0 (Crítico)** | `backend/routes/appointments.routes.js`: `cliente_b2c` filtrado a `client_id = req.auth.id` en `GET` y forzado en `POST` (ignorando `body.clientId`); personal requiere permisos de visitas/clientes. | `test_rbac_closure_matrix.cjs` (verificación HTTP + estado real en BD `appointments.client_id = C1`). **PASS**. |
+| 4 | **`/api/attendance`, `/api/holidays`, `/api/dashboard`, `/api/admin/gifts`, `/api/surveys/stats` sin `requirePermission`** en `backend/app.js`. | **P0 (Crítico)** | Agregados `requireMethodPermission` y `requirePermission` explícitos en `backend/app.js` + `rejectClientRoleOnStaffRoutes` en `/api/admin/gifts`, `/api/surveys/stats` y `/api/surveys/send`. | `test_rbac_closure_matrix.cjs` (120 combinaciones actor × endpoint verificadas). **PASS**. |
+| 5 | **`/api/reports/bi` y `GET /api/salons` sin alcance por sucursal (`getBranchScope`)**: usuario limitado a Sucursal B1 podía consultar `salonId=B2` o totales globales `salonId=all`. | **P1 (Alto)** | Aplicado `getBranchScope(req)` en `backend/routes/reports.routes.js` (`403 FORBIDDEN_BRANCH_SCOPE` fuera de alcance y filtro SQL `IN (...)` para `salonId=all`) y filtrado de sucursales en `GET /api/salons`. | `test_rbac_closure_matrix.cjs` (`?salonId=B2` → `403`; `?salonId=all` suma solo B1 = 1500, excluyendo B2 = 9000; `/api/salons` devuelve solo B1). **PASS**. |
+| 6 | **Contratación comercial de sucursales (`/api/salons/quote-add-branch`, `/contract-branch`) y `defaultPaymentMethod` accesibles por `admin` / sin rol en `/licensing-status`**. | **P1 (Alto)** | Restringidos `quote-add-branch` y `contract-branch` a Owner exclusivo (`403 OWNER_ONLY_SAAS_BILLING`); `/licensing-status` requiere `branches.manage`/`security.view` y oculta `defaultPaymentMethod` a no-Owners. | `test_rbac_closure_matrix.cjs` (`admin` recibe `403` en `quote-add-branch` y `contract-branch`; `owner` autorizado). **PASS**. |
+| 7 | **`/api/tenant/private-files/:fileId` excluía `'propietario'` y permitía `'superadmin'`**; **`print_templates.routes.js`** consultaba clave inexistente `'manage_settings'`. | **P1 (Alto)** | Actualizado `private_files.routes.js` usando `getEffectiveRole` (`propietario`, `admin` o `memberships.contracts.view` / `security.manage`, y cliente dueño) y `print_templates.routes.js` a `'security.manage'`. | Verificado en código + suite `test_rbac_closure_matrix.cjs`. **PASS**. |
+| 8 | **Compatibilidad PostgreSQL en `/api/attendance/history`, `/api/surveys/stats`, `/api/admin/gifts`** (`TO_CHAR` y cast `::text` en joins `varchar = uuid`). | **P1 (Alto)** | Reemplazado `DATE_FORMAT` por `TO_CHAR` en `attendance.routes.js` y agregado `::text` en `gifts_surveys.routes.js`. | `test_rbac_closure_matrix.cjs` sobre PostgreSQL real (`salon_saas_test`). **PASS**. |
+
+### B. Suites Reales Ejecutadas en `salon_saas_test` (2026-11-20)
+- `node backend/tests/test_rbac_closure_matrix.cjs` (2 empresas sintéticas, 3 sucursales, 8 actores, 120 combinaciones + aislamiento B2C + BI por sucursal + revocación de sesión + concurrencia último Owner + exención kiosco + verificación de estado en BD): **PASS (7/7 bloques)**.
+- `node backend/tests/test_rbac_remediation.cjs`: **PASS (11/11 escenarios)**.
+- `node backend/tests/test_kiosk_dedicated_user.cjs`: **PASS (5/5 escenarios)**.
+- `npm run test:runner-guards`: **PASS (17/17 + 46 archivos aislados)**.
+- `npm run test:scanner`: **14/14 negative checks PASS**; **0 violaciones** en todos los archivos RBAC/aislamiento tocados; **12 hallazgos preexistentes** fuera de RBAC en `auth.routes.js` (3 en recovery por email/cédula), `consolidated_renewal.service.js` (6 en worker/updates por id), `pg_saas_billing.repository.js` (2 en lookup/update por id) y `platform_email.service.js` (1 falso positivo en `Buffer.from` de salt).
+
+### C. Pendientes / Decisiones Necesarias
+1. **Scanner AST (`npm run test:scanner`)**: Resolver o anotar los 12 hallazgos preexistentes en `auth.routes.js`, `consolidated_renewal.service.js`, `pg_saas_billing.repository.js` y `platform_email.service.js` antes de exigir gate verde del scanner en CI de producción.
+2. **Alcance multi-sucursal en UI de usuarios**: `authorized_branch_ids` y `all_branches_access` ya están aplicados en backend y BD; definir si se expone el selector múltiple de sucursales en el modal de `SecurityModule.jsx`.
+3. **Recursos explícitamente compartidos a nivel empresa**: `clients` (directorio CRM) y `services` (catálogo de servicios) se mantienen compartidos a nivel `tenant_id` por diseño operativo; `visits`, `cash_registers`, `inventory`, `reports/bi` y `salons` aplican alcance estricto por `branch_id`.
+
+
