@@ -163,11 +163,45 @@ class InventoryRepository {
     if (!tenantId) throw new Error('tenant_id es requerido');
     if (this.pool) {
       if (salonId !== null && salonId !== undefined && String(salonId).trim() !== '') {
+        const cleanSid = String(salonId).trim();
+        const branchLocCode = `LOC-BR-${cleanSid.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32)}`;
+
         const [branchLocs] = await this.pool.query(
-          'SELECT * FROM inventory_locations WHERE tenant_id = ? AND salon_id::text = ? AND is_active = TRUE ORDER BY is_default DESC, id ASC LIMIT 1',
-          [tenantId, String(salonId).trim()]
+          'SELECT * FROM inventory_locations WHERE tenant_id = ? AND (salon_id::text = ? OR code = ?) AND is_active = TRUE ORDER BY is_default DESC, id ASC LIMIT 1',
+          [tenantId, cleanSid, branchLocCode]
         );
         if (branchLocs && branchLocs.length > 0) return branchLocs[0];
+
+        // No location configured yet for this branch: verify branch/salon belongs to tenant
+        // and create a dedicated location instead of falling back to another branch's stock.
+        const [salonRows] = await this.pool.query(
+          'SELECT id, name FROM salons WHERE tenant_id = ? AND id::text = ? LIMIT 1',
+          [tenantId, cleanSid]
+        );
+        const [branchRows] = salonRows.length === 0
+          ? await this.pool.query(
+              'SELECT id, name FROM branches WHERE tenant_id = ? AND id::text = ? LIMIT 1',
+              [tenantId, cleanSid]
+            )
+          : [[]];
+
+        const matchedSalon = salonRows[0] || null;
+        const matchedBranch = branchRows[0] || null;
+        if (!matchedSalon && !matchedBranch) {
+          const err = new Error('La sucursal indicada no existe en esta empresa y no tiene ubicación de inventario válida.');
+          err.code = 'BRANCH_LOCATION_NOT_FOUND';
+          err.statusCode = 404;
+          throw err;
+        }
+
+        const locName = `Almacén ${(matchedSalon || matchedBranch).name || cleanSid}`.slice(0, 150);
+        const [createdBranchLoc] = await this.pool.query(`
+          INSERT INTO inventory_locations (tenant_id, salon_id, name, code, type, is_default, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'STORE', FALSE, TRUE, NOW(), NOW())
+          ON CONFLICT (tenant_id, code) DO UPDATE SET is_active = TRUE, updated_at = NOW()
+          RETURNING *
+        `, [tenantId, matchedSalon ? matchedSalon.id : null, locName, branchLocCode]);
+        return createdBranchLoc[0];
       }
 
       const [rows] = await this.pool.query(
@@ -176,10 +210,11 @@ class InventoryRepository {
       );
       if (rows && rows.length > 0) return rows[0];
 
-      // Crear ubicación principal por defecto
+      // Crear ubicación principal por defecto solo cuando no se especifica sucursal
       const [created] = await this.pool.query(`
         INSERT INTO inventory_locations (tenant_id, salon_id, name, code, type, is_default, is_active, created_at, updated_at)
         VALUES (?, ?, 'Almacén Principal', 'LOC-MAIN', 'STORE', TRUE, TRUE, NOW(), NOW())
+        ON CONFLICT (tenant_id, code) DO UPDATE SET is_active = TRUE, updated_at = NOW()
         RETURNING *
       `, [tenantId, null]);
       return created[0];
@@ -353,102 +388,109 @@ class InventoryRepository {
   /**
    * Atomic, serializable deduction of inventory for POS sale (REM-P1-18)
    * Uses SELECT ... FOR UPDATE with lock_timeout and automatic retry on contention.
+   * When txConn is provided, participates directly in the caller's PostgreSQL transaction
+   * (single-transaction atomicity across stock + visit + commissions).
    */
-  async executeAtomicSaleDeduction(tenantId, { productId, locationId, quantity, visitId, lineId = null, userId = null, userName = null }) {
+  async executeAtomicSaleDeduction(tenantId, { productId, locationId, quantity, visitId, lineId = null, userId = null, userName = null, txConn = null }) {
     if (!tenantId || !productId || !locationId) throw new Error('tenantId, productId y locationId son requeridos');
     const qty = Number(quantity);
     if (qty <= 0) return { skipped: true };
 
     const idempotencyKey = `sale:${visitId}:${productId}${lineId ? `:${lineId}` : ''}`;
-    const maxRetries = 3;
 
+    const runDeductionOnConn = async (conn) => {
+      // 1. Check idempotency under transaction lock
+      const [existingMovements] = await conn.query(
+        'SELECT * FROM inventory_movements WHERE tenant_id = ? AND idempotency_key = ? LIMIT 1 FOR UPDATE',
+        [tenantId, idempotencyKey]
+      );
+
+      if (existingMovements && existingMovements.length > 0) {
+        return {
+          idempotent: true,
+          movement: existingMovements[0],
+          message: 'Descuento de inventario previamente procesado'
+        };
+      }
+
+      // 2. Lock stock row FOR UPDATE (enforces single-threaded deduction on this item)
+      const [stockRows] = await conn.query(
+        'SELECT * FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ? LIMIT 1 FOR UPDATE',
+        [tenantId, productId, locationId]
+      );
+
+      const currentStock = stockRows && stockRows.length > 0
+        ? stockRows[0]
+        : { quantity: 0, average_cost: 0 };
+
+      const available = Number(currentStock.quantity) || 0;
+      if (available < qty) {
+        const err = new Error(`Stock insuficiente. Disponible: ${available}, Requerido: ${qty}`);
+        err.code = 'INSUFFICIENT_STOCK';
+        err.available = available;
+        err.required = qty;
+        throw err;
+      }
+
+      const newQty = available - qty;
+      if (newQty < 0) {
+        const err = new Error('Stock insuficiente (resultado negativo prevenido)');
+        err.code = 'INSUFFICIENT_STOCK';
+        err.available = available;
+        err.required = qty;
+        throw err;
+      }
+
+      const avgCost = Number(currentStock.average_cost) || 0;
+
+      // 3. Record movement
+      const [movementResult] = await conn.query(`
+        INSERT INTO inventory_movements (
+          tenant_id, product_id, location_id, movement_type, quantity, unit_cost, total_cost,
+          balance_after, reference_type, reference_id, idempotency_key, reason, user_id, user_name, created_at
+        ) VALUES (?, ?, ?, 'SALE', ?, ?, ?, ?, 'VISIT_SALE', ?, ?, ?, ?, ?, NOW())
+        RETURNING *
+      `, [
+        tenantId, productId, locationId, -qty,
+        avgCost, qty * avgCost, newQty,
+        String(visitId), idempotencyKey,
+        `Venta POS Ticket/Visita #${visitId}`,
+        userId || null, userName || null
+      ]);
+
+      // 4. Update stock balance
+      await conn.query(`
+        INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity, average_cost, last_movement_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+        ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET
+          quantity = EXCLUDED.quantity,
+          average_cost = EXCLUDED.average_cost,
+          last_movement_at = NOW(),
+          updated_at = NOW()
+      `, [tenantId, productId, locationId, newQty, avgCost]);
+
+      return {
+        success: true,
+        movement: movementResult[0],
+        previous_stock: available,
+        new_stock: newQty
+      };
+    };
+
+    // Participate in caller's single transaction without committing/rolling back independently
+    if (txConn) {
+      return runDeductionOnConn(txConn);
+    }
+
+    const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const conn = await this.pool.getConnection();
       try {
         await conn.query('BEGIN');
         await conn.query("SET LOCAL lock_timeout = '5s'");
-
-        // 1. Check idempotency under transaction lock
-        const [existingMovements] = await conn.query(
-          'SELECT * FROM inventory_movements WHERE tenant_id = ? AND idempotency_key = ? LIMIT 1 FOR UPDATE',
-          [tenantId, idempotencyKey]
-        );
-
-        if (existingMovements && existingMovements.length > 0) {
-          await conn.query('COMMIT');
-          return {
-            idempotent: true,
-            movement: existingMovements[0],
-            message: 'Descuento de inventario previamente procesado'
-          };
-        }
-
-        // 2. Lock stock row FOR UPDATE (enforces single-threaded deduction on this item)
-        const [stockRows] = await conn.query(
-          'SELECT * FROM inventory_stock WHERE tenant_id = ? AND product_id = ? AND location_id = ? LIMIT 1 FOR UPDATE',
-          [tenantId, productId, locationId]
-        );
-
-        const currentStock = stockRows && stockRows.length > 0
-          ? stockRows[0]
-          : { quantity: 0, average_cost: 0 };
-
-        const available = Number(currentStock.quantity) || 0;
-        if (available < qty) {
-          await conn.query('ROLLBACK');
-          const err = new Error(`Stock insuficiente. Disponible: ${available}, Requerido: ${qty}`);
-          err.code = 'INSUFFICIENT_STOCK';
-          err.available = available;
-          err.required = qty;
-          throw err;
-        }
-
-        const newQty = available - qty;
-        if (newQty < 0) {
-          await conn.query('ROLLBACK');
-          const err = new Error(`Stock insuficiente (resultado negativo prevenido)`);
-          err.code = 'INSUFFICIENT_STOCK';
-          err.available = available;
-          err.required = qty;
-          throw err;
-        }
-
-        const avgCost = Number(currentStock.average_cost) || 0;
-
-        // 3. Record movement
-        const [movementResult] = await conn.query(`
-          INSERT INTO inventory_movements (
-            tenant_id, product_id, location_id, movement_type, quantity, unit_cost, total_cost,
-            balance_after, reference_type, reference_id, idempotency_key, reason, user_id, user_name, created_at
-          ) VALUES (?, ?, ?, 'SALE', ?, ?, ?, ?, 'VISIT_SALE', ?, ?, ?, ?, ?, NOW())
-          RETURNING *
-        `, [
-          tenantId, productId, locationId, -qty,
-          avgCost, qty * avgCost, newQty,
-          String(visitId), idempotencyKey,
-          `Venta POS Ticket/Visita #${visitId}`,
-          userId || null, userName || null
-        ]);
-
-        // 4. Update stock balance
-        await conn.query(`
-          INSERT INTO inventory_stock (tenant_id, product_id, location_id, quantity, average_cost, last_movement_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, NOW(), NOW())
-          ON CONFLICT (tenant_id, product_id, location_id) DO UPDATE SET
-            quantity = EXCLUDED.quantity,
-            average_cost = EXCLUDED.average_cost,
-            last_movement_at = NOW(),
-            updated_at = NOW()
-        `, [tenantId, productId, locationId, newQty, avgCost]);
-
+        const res = await runDeductionOnConn(conn);
         await conn.query('COMMIT');
-
-        return {
-          success: true,
-          movement: movementResult[0],
-          previous_stock: available,
-          new_stock: newQty
-        };
+        return res;
       } catch (err) {
         try { await conn.query('ROLLBACK'); } catch (_) {}
         const isRetryable = err.code === '40001' || err.code === '40P01' || err.code === '55P03';

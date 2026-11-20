@@ -714,7 +714,7 @@ async function runAcceptanceSuite() {
       body: { ...salePayload, cash_register_id: REG_EDGE_ID, subtotal: 1000, descuento: 100, total: 900, admin_pin: '1234', items_detail: [salePayload.items_detail[0]] }
     });
 
-    // 8g. Fallo intermedio de persistencia -> rollback sin registros parciales
+    // 8g. Fallo intermedio de persistencia + Caída abrupta de conexión (transacción única PostgreSQL sin compensación catch)
     const stockBeforeFail = (await apiRequest(port, { method: 'GET', path: `/api/inventory/stock/${PRODUCT_A.id}?locationId=${LOC_A_ID}`, headers: ownerAHeaders })).body.quantity;
     const failId = `VIS-FAIL-ROLLBACK-${ts}`;
     const failRes = await apiRequest(port, {
@@ -725,18 +725,46 @@ async function runAcceptanceSuite() {
     });
     const stockAfterFail = (await apiRequest(port, { method: 'GET', path: `/api/inventory/stock/${PRODUCT_A.id}?locationId=${LOC_A_ID}`, headers: ownerAHeaders })).body.quantity;
     const [failVisitRows] = await pool.query('SELECT COUNT(*)::int AS cnt FROM visits WHERE tenant_id = ? AND id = ?', [TENANT_A, failId]);
+    const [failMovRows] = await pool.query('SELECT COUNT(*)::int AS cnt FROM inventory_movements WHERE tenant_id = ? AND reference_id = ?', [TENANT_A, failId]);
+
+    // Simular caída abrupta de proceso/conexión tras descontar stock (sin COMMIT ni catch-void)
+    const crashId = `VIS-CRASH-ABORT-${ts}`;
+    const crashRes = await apiRequest(port, {
+      method: 'POST',
+      path: `/api/visits/${crashId}/checkout`,
+      headers: { ...opAHeaders, 'x-test-abort-connection-after-stock': 'true' },
+      body: { ...salePayload, cash_register_id: REG_EDGE_ID }
+    });
+    const stockAfterCrash = (await apiRequest(port, { method: 'GET', path: `/api/inventory/stock/${PRODUCT_A.id}?locationId=${LOC_A_ID}`, headers: ownerAHeaders })).body.quantity;
+    const [crashVisitRows] = await pool.query('SELECT COUNT(*)::int AS cnt FROM visits WHERE tenant_id = ? AND id = ?', [TENANT_A, crashId]);
+    const [crashMovRows] = await pool.query('SELECT COUNT(*)::int AS cnt FROM inventory_movements WHERE tenant_id = ? AND reference_id = ?', [TENANT_A, crashId]);
+
+    // 8h. Ubicación faltante en Sucursal C NO hace fallback al stock de Sucursal A (crea ubicación propia con stock 0 -> 400 INSUFFICIENT_STOCK)
+    const BRANCH_C = crypto.randomUUID();
+    await pool.query("INSERT INTO branches (id, tenant_id, name, is_main, is_active) VALUES (?, ?, 'Sucursal C', FALSE, TRUE)", [BRANCH_C, TENANT_A]);
+    const openRegC = await apiRequest(port, { method: 'POST', path: '/api/cash-registers/open', headers: ownerAHeaders, body: { salon_id: BRANCH_C, opening_balance: 500 } });
+    assert.strictEqual(openRegC.status, 200);
+    const branchCSale = await apiRequest(port, {
+      method: 'POST',
+      path: `/api/visits/VIS-BRC-NOFALLBACK-${ts}/checkout`,
+      headers: ownerAHeaders,
+      body: { ...salePayload, salon_id: BRANCH_C, cash_register_id: openRegC.body.id, location_id: null }
+    });
+    const stockAAfterBranchC = (await apiRequest(port, { method: 'GET', path: `/api/inventory/stock/${PRODUCT_A.id}?locationId=${LOC_A_ID}`, headers: ownerAHeaders })).body.quantity;
 
     recordStep(
-      '8. Casos de Borde Completos',
-      'Insuff=400, conc=[200,400]+stock=0, srvOnly=0 movs, arch=400, noReg=400, disc=403/200, rollback=500+stock intacto',
-      `insuff=${insuffRes.status}, conc=${JSON.stringify(concStatuses)}(stock=${lastStockAfter.body.quantity}), srvMovs=${srvOnlyMovs[0].cnt}, arch=${archSaleRes.status}(${archSaleRes.body.code}), noReg=${noRegSale.status}, disc=${discUnauth.status}/${discAuth.status}, rollback=${failRes.status}(stock ${stockBeforeFail}->${stockAfterFail}, visits=${failVisitRows[0].cnt})`,
+      '8. Casos de Borde + Atomicidad Transacción Única + No-Fallback Ubicación',
+      'Insuff=400, conc=[200,400]+stock=0, srvOnly=0, arch=400, noReg=400, disc=403/200, txRollback/crash=0 movs/0 visits, branchC no descuenta A',
+      `insuff=${insuffRes.status}, conc=${JSON.stringify(concStatuses)}(stock=${lastStockAfter.body.quantity}), srvMovs=${srvOnlyMovs[0].cnt}, arch=${archSaleRes.status}, noReg=${noRegSale.status}, disc=${discUnauth.status}/${discAuth.status}, rollback=${failRes.status}(movs=${failMovRows[0].cnt}), crash=${crashRes.status}(stock ${stockBeforeFail}->${stockAfterCrash}, movs=${crashMovRows[0].cnt}, visits=${crashVisitRows[0].cnt}), branchC=${branchCSale.status}(${branchCSale.body.code}, stockA=${stockAAfterBranchC})`,
       insuffRes.status === 400 &&
       concStatuses[0] === 200 && concStatuses[1] === 400 && Number(lastStockAfter.body.quantity) === 0 &&
       srvOnlyRes.status === 200 && Number(srvOnlyMovs[0].cnt) === 0 &&
       archSaleRes.status === 400 && archSaleRes.body.code === 'PRODUCT_ARCHIVED' &&
       noRegSale.status === 400 && noRegSale.body.code === 'CASH_REGISTER_REQUIRED' &&
       discUnauth.status === 403 && discAuth.status === 200 &&
-      failRes.status === 500 && Number(stockAfterFail) === Number(stockBeforeFail) && Number(failVisitRows[0].cnt) === 0
+      failRes.status === 500 && Number(stockAfterFail) === Number(stockBeforeFail) && Number(failVisitRows[0].cnt) === 0 && Number(failMovRows[0].cnt) === 0 &&
+      crashRes.status === 503 && Number(stockAfterCrash) === Number(stockBeforeFail) && Number(crashVisitRows[0].cnt) === 0 && Number(crashMovRows[0].cnt) === 0 &&
+      branchCSale.status === 400 && branchCSale.body.code === 'INSUFFICIENT_STOCK' && Number(stockAAfterBranchC) === Number(stockBeforeFail)
     );
 
     console.log(`\n=== ACCEPTANCE SUITE COMPLETE: ${results.filter(r => r.status === 'PASS').length}/${results.length} CHECKS PASSED ===\n`);

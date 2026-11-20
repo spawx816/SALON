@@ -48,7 +48,8 @@ function createVisitsRouter(pool, helpers = {}) {
   };
 
   // Helper: Batch calculate and persist employee commissions for visits (O(1) database queries, no N+1)
-  const processBatchVisitCommissions = async (visits, tenantId) => {
+  const processBatchVisitCommissions = async (visits, tenantId, dbConn = null) => {
+    const db = dbConn || pool;
     try {
       if (!Array.isArray(visits) || visits.length === 0 || !tenantId) return { processed: 0, items: 0 };
       const resolvedTenantId = tenantId;
@@ -107,7 +108,7 @@ function createVisitsRouter(pool, helpers = {}) {
 
       // Query 1: Batch delete pending commissions for these visits in one query
       const placeholders = visitIds.map(() => '?').join(', ');
-      await pool.query(
+      await db.query(
         `DELETE FROM employee_commissions_log WHERE tenant_id = ? AND status = 'Pendiente' AND visit_id IN (${placeholders})`,
         [resolvedTenantId, ...visitIds]
       );
@@ -132,7 +133,7 @@ function createVisitsRouter(pool, helpers = {}) {
           params.push(...empNameArr);
         }
 
-        const [staffRows] = await pool.query(
+        const [staffRows] = await db.query(
           `SELECT id, nombre, localidad, tenant_id FROM staff_records WHERE tenant_id = ? AND (${conds.join(' OR ')})`,
           params
         );
@@ -150,7 +151,7 @@ function createVisitsRouter(pool, helpers = {}) {
       const srvNameArr = Array.from(distinctServiceNames);
       if (srvNameArr.length > 0) {
         const ph = srvNameArr.map(() => '?').join(', ');
-        const [serviceRows] = await pool.query(
+        const [serviceRows] = await db.query(
           `SELECT id, COALESCE(nombre, name) as service_name, item_type, comision_valor, tipo_comision, tenant_id 
            FROM services 
            WHERE tenant_id = ? AND LOWER(COALESCE(nombre, name)) IN (${ph})`,
@@ -226,7 +227,7 @@ function createVisitsRouter(pool, helpers = {}) {
         const rowPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
         const flatParams = chunk.flat();
 
-        await pool.query(
+        await db.query(
           `INSERT INTO employee_commissions_log (
              tenant_id, visit_id, ticket_number, employee_id, employee_name, service_name,
              precio_servicio, commission_rate, monto_comision, commission_amount, commission_cents, currency, status, localidad, created_at
@@ -237,19 +238,20 @@ function createVisitsRouter(pool, helpers = {}) {
 
       return { processed: visits.length, items: insertRows.length };
     } catch (err) {
+      if (dbConn) throw err;
       console.warn('[PROCESS BATCH COMMISSIONS WARN]:', err.message);
       return { error: err.message };
     }
   };
 
   // Single-visit helper delegates to the batch processor
-  const processVisitCommissions = async (visitId, itemsDetailRaw, ticketNumber, visitedAt, tenantId) => {
+  const processVisitCommissions = async (visitId, itemsDetailRaw, ticketNumber, visitedAt, tenantId, dbConn = null) => {
     return processBatchVisitCommissions([{
       id: visitId,
       items_detail: itemsDetailRaw,
       ticket_number: ticketNumber,
       visited_at: visitedAt
-    }], tenantId);
+    }], tenantId, dbConn);
   };
 
   // 1. GET /api/visits - List all visits for the authenticated tenant
@@ -502,8 +504,9 @@ function createVisitsRouter(pool, helpers = {}) {
 
   // 7. POST /api/visits/:id/checkout - Complete POS Checkout, NCF assignment, Plan Beauty wash deduction & Commissions
   router.post('/:id/checkout', async (req, res) => {
-    const deductedLines = [];
+    let txConn = null;
     let resolvedLocationId = null;
+    const postCommitAlerts = [];
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -665,7 +668,6 @@ function createVisitsRouter(pool, helpers = {}) {
         if (regRows.length > 0) {
           activeRegisterId = regRows[0].id;
         } else if (process.env.NODE_ENV !== 'test' || req.body?.require_open_register !== false) {
-          // Verificar si el tenant tiene alguna caja en cash_registers o es una operación POS real
           const [anyReg] = await pool.query(
             'SELECT id FROM cash_registers WHERE tenant_id = ? LIMIT 1',
             [tenantId]
@@ -679,43 +681,13 @@ function createVisitsRouter(pool, helpers = {}) {
         }
       }
 
-      // Generate NCF if requested within this tenant
-      let assignedNcf = null;
-      let assignedNcfName = null;
-      if (ncf_type && ncf_type !== 'none' && ncf_type !== '00') {
-        const [seqRows] = await pool.query(
-          'SELECT * FROM dgii_ncf_sequences WHERE tenant_id = ? AND type_code = ? AND is_active = 1 LIMIT 1',
-          [tenantId, ncf_type]
-        );
-        if (seqRows.length > 0) {
-          const seq = seqRows[0];
-          const nextNum = Number(seq.current_number || 1);
-          const padLen = String(seq.prefix || '').startsWith('E') ? 10 : 8;
-          assignedNcf = `${seq.prefix}${String(nextNum).padStart(padLen, '0')}`;
-          assignedNcfName = seq.name;
-
-          await pool.query(
-            'UPDATE dgii_ncf_sequences SET current_number = current_number + 1 WHERE id = ? AND tenant_id = ?',
-            [seq.id, tenantId]
-          );
-        }
-      }
-
-      let ticketNumber = existingRows[0]?.ticket_number;
-      if (!ticketNumber) {
-        ticketNumber = await getNextTicketNumber(salon_id, tenantId);
-      }
-
-      const serializedServices = typeof servicios === 'string' ? servicios : JSON.stringify(servicios);
-      const serializedItems = typeof items_detail === 'string' ? items_detail : JSON.stringify(items_detail);
-
-      // === INTEGRACIÓN DE INVENTARIO MULTI-TENANT REAL (PASO 11) ===
+      // Resolver ubicación de inventario de la sucursal ANTES de abrir la transacción (sin fallback a otra sucursal)
+      const productLines = [];
       if (inventoryService) {
         const rawItems = Array.isArray(items_detail) && items_detail.length > 0
           ? items_detail
           : (Array.isArray(servicios) ? servicios : []);
 
-        const productLines = [];
         for (const [idx, it] of rawItems.entries()) {
           const isProduct = String(it.tipo_item || it.item_type || '').toUpperCase() === 'PRODUCTO' || it.is_product || Boolean(it.product_id);
           if (isProduct) {
@@ -731,12 +703,56 @@ function createVisitsRouter(pool, helpers = {}) {
           if (location_id) {
             resolvedLocationId = location_id;
           } else {
-            const branchLoc = await inventoryService.getDefaultLocation(tenantId, salon_id);
-            resolvedLocationId = branchLoc?.id || null;
+            try {
+              const branchLoc = await inventoryService.getDefaultLocation(tenantId, salon_id);
+              resolvedLocationId = branchLoc?.id || null;
+            } catch (locErr) {
+              if (locErr.code === 'BRANCH_LOCATION_NOT_FOUND') {
+                return res.status(404).json({ error: locErr.message, code: 'BRANCH_LOCATION_NOT_FOUND' });
+              }
+              throw locErr;
+            }
           }
         }
+      }
 
-        // Si hay líneas de productos físicos con stock, descontar antes de confirmar la venta
+      let ticketNumber = existingRows[0]?.ticket_number;
+      if (!ticketNumber) {
+        ticketNumber = await getNextTicketNumber(salon_id, tenantId);
+      }
+
+      const serializedServices = typeof servicios === 'string' ? servicios : JSON.stringify(servicios);
+      const serializedItems = typeof items_detail === 'string' ? items_detail : JSON.stringify(items_detail);
+
+      // === TRANSACCIÓN ÚNICA ATÓMICA (STOCK + NCF + VENTA + MEMBRESÍA + COMISIONES) ===
+      // Si el proceso cae (SIGKILL/corte) antes del COMMIT, PostgreSQL revierte todo automáticamente.
+      if (typeof pool.getConnection === 'function') {
+        txConn = await pool.getConnection();
+        await txConn.query('BEGIN');
+        await txConn.query("SET LOCAL lock_timeout = '5s'");
+      }
+      const db = txConn || pool;
+
+      // Re-verificar idempotencia bajo bloqueo dentro de la transacción
+      const [txExisting] = await db.query(
+        'SELECT id, status, ticket_number, ncf, ncf_name FROM visits WHERE id = ? AND tenant_id = ? FOR UPDATE',
+        [id, tenantId]
+      );
+      if (txExisting.length > 0 && String(txExisting[0].status || '').trim() === 'Facturado') {
+        if (txConn) await txConn.query('COMMIT');
+        return res.json({
+          success: true,
+          id,
+          ticket_number: txExisting[0].ticket_number,
+          ncf: txExisting[0].ncf || null,
+          ncf_name: txExisting[0].ncf_name || null,
+          status: 'Facturado',
+          idempotent: true
+        });
+      }
+
+      // 7. Descuento atómico de inventario dentro de la MISMA transacción
+      if (inventoryService && productLines.length > 0) {
         for (const line of productLines) {
           try {
             const dedRes = await inventoryService.recordSaleDeduction(tenantId, {
@@ -746,23 +762,14 @@ function createVisitsRouter(pool, helpers = {}) {
               visitId: id,
               lineId: line.lineId,
               userId: req.auth?.userId || req.user?.id || null,
-              userName: req.auth?.name || req.user?.name || recepcionista
+              userName: req.auth?.name || req.user?.name || recepcionista,
+              txConn
             });
             if (dedRes && !dedRes.skipped && !dedRes.idempotent) {
-              deductedLines.push(line);
+              postCommitAlerts.push({ productId: line.productId, locationId: dedRes.location_id || resolvedLocationId });
             }
           } catch (invErr) {
-            // Rollback any previously deducted lines in this same checkout
-            for (const prev of deductedLines) {
-              await inventoryService.recordSaleVoid(tenantId, {
-                productId: prev.productId,
-                locationId: resolvedLocationId,
-                quantity: prev.quantity,
-                visitId: id,
-                lineId: prev.lineId,
-                reason: 'Rollback por fallo en checkout'
-              }).catch(() => {});
-            }
+            if (txConn) { try { await txConn.query('ROLLBACK'); } catch (_) {} }
             if (invErr.code === 'INSUFFICIENT_STOCK' || invErr.code === 'PRODUCT_ARCHIVED') {
               return res.status(400).json({
                 error: invErr.message,
@@ -782,11 +789,42 @@ function createVisitsRouter(pool, helpers = {}) {
         }
       }
 
-      // Hook controlado exclusivamente para pruebas de rollback ante fallo intermedio de persistencia
+      // Hook controlado exclusivamente para pruebas de atomicidad/caída tras descuento de stock
       if (process.env.NODE_ENV === 'test' && req.headers['x-test-fail-after-stock'] === 'true') {
         throw new Error('SIMULATED_PERSISTENCE_FAILURE_AFTER_STOCK');
       }
+      if (process.env.NODE_ENV === 'test' && req.headers['x-test-abort-connection-after-stock'] === 'true' && txConn) {
+        // Simular caída abrupta sin COMMIT ni catch-void: liberar/destruir conexión directamente (PG hace ROLLBACK automático)
+        if (typeof txConn.release === 'function') {
+          try { txConn.release(true); } catch (_) { try { txConn.release(); } catch (__) {} }
+        }
+        txConn = null;
+        return res.status(503).json({ error: 'SIMULATED_PROCESS_CRASH_ABORT', code: 'SIMULATED_CRASH' });
+      }
 
+      // 8. Secuencia NCF dentro de la transacción
+      let assignedNcf = null;
+      let assignedNcfName = null;
+      if (ncf_type && ncf_type !== 'none' && ncf_type !== '00') {
+        const [seqRows] = await db.query(
+          'SELECT * FROM dgii_ncf_sequences WHERE tenant_id = ? AND type_code = ? AND is_active = 1 LIMIT 1 FOR UPDATE',
+          [tenantId, ncf_type]
+        );
+        if (seqRows.length > 0) {
+          const seq = seqRows[0];
+          const nextNum = Number(seq.current_number || 1);
+          const padLen = String(seq.prefix || '').startsWith('E') ? 10 : 8;
+          assignedNcf = `${seq.prefix}${String(nextNum).padStart(padLen, '0')}`;
+          assignedNcfName = seq.name;
+
+          await db.query(
+            'UPDATE dgii_ncf_sequences SET current_number = current_number + 1 WHERE id = ? AND tenant_id = ?',
+            [seq.id, tenantId]
+          );
+        }
+      }
+
+      // 9. Persistencia de la venta (visits) con unidades menores exactas
       const numSubtotal = Number(subtotal) || 0;
       const numDescuento = parsedDescuento;
       const numTotal = Number(total) || 0;
@@ -800,8 +838,8 @@ function createVisitsRouter(pool, helpers = {}) {
         currency: 'DOP'
       });
 
-      if (existingRows.length > 0) {
-        await pool.query(
+      if (txExisting.length > 0) {
+        await db.query(
           `UPDATE visits SET
              client_id = COALESCE(?, client_id),
              client_name = COALESCE(?, client_name),
@@ -857,7 +895,7 @@ function createVisitsRouter(pool, helpers = {}) {
           ]
         );
       } else {
-        await pool.query(
+        await db.query(
           `INSERT INTO visits (
              id, tenant_id, ticket_number, client_id, client_name, salon_id,
              servicios, items_detail, subtotal, subtotal_cents, descuento, discount_cents, total, total_cents, currency,
@@ -896,12 +934,12 @@ function createVisitsRouter(pool, helpers = {}) {
         );
       }
 
-      // Deduct Plan Beauty washes if applicable (strictly respecting the 4-wash rule and 0-benefit validation)
+      // 10. Deduct Plan Beauty washes if applicable
       const targetClientId = client_id || existingRows[0]?.client_id;
       const washesToDeduct = Number(wash_count_to_consume) || (consume_wash ? 1 : 0);
       if (targetClientId && washesToDeduct > 0) {
-        const [contracts] = await pool.query(
-          "SELECT * FROM contracts WHERE client_id = ? AND tenant_id = ? AND status IN ('Active', 'Activo') ORDER BY signed_at DESC LIMIT 1",
+        const [contracts] = await db.query(
+          "SELECT * FROM contracts WHERE client_id = ? AND tenant_id = ? AND status IN ('Active', 'Activo') ORDER BY signed_at DESC LIMIT 1 FOR UPDATE",
           [targetClientId, tenantId]
         );
         if (contracts.length > 0) {
@@ -911,7 +949,7 @@ function createVisitsRouter(pool, helpers = {}) {
           const available = Math.max(0, quota - used);
           if (available > 0) {
             const actualDeduct = Math.min(available, washesToDeduct);
-            await pool.query(
+            await db.query(
               'UPDATE contracts SET washes_used = washes_used + ? WHERE id = ? AND tenant_id = ?',
               [actualDeduct, cn.id, tenantId]
             );
@@ -919,10 +957,20 @@ function createVisitsRouter(pool, helpers = {}) {
         }
       }
 
-      // Process employee commissions scoped to tenant
-      await processVisitCommissions(id, serializedItems, ticketNumber, new Date(), tenantId);
+      // 11. Comisiones del empleado dentro de la MISMA transacción
+      await processVisitCommissions(id, serializedItems, ticketNumber, new Date(), tenantId, db);
 
-      // Trigger satisfaction survey email asynchronously if client exists
+      // 12. COMMIT ATÓMICO ÚNICO
+      if (txConn) {
+        await txConn.query('COMMIT');
+      }
+
+      // Post-commit non-transactional side effects (alerts & survey email)
+      if (inventoryService && postCommitAlerts.length > 0 && typeof inventoryService.evaluateLowStockAlert === 'function') {
+        for (const a of postCommitAlerts) {
+          inventoryService.evaluateLowStockAlert(tenantId, a.productId, a.locationId).catch(() => {});
+        }
+      }
       if (targetClientId && typeof sendSurveyEmail === 'function') {
         sendSurveyEmail(pool, targetClientId, client_name, null, tenantId).catch(() => {});
       }
@@ -940,21 +988,15 @@ function createVisitsRouter(pool, helpers = {}) {
         status: 'Facturado'
       });
     } catch (err) {
-      // Compensating rollback: restore any stock deducted before failure so no partial state persists
-      if (inventoryService && deductedLines.length > 0) {
-        for (const line of deductedLines) {
-          await inventoryService.recordSaleVoid(req.tenantId, {
-            productId: line.productId,
-            locationId: resolvedLocationId,
-            quantity: line.quantity,
-            visitId: req.params.id,
-            lineId: line.lineId,
-            reason: 'Rollback automático por error de persistencia en checkout'
-          }).catch(() => {});
-        }
+      if (txConn) {
+        try { await txConn.query('ROLLBACK'); } catch (_) {}
       }
       console.error('[CHECKOUT TICKET ERROR]:', err);
       res.status(500).json({ error: err.message });
+    } finally {
+      if (txConn) {
+        try { txConn.release(); } catch (_) {}
+      }
     }
   });
 
@@ -1186,16 +1228,27 @@ function createVisitsRouter(pool, helpers = {}) {
               else if (row.servicios) rawItems = typeof row.servicios === 'string' ? JSON.parse(row.servicios) : row.servicios;
             } catch (e) {}
 
-            const branchLoc = await inventoryService.getDefaultLocation(tenantId, row.salon_id || existing[0].salon_id || null);
-            const voidLocId = branchLoc?.id || null;
-
             if (Array.isArray(rawItems)) {
+              let fallbackVoidLocId = null;
               for (const [idx, it] of rawItems.entries()) {
                 const isProduct = String(it.tipo_item || it.item_type || '').toUpperCase() === 'PRODUCTO' || it.is_product || Boolean(it.product_id);
                 if (isProduct) {
                   const pId = it.product_id || it.id;
                   const q = Number(it.cantidad || it.qty || it.quantity || 1);
                   if (pId && q > 0) {
+                    // Always restore to the exact location_id where the original SALE movement was deducted
+                    const [origSaleMov] = await pool.query(
+                      "SELECT location_id FROM inventory_movements WHERE tenant_id = ? AND reference_id = ? AND product_id = ? AND movement_type = 'SALE' ORDER BY created_at DESC LIMIT 1",
+                      [tenantId, String(id), pId]
+                    );
+                    let voidLocId = origSaleMov && origSaleMov[0] ? origSaleMov[0].location_id : null;
+                    if (!voidLocId) {
+                      if (!fallbackVoidLocId) {
+                        const branchLoc = await inventoryService.getDefaultLocation(tenantId, row.salon_id || existing[0].salon_id || null);
+                        fallbackVoidLocId = branchLoc?.id || null;
+                      }
+                      voidLocId = fallbackVoidLocId;
+                    }
                     await inventoryService.recordSaleVoid(tenantId, {
                       productId: pId,
                       locationId: voidLocId,

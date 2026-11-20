@@ -203,8 +203,8 @@ if (process.env.DB_TYPE === 'postgres') {
         async rollback() {
           await client.query('ROLLBACK');
         },
-        release() {
-          client.release();
+        release(err) {
+          client.release(err);
         }
       };
     },

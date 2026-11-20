@@ -159,7 +159,7 @@ class InventoryService {
   }
 
   // === DESCUENTO AUTOMÁTICO POR VENTA (POS CHECKOUT) ===
-  async recordSaleDeduction(tenantId, { productId, locationId = null, quantity, visitId, lineId = null, userId = null, userName = null }) {
+  async recordSaleDeduction(tenantId, { productId, locationId = null, quantity, visitId, lineId = null, userId = null, userName = null, txConn = null }) {
     if (!tenantId || !productId) throw new Error('Parámetros requeridos faltantes');
     const qty = Number(quantity);
     if (qty <= 0) return { skipped: true, reason: 'Cantidad cero o negativa' };
@@ -190,7 +190,7 @@ class InventoryService {
       locId = defLoc.id;
     }
 
-    // Atomic deduction with row-level locking (SELECT ... FOR UPDATE) and auto-retry
+    // Atomic deduction with row-level locking (SELECT ... FOR UPDATE) and optional caller txConn
     const res = await this.repo.executeAtomicSaleDeduction(tenantId, {
       productId,
       locationId: locId,
@@ -198,10 +198,13 @@ class InventoryService {
       visitId,
       lineId,
       userId,
-      userName
+      userName,
+      txConn
     });
-    await this.evaluateLowStockAlert(tenantId, productId, locId);
-    return res;
+    if (!txConn) {
+      await this.evaluateLowStockAlert(tenantId, productId, locId);
+    }
+    return { ...res, location_id: locId };
   }
 
   // === REVERSIÓN POR ANULACIÓN DE VENTA (POS VOID) ===
