@@ -494,6 +494,7 @@ function createApp(dependencies = {}) {
           pathUrl === '/api/demo/status' ||
           pathUrl === '/api/kiosk/session' ||
           pathUrl === '/api/kiosk/employees' ||
+          /^\/api\/kiosk\/employees\/[^/]+\/photo$/.test(pathUrl) ||
           pathUrl === '/api/kiosk/today' ||
           pathUrl === '/api/kiosk/verify-employee' ||
           pathUrl === '/api/kiosk/punch' ||

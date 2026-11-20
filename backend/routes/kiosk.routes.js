@@ -384,11 +384,15 @@ function createKioskRouter(pool, { authenticate }) {
       for (const s of staffRows || []) {
         const authCheck = await isEmployeeAuthorizedForBranch(pool, device.tenant_id, s.id, device.branch_id);
         if (authCheck.authorized) {
+          const hasPhoto = Boolean(s.profile_photo_file_id || s.profile_photo);
           authorizedEmployees.push({
             id: s.id,
             nombre: s.nombre,
             rol: 'Colaborador',
-            has_profile_photo: Boolean(s.profile_photo_file_id || s.profile_photo),
+            has_profile_photo: hasPhoto,
+            profile_photo: hasPhoto
+              ? `/api/kiosk/employees/${encodeURIComponent(s.id)}/photo?v=${encodeURIComponent(s.profile_photo_file_id || 'legacy')}`
+              : null,
           });
         }
       }
@@ -396,6 +400,45 @@ function createKioskRouter(pool, { authenticate }) {
       res.json({ employees: authorizedEmployees });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/kiosk/employees/:id/photo (foto de empleado autorizada solo para el dispositivo/sucursal vinculada)
+  router.get('/employees/:id/photo', requireKioskDevice, async (req, res) => {
+    try {
+      const { device } = req.kiosk;
+      const empId = String(req.params.id || '').trim();
+      const authCheck = await isEmployeeAuthorizedForBranch(pool, device.tenant_id, empId, device.branch_id);
+      if (!authCheck.authorized) {
+        return res.status(403).end();
+      }
+      const [rows] = await pool.query(
+        'SELECT profile_photo, profile_photo_file_id FROM staff_records WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+        [empId, device.tenant_id]
+      );
+      if (!rows || rows.length === 0) return res.status(404).end();
+      const rec = rows[0];
+
+      if (rec.profile_photo_file_id) {
+        const storage = getPrivateStorageAdapter({ pool });
+        const fileData = await storage.readFile({ tenantId: device.tenant_id, fileId: rec.profile_photo_file_id });
+        res.setHeader('Content-Type', fileData.mimeType || 'image/jpeg');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        return res.send(fileData.buffer);
+      }
+
+      if (rec.profile_photo) {
+        const match = String(rec.profile_photo).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+        if (match) {
+          res.setHeader('Content-Type', match[1]);
+          res.setHeader('Cache-Control', 'private, max-age=300');
+          return res.send(Buffer.from(match[2], 'base64'));
+        }
+      }
+      return res.status(404).end();
+    } catch (err) {
+      console.error('[KIOSK EMPLOYEE PHOTO ERROR]:', err.message);
+      return res.status(404).end();
     }
   });
 
