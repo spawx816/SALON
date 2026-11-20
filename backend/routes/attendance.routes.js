@@ -143,7 +143,7 @@ function createAttendanceRouter(pool) {
       const tenantId = req.verifiedTenantId;
       const { salonId } = req.query;
       let query = `
-        SELECT o.*, COALESCE(s.nombre, u.nombre) as employeeName, COALESCE(s.salon_id, u.salon_id) as salon_id
+        SELECT o.*, COALESCE(s.nombre, u.nombre, u.name) AS "employeeName", COALESCE(s.salon_id, u.salon_id) AS salon_id
         FROM schedule_overrides o
         LEFT JOIN staff_records s ON o.employee_id = s.id::text AND s.tenant_id = o.tenant_id
         LEFT JOIN users u ON o.employee_id = u.id::text AND u.tenant_id = o.tenant_id
@@ -596,6 +596,40 @@ function createAttendanceRouter(pool) {
     }
   });
 
+  // GET /api/attendance/punch-photo/:id - Stream decrypted punch validation photo (Scoped by tenant_id)
+  router.get('/punch-photo/:id', async (req, res) => {
+    try {
+      const tenantId = req.verifiedTenantId;
+      const [rows] = await pool.query(
+        'SELECT photo, photo_file_id FROM attendance WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [String(req.params.id), tenantId]
+      );
+      if (!rows || rows.length === 0) return res.status(404).end();
+      const rec = rows[0];
+
+      if (rec.photo_file_id) {
+        const storage = getPrivateStorageAdapter({ pool });
+        const fileData = await storage.readFile({ tenantId, fileId: rec.photo_file_id });
+        res.setHeader('Content-Type', fileData.mimeType || 'image/jpeg');
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        return res.send(fileData.buffer);
+      }
+
+      if (rec.photo) {
+        const match = String(rec.photo).match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+        if (match) {
+          res.setHeader('Content-Type', match[1]);
+          res.setHeader('Cache-Control', 'private, max-age=300');
+          return res.send(Buffer.from(match[2], 'base64'));
+        }
+      }
+      return res.status(404).end();
+    } catch (err) {
+      console.error('[ATTENDANCE PUNCH PHOTO ERROR]:', err.message);
+      return res.status(404).end();
+    }
+  });
+
   // GET /api/attendance/history - Fetch historical attendance logs for admin panel (Scoped by tenant_id)
   router.get('/history', async (req, res) => {
     try {
@@ -610,17 +644,19 @@ function createAttendanceRouter(pool) {
         [tenantId]
       );
       const [users] = await pool.query(
-        "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name, u.created_at as fecha_entrada FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.tenant_id = ?",
+        "SELECT u.id, COALESCE(u.nombre, u.name) AS nombre, u.role, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre AS role_name, u.created_at AS fecha_entrada FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.tenant_id = ? AND (u.is_active IS NULL OR u.is_active = TRUE)",
         [tenantId]
       );
       const systemStaff = users.filter(u => {
-        const role = (u.role_name || '').toLowerCase();
-        return !role.includes('admin') && !role.includes('client');
+        const role = String(u.role_name || u.role || '').toLowerCase();
+        const sysRole = String(u.role || '').toLowerCase();
+        return !role.includes('admin') && !role.includes('client') && sysRole !== 'kiosco_asistencia' && sysRole !== 'propietario' && sysRole !== 'owner';
       });
 
       let allEmployees = [...staff];
       systemStaff.forEach(sysUser => {
-        if (!allEmployees.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
+        const sysName = String(sysUser.nombre || '').toLowerCase().trim();
+        if (sysName && !allEmployees.some(c => String(c.nombre || '').toLowerCase().trim() === sysName)) {
           allEmployees.push(sysUser);
         }
       });
@@ -630,7 +666,7 @@ function createAttendanceRouter(pool) {
       }
 
       const [rangeOverrides] = await pool.query(
-        "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'",
+        `SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') AS "dateStr", new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'`,
         [tenantId, start, end]
       );
       const overrideMap = new Map();
@@ -639,7 +675,7 @@ function createAttendanceRouter(pool) {
       });
 
       const [existingPunches] = await pool.query(
-        "SELECT employee_id, DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, type FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?",
+        `SELECT employee_id, DATE_FORMAT(timestamp, '%Y-%m-%d') AS "dateStr", type FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?`,
         [tenantId, `${start} 00:00:00`, `${end} 23:59:59`]
       );
 
@@ -699,11 +735,11 @@ function createAttendanceRouter(pool) {
       let query = `
         SELECT 
           a.id, a.employee_id, 
-          COALESCE(s.nombre, u.nombre) as employeeName,
-          COALESCE(s.salon_id, u.salon_id) as salon_id,
+          COALESCE(s.nombre, u.nombre, u.name) AS "employeeName",
+          COALESCE(s.salon_id, u.salon_id) AS salon_id,
           a.type, a.status, a.timestamp,
           a.lateness_minutes, a.extra_minutes,
-          a.photo, a.geolocation, a.device_info,
+          a.photo, a.photo_file_id, a.geolocation, a.device_info,
           a.is_manual, a.modified_by, a.modified_at, a.modification_reason
         FROM attendance a
         LEFT JOIN staff_records s ON a.employee_id = s.id::text AND s.tenant_id = a.tenant_id
@@ -723,7 +759,13 @@ function createAttendanceRouter(pool) {
 
       query += ` ORDER BY a.timestamp DESC`;
       const [rows] = await pool.query(query, queryParams);
-      res.json(rows);
+      const hydratedRows = (rows || []).map((row) => ({
+        ...row,
+        photo: row.photo_file_id
+          ? `/api/attendance/punch-photo/${encodeURIComponent(row.id)}?v=${encodeURIComponent(row.photo_file_id)}`
+          : (row.photo || null),
+      }));
+      res.json(hydratedRows);
     } catch (err) {
       console.error('[ATTENDANCE HISTORY ERROR]:', err.message);
       res.status(500).json({ error: err.message });
@@ -744,17 +786,19 @@ function createAttendanceRouter(pool) {
         [tenantId]
       );
       const [users] = await pool.query(
-        "SELECT u.id, u.nombre, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre as role_name FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.tenant_id = ?",
+        "SELECT u.id, COALESCE(u.nombre, u.name) AS nombre, u.role, u.hora_entrada, u.hora_salida, u.dias_laborables, u.tolerancia_minutos, u.salon_id, r.nombre AS role_name FROM users u LEFT JOIN roles r ON u.role_id = r.id WHERE u.tenant_id = ? AND (u.is_active IS NULL OR u.is_active = TRUE)",
         [tenantId]
       );
       const systemStaff = users.filter(u => {
-        const role = (u.role_name || '').toLowerCase();
-        return !role.includes('admin') && !role.includes('client');
+        const role = String(u.role_name || u.role || '').toLowerCase();
+        const sysRole = String(u.role || '').toLowerCase();
+        return !role.includes('admin') && !role.includes('client') && sysRole !== 'kiosco_asistencia' && sysRole !== 'propietario' && sysRole !== 'owner';
       });
 
       const allEmployees = [...staff];
       systemStaff.forEach(sysUser => {
-        if (!allEmployees.some(c => c.nombre.toLowerCase().trim() === sysUser.nombre.toLowerCase().trim())) {
+        const sysName = String(sysUser.nombre || '').toLowerCase().trim();
+        if (sysName && !allEmployees.some(c => String(c.nombre || '').toLowerCase().trim() === sysName)) {
           allEmployees.push(sysUser);
         }
       });
@@ -768,7 +812,7 @@ function createAttendanceRouter(pool) {
       }
 
       const [rangeOverrides] = await pool.query(
-        "SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') as dateStr, new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'",
+        `SELECT employee_id, DATE_FORMAT(date, '%Y-%m-%d') AS "dateStr", new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE tenant_id = ? AND date >= ? AND date <= ? AND status = 'Activo'`,
         [tenantId, start, end]
       );
       const overrideMap = new Map();
@@ -777,7 +821,7 @@ function createAttendanceRouter(pool) {
       });
 
       const [punches] = await pool.query(
-        "SELECT id, employee_id, type, DATE_FORMAT(timestamp, '%Y-%m-%d') as dateStr, DATE_FORMAT(timestamp, '%H:%i:%s') as timeStr, timestamp, status, is_manual, modified_by, modified_at, modification_reason FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?",
+        `SELECT id, employee_id, type, DATE_FORMAT(timestamp, '%Y-%m-%d') AS "dateStr", DATE_FORMAT(timestamp, '%H:%i:%s') AS "timeStr", timestamp, status, is_manual, modified_by, modified_at, modification_reason FROM attendance WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?`,
         [tenantId, `${start} 00:00:00`, `${end} 23:59:59`]
       );
 
