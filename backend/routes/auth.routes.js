@@ -854,7 +854,15 @@ function createAuthRouter(pool, options = {}) {
       }
 
       const actorRole = getEffectiveRole(req);
-      const targetRole = role ? normalizeRole(role) : 'empleado';
+      const rawRoleStr = typeof role === 'string' ? role.trim() : '';
+      const hasRoleId = role_id !== undefined && role_id !== null && String(role_id).trim() !== '';
+      if ((role !== undefined && !rawRoleStr) || (!rawRoleStr && !hasRoleId)) {
+        return res.status(400).json({
+          error: 'Debes seleccionar un rol válido (rol personalizado o Kiosco de Asistencia) para crear el usuario.',
+          code: 'ROLE_REQUIRED'
+        });
+      }
+      const targetRole = rawRoleStr ? normalizeRole(rawRoleStr) : 'empleado';
       const isKioskRole = targetRole === 'kiosco_asistencia';
 
       if (targetRole === 'superadmin' || targetRole === 'cliente_b2c' || !canManageRole(actorRole, targetRole)) {
@@ -1068,6 +1076,14 @@ function createAuthRouter(pool, options = {}) {
             return {
               status: 403,
               body: { error: 'No puedes modificar tu propio rol, permisos, sucursales autorizadas ni estado.', code: 'SELF_PRIVILEGE_MODIFICATION_DENIED' }
+            };
+          }
+
+          if (role !== undefined && String(role).trim() === '') {
+            if (txClient) await txClient.query('ROLLBACK');
+            return {
+              status: 400,
+              body: { error: 'El rol del usuario no puede ser vacío. Selecciona un rol válido.', code: 'ROLE_REQUIRED' }
             };
           }
 

@@ -1063,6 +1063,47 @@ const AttendanceKiosk = () => {
               Selecciona tu Nombre para Iniciar
             </h3>
             
+            {filteredEmployees.length === 0 ? (
+              <div
+                data-testid="kiosk-empty-employees"
+                style={{
+                  background: '#18181b',
+                  border: '1px solid #27272a',
+                  borderRadius: '18px',
+                  padding: '2.5rem 2rem',
+                  textAlign: 'center',
+                  maxWidth: '520px',
+                  margin: '1.5rem auto',
+                  color: '#e4e4e7',
+                }}
+              >
+                <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+                  <User size={28} color="#a1a1aa" />
+                </div>
+                <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#ffffff', marginBottom: '0.5rem' }}>
+                  No hay colaboradores disponibles en esta sucursal
+                </h4>
+                <p style={{ fontSize: '0.88rem', color: '#a1a1aa', lineHeight: 1.5, marginBottom: '1.25rem' }}>
+                  Para registrar asistencia en este kiosco, agrega al menos un colaborador activo asignado a esta sucursal desde el módulo de Equipo / Personal.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => loadBoundKioskState()}
+                  style={{
+                    padding: '0.65rem 1.25rem',
+                    borderRadius: '10px',
+                    border: '1px solid #3f3f46',
+                    background: '#27272a',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Actualizar lista
+                </button>
+              </div>
+            ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1.25rem', flex: 1 }}>
               {filteredEmployees.map(emp => (
                 <div
@@ -1220,6 +1261,7 @@ const AttendanceKiosk = () => {
                 </div>
               ))}
             </div>
+            )}
 
             {!isKioskOnlyUser && (
               <button

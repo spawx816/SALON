@@ -121,7 +121,33 @@ async function main() {
     });
     const ownerCookie = `auth_token=${ownerToken}`;
 
-    // 1. Cupo lleno (2/2): crear usuario facturable falla (403), pero crear kiosco_asistencia PASA (200)
+    // 0. Regresión: empresa SIN roles personalizados rechaza role vacío/ausente (400 ROLE_REQUIRED, nunca se convierte en 'empleado')
+    const [tenantARoles] = await pool.query('SELECT COUNT(*)::int AS cnt FROM roles WHERE tenant_id = ?', [tenantA]);
+    assert.strictEqual(tenantARoles[0].cnt, 0, 'Precondición: empresa sin roles personalizados');
+
+    const emptyRoleRes = await reqJson(baseUrl, 'POST', '/api/users', {
+      cookie: ownerCookie,
+      body: { nombre: 'Sin Rol Explicito', email: `norole_${tag}@test.local`, password: 'Password!2026', role: '', role_id: null, branch_id: branchA1 },
+    });
+    assert.strictEqual(emptyRoleRes.status, 400, `role vacío debe devolver 400, recibido ${emptyRoleRes.status}`);
+    assert.strictEqual(emptyRoleRes.body.code, 'ROLE_REQUIRED');
+
+    const missingRoleRes = await reqJson(baseUrl, 'POST', '/api/users', {
+      cookie: ownerCookie,
+      body: { nombre: 'Rol Omitido', email: `omitrole_${tag}@test.local`, password: 'Password!2026', branch_id: branchA1 },
+    });
+    assert.strictEqual(missingRoleRes.status, 400, `role y role_id omitidos debe devolver 400, recibido ${missingRoleRes.status}`);
+    assert.strictEqual(missingRoleRes.body.code, 'ROLE_REQUIRED');
+
+    const emptyRoleUpdateRes = await reqJson(baseUrl, 'PUT', `/api/users/${empBillableAId}`, {
+      cookie: ownerCookie,
+      body: { role: '' },
+    });
+    assert.strictEqual(emptyRoleUpdateRes.status, 400);
+    assert.strictEqual(emptyRoleUpdateRes.body.code, 'ROLE_REQUIRED');
+    console.log('  ✅ 0. Contrato backend: empresa sin roles personalizados rechaza role vacío/omitido (400 ROLE_REQUIRED) y no degrada a empleado.');
+
+    // 1. Cupo lleno (3/3): crear usuario facturable falla (403), pero crear kiosco_asistencia PASA (200)
     const billableFail = await reqJson(baseUrl, 'POST', '/api/users', {
       cookie: ownerCookie,
       body: { nombre: 'Extra Billable', email: `extra_${tag}@test.local`, password: 'Password!2026', role: 'empleado', branch_id: branchA1 },
@@ -150,9 +176,19 @@ async function main() {
     assert.strictEqual(kioskCreate.status, 200, `Error creando kiosco: ${JSON.stringify(kioskCreate.body)}`);
     const kioskUserId = String(kioskCreate.body.id);
 
+    // Comprobar rol persistido exactamente en BD
+    const [persistedKioskRows] = await pool.query(
+      'SELECT role, role_id, branch_id, all_branches_access FROM users WHERE id = ? AND tenant_id = ?',
+      [kioskUserId, tenantA]
+    );
+    assert.strictEqual(persistedKioskRows[0].role, 'kiosco_asistencia');
+    assert.strictEqual(persistedKioskRows[0].role_id, null);
+    assert.strictEqual(String(persistedKioskRows[0].branch_id), branchA1);
+    assert.strictEqual(Boolean(persistedKioskRows[0].all_branches_access), false);
+
     const billableCount = await entRepo.countResourceUsage(tenantA, 'users');
     assert.strictEqual(billableCount, 3, 'Cuenta kiosco_asistencia NO debe incrementar usuarios facturables');
-    console.log('  ✅ 1. Kiosco creado con cupo lleno (3/3), sin consumir licencia ni permitir permisos extra.');
+    console.log('  ✅ 1. Kiosco creado en empresa sin roles personalizados con cupo lleno (3/3): rol persistido exacto, sin consumir licencia ni permitir permisos extra.');
 
     // 2. Cambiar kiosco_asistencia -> rol facturable con cupo lleno debe rechazarse (403)
     const upgradeFail = await reqJson(baseUrl, 'PUT', `/api/users/${kioskUserId}`, {

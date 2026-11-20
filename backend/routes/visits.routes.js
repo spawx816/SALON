@@ -789,11 +789,14 @@ function createVisitsRouter(pool, helpers = {}) {
         }
       }
 
-      // Hook controlado exclusivamente para pruebas de atomicidad/caída tras descuento de stock
-      if (process.env.NODE_ENV === 'test' && req.headers['x-test-fail-after-stock'] === 'true') {
+      // Hook controlado exclusivamente para pruebas de atomicidad/caída tras descuento de stock (requiere autorización explícita en entorno test)
+      const allowTestFaultInjection =
+        process.env.NODE_ENV === 'test' &&
+        process.env.ALLOW_TEST_FAULT_INJECTION === 'true';
+      if (allowTestFaultInjection && req.headers['x-test-fail-after-stock'] === 'true') {
         throw new Error('SIMULATED_PERSISTENCE_FAILURE_AFTER_STOCK');
       }
-      if (process.env.NODE_ENV === 'test' && req.headers['x-test-abort-connection-after-stock'] === 'true' && txConn) {
+      if (allowTestFaultInjection && req.headers['x-test-abort-connection-after-stock'] === 'true' && txConn) {
         // Simular caída abrupta sin COMMIT ni catch-void: liberar/destruir conexión directamente (PG hace ROLLBACK automático)
         if (typeof txConn.release === 'function') {
           try { txConn.release(true); } catch (_) { try { txConn.release(); } catch (__) {} }

@@ -681,7 +681,7 @@ export default function SecurityModule() {
                   nombre: '',
                   email: '',
                   password: '',
-                  role_id: roles[0]?.id ? String(roles[0].id) : '__KIOSK_RESERVED__',
+                  role_id: roles[0]?.id ? String(roles[0].id) : '',
                   salon_id: defaultBranch,
                   authorized_branch_ids: defaultBranch ? [defaultBranch] : [],
                   all_branches_access: false,
@@ -1551,6 +1551,7 @@ export default function SecurityModule() {
                     Rol Asignado
                   </label>
                   <select
+                    required={!editingUser || !['propietario', 'owner'].includes(String(editingUser.role || '').toLowerCase())}
                     value={userForm.role_id}
                     onChange={(e) => {
                       const nextRoleId = e.target.value;

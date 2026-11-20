@@ -122,6 +122,7 @@ async function runAcceptanceSuite() {
     childEnv.DISABLE_SCHEDULER = 'true';
     childEnv.DGII_ENV = 'disabled';
     childEnv.CARDNET_ENV = 'disabled';
+    childEnv.ALLOW_TEST_FAULT_INJECTION = 'true';
 
     serverProcess = spawn(process.execPath, [path.resolve(__dirname, '..', 'server.js')], {
       env: childEnv,
