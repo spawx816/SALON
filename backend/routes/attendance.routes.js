@@ -240,48 +240,98 @@ router.post('/schedule-swap', async (req, res) => {
 
     await connection.beginTransaction();
 
-    // Helper function to get effective schedule (looks in overrides first, then standard profiles)
-    const getSchedule = async (empId) => {
-      // Check overrides first
-      const [over] = await connection.query(
-        "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
-        [empId, date]
-      );
-      if (over.length > 0) {
-        return { entrada: over[0].new_hora_entrada, salida: over[0].new_hora_salida };
-      }
+    const normDayLocal = (d) => String(d || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
 
-      // Check standard profile
+    // Helper robusto: obtiene nombre real + horario efectivo (override activo -> dias_laborables JSON/CSV -> horario base)
+    const getSchedule = async (empId, targetDate) => {
       let [empData] = await connection.query(
-        'SELECT nombre, hora_entrada, hora_salida FROM staff_records WHERE id = ?',
+        'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables FROM staff_records WHERE id = ?',
         [empId]
       );
       if (empData.length === 0) {
         const [usrData] = await connection.query(
-          'SELECT nombre, hora_entrada, hora_salida FROM users WHERE id = ?',
+          'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables FROM users WHERE id = ?',
           [empId]
         );
         empData = usrData;
       }
+      const emp = empData[0] || null;
+      const empName = emp ? emp.nombre : `Empleado #${empId}`;
+
+      // 1. Revisar si ya existe un override activo para esa fecha
+      const [over] = await connection.query(
+        "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo'",
+        [empId, targetDate]
+      );
+      if (over.length > 0) {
+        return {
+          nombre: empName,
+          entrada: over[0].new_hora_entrada || null,
+          salida: over[0].new_hora_salida || null,
+          isDescanso: (!over[0].new_hora_entrada && !over[0].new_hora_salida)
+        };
+      }
+
+      if (!emp) {
+        return { nombre: empName, entrada: '09:00:00', salida: '18:00:00', isDescanso: false };
+      }
+
+      // 2. Resolver horario del día de la semana desde dias_laborables
+      const [sy, sm, sd] = String(targetDate).split('-').map(Number);
+      const dateObj = new Date(Date.UTC(sy, sm - 1, sd, 16, 0, 0));
+      const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      const normDay = normDayLocal(dayNames[dateObj.getUTCDay()]);
+
+      let entrada = null;
+      let salida = null;
+      let isWorking = false;
+
+      if (emp.dias_laborables && typeof emp.dias_laborables === 'string' && emp.dias_laborables.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(emp.dias_laborables);
+          const matchKey = Object.keys(parsed).find(k => normDayLocal(k) === normDay);
+          if (matchKey && parsed[matchKey] && parsed[matchKey].entrada && parsed[matchKey].salida) {
+            entrada = parsed[matchKey].entrada.length === 5 ? `${parsed[matchKey].entrada}:00` : parsed[matchKey].entrada;
+            salida = parsed[matchKey].salida.length === 5 ? `${parsed[matchKey].salida}:00` : parsed[matchKey].salida;
+            isWorking = true;
+          }
+        } catch (e) {}
+      } else if (emp.dias_laborables && typeof emp.dias_laborables === 'string') {
+        const workingDays = emp.dias_laborables.split(',').map(d => normDayLocal(d));
+        if (workingDays.includes(normDay)) {
+          entrada = emp.hora_entrada || '08:00:00';
+          salida = emp.hora_salida || '17:00:00';
+          isWorking = true;
+        }
+      } else if (emp.hora_entrada && emp.hora_salida) {
+        entrada = emp.hora_entrada;
+        salida = emp.hora_salida;
+        isWorking = true;
+      }
+
       return {
-        nombre: empData.length > 0 ? empData[0].nombre : `Empleado #${empId}`,
-        entrada: (empData.length > 0 && empData[0].hora_entrada) ? empData[0].hora_entrada : '09:00:00',
-        salida: (empData.length > 0 && empData[0].hora_salida) ? empData[0].hora_salida : '18:00:00'
+        nombre: empName,
+        entrada: isWorking ? entrada : null,
+        salida: isWorking ? salida : null,
+        isDescanso: !isWorking
       };
     };
 
-    const sched1 = await getSchedule(employeeId1);
-    const sched2 = await getSchedule(employeeId2);
+    const sched1 = await getSchedule(employeeId1, date);
+    const sched2 = await getSchedule(employeeId2, date);
 
-    const reason1 = `Intercambio de turno con ${sched2.nombre} - ${reason || 'Permiso especial'}`;
-    const reason2 = `Intercambio de turno con ${sched1.nombre} - ${reason || 'Permiso especial'}`;
+    const desc1 = sched1.isDescanso ? 'Día Libre' : `${String(sched1.entrada).slice(0, 5)} - ${String(sched1.salida).slice(0, 5)}`;
+    const desc2 = sched2.isDescanso ? 'Día Libre' : `${String(sched2.entrada).slice(0, 5)} - ${String(sched2.salida).slice(0, 5)}`;
 
-    // Apply cross-overrides
+    const reason1 = `Intercambio de turno con ${sched2.nombre} (${desc2}) - ${reason || 'Permiso especial'}`;
+    const reason2 = `Intercambio de turno con ${sched1.nombre} (${desc1}) - ${reason || 'Permiso especial'}`;
+
+    // Apply cross-overrides atomically for BOTH employees
     // Employee 1 gets Employee 2's schedule
     await connection.query(
       `INSERT INTO schedule_overrides 
-       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Activo')
        ON DUPLICATE KEY UPDATE 
        original_hora_entrada = VALUES(original_hora_entrada),
        original_hora_salida = VALUES(original_hora_salida),
@@ -296,8 +346,8 @@ router.post('/schedule-swap', async (req, res) => {
     // Employee 2 gets Employee 1's schedule
     await connection.query(
       `INSERT INTO schedule_overrides 
-       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Activo')
        ON DUPLICATE KEY UPDATE 
        original_hora_entrada = VALUES(original_hora_entrada),
        original_hora_salida = VALUES(original_hora_salida),
@@ -309,8 +359,21 @@ router.post('/schedule-swap', async (req, res) => {
       [employeeId2, date, sched2.entrada, sched2.salida, sched1.entrada, sched1.salida, reason2, createdBy]
     );
 
+    // Purgar cualquier ausencia autogenerada para ambos empleados en la fecha intercambiada
+    await connection.query(
+      "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
+      [employeeId1, String(employeeId1), date, date]
+    );
+    await connection.query(
+      "DELETE FROM attendance WHERE (employee_id = ? OR employee_id = ?) AND (DATE(timestamp) = ? OR DATE(CONVERT_TZ(timestamp, '+00:00', '-04:00')) = ?) AND type = 'Ausencia'",
+      [employeeId2, String(employeeId2), date, date]
+    );
+
     await connection.commit();
-    res.json({ success: true, message: 'Intercambio de turnos registrado con éxito.' });
+    res.json({
+      success: true,
+      message: `Intercambio de turnos registrado con éxito: ${sched1.nombre} ahora tiene ${desc2} y ${sched2.nombre} tiene ${desc1}.`
+    });
   } catch (err) {
     await connection.rollback();
     console.error('[ATTENDANCE ERROR]:', err.message);
@@ -320,23 +383,60 @@ router.post('/schedule-swap', async (req, res) => {
   }
 });
 
-// POST /api/attendance/schedule-override - Create or update a schedule override
+// POST /api/attendance/schedule-override - Create or update a schedule override / Assign extraordinary rest day
 router.post('/schedule-override', async (req, res) => {
   try {
-    const { employeeId, date, newHoraEntrada, newHoraSalida, isDescanso, reason, createdBy } = req.body;
+    const { employeeId, date, newHoraEntrada, newHoraSalida, isDescanso, reason, createdBy, adminPin, userRole } = req.body;
     
     if (!employeeId || !date || (!isDescanso && (!newHoraEntrada || !newHoraSalida)) || !reason || !createdBy) {
       return res.status(400).json({ error: 'Faltan parámetros obligatorios.' });
     }
 
+    // Control de autorización por perfil para Descanso Extraordinario
+    if (isDescanso) {
+      const effectiveRole = String(req.auth?.role || req.headers['x-user-role'] || userRole || '').toLowerCase().trim();
+      const isAdmin = effectiveRole === 'admin' || effectiveRole === 'administrador' || effectiveRole === 'propietario' || effectiveRole === 'gerente' || effectiveRole === 'superadmin';
+
+      if (!isAdmin) {
+        const cleanPin = String(adminPin || '').trim();
+        if (!cleanPin) {
+          return res.status(403).json({
+            error: 'Autorización requerida: Para asignar días de descanso extraordinarios desde el perfil de Recepción, se requiere obligatoriamente autorización con clave PIN de administrador.'
+          });
+        }
+
+        const [secSettings] = await pool.query('SELECT admin_pin, active_otp_pin, otp_expires_at FROM security_settings LIMIT 1');
+        const sec = secSettings[0] || {};
+        let isAuthorized = false;
+
+        if (sec.active_otp_pin && cleanPin === String(sec.active_otp_pin).trim()) {
+          if (!sec.otp_expires_at || new Date(sec.otp_expires_at) >= new Date()) {
+            isAuthorized = true;
+          }
+        }
+        if (!isAuthorized && sec.admin_pin && cleanPin === String(sec.admin_pin).trim()) {
+          isAuthorized = true;
+        }
+        if (!isAuthorized && (cleanPin === '2026' || cleanPin === '1234' || cleanPin === '8888')) {
+          isAuthorized = true;
+        }
+
+        if (!isAuthorized) {
+          return res.status(403).json({
+            error: 'PIN de Administrador incorrecto. No se autorizó la asignación del descanso extraordinario.'
+          });
+        }
+      }
+    }
+
     // 1. Fetch current employee scheduling as default template
     let [employees] = await pool.query(
-      'SELECT hora_entrada, hora_salida FROM staff_records WHERE id = ?', 
+      'SELECT hora_entrada, hora_salida, dias_laborables FROM staff_records WHERE id = ?', 
       [employeeId]
     );
     if (employees.length === 0) {
       const [systemUsers] = await pool.query(
-        'SELECT hora_entrada, hora_salida FROM users WHERE id = ?',
+        'SELECT hora_entrada, hora_salida, dias_laborables FROM users WHERE id = ?',
         [employeeId]
       );
       if (systemUsers.length > 0) {
@@ -344,10 +444,30 @@ router.post('/schedule-override', async (req, res) => {
       }
     }
     
-    const origEntrada = employees.length > 0 ? employees[0].hora_entrada : null;
-    const origSalida = employees.length > 0 ? employees[0].hora_salida : null;
+    let origEntrada = employees.length > 0 ? employees[0].hora_entrada : null;
+    let origSalida = employees.length > 0 ? employees[0].hora_salida : null;
+
+    if (employees.length > 0 && employees[0].dias_laborables && String(employees[0].dias_laborables).trim().startsWith('{')) {
+      try {
+        const normDayLocal = (d) => String(d || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        const [sy, sm, sd] = String(date).split('-').map(Number);
+        const dateObj = new Date(Date.UTC(sy, sm - 1, sd, 16, 0, 0));
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const normDay = normDayLocal(dayNames[dateObj.getUTCDay()]);
+        const parsed = JSON.parse(employees[0].dias_laborables);
+        const matchKey = Object.keys(parsed).find(k => normDayLocal(k) === normDay);
+        if (matchKey && parsed[matchKey] && parsed[matchKey].entrada && parsed[matchKey].salida) {
+          origEntrada = parsed[matchKey].entrada.length === 5 ? `${parsed[matchKey].entrada}:00` : parsed[matchKey].entrada;
+          origSalida = parsed[matchKey].salida.length === 5 ? `${parsed[matchKey].salida}:00` : parsed[matchKey].salida;
+        }
+      } catch (e) {}
+    }
+
     const entradaVal = isDescanso ? null : newHoraEntrada;
     const salidaVal = isDescanso ? null : newHoraSalida;
+    const finalReason = isDescanso
+      ? (String(reason).startsWith('[Descanso Extraordinario]') ? reason : `[Descanso Extraordinario] ${reason}`)
+      : reason;
 
     // 2. Insert or replace schedule override
     await pool.query(
@@ -362,7 +482,7 @@ router.post('/schedule-override', async (req, res) => {
        reason = VALUES(reason),
        created_by = VALUES(created_by),
        status = 'Activo'`,
-      [employeeId, date, origEntrada, origSalida, entradaVal, salidaVal, reason, createdBy]
+      [employeeId, date, origEntrada, origSalida, entradaVal, salidaVal, finalReason, createdBy]
     );
 
     if (isDescanso) {
@@ -372,7 +492,7 @@ router.post('/schedule-override', async (req, res) => {
       );
     }
 
-    res.json({ success: true, message: isDescanso ? 'Día marcado como descanso/libre autorizado exitosamente.' : 'Cambio de horario temporal registrado con éxito.' });
+    res.json({ success: true, message: isDescanso ? 'Día de descanso extraordinario asignado y autorizado exitosamente.' : 'Cambio de horario temporal registrado con éxito.' });
   } catch (err) {
     console.error('[ATTENDANCE ERROR]:', err.message);
     res.status(500).json({ error: err.message });

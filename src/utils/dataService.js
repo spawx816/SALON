@@ -1937,7 +1937,8 @@ export const dataService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      return res.ok ? await res.json() : { success: false, error: 'Network error' };
+      const data = await res.json().catch(() => ({}));
+      return res.ok ? data : { success: false, error: data?.error || data?.message || 'Error al guardar cambio' };
     } catch (e) {
       console.error(e);
       return { success: false, error: e.message };
@@ -1951,7 +1952,8 @@ export const dataService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      return res.ok ? await res.json() : { success: false, error: 'Network error' };
+      const data = await res.json().catch(() => ({}));
+      return res.ok ? data : { success: false, error: data?.error || data?.message || 'Error al procesar intercambio' };
     } catch (e) {
       console.error(e);
       return { success: false, error: e.message };
