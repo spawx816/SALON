@@ -15,7 +15,7 @@ function createEmployeesRouter(pool) {
       }
 
       const [rows] = await pool.query(`
-        SELECT s.*, COALESCE(b.name, sal.name, s.localidad, 'Principal') as salon_name 
+        SELECT s.*, s.contacto as telefono, COALESCE(b.name, sal.name, s.localidad, 'Principal') as salon_name 
         FROM staff_records s
         LEFT JOIN branches b ON s.salon_id::text = b.id::text AND b.tenant_id = s.tenant_id
         LEFT JOIN salons sal ON s.salon_id::text = sal.id::text AND sal.tenant_id = s.tenant_id
@@ -108,13 +108,14 @@ function createEmployeesRouter(pool) {
 
   // POST /api/employees
   router.post('/', async (req, res) => {
-    const { nombre, posicion, localidad, salon_id, status, cedula, telefono, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date } = req.body;
+    const { nombre, posicion, localidad, salon_id, status, cedula, telefono, contacto, direccion, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date } = req.body;
     try {
       const tenantId = req.tenantId;
       const cleanDate = fecha_entrada && fecha_entrada.trim() !== '' ? fecha_entrada : null;
       const cleanSchemeDate = scheme_effective_date && scheme_effective_date.trim() !== '' ? scheme_effective_date : null;
+      const contactValue = contacto !== undefined ? contacto : (telefono !== undefined ? telefono : null);
       const [result] = await pool.query(
-        'INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salon_id, status, cedula, telefono, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        'INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salon_id, status, cedula, contacto, direccion, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
         [
           tenantId,
           nombre,
@@ -123,7 +124,8 @@ function createEmployeesRouter(pool) {
           salon_id || 1,
           status || 'Activo',
           cedula || null,
-          telefono || null,
+          contactValue || null,
+          direccion || null,
           email || null,
           cleanDate,
           hora_entrada || '09:00:00',
@@ -146,11 +148,13 @@ function createEmployeesRouter(pool) {
   // PUT /api/employees/:id
   router.put('/:id', async (req, res) => {
     const { id } = req.params;
-    const { nombre, posicion, localidad, salon_id, status, cedula, telefono, email, fecha_entrada, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date } = req.body;
+    const { nombre, posicion, localidad, salon_id, status, cedula, telefono, contacto, direccion, email, fecha_entrada, fecha_salida, motivo_salida, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos, salario_base, tipo_salario, commission_scheme_id, scheme_effective_date } = req.body;
     try {
       const tenantId = req.tenantId;
       const cleanDate = fecha_entrada !== undefined ? (fecha_entrada && String(fecha_entrada).trim() !== '' ? (String(fecha_entrada).includes('T') ? String(fecha_entrada).split('T')[0] : fecha_entrada) : null) : undefined;
+      const cleanExitDate = fecha_salida !== undefined ? (fecha_salida && String(fecha_salida).trim() !== '' ? (String(fecha_salida).includes('T') ? String(fecha_salida).split('T')[0] : fecha_salida) : null) : undefined;
       const cleanSchemeDate = scheme_effective_date !== undefined ? (scheme_effective_date && String(scheme_effective_date).trim() !== '' ? (String(scheme_effective_date).includes('T') ? String(scheme_effective_date).split('T')[0] : scheme_effective_date) : null) : undefined;
+      const contactValue = contacto !== undefined ? contacto : telefono;
       await pool.query(
         `UPDATE staff_records SET 
           nombre = COALESCE(?, nombre), 
@@ -159,9 +163,12 @@ function createEmployeesRouter(pool) {
           salon_id = COALESCE(?, salon_id), 
           status = COALESCE(?, status), 
           cedula = COALESCE(?, cedula), 
-          telefono = COALESCE(?, telefono), 
+          contacto = COALESCE(?, contacto), 
+          direccion = COALESCE(?, direccion),
           email = COALESCE(?, email), 
           fecha_entrada = COALESCE(?, fecha_entrada),
+          fecha_salida = COALESCE(?, fecha_salida),
+          motivo_salida = COALESCE(?, motivo_salida),
           hora_entrada = COALESCE(?, hora_entrada),
           hora_salida = COALESCE(?, hora_salida),
           dias_laborables = COALESCE(?, dias_laborables),
@@ -172,20 +179,23 @@ function createEmployeesRouter(pool) {
           scheme_effective_date = ?
         WHERE id = ? AND tenant_id = ?`,
         [
-          nombre,
-          posicion,
-          localidad,
-          salon_id,
-          status,
-          cedula,
-          telefono,
+          nombre ?? null,
+          posicion ?? null,
+          localidad ?? null,
+          salon_id ?? null,
+          status ?? null,
+          cedula ?? null,
+          contactValue ?? null,
+          direccion ?? null,
           email !== undefined ? email : null,
           cleanDate !== undefined ? cleanDate : null,
-          hora_entrada,
-          hora_salida,
-          typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : dias_laborables,
-          tolerancia_minutos,
-          salario_base !== undefined ? parseFloat(salario_base) : null,
+          cleanExitDate !== undefined ? cleanExitDate : null,
+          motivo_salida ?? null,
+          hora_entrada ?? null,
+          hora_salida ?? null,
+          typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables ?? null),
+          tolerancia_minutos ?? null,
+          salario_base !== undefined && salario_base !== '' ? parseFloat(salario_base) : null,
           tipo_salario || null,
           commission_scheme_id !== undefined ? (commission_scheme_id || null) : null,
           cleanSchemeDate !== undefined ? cleanSchemeDate : null,
