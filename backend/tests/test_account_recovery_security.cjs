@@ -426,7 +426,7 @@ async function runRecoverySecuritySuite() {
       await pool.query('DELETE FROM clients WHERE tenant_id IN (?, ?, ?)', [TENANT_A, TENANT_B, TENANT_SUSP]);
       await pool.query('DELETE FROM users WHERE tenant_id IN (?, ?, ?)', [TENANT_A, TENANT_B, TENANT_SUSP]);
       await pool.query('DELETE FROM tenants WHERE id IN (?, ?, ?)', [TENANT_A, TENANT_B, TENANT_SUSP]);
-    } catch (_) {}
+    } catch (_) { }
     await pool.end();
     console.log('  [PASS] Recovery test fixtures and ephemeral server destroyed cleanly.\n');
   }
