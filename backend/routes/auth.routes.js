@@ -81,10 +81,24 @@ function createAuthRouter(pool, options = {}) {
   };
 
   // === PASSWORD RECOVERY & ACCOUNT ACTIVATION (STRICT TENANT-BOUND & ANTI-ENUMERATION) ===
+  const resolveTenantFromSlugOrName = async (rawTenantHint) => {
+    const cleanHint = String(rawTenantHint || '').trim();
+    if (!cleanHint) return { tenantId: null, provided: false, ambiguous: false };
+    const [tRows] = await pool.query(
+      'SELECT id FROM tenants WHERE LOWER(slug) = LOWER(?) OR LOWER(business_name) = LOWER(?) LIMIT 2',
+      [cleanHint, cleanHint]
+    );
+    if (tRows.length === 1) {
+      return { tenantId: String(tRows[0].id), provided: true, ambiguous: false };
+    }
+    return { tenantId: null, provided: true, ambiguous: tRows.length > 1 };
+  };
+
   const handleForgotPassword = async (req, res) => {
-    const { email, cedula, username, emailOrCedula } = req.body;
+    const { email, cedula, username, emailOrCedula, tenant_slug, tenantSlug, company } = req.body;
     const identifier = String(emailOrCedula || email || username || cedula || '').trim();
-    const tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
+    let tenantId = req.tenantId || req.headers['x-tenant-id'] || req.body.tenant_id || null;
+    const tenantHint = tenant_slug || tenantSlug || company || req.query?.tenant || null;
 
     if (!identifier) {
       return res.status(400).json({ error: 'Por favor, ingresa tu correo electrónico, usuario o cédula.' });
@@ -101,6 +115,14 @@ function createAuthRouter(pool, options = {}) {
     }
 
     try {
+      if (!tenantId && tenantHint) {
+        const hintResolution = await resolveTenantFromSlugOrName(tenantHint);
+        if (!hintResolution.tenantId) {
+          // Do not reveal whether the company slug/name exists
+          return res.json(genericSuccess);
+        }
+        tenantId = hintResolution.tenantId;
+      }
       let targetUser = null;
       let isSystemUser = false;
       const cleanId = identifier;
@@ -367,6 +389,12 @@ function createAuthRouter(pool, options = {}) {
             uQuery += ' AND tenant_id IS NULL';
           }
           await pool.query(uQuery, uParams);
+          // Revocar sesiones activas del usuario en user_sessions (mecanismo canónico adicional a token_version)
+          if (rec.tenant_id) {
+            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND is_active = 1', [String(realUserId), rec.tenant_id]);
+          } else {
+            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1', [String(realUserId)]);
+          }
         } else if (resolvedUserId) {
           let cQuery = 'UPDATE clients SET password = ?, must_change_password = 0 WHERE id = ?';
           const cParams = [hashedPass, resolvedUserId];
@@ -377,6 +405,12 @@ function createAuthRouter(pool, options = {}) {
             cQuery += ' AND tenant_id IS NULL';
           }
           await pool.query(cQuery, cParams);
+          // Revocar sesiones B2C activas mediante el mecanismo canónico (user_sessions.is_active = 0)
+          if (rec.tenant_id) {
+            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND is_active = 1', [String(resolvedUserId), rec.tenant_id]);
+          } else {
+            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1', [String(resolvedUserId)]);
+          }
         } else {
           return res.status(404).json({ error: 'No se encontró la cuenta vinculada al enlace.' });
         }
@@ -517,7 +551,7 @@ function createAuthRouter(pool, options = {}) {
       }
 
       if (resolvedUserId) {
-        let cQuery = 'UPDATE clients SET password = ? WHERE id = ?';
+        let cQuery = 'UPDATE clients SET password = ?, must_change_password = 0 WHERE id = ?';
         const cParams = [hashedPass, resolvedUserId];
         if (rec.tenant_id) {
           cQuery += ' AND tenant_id = ?';
@@ -526,6 +560,12 @@ function createAuthRouter(pool, options = {}) {
           cQuery += ' AND tenant_id IS NULL';
         }
         await pool.query(cQuery, cParams);
+        // Revocar sesiones B2C activas mediante el mecanismo canónico (user_sessions.is_active = 0)
+        if (rec.tenant_id) {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND is_active = 1', [String(resolvedUserId), rec.tenant_id]);
+        } else {
+          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1', [String(resolvedUserId)]);
+        }
         return res.json({ success: true, message: 'Contraseña restablecida correctamente.' });
       }
 

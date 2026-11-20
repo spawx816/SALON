@@ -187,6 +187,14 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotStep, setForgotStep] = useState(1);
   const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotTenant, setForgotTenant] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return (params.get('tenant') || params.get('salon') || '').trim();
+    } catch {
+      return '';
+    }
+  });
   const [resetCode, setResetCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
@@ -490,10 +498,14 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
     setForgotError('');
     setForgotLoading(true);
     try {
+      const forgotPayload = { emailOrCedula: forgotEmail.trim() };
+      if (forgotTenant.trim()) {
+        forgotPayload.tenant_slug = forgotTenant.trim();
+      }
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailOrCedula: forgotEmail.trim() })
+        body: JSON.stringify(forgotPayload)
       });
       const raw = await res.text();
       let data = {};
@@ -1791,6 +1803,17 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
                       required
+                    />
+                  </div>
+                  <div className="et-field">
+                    <label htmlFor="forgot-tenant">Salón o empresa (opcional)</label>
+                    <input
+                      id="forgot-tenant"
+                      type="text"
+                      className="et-input"
+                      placeholder="Nombre o slug del salón si usas el mismo correo en varios"
+                      value={forgotTenant}
+                      onChange={(e) => setForgotTenant(e.target.value)}
                     />
                   </div>
                   <button

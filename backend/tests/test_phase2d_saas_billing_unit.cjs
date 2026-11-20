@@ -81,10 +81,10 @@ function runTest(name, fn) {
   testIndex++;
   try {
     fn();
-    console.log(`  [PASS ${testIndex}/39] ${name}`);
+    console.log(`  [PASS ${testIndex}/41] ${name}`);
     passedCount++;
   } catch (err) {
-    console.error(`  ❌ [FAIL ${testIndex}/39] ${name}`);
+    console.error(`  ❌ [FAIL ${testIndex}/41] ${name}`);
     console.error(err);
     throw err;
   }
@@ -94,10 +94,10 @@ async function runAsyncTest(name, fn) {
   testIndex++;
   try {
     await fn();
-    console.log(`  [PASS ${testIndex}/39] ${name}`);
+    console.log(`  [PASS ${testIndex}/41] ${name}`);
     passedCount++;
   } catch (err) {
-    console.error(`  ❌ [FAIL ${testIndex}/39] ${name}`);
+    console.error(`  ❌ [FAIL ${testIndex}/41] ${name}`);
     console.error(err);
     throw err;
   }
@@ -909,8 +909,8 @@ async function main() {
     const sig = gateway.signWebhookPayload(payload);
 
     const [r1, r2] = await Promise.all([
-      billingService.handleWebhook({ provider: 'cardnet', rawBody: payload, signatureHeader: sig }),
-      billingService.handleWebhook({ provider: 'cardnet', rawBody: payload, signatureHeader: sig })
+      billingService.handleWebhook({ provider: 'fake_gateway', rawBody: payload, signatureHeader: sig }),
+      billingService.handleWebhook({ provider: 'fake_gateway', rawBody: payload, signatureHeader: sig })
     ]);
 
     assert.strictEqual(billingRepo.webhookEvents.size, 1, 'Only 1 webhook record must exist');
@@ -943,7 +943,7 @@ async function main() {
     const sig = gateway.signWebhookPayload(payload);
 
     const res = await billingService.handleWebhook({
-      provider: 'cardnet',
+      provider: 'fake_gateway',
       rawBody: payload,
       signatureHeader: sig
     });
@@ -952,7 +952,7 @@ async function main() {
     assert.strictEqual(res.unresolvedTenant, true, 'Event without trusted internal reference must be marked unresolvedTenant');
     assert.strictEqual(res.processed, false, 'Unresolved webhook must not be marked processed');
     assert.strictEqual(scheduler.jobs.length, 0, 'ZERO side effects may be scheduled when tenant is unresolved');
-    const saved = await billingRepo.getWebhookEvent('cardnet', 'evt_manipulated_tenant_only');
+    const saved = await billingRepo.getWebhookEvent('fake_gateway', 'evt_manipulated_tenant_only');
     assert.strictEqual(saved.tenant_id, null);
     assert.strictEqual(saved.status, 'unresolved_tenant');
   });
@@ -991,7 +991,7 @@ async function main() {
 
     await assert.rejects(
       async () => billingService.handleWebhook({
-        provider: 'cardnet',
+        provider: 'fake_gateway',
         rawBody: crossPayload,
         signatureHeader: sig
       }),
@@ -1030,7 +1030,7 @@ async function main() {
     });
     await assert.rejects(
       async () => billingService.handleWebhook({
-        provider: 'cardnet',
+        provider: 'fake_gateway',
         rawBody: badAmountPayload,
         signatureHeader: gateway.signWebhookPayload(badAmountPayload)
       }),
@@ -1045,7 +1045,7 @@ async function main() {
     });
     await assert.rejects(
       async () => billingService.handleWebhook({
-        provider: 'cardnet',
+        provider: 'fake_gateway',
         rawBody: badCurrencyPayload,
         signatureHeader: gateway.signWebhookPayload(badCurrencyPayload)
       }),
@@ -1053,6 +1053,100 @@ async function main() {
     );
 
     assert.strictEqual(scheduler.jobs.length, 0, 'Zero side effects on amount/currency mismatch');
+  });
+
+  // TEST 28F: CardNet webhook without official provider verifier fails closed (501)
+  await runAsyncTest('Test 28F: Webhook CardNet falla cerrado (501) sin adaptador oficial verificado', async () => {
+    const billingRepo = new InMemorySaasBillingRepository();
+    const gateway = new FakePaymentGatewayAdapter();
+    const billingService = new SaasBillingService({ billingRepo, gatewayPort: gateway });
+
+    const payload = JSON.stringify({ id: 'evt_cardnet_unverified', type: 'checkout.paid', data: {} });
+    await assert.rejects(
+      async () => billingService.handleWebhook({
+        provider: 'cardnet',
+        rawBody: payload,
+        signatureHeader: gateway.signWebhookPayload(payload)
+      }),
+      (err) => err.code === 'WEBHOOK_PROVIDER_AUTH_NOT_SUPPORTED' && err.statusCode === 501
+    );
+    assert.strictEqual(billingRepo.webhookEvents.size, 0, 'No webhook event may be persisted when provider auth is unsupported');
+  });
+
+  // TEST 28G: Crash/failure recovery between saving inbox event and scheduling effects vs terminal duplicate
+  await runAsyncTest('Test 28G: Recuperación tras fallo/caída entre guardado y encolado distingue recuperable de duplicado completado', async () => {
+    const billingRepo = new InMemorySaasBillingRepository();
+    const gateway = new FakePaymentGatewayAdapter();
+    const scheduler = new FakeBillingJobSchedulerAdapter();
+
+    let failNextSchedule = true;
+    const origSchedule = scheduler.scheduleJob.bind(scheduler);
+    scheduler.scheduleJob = async (args) => {
+      if (failNextSchedule) {
+        failNextSchedule = false;
+        throw new Error('TRANSIENT_QUEUE_OUTAGE');
+      }
+      return origSchedule(args);
+    };
+
+    const billingService = new SaasBillingService({ billingRepo, gatewayPort: gateway, jobScheduler: scheduler });
+    await billingRepo.saveCheckoutOrder({
+      tenant_id: 'tenant-crash-rec',
+      order_number: 'ORD-CRASH-001',
+      amount_minor: 590000n,
+      currency: 'DOP'
+    });
+
+    const payload = JSON.stringify({
+      id: 'evt_crash_recovery_1',
+      type: 'checkout.paid',
+      data: { order_number: 'ORD-CRASH-001', amount_minor: 590000, currency: 'DOP' }
+    });
+    const sig = gateway.signWebhookPayload(payload);
+
+    // 1. First attempt saves inbox event then fails during scheduleJob -> status = 'failed'
+    await assert.rejects(
+      async () => billingService.handleWebhook({ provider: 'fake_gateway', rawBody: payload, signatureHeader: sig }),
+      /TRANSIENT_QUEUE_OUTAGE/
+    );
+    const afterFail = await billingRepo.getWebhookEvent('fake_gateway', 'evt_crash_recovery_1');
+    assert.strictEqual(afterFail.status, 'failed');
+    assert.strictEqual(scheduler.jobs.length, 0);
+
+    // 2. Retry recovers from 'failed' (NOT dropped as duplicate!), enqueues job once, marks 'enqueued'
+    const recovered = await billingService.handleWebhook({ provider: 'fake_gateway', rawBody: payload, signatureHeader: sig });
+    assert.strictEqual(recovered.recovered, true);
+    assert.strictEqual(recovered.status, 'enqueued');
+    assert.strictEqual(scheduler.jobs.length, 1);
+
+    // 3. Subsequent replay sees terminal status 'enqueued' -> true idempotentReplay, still 1 job
+    const replay = await billingService.handleWebhook({ provider: 'fake_gateway', rawBody: payload, signatureHeader: sig });
+    assert.strictEqual(replay.idempotentReplay, true);
+    assert.strictEqual(replay.status, 'enqueued');
+    assert.strictEqual(scheduler.jobs.length, 1);
+
+    // 4. Hard crash simulation: row stuck in 'received' with 0 jobs -> retry recovers and transitions to 'enqueued'
+    const crashPayload = JSON.stringify({
+      id: 'evt_hard_crash_received',
+      type: 'checkout.paid',
+      data: { order_number: 'ORD-CRASH-001', amount_minor: 590000, currency: 'DOP' }
+    });
+    await billingRepo.recordWebhookEvent({
+      provider: 'fake_gateway',
+      event_id: 'evt_hard_crash_received',
+      tenant_id: 'tenant-crash-rec',
+      event_type: 'checkout.paid',
+      status: 'received',
+      idempotency_key: 'evt_hard_crash_received'
+    });
+    const recoveredFromReceived = await billingService.handleWebhook({
+      provider: 'fake_gateway',
+      rawBody: crashPayload,
+      signatureHeader: gateway.signWebhookPayload(crashPayload)
+    });
+    assert.strictEqual(recoveredFromReceived.recovered, true);
+    assert.strictEqual(recoveredFromReceived.status, 'enqueued');
+    assert.strictEqual(scheduler.jobs.length, 2);
   });
 
   // TEST 29: Concurrent job scheduling concurrency lock

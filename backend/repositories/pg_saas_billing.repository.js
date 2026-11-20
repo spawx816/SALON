@@ -691,6 +691,18 @@ class PgSaasBillingRepository extends SaasBillingRepository {
     );
     return rows[0] || null;
   }
+
+  async updateWebhookEventStatus(provider, eventId, { status, tenant_id = null } = {}) {
+    const [rows] = await this.pool.query(
+      `UPDATE saas_webhook_events
+       SET status = ?,
+           tenant_id = COALESCE(?, tenant_id)
+       WHERE provider = ? AND event_id = ?
+       RETURNING *`,
+      [status, tenant_id, provider, eventId]
+    );
+    return rows[0] || null;
+  }
 }
 
 module.exports = {

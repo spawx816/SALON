@@ -123,8 +123,10 @@ async function runRecoverySecuritySuite() {
 
     // 0. Setup test tenants and clients en base de pruebas
     console.log('[SETUP] Creating test tenants and clients...');
-    await pool.query('INSERT INTO tenants (id, business_name, slug, email) VALUES (?, ?, ?, ?)', [TENANT_A, 'Tenant Rec A', `rec-a-${Date.now()}`, 'tenant.a@test-fixtures.local']);
-    await pool.query('INSERT INTO tenants (id, business_name, slug, email) VALUES (?, ?, ?, ?)', [TENANT_B, 'Tenant Rec B', `rec-b-${Date.now()}`, 'tenant.b@test-fixtures.local']);
+    const TENANT_A_SLUG = `rec-a-${Date.now()}`;
+    const TENANT_B_SLUG = `rec-b-${Date.now()}`;
+    await pool.query('INSERT INTO tenants (id, business_name, slug, email) VALUES (?, ?, ?, ?)', [TENANT_A, 'Tenant Rec A', TENANT_A_SLUG, 'tenant.a@test-fixtures.local']);
+    await pool.query('INSERT INTO tenants (id, business_name, slug, email) VALUES (?, ?, ?, ?)', [TENANT_B, 'Tenant Rec B', TENANT_B_SLUG, 'tenant.b@test-fixtures.local']);
 
     await pool.query(
       "INSERT INTO clients (id, tenant_id, nombre, email, status) VALUES (?, ?, 'Client Rec A', 'client.a@test-fixtures.local', 'Active')",
@@ -298,19 +300,27 @@ async function runRecoverySecuritySuite() {
     );
     assert.strictEqual(ambTokens.length, 0, 'Ambiguous public B2C request MUST NOT arbitrarily create a token for either tenant');
 
-    // 7b. Scoped request with tenant_id = TENANT_A -> issues token bound strictly to (TENANT_A, SHARED_CLIENT_A_ID)
+    // 7b. Scoped request using tenant_slug (as sent by recovery UI) -> issues token bound strictly to (TENANT_A, SHARED_CLIENT_A_ID)
     const scopedRes = await makeRequest({ path: '/api/auth/forgot-password' }, {
       email: sharedEmail,
-      tenant_id: TENANT_A
+      tenant_slug: TENANT_A_SLUG
     }, testPort);
     assert.strictEqual(scopedRes.status, 200);
     const [scopedTokens] = await pool.query(
       "SELECT id, tenant_id, user_id, client_id FROM verification_codes WHERE identity = ? AND purpose = 'password_reset_link' AND is_used = 0",
       [sharedEmail]
     );
-    assert.strictEqual(scopedTokens.length, 1, 'Scoped request must create exactly 1 token');
+    assert.strictEqual(scopedTokens.length, 1, 'Scoped request via tenant_slug must create exactly 1 token');
     assert.strictEqual(String(scopedTokens[0].tenant_id), TENANT_A, 'Token must be bound to TENANT_A');
     assert.strictEqual(String(scopedTokens[0].client_id), SHARED_CLIENT_A_ID, 'Token must be bound to SHARED_CLIENT_A_ID');
+
+    // Provision an active canonical B2C session in user_sessions to verify revocation upon password reset
+    const activeB2CSessionId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
+       VALUES (?, ?, 'Shared B2C A', 'client', '1', '127.0.0.1', 'test-agent', 1, NOW(), NOW(), ?)`,
+      [activeB2CSessionId, SHARED_CLIENT_A_ID, TENANT_A]
+    );
 
     // 7c. Token link tampering defense: altering clientId or tenant_id must NOT change Client B password
     const rawLinkToken = crypto.randomBytes(32).toString('hex');
@@ -338,7 +348,7 @@ async function runRecoverySecuritySuite() {
     assert.strictEqual(passA1, 'orig-hash-a', 'Client A password must remain unchanged after tampered attempt');
     assert.strictEqual(passB1, 'orig-hash-b', 'Client B password must remain unchanged after tampered attempt');
 
-    // 7d. Legitimate link token consumption updates ONLY Client A in Tenant A, leaving Client B intact
+    // 7d. Legitimate link token consumption updates ONLY Client A in Tenant A, revokes active B2C sessions, and leaves Client B intact
     const legitLinkRes = await makeRequest({ path: '/api/auth/reset-password' }, {
       token: rawLinkToken,
       newPassword: 'legitNewPasswordA123*'
@@ -353,7 +363,13 @@ async function runRecoverySecuritySuite() {
     const passB2 = checkAfterLegit.find(r => r.id === SHARED_CLIENT_B_ID)?.password;
     assert.notStrictEqual(passA2, 'orig-hash-a', 'Client A password must be updated');
     assert.strictEqual(passB2, 'orig-hash-b', 'Client B password MUST remain untouched');
-    console.log('  [PASS] Multi-tenant B2C ambiguity, anti-enumeration, and strict token binding verified.\n');
+
+    const [sessAfterReset] = await pool.query(
+      'SELECT is_active FROM user_sessions WHERE id = ? AND tenant_id = ?',
+      [activeB2CSessionId, TENANT_A]
+    );
+    assert.strictEqual(Number(sessAfterReset[0]?.is_active), 0, 'Active B2C session in user_sessions MUST be revoked (is_active = 0) after password reset');
+    console.log('  [PASS] Multi-tenant B2C ambiguity, tenant_slug resolution, token binding, and canonical B2C session revocation verified.\n');
     passed++;
 
     // 8. Suspended Tenant Owner Recovery: active-tenant filter on clients MUST NOT block Owner recovery
@@ -405,6 +421,7 @@ async function runRecoverySecuritySuite() {
       serverProcess.kill('SIGKILL');
     }
     try {
+      await pool.query('DELETE FROM user_sessions WHERE tenant_id IN (?, ?, ?)', [TENANT_A, TENANT_B, TENANT_SUSP]);
       await pool.query('DELETE FROM verification_codes WHERE tenant_id IN (?, ?, ?)', [TENANT_A, TENANT_B, TENANT_SUSP]);
       await pool.query('DELETE FROM clients WHERE tenant_id IN (?, ?, ?)', [TENANT_A, TENANT_B, TENANT_SUSP]);
       await pool.query('DELETE FROM users WHERE tenant_id IN (?, ?, ?)', [TENANT_A, TENANT_B, TENANT_SUSP]);

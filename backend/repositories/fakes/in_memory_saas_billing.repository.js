@@ -351,6 +351,15 @@ class InMemorySaasBillingRepository extends SaasBillingRepository {
   async getWebhookEvent(provider, eventId) {
     return this.webhookEvents.get(`${provider}:${eventId}`) || null;
   }
+
+  async updateWebhookEventStatus(provider, eventId, { status, tenant_id = null } = {}) {
+    const key = `${provider}:${eventId}`;
+    const rec = this.webhookEvents.get(key);
+    if (!rec) return null;
+    if (status !== undefined) rec.status = status;
+    if (tenant_id !== null && tenant_id !== undefined) rec.tenant_id = tenant_id;
+    return { ...rec };
+  }
 }
 
 module.exports = {

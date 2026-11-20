@@ -394,10 +394,26 @@ class SaasBillingService {
 
   async handleWebhook({ provider, rawBody, signatureHeader, secret }) {
     if (!provider) throw new Error('provider es obligatorio en webhook');
+    const normalizedProvider = String(provider).trim().toLowerCase();
+
+    // 0. Validar que el adaptador realmente soporta el mecanismo oficial de autenticación del proveedor.
+    // Un HMAC interno del adaptador simulado NO acredita compatibilidad con CardNet.
+    if (normalizedProvider === 'cardnet') {
+      const supportsOfficialCardnetWebhook =
+        typeof this.gatewayPort?.supportsProviderWebhook === 'function'
+          ? Boolean(this.gatewayPort.supportsProviderWebhook('cardnet'))
+          : false;
+      if (!supportsOfficialCardnetWebhook) {
+        const err = new Error('CardNet no tiene habilitado un mecanismo oficial verificado de firma de webhooks; use conciliación server-to-server.');
+        err.code = 'WEBHOOK_PROVIDER_AUTH_NOT_SUPPORTED';
+        err.statusCode = 501;
+        throw err;
+      }
+    }
 
     // 1. Verificar firma criptográfica sobre el body crudo (fail-closed: sin secreto hardcodeado)
     const webhookSecret = secret ||
-      process.env[`SAAS_WEBHOOK_SECRET_${String(provider).toUpperCase()}`] ||
+      process.env[`SAAS_WEBHOOK_SECRET_${normalizedProvider.toUpperCase()}`] ||
       this.gatewayPort?.webhookSecret ||
       null;
 
@@ -434,11 +450,19 @@ class SaasBillingService {
     const eventId = event.id || event.eventId;
     if (!eventId) throw new Error('El evento de webhook no contiene identificador');
 
-    // 3. Fast-path de idempotencia por (provider, eventId)
+    // 3. Distinguir duplicado ya completado/encolado (terminal) de evento pendiente/fallido recuperable
+    const TERMINAL_STATUSES = new Set(['enqueued', 'processed', 'completed']);
     const existing = await this.billingRepo.getWebhookEvent(provider, eventId);
-    if (existing) {
-      return { success: true, idempotentReplay: true, eventId, resolvedTenantId: existing.tenant_id || null };
+    if (existing && TERMINAL_STATUSES.has(String(existing.status || '').toLowerCase())) {
+      return {
+        success: true,
+        idempotentReplay: true,
+        status: existing.status,
+        eventId,
+        resolvedTenantId: existing.tenant_id || null
+      };
     }
+    const isRecoveryAttempt = Boolean(existing && ['received', 'failed', 'unresolved_tenant'].includes(String(existing.status || '').toLowerCase()));
 
     // 4. Resolver internamente el tenant SOLO desde referencias confiables en BD (Anti-Tamper):
     // REGLA ESTRICTA: NUNCA confiar en tenant_id ni metadata.internalTenantId enviados en el payload.
@@ -527,47 +551,85 @@ class SaasBillingService {
     };
 
     // 6. Deduplicación atómica por (provider, event_id) mediante ON CONFLICT DO NOTHING RETURNING
-    const persisted = await this.billingRepo.recordWebhookEvent({
-      provider,
-      event_id: eventId,
-      tenant_id: resolvedTenantId,
-      event_type: event.type,
-      payload_sanitized: sanitizedPayload,
-      status: resolvedTenantId ? 'received' : 'unresolved_tenant',
-      idempotency_key: eventId
-    });
+    if (!isRecoveryAttempt) {
+      const persisted = await this.billingRepo.recordWebhookEvent({
+        provider,
+        event_id: eventId,
+        tenant_id: resolvedTenantId,
+        event_type: event.type,
+        payload_sanitized: sanitizedPayload,
+        status: resolvedTenantId ? 'received' : 'unresolved_tenant',
+        idempotency_key: eventId
+      });
 
-    if (persisted && persisted._inserted === false) {
-      return { success: true, idempotentReplay: true, eventId, resolvedTenantId: persisted.tenant_id || null };
+      if (persisted && persisted._inserted === false) {
+        return {
+          success: true,
+          idempotentReplay: true,
+          status: persisted.status,
+          eventId,
+          resolvedTenantId: persisted.tenant_id || null
+        };
+      }
     }
 
     // 7. Si no se pudo resolver la empresa desde una referencia interna confiable, NO aplicar efectos
     if (!resolvedTenantId) {
+      if (isRecoveryAttempt) {
+        return {
+          success: true,
+          idempotentReplay: true,
+          processed: false,
+          unresolvedTenant: true,
+          status: 'unresolved_tenant',
+          eventId,
+          resolvedTenantId: null
+        };
+      }
       return {
         success: true,
         processed: false,
         unresolvedTenant: true,
+        status: 'unresolved_tenant',
         eventId,
         resolvedTenantId: null
       };
     }
 
-    // 8. Si hay un jobScheduler registrado y el tenant fue resuelto confiablemente, encolar en outbox
-    if (this.jobScheduler) {
-      await this.jobScheduler.scheduleJob({
-        jobType: 'PROCESS_WEBHOOK_EVENT',
-        tenantId: resolvedTenantId,
-        payload: { provider, eventType: event.type, eventId, sanitizedPayload },
-        idempotencyKey: `wh_proc_${provider}_${eventId}`
-      });
+    // 8. Encolar efectos en outbox (si falla o cae antes de marcar terminal, queda recuperable como 'failed'/'received')
+    try {
+      if (this.jobScheduler) {
+        await this.jobScheduler.scheduleJob({
+          jobType: 'PROCESS_WEBHOOK_EVENT',
+          tenantId: resolvedTenantId,
+          payload: { provider, eventType: event.type, eventId, sanitizedPayload },
+          idempotencyKey: `wh_proc_${provider}_${eventId}`
+        });
+      }
+      const finalStatus = this.jobScheduler ? 'enqueued' : 'processed';
+      if (typeof this.billingRepo.updateWebhookEventStatus === 'function') {
+        await this.billingRepo.updateWebhookEventStatus(provider, eventId, {
+          status: finalStatus,
+          tenant_id: resolvedTenantId
+        });
+      }
+      return {
+        success: true,
+        processed: true,
+        recovered: isRecoveryAttempt,
+        status: finalStatus,
+        eventId,
+        resolvedTenantId
+      };
+    } catch (scheduleErr) {
+      if (typeof this.billingRepo.updateWebhookEventStatus === 'function') {
+        await this.billingRepo.updateWebhookEventStatus(provider, eventId, {
+          status: 'failed',
+          tenant_id: resolvedTenantId
+        }).catch(() => {});
+      }
+      throw scheduleErr;
     }
-
-    return {
-      success: true,
-      processed: true,
-      eventId,
-      resolvedTenantId
-    };
   }
 }
 

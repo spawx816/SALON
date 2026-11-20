@@ -38,7 +38,9 @@ async function runWebhookGlobalInboxSuite() {
     `evt_pg_cross_ref_${ts}`,
     `evt_pg_bad_amt_${ts}`,
     `evt_pg_bad_cur_${ts}`,
-    `evt_pg_atomic_${ts}`
+    `evt_pg_atomic_${ts}`,
+    `evt_pg_cardnet_501_${ts}`,
+    `evt_pg_crash_rec_${ts}`
   ];
 
   let passed = 0;
@@ -116,15 +118,15 @@ async function runWebhookGlobalInboxSuite() {
     const badSigPayload = JSON.stringify({ id: eventIds[0], type: 'checkout.paid', data: { gateway_reference: ORD_A } });
     await assert.rejects(
       async () => billingService.handleWebhook({
-        provider: 'cardnet',
+        provider: 'fake_gateway',
         rawBody: badSigPayload,
         signatureHeader: 't=12345,v1=deadbeef'
       }),
       (err) => err.code === 'INVALID_WEBHOOK_SIGNATURE' && err.statusCode === 401
     );
-    assert.strictEqual(await billingRepo.getWebhookEvent('cardnet', eventIds[0]), null);
+    assert.strictEqual(await billingRepo.getWebhookEvent('fake_gateway', eventIds[0]), null);
     assert.strictEqual(scheduler.jobs.length, 0);
-    console.log('  [PASS 1/5] Invalid HMAC rejected before DB writes or side effects.');
+    console.log('  [PASS 1/7] Invalid HMAC rejected before DB writes or side effects.');
     passed++;
 
     // 2. Manipulated tenant_id & metadata.internalTenantId without internal reference -> NULL tenant, 0 side effects
@@ -140,7 +142,7 @@ async function runWebhookGlobalInboxSuite() {
       }
     });
     const tamperRes = await billingService.handleWebhook({
-      provider: 'cardnet',
+      provider: 'fake_gateway',
       rawBody: tamperPayload,
       signatureHeader: gateway.signWebhookPayload(tamperPayload)
     });
@@ -148,10 +150,10 @@ async function runWebhookGlobalInboxSuite() {
     assert.strictEqual(tamperRes.unresolvedTenant, true);
     assert.strictEqual(tamperRes.processed, false);
     assert.strictEqual(scheduler.jobs.length, 0);
-    const savedTamper = await billingRepo.getWebhookEvent('cardnet', eventIds[1]);
+    const savedTamper = await billingRepo.getWebhookEvent('fake_gateway', eventIds[1]);
     assert.strictEqual(savedTamper.tenant_id, null);
     assert.strictEqual(savedTamper.status, 'unresolved_tenant');
-    console.log('  [PASS 2/5] Manipulated tenant_id ignored; unresolved webhook stored with tenant_id=NULL and 0 side effects.');
+    console.log('  [PASS 2/7] Manipulated tenant_id ignored; unresolved webhook stored with tenant_id=NULL and 0 side effects.');
     passed++;
 
     // 3. Cross-tenant reference mismatch (Tenant A customer + Tenant B payment reference) -> 422 WEBHOOK_TENANT_MISMATCH
@@ -163,14 +165,14 @@ async function runWebhookGlobalInboxSuite() {
     });
     await assert.rejects(
       async () => billingService.handleWebhook({
-        provider: 'cardnet',
+        provider: 'fake_gateway',
         rawBody: crossPayload,
         signatureHeader: gateway.signWebhookPayload(crossPayload)
       }),
       (err) => err.code === 'WEBHOOK_TENANT_MISMATCH' && err.statusCode === 422
     );
     assert.strictEqual(scheduler.jobs.length, 0);
-    console.log('  [PASS 3/5] Cross-tenant reference mismatch rejected with 422 and 0 side effects.');
+    console.log('  [PASS 3/7] Cross-tenant reference mismatch rejected with 422 and 0 side effects.');
     passed++;
 
     // 4. Amount and currency discrepancies against real DB payment -> 422
@@ -181,7 +183,7 @@ async function runWebhookGlobalInboxSuite() {
     });
     await assert.rejects(
       async () => billingService.handleWebhook({
-        provider: 'cardnet',
+        provider: 'fake_gateway',
         rawBody: badAmtPayload,
         signatureHeader: gateway.signWebhookPayload(badAmtPayload)
       }),
@@ -194,14 +196,14 @@ async function runWebhookGlobalInboxSuite() {
     });
     await assert.rejects(
       async () => billingService.handleWebhook({
-        provider: 'cardnet',
+        provider: 'fake_gateway',
         rawBody: badCurPayload,
         signatureHeader: gateway.signWebhookPayload(badCurPayload)
       }),
       (err) => err.code === 'WEBHOOK_CURRENCY_MISMATCH' && err.statusCode === 422
     );
     assert.strictEqual(scheduler.jobs.length, 0);
-    console.log('  [PASS 4/5] Amount and currency discrepancies rejected with 422 and 0 side effects.');
+    console.log('  [PASS 4/7] Amount and currency discrepancies rejected with 422 and 0 side effects.');
     passed++;
 
     // 5. Concurrent duplicate delivery -> atomic PostgreSQL ON CONFLICT deduplication, 1 row, 1 job
@@ -214,8 +216,8 @@ async function runWebhookGlobalInboxSuite() {
     const validSig = gateway.signWebhookPayload(validPayload);
 
     const [c1, c2] = await Promise.all([
-      billingService.handleWebhook({ provider: 'cardnet', rawBody: validPayload, signatureHeader: validSig }),
-      billingService.handleWebhook({ provider: 'cardnet', rawBody: validPayload, signatureHeader: validSig })
+      billingService.handleWebhook({ provider: 'fake_gateway', rawBody: validPayload, signatureHeader: validSig }),
+      billingService.handleWebhook({ provider: 'fake_gateway', rawBody: validPayload, signatureHeader: validSig })
     ]);
     assert.strictEqual(c1.resolvedTenantId, TENANT_A);
     assert.strictEqual(c2.resolvedTenantId, TENANT_A);
@@ -224,10 +226,51 @@ async function runWebhookGlobalInboxSuite() {
     assert.strictEqual(scheduler.jobs[0].tenantId, TENANT_A);
     const [whCountRows] = await pool.query(
       'SELECT COUNT(*)::int AS cnt FROM saas_webhook_events WHERE provider = ? AND event_id = ?',
-      ['cardnet', eventIds[5]]
+      ['fake_gateway', eventIds[5]]
     );
     assert.strictEqual(Number(whCountRows[0].cnt), 1);
-    console.log('  [PASS 5/5] Atomic PostgreSQL deduplication confirmed: 1 row in saas_webhook_events, 1 scheduled job for Tenant A.');
+    console.log('  [PASS 5/7] Atomic PostgreSQL deduplication confirmed: 1 row in saas_webhook_events, 1 scheduled job for Tenant A.');
+    passed++;
+
+    // 6. CardNet provider fails closed (501) without verified official CardNet webhook verifier
+    const cardnetPayload = JSON.stringify({ id: eventIds[6], type: 'checkout.paid', data: { gateway_reference: ORD_A } });
+    await assert.rejects(
+      async () => billingService.handleWebhook({
+        provider: 'cardnet',
+        rawBody: cardnetPayload,
+        signatureHeader: gateway.signWebhookPayload(cardnetPayload)
+      }),
+      (err) => err.code === 'WEBHOOK_PROVIDER_AUTH_NOT_SUPPORTED' && err.statusCode === 501
+    );
+    assert.strictEqual(await billingRepo.getWebhookEvent('cardnet', eventIds[6]), null);
+    console.log('  [PASS 6/7] CardNet webhook fails closed (501) without verified official provider auth.');
+    passed++;
+
+    // 7. Crash recovery on real PostgreSQL: row saved as 'received' before crash recovers on retry -> 'enqueued' -> subsequent replay is terminal
+    const crashPayload = JSON.stringify({
+      id: eventIds[7],
+      type: 'checkout.paid',
+      data: { gateway_reference: ORD_A, amount_minor: 590000, currency: 'DOP' }
+    });
+    const crashSig = gateway.signWebhookPayload(crashPayload);
+    await billingRepo.recordWebhookEvent({
+      provider: 'fake_gateway',
+      event_id: eventIds[7],
+      tenant_id: TENANT_A,
+      event_type: 'checkout.paid',
+      status: 'received',
+      idempotency_key: eventIds[7]
+    });
+    const recRes = await billingService.handleWebhook({ provider: 'fake_gateway', rawBody: crashPayload, signatureHeader: crashSig });
+    assert.strictEqual(recRes.recovered, true);
+    assert.strictEqual(recRes.status, 'enqueued');
+    assert.strictEqual(scheduler.jobs.length, 2);
+
+    const terminalReplay = await billingService.handleWebhook({ provider: 'fake_gateway', rawBody: crashPayload, signatureHeader: crashSig });
+    assert.strictEqual(terminalReplay.idempotentReplay, true);
+    assert.strictEqual(terminalReplay.status, 'enqueued');
+    assert.strictEqual(scheduler.jobs.length, 2);
+    console.log('  [PASS 7/7] PostgreSQL crash recovery confirmed: received -> enqueued on retry, terminal duplicate ignored.');
     passed++;
 
   } finally {
@@ -242,7 +285,7 @@ async function runWebhookGlobalInboxSuite() {
     await pool.end();
   }
 
-  console.log(`\n=== TEST RESULT: ALL ${passed}/5 GLOBAL WEBHOOK INBOX PG CHECKS PASSED ===\n`);
+  console.log(`\n=== TEST RESULT: ALL ${passed}/7 GLOBAL WEBHOOK INBOX PG CHECKS PASSED ===\n`);
 }
 
 if (require.main === module) {
