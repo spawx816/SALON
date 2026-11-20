@@ -497,6 +497,7 @@ function createApp(dependencies = {}) {
           /^\/api\/kiosk\/employees\/[^/]+\/photo$/.test(pathUrl) ||
           pathUrl === '/api/kiosk/today' ||
           pathUrl === '/api/kiosk/verify-employee' ||
+          pathUrl === '/api/kiosk/start-face-punch' ||
           pathUrl === '/api/kiosk/punch' ||
           pathUrl.startsWith('/api/kiosk/self-service/');
         if (!allowedForKioskUser) {

@@ -535,6 +535,56 @@ function createKioskRouter(pool, { authenticate }) {
     }
   });
 
+  // POST /api/kiosk/start-face-punch (inicio directo de ponche biométrico con CompreFace sin contraseña)
+  router.post('/start-face-punch', requireKioskDevice, async (req, res) => {
+    try {
+      const { device, biometricPolicy } = req.kiosk;
+      const { employee_id } = req.body || {};
+      if (!employee_id) {
+        return res.status(400).json({ error: 'Debes seleccionar un empleado.' });
+      }
+
+      const authCheck = await isEmployeeAuthorizedForBranch(pool, device.tenant_id, employee_id, device.branch_id);
+      if (!authCheck.authorized) {
+        return res.status(403).json({ error: authCheck.reason || 'Empleado no autorizado en esta sucursal.' });
+      }
+
+      const emp = authCheck.employee;
+      const hasProfilePhoto = Boolean(emp.profile_photo_file_id || emp.profile_photo);
+      if (!hasProfilePhoto) {
+        return res.status(400).json({
+          error: 'Este colaborador no tiene fotografía de referencia registrada. Sube una foto en el módulo de Personal para ponchar con reconocimiento facial.',
+          code: 'BIOMETRIC_PHOTO_REQUIRED',
+        });
+      }
+
+      if (!biometricPolicy.providerConfigured) {
+        return res.status(503).json({
+          error: 'El servicio de verificación facial (CompreFace) no está disponible en este momento.',
+          code: 'BIOMETRIC_PROVIDER_UNAVAILABLE',
+        });
+      }
+
+      const session = await createKioskEmployeeSession(pool, {
+        deviceId: device.id,
+        tenantId: device.tenant_id,
+        branchId: device.branch_id,
+        employeeId: String(emp.id),
+        purpose: 'punch',
+      });
+
+      res.json({
+        success: true,
+        punch_token: session.rawToken,
+        employee_id: String(emp.id),
+        has_profile_photo: true,
+        biometric_mode: 'face_verify',
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/kiosk/punch
   router.post('/punch', requireKioskDevice, async (req, res) => {
     try {

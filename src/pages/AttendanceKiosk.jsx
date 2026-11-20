@@ -851,7 +851,9 @@ const AttendanceKiosk = () => {
                   <span style={{ color: '#10b981', fontWeight: 800 }}>📍 {kioskSessionInfo.branch.name}</span>
                   <span style={{ color: '#27272a' }}>•</span>
                   <span style={{ color: '#38bdf8', fontWeight: 700 }}>
-                    {kioskSessionInfo?.biometricPolicy?.mode === 'pin_face_verify' ? '🛡️ PIN + Biometría Facial' : '📸 PIN + Fotografía'}
+                    {(kioskSessionInfo?.biometricPolicy?.mode === 'pin_face_verify' || kioskSessionInfo?.biometricPolicy?.providerConfigured)
+                      ? '🛡️ Reconocimiento Facial (CompreFace)'
+                      : '📸 PIN + Fotografía'}
                   </span>
                 </>
               )}
@@ -1102,16 +1104,51 @@ const AttendanceKiosk = () => {
                         const empPunches = todayPunches.filter(p => String(p.employee_id) === String(emp.id));
                         const lastPunch = empPunches[empPunches.length - 1];
                         
-                        // Si no hay ponches previos hoy, el primer ponche SIEMPRE debe ser Entrada (Check-In).
-                        // Nunca auto-asignar Salida en el primer ponche por hora o turno de la tarde.
-                        // Si el último ponche registrado hoy fue Entrada, el siguiente es Salida (Check-Out).
-                        // Si el último ponche fue Salida, el siguiente vuelve a ser Entrada (Check-In).
                         let nextType = 'Check-In';
                         if (lastPunch && lastPunch.type === 'Check-In') {
                           nextType = 'Check-Out';
                         }
                         setPunchType(nextType);
                         setPassword('');
+
+                        // Si CompreFace está activo, ir directo a cámara/verificación facial sin pedir contraseña
+                        if (kioskSessionInfo?.biometricPolicy?.providerConfigured) {
+                          if (!emp.has_profile_photo) {
+                            alert('Este colaborador no tiene foto de referencia registrada. Sube su foto en el módulo de Personal para usar reconocimiento facial.');
+                            return;
+                          }
+                          try {
+                            const res = await fetch('/api/kiosk/start-face-punch', {
+                              method: 'POST',
+                              credentials: 'include',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ employee_id: emp.id }),
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (res.status === 401 && data.code === 'KIOSK_DEVICE_UNBOUND') {
+                              setKioskActive(false);
+                              setKioskSessionInfo(null);
+                              setKioskBannerError(data.error || 'Dispositivo revocado.');
+                              return;
+                            }
+                            if (res.ok && data.success && data.punch_token) {
+                              setPunchToken(data.punch_token);
+                              setStep(3);
+                              setMatchingStatus('matching');
+                              setStatusMessage('Preparando cámara para reconocimiento facial...');
+                              setTimeout(() => {
+                                startCamera();
+                              }, 100);
+                              return;
+                            }
+                            alert(data.error || 'No se pudo iniciar la verificación facial.');
+                          } catch (err) {
+                            console.error(err);
+                            alert('Error al conectar con el servidor para reconocimiento facial.');
+                          }
+                          return;
+                        }
+
                         setStep(2);
                       }}
                       style={{
@@ -1184,24 +1221,26 @@ const AttendanceKiosk = () => {
               ))}
             </div>
 
-            <button
-              onClick={() => {
-                setShowDeactivateModal(true);
-              }}
-              style={{
-                marginTop: '3rem',
-                background: 'transparent',
-                border: 'none',
-                color: '#71717a',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                alignSelf: 'center',
-                fontWeight: 700
-              }}
-            >
-              Cambiar de Sucursal (Configuración de Tablet)
-            </button>
+            {!isKioskOnlyUser && (
+              <button
+                onClick={() => {
+                  setShowDeactivateModal(true);
+                }}
+                style={{
+                  marginTop: '3rem',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#71717a',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  alignSelf: 'center',
+                  fontWeight: 700
+                }}
+              >
+                Cambiar de Sucursal (Configuración de Tablet)
+              </button>
+            )}
           </div>
         )
       )}
