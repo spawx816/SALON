@@ -16,6 +16,7 @@ import {
   X,
   Loader2,
   ExternalLink,
+  ShieldCheck,
 } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
 import { useEntitlements } from '../../context/EntitlementsContext';

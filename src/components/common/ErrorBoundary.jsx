@@ -36,6 +36,43 @@ class ErrorBoundary extends React.Component {
     window.location.reload();
   };
 
+  getRecoveryTarget = () => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem('salon_pro_user') : null;
+      const savedUser = raw ? JSON.parse(raw) : null;
+      const isKioskOnly = Boolean(
+        savedUser?.kioskOnly ||
+        String(savedUser?.role || savedUser?.rol || '').trim().toLowerCase() === 'kiosco_asistencia'
+      );
+      if (isKioskOnly) {
+        const onKiosk = typeof window !== 'undefined' && window.location.pathname === '/asistencia';
+        return onKiosk
+          ? { href: '/login', label: '🔐 Ir al Inicio de Sesión', clearSession: true }
+          : { href: '/asistencia', label: '↩️ Volver al Kiosco', clearSession: false };
+      }
+    } catch (_) {
+      // ignore storage errors
+    }
+    return { href: '/', label: '🏠 Ir al Inicio', clearSession: false };
+  };
+
+  handleRecoveryNavigate = async () => {
+    const target = this.getRecoveryTarget();
+    if (target.clearSession) {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch (_) {
+        // ignore network errors during recovery logout
+      }
+      try {
+        window.localStorage.removeItem('salon_pro_user');
+      } catch (_) {
+        // ignore
+      }
+    }
+    window.location.href = target.href;
+  };
+
   render() {
     if (this.state.hasError) {
       const isDev = Boolean(typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV);
@@ -142,7 +179,7 @@ class ErrorBoundary extends React.Component {
 
               <button
                 type="button"
-                onClick={() => { window.location.href = '/'; }}
+                onClick={this.handleRecoveryNavigate}
                 style={{
                   background: '#f1f5f9',
                   color: '#334155',
@@ -154,7 +191,7 @@ class ErrorBoundary extends React.Component {
                   cursor: 'pointer'
                 }}
               >
-                🏠 Ir al Inicio
+                {this.getRecoveryTarget().label}
               </button>
             </div>
           </div>

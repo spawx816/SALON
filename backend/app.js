@@ -487,6 +487,8 @@ function createApp(dependencies = {}) {
         const allowedForKioskUser =
           pathUrl === '/api/auth/me' ||
           pathUrl === '/api/auth/session' ||
+          pathUrl === '/api/auth/session-status' ||
+          pathUrl === '/api/session-status' ||
           pathUrl === '/api/auth/logout' ||
           pathUrl === '/api/logout' ||
           pathUrl === '/api/demo/status' ||

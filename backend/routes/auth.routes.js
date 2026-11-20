@@ -1648,18 +1648,12 @@ function createAuthRouter(pool, options = {}) {
             tokenVersion: (u.token_version !== undefined && u.token_version !== null) ? Number(u.token_version) : 1
           });
 
-          res.cookie('auth_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 24 * 60 * 60 * 1000
-          });
-
           let resolvedPermissions = {};
           const normalizedSysRole = normalizeRole(effectiveRole);
           const isKioskAccount = normalizedSysRole === 'kiosco_asistencia';
           const isAdminLike = !isKioskAccount && (isSuperAdmin || ['propietario', 'admin'].includes(normalizedSysRole));
+          let kioskDeviceBind = null;
+
           if (isKioskAccount) {
             resolvedPermissions = {};
             const assignedBranchId = u.branch_id || u.salon_id || null;
@@ -1675,18 +1669,41 @@ function createAuthRouter(pool, options = {}) {
               buildCookieOptions,
               bindKioskDevice,
             } = require('../services/kiosk_device.service');
-            const bound = await bindKioskDevice(pool, {
-              tenantId: u.tenant_id,
-              branchId: String(assignedBranchId),
-              deviceName: `Kiosco · ${u.name || u.nombre || u.email}`,
-              actorUserId: String(u.id),
-              actorName: u.name || u.nombre || u.email,
-            });
-            res.cookie(KIOSK_DEVICE_COOKIE, bound.rawToken, buildCookieOptions(req, DEVICE_TTL_MS));
+            try {
+              const bound = await bindKioskDevice(pool, {
+                tenantId: u.tenant_id,
+                branchId: String(assignedBranchId),
+                deviceName: `Kiosco · ${u.name || u.nombre || u.email}`,
+                actorUserId: String(u.id),
+                actorName: u.name || u.nombre || u.email,
+              });
+              kioskDeviceBind = {
+                cookieName: KIOSK_DEVICE_COOKIE,
+                rawToken: bound.rawToken,
+                cookieOptions: buildCookieOptions(req, DEVICE_TTL_MS),
+              };
+            } catch (bindErr) {
+              console.error('[KIOSK_BIND_ERROR]:', bindErr);
+              return res.status(503).json({
+                error: 'No se pudo vincular este dispositivo al Kiosco de Asistencia. Intenta nuevamente.',
+                code: 'KIOSK_BIND_FAILED',
+              });
+            }
           } else if (u.role_permissions) {
             resolvedPermissions = expandEffectivePermissions(u.role_permissions);
           } else if (isAdminLike) {
             resolvedPermissions = ['all'];
+          }
+
+          res.cookie('auth_token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 24 * 60 * 60 * 1000
+          });
+          if (kioskDeviceBind) {
+            res.cookie(kioskDeviceBind.cookieName, kioskDeviceBind.rawToken, kioskDeviceBind.cookieOptions);
           }
 
           // NUNCA devolver el token en el body JSON; se transmite exclusivamente vía cookie HttpOnly

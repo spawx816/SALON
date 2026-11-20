@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Camera, ShieldCheck, ShieldAlert, Clock, User, ArrowLeft, ArrowRight, CheckCircle, RefreshCw, MapPin, TrendingUp, Mail, X, DollarSign, Key, Calendar, FileText, Printer } from 'lucide-react';
 import { dataService } from '../utils/dataService';
 import { useTranslation } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 
 // Umbral de distancia euclidiana para coincidencia de rostros.
 // Un valor menor es más estricto (reduce falsos positivos de personas del mismo género).
@@ -11,11 +12,17 @@ const FACE_MATCH_THRESHOLD = 0.48;
 
 const AttendanceKiosk = () => {
   const { t } = useTranslation();
+  const { user, logout } = useAuth();
+  const isKioskOnlyUser = Boolean(
+    user?.kioskOnly || String(user?.role || user?.rol || '').trim().toLowerCase() === 'kiosco_asistencia'
+  );
   const [employees, setEmployees] = useState([]);
   const [salons, setSalons] = useState([]);
   const [kioskSalonId, setKioskSalonId] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [kioskActive, setKioskActive] = useState(false);
+  const [sessionChecking, setSessionChecking] = useState(true);
+  const [kioskLoadError, setKioskLoadError] = useState('');
   const [kioskSessionInfo, setKioskSessionInfo] = useState(null);
   const [punchToken, setPunchToken] = useState('');
   const [kioskBannerError, setKioskBannerError] = useState('');
@@ -100,33 +107,73 @@ const AttendanceKiosk = () => {
     }
   };
 
+  const handleKioskLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch { /* ignore */ }
+    stopCamera();
+    try {
+      logout();
+    } catch { /* ignore */ }
+    try {
+      localStorage.removeItem('salon_pro_user');
+    } catch { /* ignore */ }
+    setKioskActive(false);
+    setKioskSessionInfo(null);
+    window.location.href = '/login';
+  };
+
   const loadBoundKioskState = async () => {
+    setSessionChecking(true);
+    setKioskLoadError('');
     try {
       // Limpiar llaves legacy inseguras de localStorage (requieren revinculación autorizada)
       localStorage.removeItem('kiosk_active');
       localStorage.removeItem('kiosk_salon_id');
 
       const sessRes = await fetch('/api/kiosk/session', { credentials: 'include', cache: 'no-store' });
-      const sessData = sessRes.ok ? await sessRes.json() : { bound: false };
+      if (!sessRes.ok && sessRes.status >= 500) {
+        setKioskActive(false);
+        setKioskSessionInfo(null);
+        setKioskLoadError('El servidor de asistencia no está disponible temporalmente. Intenta reconectar en unos segundos.');
+        return;
+      }
+      const sessData = sessRes.ok ? await sessRes.json().catch(() => ({ bound: false })) : { bound: false };
 
       if (sessData?.bound) {
         setKioskActive(true);
         setKioskSessionInfo(sessData);
         setKioskSalonId(sessData.branch?.id || '');
+        setKioskBannerError('');
         const [empRes] = await Promise.all([
           fetch('/api/kiosk/employees', { credentials: 'include', cache: 'no-store' }),
           refreshTodayPunches(),
         ]);
-        const empData = empRes.ok ? await empRes.json() : { employees: [] };
+        if (empRes.status === 401) {
+          setKioskActive(false);
+          setKioskSessionInfo(null);
+          setKioskLoadError('Este dispositivo fue revocado o su sesión expiró. Vuelve a iniciar sesión.');
+          return;
+        }
+        const empData = empRes.ok ? await empRes.json().catch(() => ({ employees: [] })) : { employees: [] };
         setEmployees(Array.isArray(empData?.employees) ? empData.employees : []);
       } else {
         setKioskActive(false);
         setKioskSessionInfo(null);
-        const sal = await dataService.getSalons().catch(() => []);
-        setSalons(sal || []);
+        if (isKioskOnlyUser) {
+          setKioskLoadError('Este dispositivo fue revocado o la vinculación del kiosco expiró. Reintenta o vuelve a iniciar sesión con tu cuenta Kiosco.');
+        } else {
+          const sal = await dataService.getSalons().catch(() => []);
+          setSalons(Array.isArray(sal) ? sal : []);
+        }
       }
     } catch (err) {
       console.error('Error loading kiosk state:', err);
+      setKioskActive(false);
+      setKioskSessionInfo(null);
+      setKioskLoadError('No se pudo conectar con el servidor de asistencia. Verifica tu conexión e intenta nuevamente.');
+    } finally {
+      setSessionChecking(false);
     }
   };
 
@@ -825,18 +872,10 @@ const AttendanceKiosk = () => {
               </div>
             </div>
           </div>
-          {kioskActive && (
+          {(kioskActive || isKioskOnlyUser) && (
             <button
               type="button"
-              onClick={async () => {
-                try {
-                  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-                } catch { /* ignore */ }
-                stopCamera();
-                setKioskActive(false);
-                setKioskSessionInfo(null);
-                window.location.href = '/login';
-              }}
+              onClick={handleKioskLogout}
               style={{
                 padding: '0.65rem 1rem',
                 borderRadius: '10px',
@@ -854,8 +893,64 @@ const AttendanceKiosk = () => {
         </div>
       </div>
 
-      {/* Configuration View: Secure Activation for Kiosk */}
-      {!kioskActive ? (
+      {/* Loading / Recoverable Error / Configuration View */}
+      {sessionChecking ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', maxWidth: '480px', width: '100%', margin: '2rem auto' }}>
+          <div style={{ background: '#18181b', border: '1px solid #27272a', padding: '2.5rem 2rem', borderRadius: '24px', width: '100%', textAlign: 'center' }}>
+            <RefreshCw size={32} color="#10b981" style={{ marginBottom: '1rem' }} />
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 0.5rem 0', color: '#ffffff' }}>Verificando Kiosco de Asistencia...</h3>
+            <p style={{ fontSize: '0.85rem', color: '#a1a1aa', margin: 0 }}>Confirmando vinculación del dispositivo y sucursal asignada.</p>
+          </div>
+        </div>
+      ) : !kioskActive && (isKioskOnlyUser || kioskLoadError) ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', maxWidth: '500px', width: '100%', margin: '2rem auto' }}>
+          <div style={{ background: '#18181b', border: '1px solid #27272a', padding: '2.5rem 2rem', borderRadius: '24px', width: '100%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)', textAlign: 'center' }}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(245, 158, 11, 0.12)', color: '#fbbf24', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+              <ShieldAlert size={30} />
+            </div>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 900, marginBottom: '0.5rem', color: '#ffffff' }}>
+              Kiosco no disponible
+            </h3>
+            <p style={{ fontSize: '0.88rem', color: '#a1a1aa', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+              {kioskLoadError || kioskBannerError || 'La sesión de este dispositivo expiró o fue revocada. Reintenta o vuelve a iniciar sesión.'}
+            </p>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={loadBoundKioskState}
+                style={{
+                  padding: '0.75rem 1.35rem',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: '#10b981',
+                  color: '#09090b',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Reintentar Conexión
+              </button>
+              <button
+                type="button"
+                onClick={handleKioskLogout}
+                style={{
+                  padding: '0.75rem 1.35rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(239,68,68,0.4)',
+                  background: 'rgba(239,68,68,0.12)',
+                  color: '#fca5a5',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Cerrar Sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : !kioskActive ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', maxWidth: '480px', width: '100%', margin: '2rem auto' }}>
           <div style={{ background: '#18181b', border: '1px solid #27272a', padding: '2.5rem 2rem', borderRadius: '24px', width: '100%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.5)' }}>
             <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>

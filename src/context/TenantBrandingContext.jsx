@@ -30,6 +30,9 @@ export function TenantBrandingProvider({ children }) {
     user?.role_name?.toLowerCase()?.includes('superadmin') ||
     user?.isSuperAdmin
   );
+  const isKioskOnlyUser = Boolean(
+    user?.kioskOnly || String(user?.role || user?.rol || '').trim().toLowerCase() === 'kiosco_asistencia'
+  );
 
   const tenantId = user?.tenant_id || user?.tenant?.id || null;
 
@@ -47,7 +50,7 @@ export function TenantBrandingProvider({ children }) {
 
   // Fetch branding from API
   const fetchBranding = useCallback(async () => {
-    if (!user || isSuperAdmin || !tenantId) {
+    if (!user || isSuperAdmin || isKioskOnlyUser || !tenantId) {
       setBranding(DEFAULT_BRANDING);
       applyCssTokens(DEFAULT_BRANDING);
       return;
@@ -93,7 +96,7 @@ export function TenantBrandingProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [user, isSuperAdmin, tenantId, applyCssTokens]);
+  }, [user, isSuperAdmin, isKioskOnlyUser, tenantId, applyCssTokens]);
 
   useEffect(() => {
     fetchBranding();

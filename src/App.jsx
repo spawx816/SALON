@@ -276,9 +276,11 @@ const AppContent = () => {
   if (!user) {
     if (location.pathname === '/asistencia') {
       return (
-        <Routes>
-          <Route path="/asistencia" element={<AttendanceKiosk />} />
-        </Routes>
+        <Suspense fallback={<WorkspaceSkeleton />}>
+          <Routes>
+            <Route path="/asistencia" element={<AttendanceKiosk />} />
+          </Routes>
+        </Suspense>
       );
     }
 

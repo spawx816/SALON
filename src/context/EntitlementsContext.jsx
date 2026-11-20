@@ -39,9 +39,12 @@ export const EntitlementsProvider = ({ children }) => {
   const lastFetchedAtRef = useRef(0);
 
   const isSuperAdminUser = Boolean(user?.isSuperAdmin || String(user?.role || '').toLowerCase() === 'superadmin');
+  const isKioskOnlyUser = Boolean(
+    user?.kioskOnly || String(user?.role || user?.rol || '').trim().toLowerCase() === 'kiosco_asistencia'
+  );
 
   const fetchEntitlements = useCallback(async () => {
-    if (!user || isSuperAdminUser) {
+    if (!user || isSuperAdminUser || isKioskOnlyUser) {
       setLoading(false);
       return;
     }
@@ -77,7 +80,7 @@ export const EntitlementsProvider = ({ children }) => {
   }, [fetchEntitlements]);
 
   useEffect(() => {
-    if (!user || isSuperAdminUser) return undefined;
+    if (!user || isSuperAdminUser || isKioskOnlyUser) return undefined;
     const handleRevalidate = () => {
       if (document.visibilityState === 'hidden') return;
       if (Date.now() - lastFetchedAtRef.current >= 5000) {
