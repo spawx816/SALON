@@ -168,6 +168,14 @@ class InventoryService {
     if (!product) {
       const err = new Error('Producto no encontrado en inventario');
       err.code = 'NOT_FOUND';
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (product.is_active === false || Number(product.activo ?? 1) === 0) {
+      const err = new Error(`El producto "${product.name}" está archivado o inactivo y no puede venderse.`);
+      err.code = 'PRODUCT_ARCHIVED';
+      err.statusCode = 400;
       throw err;
     }
 

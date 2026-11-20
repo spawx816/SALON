@@ -162,6 +162,14 @@ class InventoryRepository {
   async getOrCreateDefaultLocation(tenantId, salonId = null) {
     if (!tenantId) throw new Error('tenant_id es requerido');
     if (this.pool) {
+      if (salonId !== null && salonId !== undefined && String(salonId).trim() !== '') {
+        const [branchLocs] = await this.pool.query(
+          'SELECT * FROM inventory_locations WHERE tenant_id = ? AND salon_id::text = ? AND is_active = TRUE ORDER BY is_default DESC, id ASC LIMIT 1',
+          [tenantId, String(salonId).trim()]
+        );
+        if (branchLocs && branchLocs.length > 0) return branchLocs[0];
+      }
+
       const [rows] = await this.pool.query(
         'SELECT * FROM inventory_locations WHERE tenant_id = ? AND is_default = TRUE LIMIT 1',
         [tenantId]
@@ -173,7 +181,7 @@ class InventoryRepository {
         INSERT INTO inventory_locations (tenant_id, salon_id, name, code, type, is_default, is_active, created_at, updated_at)
         VALUES (?, ?, 'Almacén Principal', 'LOC-MAIN', 'STORE', TRUE, TRUE, NOW(), NOW())
         RETURNING *
-      `, [tenantId, salonId]);
+      `, [tenantId, null]);
       return created[0];
     }
     return null;

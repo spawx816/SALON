@@ -220,6 +220,13 @@ function createCashRegistersRouter(pool) {
       const tenantId = req.tenantId;
       const { salon_id = 1 } = req.query;
 
+      if (salon_id && salon_id !== 'all' && !isBranchAuthorized(req, salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para consultar la caja de esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+
       let query = "SELECT * FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta'";
       const params = [tenantId];
 
@@ -242,16 +249,17 @@ function createCashRegistersRouter(pool) {
 
       const register = rows[0];
 
-      // Calcular movimientos manuales de esta caja dentro del tenant
+      // Calcular movimientos manuales de esta caja dentro del tenant (excluyendo 'anulacion_venta' para no descontar doble)
       const [movs] = await pool.query(
         'SELECT type, COALESCE(SUM(amount), 0) as total FROM cash_register_movements WHERE cash_register_id = ? AND tenant_id = ? GROUP BY type',
-        [register.id, tenantId]
+        [String(register.id), tenantId]
       );
 
       let totalIngresosManuales = 0;
       let totalSalidasManuales = 0;
       movs.forEach(m => {
         const t = String(m.type || '').toLowerCase();
+        if (t === 'anulacion_venta') return;
         if (t === 'ingreso' || t === 'in' || t === 'entrada') {
           totalIngresosManuales += Number(m.total || 0);
         } else {
@@ -259,15 +267,15 @@ function createCashRegistersRouter(pool) {
         }
       });
 
-      // Calcular ventas POS cobradas durante la jornada de esta caja dentro del tenant
+      // Calcular ventas POS cobradas estrictamente en esta caja dentro del tenant
       const [sales] = await pool.query(`
         SELECT metodo_pago, COALESCE(SUM(total), 0) as total, COUNT(*) as count
         FROM visits
         WHERE tenant_id = ?
-          AND (cash_register_id = ? OR (visited_at >= ? AND status = 'Facturado'))
+          AND cash_register_id::text = ?
           AND status = 'Facturado'
         GROUP BY metodo_pago
-      `, [tenantId, register.id, register.opened_at]);
+      `, [tenantId, String(register.id)]);
 
       let ventasEfectivo = 0;
       let ventasTarjeta = 0;
@@ -288,19 +296,22 @@ function createCashRegistersRouter(pool) {
         }
       });
 
-      const openingBalance = Number(register.opening_amount ?? register.opening_balance ?? 0);
-      const expectedCash = openingBalance + ventasEfectivo + totalIngresosManuales - totalSalidasManuales;
+      const openingBalance = Number(register.monto_inicial ?? register.opening_amount ?? register.opening_balance ?? 0);
+      const expectedCashCents = Math.round((openingBalance + ventasEfectivo + totalIngresosManuales - totalSalidasManuales) * 100);
+      const expectedCash = expectedCashCents / 100;
 
       res.json({
         ...register,
         opening_balance: openingBalance,
+        opening_balance_cents: Math.round(openingBalance * 100),
         ventas_efectivo: ventasEfectivo,
         ventas_tarjeta: ventasTarjeta,
         ventas_transferencia: ventasTransferencia,
         ventas_otros: ventasOtros,
         ingresos_manuales: totalIngresosManuales,
         salidas_manuales: totalSalidasManuales,
-        expected_cash: expectedCash
+        expected_cash: expectedCash,
+        expected_cash_cents: expectedCashCents
       });
     } catch (err) {
       console.error('[CASH REGISTER ACTIVE ERROR]:', err);
@@ -384,17 +395,33 @@ function createCashRegistersRouter(pool) {
       }
 
       const register = rows[0];
+      if (!isBranchAuthorized(req, register.branch_id ?? register.salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para cerrar cajas de esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+      if (String(register.status || '').toLowerCase() === 'cerrada') {
+        return res.status(409).json({
+          error: 'Esta caja ya se encuentra cerrada.',
+          code: 'ALREADY_CLOSED',
+          id: register.id,
+          closed_at: register.closed_at
+        });
+      }
+
       const openingBalance = Number(register.monto_inicial ?? register.opening_balance ?? register.opening_amount ?? 0);
 
       const [movs] = await pool.query(
         'SELECT type, COALESCE(SUM(amount), 0) as total FROM cash_register_movements WHERE cash_register_id = ? AND tenant_id = ? GROUP BY type',
-        [id, tenantId]
+        [String(id), tenantId]
       );
 
       let ingresos = 0;
       let salidas = 0;
       movs.forEach(m => {
         const t = String(m.type || '').toLowerCase();
+        if (t === 'anulacion_venta') return;
         if (t === 'ingreso' || t === 'in' || t === 'entrada') ingresos += Number(m.total || 0);
         else salidas += Number(m.total || 0);
       });
@@ -403,10 +430,10 @@ function createCashRegistersRouter(pool) {
         SELECT COALESCE(SUM(total), 0) as cash_sales
         FROM visits
         WHERE tenant_id = ?
-          AND (cash_register_id = ? OR (visited_at >= ? AND status = 'Facturado'))
+          AND cash_register_id::text = ?
           AND status = 'Facturado'
           AND (LOWER(metodo_pago) LIKE '%efectivo%' OR LOWER(metodo_pago) LIKE '%cash%' OR metodo_pago IS NULL)
-      `, [tenantId, id, register.opened_at]);
+      `, [tenantId, String(id)]);
 
       const cashSales = Number(sales[0]?.cash_sales || 0);
       const expectedBalance = openingBalance + cashSales + ingresos - salidas;
@@ -478,7 +505,7 @@ function createCashRegistersRouter(pool) {
 
           // Lookup supervisor user
           const [supRows] = await pool.query(
-            "SELECT id FROM users WHERE tenant_id = ? AND role IN ('propietario', 'admin', 'supervisor') LIMIT 1",
+            "SELECT id FROM users WHERE tenant_id = ? AND LOWER(role) IN ('propietario', 'owner', 'admin', 'supervisor') LIMIT 1",
             [tenantId]
           );
           supervisorUserId = supRows[0]?.id || null;
@@ -492,7 +519,10 @@ function createCashRegistersRouter(pool) {
       await pool.query(
         `UPDATE cash_registers SET
            monto_final = ?,
+           closing_balance_cents = ?,
+           expected_balance_cents = ?,
            diferencia = ?,
+           difference_cents = ?,
            difference_amount_cents = ?,
            discrepancy_reason = ?,
            supervisor_user_id = ?,
@@ -507,7 +537,10 @@ function createCashRegistersRouter(pool) {
          WHERE id = ? AND tenant_id = ?`,
         [
           actualClosing,
+          actualClosingCents,
+          expectedBalanceCents,
           difference,
+          differenceCents,
           differenceCents,
           discrepancy_reason ? String(discrepancy_reason).trim() : null,
           supervisorUserId,

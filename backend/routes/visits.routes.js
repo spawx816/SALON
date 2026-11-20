@@ -94,6 +94,7 @@ function createVisitsRouter(pool, helpers = {}) {
             empIdRaw: empIdRaw ? String(empIdRaw).replace('EMP-', '').trim() : null,
             empNameRaw: empNameRaw ? String(empNameRaw).trim() : null,
             serviceName,
+            isProductItem: String(item.tipo_item || item.item_type || '').toUpperCase() === 'PRODUCTO' || Boolean(item.is_product) || Boolean(item.product_id),
             precioBase: Number(item.precioAplicado ?? item.precio ?? 0) * (Number(item.cantidad) || 1),
             cantidad: Number(item.cantidad) || 1
           });
@@ -150,7 +151,7 @@ function createVisitsRouter(pool, helpers = {}) {
       if (srvNameArr.length > 0) {
         const ph = srvNameArr.map(() => '?').join(', ');
         const [serviceRows] = await pool.query(
-          `SELECT id, COALESCE(nombre, name) as service_name, comision_valor, tipo_comision, tenant_id 
+          `SELECT id, COALESCE(nombre, name) as service_name, item_type, comision_valor, tipo_comision, tenant_id 
            FROM services 
            WHERE tenant_id = ? AND LOWER(COALESCE(nombre, name)) IN (${ph})`,
           [resolvedTenantId, ...srvNameArr]
@@ -177,22 +178,27 @@ function createVisitsRouter(pool, helpers = {}) {
 
         if (!emp) continue;
 
-        let pct = 15;
-        let montoComision = Math.round(item.precioBase * (pct / 100) * 100) / 100;
-
         const srvKey = item.serviceName.trim().toLowerCase();
-        if (serviceMap.has(srvKey)) {
-          const srv = serviceMap.get(srvKey);
-          if (srv.comision_valor && Number(srv.comision_valor) > 0) {
-            if (srv.tipo_comision === 'Monto Fijo') {
-              montoComision = Math.round(Number(srv.comision_valor) * item.cantidad * 100) / 100;
-              pct = 0;
-            } else {
-              pct = Number(srv.comision_valor);
-              montoComision = Math.round(item.precioBase * (pct / 100) * 100) / 100;
-            }
+        const srv = serviceMap.has(srvKey) ? serviceMap.get(srvKey) : null;
+        const isProduct = item.isProductItem || (srv && String(srv.item_type || '').toUpperCase() === 'PRODUCTO');
+
+        let pct = isProduct ? 0 : 15;
+        let montoComision = isProduct ? 0 : Math.round(item.precioBase * (pct / 100) * 100) / 100;
+
+        if (srv && srv.comision_valor !== undefined && srv.comision_valor !== null && Number(srv.comision_valor) > 0) {
+          if (srv.tipo_comision === 'Monto Fijo') {
+            montoComision = Math.round(Number(srv.comision_valor) * item.cantidad * 100) / 100;
+            pct = 0;
+          } else {
+            pct = Number(srv.comision_valor);
+            montoComision = Math.round(item.precioBase * (pct / 100) * 100) / 100;
           }
         }
+
+        // Productos sin regla de comisión no generan registro de comisión
+        if (montoComision <= 0) continue;
+
+        const commissionCents = Math.round(montoComision * 100);
 
         insertRows.push([
           resolvedTenantId,
@@ -204,6 +210,9 @@ function createVisitsRouter(pool, helpers = {}) {
           item.precioBase,
           pct,
           montoComision,
+          montoComision,
+          commissionCents,
+          'DOP',
           'Pendiente',
           emp.localidad || 'Principal',
           item.visitedAt
@@ -214,13 +223,13 @@ function createVisitsRouter(pool, helpers = {}) {
       const chunkSize = 250;
       for (let i = 0; i < insertRows.length; i += chunkSize) {
         const chunk = insertRows.slice(i, i + chunkSize);
-        const rowPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+        const rowPlaceholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
         const flatParams = chunk.flat();
 
         await pool.query(
           `INSERT INTO employee_commissions_log (
              tenant_id, visit_id, ticket_number, employee_id, employee_name, service_name,
-             precio_servicio, commission_rate, monto_comision, status, localidad, created_at
+             precio_servicio, commission_rate, monto_comision, commission_amount, commission_cents, currency, status, localidad, created_at
            ) VALUES ${rowPlaceholders}`,
           flatParams
         );
@@ -493,6 +502,8 @@ function createVisitsRouter(pool, helpers = {}) {
 
   // 7. POST /api/visits/:id/checkout - Complete POS Checkout, NCF assignment, Plan Beauty wash deduction & Commissions
   router.post('/:id/checkout', async (req, res) => {
+    const deductedLines = [];
+    let resolvedLocationId = null;
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
@@ -518,17 +529,154 @@ function createVisitsRouter(pool, helpers = {}) {
         recepcionista = 'Recepción',
         consume_wash = false,
         wash_count_to_consume = 0,
-        cash_register_id = null
+        cash_register_id = null,
+        location_id = null
       } = req.body;
 
-      // Resolve active cash register within this tenant if not passed explicitly
-      let activeRegisterId = cash_register_id;
-      if (!activeRegisterId) {
-        const [regRows] = await pool.query(
-          "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta' ORDER BY opened_at DESC LIMIT 1",
-          [tenantId]
+      // 1. Verificar autorización de sucursal
+      if (!isBranchAuthorized(req, salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para facturar en esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+
+      // 2. Idempotencia natural: si la visita ya fue facturada, retornar sin duplicar stock/comisiones/pagos
+      const [existingRows] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      if (existingRows.length > 0 && String(existingRows[0].status || '').trim() === 'Facturado') {
+        return res.json({
+          success: true,
+          id,
+          ticket_number: existingRows[0].ticket_number,
+          ncf: existingRows[0].ncf || null,
+          ncf_name: existingRows[0].ncf_name || null,
+          status: 'Facturado',
+          idempotent: true
+        });
+      }
+
+      // 3. Validar integridad multi-tenant de client_id si se proporcionó
+      if (client_id) {
+        const [clientRows] = await pool.query(
+          'SELECT id FROM clients WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+          [String(client_id), tenantId]
         );
-        if (regRows.length > 0) activeRegisterId = regRows[0].id;
+        if (!clientRows || clientRows.length === 0) {
+          return res.status(404).json({
+            error: 'El cliente especificado no pertenece a esta empresa.',
+            code: 'CLIENT_NOT_FOUND'
+          });
+        }
+      }
+
+      // 4. Validar autorización de descuento manual (> 0) para actores no privilegiados
+      const parsedDescuento = Number(descuento) || 0;
+      if (parsedDescuento > 0) {
+        const actorRole = String(req.auth?.role || req.user?.role || '').toLowerCase();
+        const canApplyDiscount = actorRole === 'propietario' || actorRole === 'owner' || actorRole === 'admin' || Boolean(req.auth?.isSuperAdmin) || permissionMapGrants(req.auth?.permissions, 'pos.discounts.apply');
+        if (!canApplyDiscount) {
+          const providedPin = req.body?.admin_pin || req.body?.supervisor_pin || req.body?.pin || req.headers['x-admin-pin'];
+          if (!providedPin) {
+            return res.status(403).json({
+              error: 'Se requiere autorización de administrador (PIN) para aplicar descuentos manuales.',
+              code: 'DISCOUNT_PIN_REQUIRED'
+            });
+          }
+          const [secRows] = await pool.query(
+            'SELECT admin_pin, admin_pin_hash, active_otp_pin, otp_expires_at FROM security_settings WHERE tenant_id = ? LIMIT 1',
+            [tenantId]
+          );
+          const sec = secRows && secRows[0] ? secRows[0] : null;
+          const isOtpValid = Boolean(sec && sec.active_otp_pin && String(providedPin) === String(sec.active_otp_pin) && sec.otp_expires_at && new Date(sec.otp_expires_at) > new Date());
+          let isMasterValid = false;
+          const storedMaster = sec?.admin_pin_hash || sec?.admin_pin;
+          if (storedMaster) {
+            const { verifyPin } = require('../services/pin_security.service');
+            const verifyRes = await verifyPin(String(providedPin), storedMaster);
+            isMasterValid = verifyRes.matched;
+          }
+          if (!isMasterValid && !isOtpValid) {
+            return res.status(401).json({
+              error: 'PIN de administrador incorrecto para aplicar descuento.',
+              code: 'INVALID_ADMIN_PIN'
+            });
+          }
+        }
+      }
+
+      // 5. Validar que los colaboradores asignados en items_detail pertenezcan a la empresa
+      const rawItemsForValidation = Array.isArray(items_detail) && items_detail.length > 0
+        ? items_detail
+        : (Array.isArray(servicios) ? servicios : []);
+      for (const it of rawItemsForValidation) {
+        const empIdRaw = it.colaboradorId || it.employee_id || it.stylist_id;
+        if (empIdRaw) {
+          const cleanEmpId = String(empIdRaw).replace('EMP-', '').trim();
+          const [empCheck] = await pool.query(
+            'SELECT id FROM staff_records WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+            [cleanEmpId, tenantId]
+          );
+          if (!empCheck || empCheck.length === 0) {
+            return res.status(404).json({
+              error: 'El colaborador asignado no pertenece a esta empresa.',
+              code: 'EMPLOYEE_NOT_FOUND'
+            });
+          }
+        }
+      }
+
+      // 6. Validar caja abierta obligatoria dentro del tenant y sucursal (rechazar cerradas o inexistentes)
+      let activeRegisterId = cash_register_id;
+      if (activeRegisterId) {
+        const [regCheck] = await pool.query(
+          'SELECT id, status, branch_id, salon_id FROM cash_registers WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+          [String(activeRegisterId), tenantId]
+        );
+        if (!regCheck || regCheck.length === 0) {
+          return res.status(404).json({
+            error: 'La caja especificada no existe en esta empresa.',
+            code: 'CASH_REGISTER_NOT_FOUND'
+          });
+        }
+        const reg = regCheck[0];
+        if (!isBranchAuthorized(req, reg.branch_id ?? reg.salon_id)) {
+          return res.status(403).json({
+            error: 'No tienes autorización para facturar en esta caja.',
+            code: 'BRANCH_ACCESS_DENIED'
+          });
+        }
+        if (String(reg.status || '').toLowerCase() !== 'abierta') {
+          return res.status(409).json({
+            error: 'No se pueden registrar ventas en una caja cerrada.',
+            code: 'CASH_REGISTER_CLOSED'
+          });
+        }
+      } else {
+        const sid = String(salon_id || '1');
+        const [regRows] = sid.length > 10
+          ? await pool.query(
+              "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta' AND (branch_id::text = ? OR salon_id::text = ?) ORDER BY opened_at DESC LIMIT 1",
+              [tenantId, sid, sid]
+            )
+          : await pool.query(
+              "SELECT id FROM cash_registers WHERE tenant_id = ? AND status = 'Abierta' AND (salon_id::text = ? OR salon_id IS NULL) ORDER BY opened_at DESC LIMIT 1",
+              [tenantId, sid]
+            );
+        if (regRows.length > 0) {
+          activeRegisterId = regRows[0].id;
+        } else if (process.env.NODE_ENV !== 'test' || req.body?.require_open_register !== false) {
+          // Verificar si el tenant tiene alguna caja en cash_registers o es una operación POS real
+          const [anyReg] = await pool.query(
+            'SELECT id FROM cash_registers WHERE tenant_id = ? LIMIT 1',
+            [tenantId]
+          );
+          if (anyReg.length > 0 || req.body?.require_open_register === true) {
+            return res.status(400).json({
+              error: 'Debe abrir una caja en esta sucursal antes de facturar.',
+              code: 'CASH_REGISTER_REQUIRED'
+            });
+          }
+        }
       }
 
       // Generate NCF if requested within this tenant
@@ -553,7 +701,6 @@ function createVisitsRouter(pool, helpers = {}) {
         }
       }
 
-      const [existingRows] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       let ticketNumber = existingRows[0]?.ticket_number;
       if (!ticketNumber) {
         ticketNumber = await getNextTicketNumber(salon_id, tenantId);
@@ -570,7 +717,7 @@ function createVisitsRouter(pool, helpers = {}) {
 
         const productLines = [];
         for (const [idx, it] of rawItems.entries()) {
-          const isProduct = it.tipo_item === 'Producto' || it.is_product || Boolean(it.product_id);
+          const isProduct = String(it.tipo_item || it.item_type || '').toUpperCase() === 'PRODUCTO' || it.is_product || Boolean(it.product_id);
           if (isProduct) {
             const pId = it.product_id || it.id;
             const q = Number(it.cantidad || it.qty || it.quantity || 1);
@@ -580,23 +727,53 @@ function createVisitsRouter(pool, helpers = {}) {
           }
         }
 
+        if (productLines.length > 0) {
+          if (location_id) {
+            resolvedLocationId = location_id;
+          } else {
+            const branchLoc = await inventoryService.getDefaultLocation(tenantId, salon_id);
+            resolvedLocationId = branchLoc?.id || null;
+          }
+        }
+
         // Si hay líneas de productos físicos con stock, descontar antes de confirmar la venta
         for (const line of productLines) {
           try {
-            await inventoryService.recordSaleDeduction(tenantId, {
+            const dedRes = await inventoryService.recordSaleDeduction(tenantId, {
               productId: line.productId,
-              locationId: null,
+              locationId: resolvedLocationId,
               quantity: line.quantity,
               visitId: id,
               lineId: line.lineId,
-              userId: req.user?.id || null,
-              userName: req.user?.name || recepcionista
+              userId: req.auth?.userId || req.user?.id || null,
+              userName: req.auth?.name || req.user?.name || recepcionista
             });
+            if (dedRes && !dedRes.skipped && !dedRes.idempotent) {
+              deductedLines.push(line);
+            }
           } catch (invErr) {
-            if (invErr.code === 'INSUFFICIENT_STOCK') {
+            // Rollback any previously deducted lines in this same checkout
+            for (const prev of deductedLines) {
+              await inventoryService.recordSaleVoid(tenantId, {
+                productId: prev.productId,
+                locationId: resolvedLocationId,
+                quantity: prev.quantity,
+                visitId: id,
+                lineId: prev.lineId,
+                reason: 'Rollback por fallo en checkout'
+              }).catch(() => {});
+            }
+            if (invErr.code === 'INSUFFICIENT_STOCK' || invErr.code === 'PRODUCT_ARCHIVED') {
               return res.status(400).json({
                 error: invErr.message,
-                code: 'INSUFFICIENT_STOCK',
+                code: invErr.code,
+                product_id: line.productId
+              });
+            }
+            if (invErr.code === 'NOT_FOUND') {
+              return res.status(404).json({
+                error: invErr.message,
+                code: 'PRODUCT_NOT_FOUND',
                 product_id: line.productId
               });
             }
@@ -604,6 +781,24 @@ function createVisitsRouter(pool, helpers = {}) {
           }
         }
       }
+
+      // Hook controlado exclusivamente para pruebas de rollback ante fallo intermedio de persistencia
+      if (process.env.NODE_ENV === 'test' && req.headers['x-test-fail-after-stock'] === 'true') {
+        throw new Error('SIMULATED_PERSISTENCE_FAILURE_AFTER_STOCK');
+      }
+
+      const numSubtotal = Number(subtotal) || 0;
+      const numDescuento = parsedDescuento;
+      const numTotal = Number(total) || 0;
+      const subtotalCents = Math.round(numSubtotal * 100);
+      const discountCents = Math.round(numDescuento * 100);
+      const totalCents = Math.round(numTotal * 100);
+      const appliedPaymentsJson = JSON.stringify({
+        efectivo: Number(pago_efectivo) || (String(metodo_pago).toLowerCase().includes('efectivo') ? numTotal : 0),
+        tarjeta: Number(pago_tarjeta) || 0,
+        transferencia: Number(pago_transferencia) || 0,
+        currency: 'DOP'
+      });
 
       if (existingRows.length > 0) {
         await pool.query(
@@ -614,12 +809,14 @@ function createVisitsRouter(pool, helpers = {}) {
              servicios = ?,
              items_detail = ?,
              subtotal = ?,
+             subtotal_cents = ?,
              descuento = ?,
+             discount_cents = ?,
              total = ?,
+             total_cents = ?,
+             currency = 'DOP',
              metodo_pago = ?,
-             pago_efectivo = ?,
-             pago_tarjeta = ?,
-             pago_transferencia = ?,
+             applied_payments = ?::jsonb,
              ncf = COALESCE(?, ncf),
              ncf_type = COALESCE(?, ncf_type),
              ncf_name = COALESCE(?, ncf_name),
@@ -628,7 +825,6 @@ function createVisitsRouter(pool, helpers = {}) {
              empleado_peluquera = COALESCE(?, empleado_peluquera),
              empleado_lava_pelo = COALESCE(?, empleado_lava_pelo),
              empleado_manicurista = COALESCE(?, empleado_manicurista),
-             recepcionista = COALESCE(?, recepcionista),
              cash_register_id = COALESCE(?, cash_register_id),
              status = 'Facturado',
              visited_at = NOW()
@@ -636,16 +832,17 @@ function createVisitsRouter(pool, helpers = {}) {
           [
             client_id || null,
             client_name || null,
-            salon_id,
+            String(salon_id),
             serializedServices,
             serializedItems,
-            Number(subtotal) || 0,
-            Number(descuento) || 0,
-            Number(total) || 0,
+            numSubtotal,
+            subtotalCents,
+            numDescuento,
+            discountCents,
+            numTotal,
+            totalCents,
             metodo_pago,
-            Number(pago_efectivo) || 0,
-            Number(pago_tarjeta) || 0,
-            Number(pago_transferencia) || 0,
+            appliedPaymentsJson,
             assignedNcf,
             ncf_type || null,
             assignedNcfName,
@@ -654,8 +851,7 @@ function createVisitsRouter(pool, helpers = {}) {
             empleado_peluquera || null,
             empleado_lava_pelo || null,
             empleado_manicurista || null,
-            recepcionista,
-            activeRegisterId,
+            activeRegisterId ? String(activeRegisterId) : null,
             id,
             tenantId
           ]
@@ -664,28 +860,29 @@ function createVisitsRouter(pool, helpers = {}) {
         await pool.query(
           `INSERT INTO visits (
              id, tenant_id, ticket_number, client_id, client_name, salon_id,
-             servicios, items_detail, subtotal, descuento, total,
-             metodo_pago, pago_efectivo, pago_tarjeta, pago_transferencia,
+             servicios, items_detail, subtotal, subtotal_cents, descuento, discount_cents, total, total_cents, currency,
+             metodo_pago, applied_payments,
              ncf, ncf_type, ncf_name, rnc_cliente, rzn_soc_cliente,
-             empleado_peluquera, empleado_lava_pelo, empleado_manicurista, recepcionista,
+             empleado_peluquera, empleado_lava_pelo, empleado_manicurista,
              cash_register_id, status, visited_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DOP', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Facturado', NOW())`,
           [
             id,
             tenantId,
             ticketNumber,
             client_id || null,
             client_name || 'Cliente General',
-            salon_id,
+            String(salon_id),
             serializedServices,
             serializedItems,
-            Number(subtotal) || 0,
-            Number(descuento) || 0,
-            Number(total) || 0,
+            numSubtotal,
+            subtotalCents,
+            numDescuento,
+            discountCents,
+            numTotal,
+            totalCents,
             metodo_pago,
-            Number(pago_efectivo) || 0,
-            Number(pago_tarjeta) || 0,
-            Number(pago_transferencia) || 0,
+            appliedPaymentsJson,
             assignedNcf,
             ncf_type || null,
             assignedNcfName,
@@ -694,8 +891,7 @@ function createVisitsRouter(pool, helpers = {}) {
             empleado_peluquera || 'No asignada',
             empleado_lava_pelo || 'No asignada',
             empleado_manicurista || 'No asignada',
-            recepcionista,
-            activeRegisterId
+            activeRegisterId ? String(activeRegisterId) : null
           ]
         );
       }
@@ -735,11 +931,28 @@ function createVisitsRouter(pool, helpers = {}) {
         success: true,
         id,
         ticket_number: ticketNumber,
+        cash_register_id: activeRegisterId || null,
+        total: numTotal,
+        total_cents: totalCents,
+        currency: 'DOP',
         ncf: assignedNcf,
         ncf_name: assignedNcfName,
         status: 'Facturado'
       });
     } catch (err) {
+      // Compensating rollback: restore any stock deducted before failure so no partial state persists
+      if (inventoryService && deductedLines.length > 0) {
+        for (const line of deductedLines) {
+          await inventoryService.recordSaleVoid(req.tenantId, {
+            productId: line.productId,
+            locationId: resolvedLocationId,
+            quantity: line.quantity,
+            visitId: req.params.id,
+            lineId: line.lineId,
+            reason: 'Rollback automático por error de persistencia en checkout'
+          }).catch(() => {});
+        }
+      }
       console.error('[CHECKOUT TICKET ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
@@ -897,7 +1110,7 @@ function createVisitsRouter(pool, helpers = {}) {
       const effectiveVoidedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.voided_by || 'Supervisor Autorizado';
 
       const [existing] = await pool.query(
-        'SELECT id, status, total, amount, cash_register_id, payment_method FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
+        'SELECT id, status, total, salon_id, cash_register_id, metodo_pago FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
         [id, tenantId]
       );
       if (existing.length === 0) {
@@ -913,8 +1126,8 @@ function createVisitsRouter(pool, helpers = {}) {
       }
 
       await pool.query(
-        "UPDATE visits SET status = 'Anulado', notes = CONCAT(COALESCE(notes, ''), ' | Anulado: ', ?) WHERE id = ? AND tenant_id = ?",
-        [reason, id, tenantId]
+        "UPDATE visits SET status = 'Anulado', void_reason = ?, voided_by = ?, voided_at = NOW() WHERE id = ? AND tenant_id = ?",
+        [reason, effectiveVoidedBy, id, tenantId]
       );
 
       await pool.query(
@@ -927,15 +1140,25 @@ function createVisitsRouter(pool, helpers = {}) {
         [id, tenantId]
       );
 
-      // Reversión atómica de caja (egreso compensatorio de caja exactamente una vez)
+      // Registro auditado de reversión en caja (type = 'anulacion_venta' para preservar trazabilidad sin doble descuento)
       if (existing[0].cash_register_id) {
         try {
-          const refundAmount = Number(existing[0].total || existing[0].amount || 0);
+          const refundAmount = Number(existing[0].total || 0);
           if (refundAmount > 0) {
             await pool.query(
-              `INSERT INTO cash_register_movements (tenant_id, cash_register_id, type, amount, description, created_at)
-               VALUES (?, ?, 'egreso', ?, ?, NOW())`,
-              [tenantId, existing[0].cash_register_id, refundAmount, `Reversión por anulación de factura #${id}: ${reason}`]
+              `INSERT INTO cash_register_movements (
+                 tenant_id, cash_register_id, type, payment_method, amount, amount_cents, currency, concept, user_name, visit_id, created_at
+               ) VALUES (?, ?, 'anulacion_venta', ?, ?, ?, 'DOP', ?, ?, ?, NOW())`,
+              [
+                tenantId,
+                String(existing[0].cash_register_id),
+                existing[0].metodo_pago || 'Efectivo',
+                refundAmount,
+                Math.round(refundAmount * 100),
+                `Reversión por anulación de factura #${id}: ${reason}`,
+                effectiveVoidedBy,
+                String(id)
+              ]
             );
           }
         } catch (crErr) {
@@ -954,7 +1177,7 @@ function createVisitsRouter(pool, helpers = {}) {
       // === REVERSIÓN DE INVENTARIO POR ANULACIÓN DE VENTA (PASO 11) ===
       if (inventoryService) {
         try {
-          const [visitRows] = await pool.query('SELECT items_detail, servicios FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+          const [visitRows] = await pool.query('SELECT items_detail, servicios, salon_id FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
           if (visitRows && visitRows.length > 0) {
             const row = visitRows[0];
             let rawItems = [];
@@ -963,19 +1186,23 @@ function createVisitsRouter(pool, helpers = {}) {
               else if (row.servicios) rawItems = typeof row.servicios === 'string' ? JSON.parse(row.servicios) : row.servicios;
             } catch (e) {}
 
+            const branchLoc = await inventoryService.getDefaultLocation(tenantId, row.salon_id || existing[0].salon_id || null);
+            const voidLocId = branchLoc?.id || null;
+
             if (Array.isArray(rawItems)) {
               for (const [idx, it] of rawItems.entries()) {
-                const isProduct = it.tipo_item === 'Producto' || it.is_product || Boolean(it.product_id);
+                const isProduct = String(it.tipo_item || it.item_type || '').toUpperCase() === 'PRODUCTO' || it.is_product || Boolean(it.product_id);
                 if (isProduct) {
                   const pId = it.product_id || it.id;
                   const q = Number(it.cantidad || it.qty || it.quantity || 1);
                   if (pId && q > 0) {
                     await inventoryService.recordSaleVoid(tenantId, {
                       productId: pId,
+                      locationId: voidLocId,
                       quantity: q,
                       visitId: id,
                       lineId: idx,
-                      userId: req.user?.id || null,
+                      userId: req.auth?.userId || req.user?.id || null,
                       userName: effectiveVoidedBy,
                       reason
                     });
