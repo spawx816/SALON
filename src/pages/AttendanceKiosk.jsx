@@ -812,17 +812,45 @@ const AttendanceKiosk = () => {
           </div>
         </div>
         
-        {/* Real-time Clock */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: '#18181b', padding: '0.75rem 1.25rem', borderRadius: '12px', border: '1px solid #27272a' }}>
-          <Clock size={20} color="#10b981" />
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '1.1rem', fontWeight: 900, letterSpacing: '0.5px' }}>
-              {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </div>
-            <div style={{ fontSize: '0.7rem', color: '#71717a', textTransform: 'capitalize', fontWeight: 700 }}>
-              {currentTime.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'short' })}
+        {/* Real-time Clock + Logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: '#18181b', padding: '0.75rem 1.25rem', borderRadius: '12px', border: '1px solid #27272a' }}>
+            <Clock size={20} color="#10b981" />
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 900, letterSpacing: '0.5px' }}>
+                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#71717a', textTransform: 'capitalize', fontWeight: 700 }}>
+                {currentTime.toLocaleDateString('es-DO', { weekday: 'long', day: 'numeric', month: 'short' })}
+              </div>
             </div>
           </div>
+          {kioskActive && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+                } catch { /* ignore */ }
+                stopCamera();
+                setKioskActive(false);
+                setKioskSessionInfo(null);
+                window.location.href = '/login';
+              }}
+              style={{
+                padding: '0.65rem 1rem',
+                borderRadius: '10px',
+                border: '1px solid rgba(239,68,68,0.4)',
+                background: 'rgba(239,68,68,0.12)',
+                color: '#fca5a5',
+                fontWeight: 800,
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+              }}
+            >
+              Cerrar Sesión
+            </button>
+          )}
         </div>
       </div>
 

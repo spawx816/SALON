@@ -117,6 +117,13 @@ function requirePermission(...requiredPerms) {
       });
     }
 
+    if (userRole === 'kiosco_asistencia') {
+      return res.status(403).json({
+        error: 'Acceso denegado: la cuenta Kiosco de Asistencia solo tiene acceso al módulo de ponches.',
+        code: 'KIOSK_ACCOUNT_RESTRICTED',
+      });
+    }
+
     // Fail-closed if route misconfigured with empty or unknown permission keys
     if (
       permsList.length === 0 ||

@@ -72,7 +72,7 @@ function createSaasRouter(pool, options = {}) {
       const [activeTenants] = await pool.query("SELECT COUNT(*) as active FROM tenants WHERE status = 'active'");
       const [suspendedTenants] = await pool.query("SELECT COUNT(*) as suspended FROM tenants WHERE status = 'suspended'");
       const [branchesCount] = await pool.query("SELECT COUNT(b.id) as total FROM branches b JOIN tenants t ON b.tenant_id = t.id");
-      const [usersCount] = await pool.query("SELECT COUNT(u.id) as total FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE u.role != 'superadmin'");
+      const [usersCount] = await pool.query("SELECT COUNT(u.id) as total FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (u.is_active = TRUE OR u.estado = 'Activo')");
 
       // Regla explícita de MRR recurrente:
       // - Solo suscripciones/tenants en estado comercial elegible ('active')
@@ -168,7 +168,7 @@ function createSaasRouter(pool, options = {}) {
           COALESCE(sp.extra_user_price, 0) as plan_extra_user_price,
           COALESCE(sp.is_public, true) as plan_is_public,
           (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id) as branches_count,
-          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND u.role != 'superadmin') as users_count,
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (u.is_active = TRUE OR u.estado = 'Activo')) as users_count,
           (SELECT COUNT(*) FROM clients c WHERE c.tenant_id = t.id) as clients_count
         FROM tenants t
         LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id
@@ -532,12 +532,18 @@ function createSaasRouter(pool, options = {}) {
           VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', true, 'Activo')
         `, [userId, tenantId, branchId, cleanOwnerName, cleanOwnerName, cleanEmail, passwordHash]);
 
+        const { computeNextPeriodEnd } = require('../services/calendar_billing.utils');
+        const subStart = new Date();
+        const anchorDay = subStart.getUTCDate();
+        const subEnd = computeNextPeriodEnd({ periodStart: subStart, periodicityMode: 'calendar_month', anchorDay });
+
         await conn.query(`
           INSERT INTO tenant_subscriptions (
-            id, tenant_id, saas_plan_id, plan_code, status, billing_cycle, currency, started_at, current_period_start, current_period_end
+            id, tenant_id, saas_plan_id, plan_code, status, billing_cycle, currency,
+            periodicity_mode, billing_anchor_day, auto_renew, started_at, current_period_start, current_period_end
           )
-          VALUES (?, ?, ?, 'PRINCIPAL', ?, 'monthly', 'USD', NOW(), NOW(), NOW() + INTERVAL '30 days')
-        `, [subscriptionId, tenantId, principalPlan.id, initialStatus]);
+          VALUES (?, ?, ?, 'PRINCIPAL', ?, 'monthly', 'DOP', 'calendar_month', ?, TRUE, ?, ?, ?)
+        `, [subscriptionId, tenantId, principalPlan.id, initialStatus, anchorDay, subStart.toISOString(), subStart.toISOString(), subEnd.toISOString()]);
 
         await conn.query(`
           INSERT INTO tenant_subscription_events (

@@ -786,6 +786,7 @@ function createAuthRouter(pool, options = {}) {
 
       const actorRole = getEffectiveRole(req);
       const targetRole = role ? normalizeRole(role) : 'empleado';
+      const isKioskRole = targetRole === 'kiosco_asistencia';
 
       if (targetRole === 'superadmin' || targetRole === 'cliente_b2c' || !canManageRole(actorRole, targetRole)) {
         return res.status(403).json({
@@ -794,7 +795,30 @@ function createAuthRouter(pool, options = {}) {
         });
       }
 
-      const roleCheck = await validateTenantRoleId(role_id, tenantId);
+      if (isKioskRole) {
+        if (role_id !== undefined && role_id !== null && String(role_id).trim() !== '') {
+          return res.status(400).json({
+            error: 'El rol reservado Kiosco de Asistencia tiene permisos fijos y restringidos; no se pueden asignar permisos operativos ni administrativos.',
+            code: 'KIOSK_FIXED_PERMISSIONS'
+          });
+        }
+        if (all_branches_access === true) {
+          return res.status(400).json({
+            error: 'La cuenta Kiosco de Asistencia debe estar asignada a una única sucursal.',
+            code: 'KIOSK_SINGLE_BRANCH_ONLY'
+          });
+        }
+        if (!branch_id && !salon_id) {
+          return res.status(400).json({
+            error: 'Debes seleccionar una sucursal obligatoria para la cuenta Kiosco de Asistencia.',
+            code: 'KIOSK_BRANCH_REQUIRED'
+          });
+        }
+      }
+
+      const roleCheck = isKioskRole
+        ? { valid: true, roleRow: null }
+        : await validateTenantRoleId(role_id, tenantId);
       if (!roleCheck.valid) {
         return res.status(403).json({ error: roleCheck.error, code: 'INVALID_OR_CROSS_TENANT_ROLE' });
       }
@@ -815,7 +839,8 @@ function createAuthRouter(pool, options = {}) {
         return res.status(400).json({ error: 'Nombre, correo electrónico y contraseña son obligatorios.' });
       }
 
-      if (!req.auth?.isSuperAdmin) {
+      // El rol técnico reservado 'kiosco_asistencia' NO consume asientos facturables
+      if (!req.auth?.isSuperAdmin && !isKioskRole) {
         if (options.entitlementsService) {
           const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users');
           if (!limitCheck.allowed) {
@@ -829,7 +854,10 @@ function createAuthRouter(pool, options = {}) {
           }
         } else {
           const [tenantRows] = await pool.query('SELECT max_users FROM tenants WHERE id = ?', [tenantId]);
-          const [userCount] = await pool.query('SELECT COUNT(*) as total FROM users WHERE tenant_id = ?', [tenantId]);
+          const [userCount] = await pool.query(
+            "SELECT COUNT(*) as total FROM users WHERE tenant_id = ? AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (is_active = TRUE OR estado = 'Activo')",
+            [tenantId]
+          );
           const maxUsers = parseInt(tenantRows[0]?.max_users || 3, 10);
           const currentUsers = parseInt(userCount[0]?.total || 0, 10);
           if (currentUsers >= maxUsers) {
@@ -1011,6 +1039,72 @@ function createAuthRouter(pool, options = {}) {
 
           const isActive = estado !== undefined ? (String(estado).toLowerCase() !== 'inactivo') : undefined;
           const safeRole = role && normalizeRole(role) !== 'superadmin' ? normalizeRole(role) : undefined;
+          const nextEffectiveRole = safeRole || currentTargetRole;
+
+          // Restricciones del rol reservado Kiosco de Asistencia
+          if (nextEffectiveRole === 'kiosco_asistencia') {
+            if (role_id !== undefined && role_id !== null && String(role_id).trim() !== '') {
+              if (txClient) await txClient.query('ROLLBACK');
+              return {
+                status: 400,
+                body: {
+                  error: 'El rol reservado Kiosco de Asistencia tiene permisos fijos; no se pueden agregar permisos operativos ni administrativos.',
+                  code: 'KIOSK_FIXED_PERMISSIONS'
+                }
+              };
+            }
+            if (all_branches_access === true) {
+              if (txClient) await txClient.query('ROLLBACK');
+              return {
+                status: 400,
+                body: {
+                  error: 'La cuenta Kiosco de Asistencia solo puede operar una sucursal asignada.',
+                  code: 'KIOSK_SINGLE_BRANCH_ONLY'
+                }
+              };
+            }
+          }
+
+          // Si una cuenta exenta (kiosco_asistencia) cambia a un rol facturable, validar cupo disponible antes de aplicar
+          if (currentTargetRole === 'kiosco_asistencia' && nextEffectiveRole !== 'kiosco_asistencia' && !req.auth?.isSuperAdmin) {
+            if (options.entitlementsService) {
+              const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users');
+              if (!limitCheck.allowed) {
+                if (txClient) await txClient.query('ROLLBACK');
+                return {
+                  status: 403,
+                  body: {
+                    error: limitCheck.reason || 'Has alcanzado el límite de usuarios facturables de tu plan.',
+                    code: limitCheck.code || 'PLAN_LIMIT_REACHED',
+                    limit: 'users',
+                    current: limitCheck.current,
+                    maximum: limitCheck.maximum
+                  }
+                };
+              }
+            } else {
+              const [tRows] = await runner.query('SELECT max_users FROM tenants WHERE id = ?', [tenantId]);
+              const [uCnt] = await runner.query(
+                "SELECT COUNT(*) as total FROM users WHERE tenant_id = ? AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (is_active = TRUE OR estado = 'Activo')",
+                [tenantId]
+              );
+              const maxU = parseInt(tRows[0]?.max_users || 3, 10);
+              const curU = parseInt(uCnt[0]?.total || 0, 10);
+              if (curU >= maxU) {
+                if (txClient) await txClient.query('ROLLBACK');
+                return {
+                  status: 403,
+                  body: {
+                    error: 'Has alcanzado el límite de usuarios facturables de tu plan.',
+                    code: 'PLAN_LIMIT_REACHED',
+                    limit: 'users',
+                    current: curU,
+                    maximum: maxU
+                  }
+                };
+              }
+            }
+          }
 
           if (currentTargetRole === 'propietario') {
             await ensureRemainingActiveOwner(runner, tenantId, targetUser.id, {
@@ -1103,6 +1197,16 @@ function createAuthRouter(pool, options = {}) {
                 [String(id), tenantId]
               );
             } catch { }
+            if (currentTargetRole === 'kiosco_asistencia') {
+              try {
+                const { revokeDevicesByKioskUser } = require('../services/kiosk_device.service');
+                await revokeDevicesByKioskUser(runner, {
+                  tenantId,
+                  userId: String(id),
+                  reason: isActive === false ? 'Cuenta kiosco desactivada' : 'Rol o sucursal de cuenta kiosco modificada'
+                });
+              } catch { }
+            }
           }
 
           if (txClient) await txClient.query('COMMIT');
@@ -1554,8 +1658,32 @@ function createAuthRouter(pool, options = {}) {
 
           let resolvedPermissions = {};
           const normalizedSysRole = normalizeRole(effectiveRole);
-          const isAdminLike = isSuperAdmin || ['propietario', 'admin'].includes(normalizedSysRole);
-          if (u.role_permissions) {
+          const isKioskAccount = normalizedSysRole === 'kiosco_asistencia';
+          const isAdminLike = !isKioskAccount && (isSuperAdmin || ['propietario', 'admin'].includes(normalizedSysRole));
+          if (isKioskAccount) {
+            resolvedPermissions = {};
+            const assignedBranchId = u.branch_id || u.salon_id || null;
+            if (!assignedBranchId) {
+              return res.status(403).json({
+                error: 'Esta cuenta Kiosco de Asistencia no tiene una sucursal asignada.',
+                code: 'KIOSK_BRANCH_REQUIRED'
+              });
+            }
+            const {
+              KIOSK_DEVICE_COOKIE,
+              DEVICE_TTL_MS,
+              buildCookieOptions,
+              bindKioskDevice,
+            } = require('../services/kiosk_device.service');
+            const bound = await bindKioskDevice(pool, {
+              tenantId: u.tenant_id,
+              branchId: String(assignedBranchId),
+              deviceName: `Kiosco · ${u.name || u.nombre || u.email}`,
+              actorUserId: String(u.id),
+              actorName: u.name || u.nombre || u.email,
+            });
+            res.cookie(KIOSK_DEVICE_COOKIE, bound.rawToken, buildCookieOptions(req, DEVICE_TTL_MS));
+          } else if (u.role_permissions) {
             resolvedPermissions = expandEffectivePermissions(u.role_permissions);
           } else if (isAdminLike) {
             resolvedPermissions = ['all'];
@@ -1571,8 +1699,9 @@ function createAuthRouter(pool, options = {}) {
             email: u.email,
             role: effectiveRole,
             rol: effectiveRole,
-            role_id: u.role_id || null,
-            role_name: u.role_name || null,
+            kioskOnly: isKioskAccount,
+            role_id: isKioskAccount ? null : (u.role_id || null),
+            role_name: isKioskAccount ? 'Kiosco de Asistencia' : (u.role_name || null),
             isSuperAdmin: Boolean(isSuperAdmin),
             is_superadmin: Boolean(isSuperAdmin),
             permissions: resolvedPermissions,
@@ -1720,6 +1849,18 @@ function createAuthRouter(pool, options = {}) {
       }
       if (userId) {
         await pool.query('UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id::text = ?', [String(userId)]);
+        if (String(req.auth?.role || '').toLowerCase() === 'kiosco_asistencia' && req.auth?.tenantId) {
+          try {
+            const { KIOSK_DEVICE_COOKIE, KIOSK_SELF_SERVICE_COOKIE, revokeDevicesByKioskUser } = require('../services/kiosk_device.service');
+            await revokeDevicesByKioskUser(pool, {
+              tenantId: req.auth.tenantId,
+              userId: String(userId),
+              reason: 'Cierre de sesión de cuenta kiosco'
+            });
+            res.clearCookie(KIOSK_DEVICE_COOKIE, { path: '/' });
+            res.clearCookie(KIOSK_SELF_SERVICE_COOKIE, { path: '/' });
+          } catch { }
+        }
         await logSecurityAudit(userId, userName, 'USER_LOGOUT', 'Cierre de sesión voluntario', req);
       }
       res.clearCookie('auth_token');

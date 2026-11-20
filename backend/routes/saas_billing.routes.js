@@ -7,6 +7,7 @@ const express = require('express');
 const { getConfiguredPricing, SAAS_ADDONS } = require('../services/saas_catalog.constants');
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
 const { TermsAndWelcomeEmailService } = require('../services/terms_and_welcome_email.service');
+const { ConsolidatedRenewalService } = require('../services/consolidated_renewal.service');
 const { getEffectiveRole, normalizeRole } = require('../middleware/rbac.middleware');
 
 // Safe BigInt JSON serialization
@@ -97,6 +98,121 @@ function createSaasBillingRouter({ billingService, lifecycleService, billingRepo
     } catch (err) {
       console.error('[SAAS BILLING ERROR] Error al consultar suscripción:', err);
       res.status(500).json({ error: err.message, code: 'INTERNAL_ERROR' });
+    }
+  });
+
+  // 1a. Cotización consolidada mensual en DOP (sucursales + usuarios extra + add-ons por sucursal + impuestos)
+  router.get('/renewal/quote', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      }
+      if (!pool || !fxRateService) {
+        return res.status(503).json({ error: 'Servicio de cotización no disponible', code: 'QUOTE_UNAVAILABLE' });
+      }
+      const renewalSvc = new ConsolidatedRenewalService({ pool, fxRateService, lifecycleService });
+      const quote = await renewalSvc.calculateConsolidatedQuote({ tenantId });
+      res.json({
+        success: true,
+        quote: {
+          ...quote,
+          lineItems: quote.lineItems.map((it) => ({
+            ...it,
+            amount_minor: String(it.amount_minor),
+          })),
+        },
+        workerEnabled: renewalSvc.isWorkerEnabled(),
+      });
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'QUOTE_FAILED' });
+    }
+  });
+
+  // 1ab. Autorización separada para renovación automática mensual en DOP
+  router.post('/renewal/authorize', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      const userId = req.user?.id || req.user?.sub;
+      if (!tenantId || !userId) {
+        return res.status(403).json({ error: 'Contexto de empresa y usuario requerido', code: 'UNAUTHORIZED' });
+      }
+      const { authorize_recurring, consent_version, accept_calendar_migration } = req.body || {};
+      if (!authorize_recurring) {
+        return res.status(400).json({ error: 'Debes autorizar expresamente los cargos recurrentes automáticos.', code: 'RECURRING_CONSENT_REQUIRED' });
+      }
+
+      const [pmRows] = await pool.query(
+        'SELECT id, brand, last4 FROM saas_payment_methods WHERE tenant_id = ? ORDER BY is_default DESC, created_at DESC LIMIT 1',
+        [tenantId]
+      );
+      if (!pmRows?.[0]) {
+        return res.status(400).json({ error: 'Debes registrar primero una tarjeta válida en CardNet antes de activar la renovación automática.', code: 'PAYMENT_METHOD_REQUIRED' });
+      }
+
+      const version = String(consent_version || 'v2026.1').trim();
+      await termsService.recordAcceptance({
+        tenantId,
+        userId,
+        termsVersion: version,
+        recurringAuthorized: true,
+        acceptanceMechanism: 'recurring_renewal_authorization',
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers['user-agent'],
+      });
+
+      const migrateCalendar = Boolean(accept_calendar_migration);
+      await pool.query(
+        `UPDATE tenant_subscriptions
+         SET auto_renew = TRUE,
+             cancel_at_period_end = FALSE,
+             recurring_consent_at = NOW(),
+             recurring_consent_version = ?,
+             periodicity_mode = CASE WHEN ? THEN 'calendar_month' ELSE periodicity_mode END,
+             billing_anchor_day = COALESCE(billing_anchor_day, EXTRACT(DAY FROM COALESCE(current_period_start, NOW()))::SMALLINT),
+             updated_at = NOW()
+         WHERE tenant_id = ?`,
+        [version, migrateCalendar, tenantId]
+      );
+
+      res.json({
+        success: true,
+        recurringAuthorized: true,
+        consentVersion: version,
+        paymentMethod: pmRows[0],
+      });
+    } catch (err) {
+      res.status(err.statusCode || 500).json({ error: err.message, code: err.code || 'AUTHORIZE_FAILED' });
+    }
+  });
+
+  // 1ac. Desactivar renovación automática / cancelación efectiva de cobros futuros
+  router.post('/subscription/cancel-renewal', async (req, res) => {
+    try {
+      const tenantId = req.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Contexto de empresa requerido', code: 'TENANT_REQUIRED' });
+      }
+      await pool.query(
+        `UPDATE tenant_subscriptions
+         SET auto_renew = FALSE, cancel_at_period_end = TRUE, updated_at = NOW()
+         WHERE tenant_id = ?`,
+        [tenantId]
+      );
+      await pool.query(
+        `UPDATE saas_renewal_runs
+         SET status = 'cancelled', locked_until = NULL, updated_at = NOW()
+         WHERE tenant_id = ? AND status IN ('pending', 'retry_scheduled', 'reconciling')`,
+        [tenantId]
+      ).catch(() => {});
+
+      res.json({
+        success: true,
+        autoRenew: false,
+        message: 'Renovación automática desactivada. No se realizarán nuevos cargos recurrentes.',
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message, code: 'CANCEL_RENEWAL_FAILED' });
     }
   });
 

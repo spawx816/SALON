@@ -11,6 +11,9 @@
  *    gestión comercial SaaS ni activación de add-ons no contratados.
  */
 
+const KIOSK_SYSTEM_ROLE = 'kiosco_asistencia';
+const NON_BILLABLE_SYSTEM_ROLES = Object.freeze(['superadmin', 'cliente_b2c', KIOSK_SYSTEM_ROLE]);
+
 const RESERVED_ROLE_NAMES = Object.freeze([
   'superadmin',
   'super_admin',
@@ -21,6 +24,10 @@ const RESERVED_ROLE_NAMES = Object.freeze([
   'cliente b2c',
   'client',
   'cliente',
+  'kiosco_asistencia',
+  'kiosco de asistencia',
+  'kiosco',
+  'attendance_kiosk',
   'system',
   'sistema',
   'root',
@@ -50,6 +57,8 @@ const VERIFIED_ROLE_ALIASES = Object.freeze({
   accountant: 'contador',
   empleado: 'empleado',
   staff: 'empleado',
+  kiosco_asistencia: KIOSK_SYSTEM_ROLE,
+  attendance_kiosk: KIOSK_SYSTEM_ROLE,
   client: 'cliente_b2c',
   cliente: 'cliente_b2c',
   cliente_b2c: 'cliente_b2c',
@@ -64,8 +73,14 @@ const ROLE_HIERARCHY = Object.freeze({
   contador: 25,
   estilista: 20,
   empleado: 10,
+  [KIOSK_SYSTEM_ROLE]: 5,
   cliente_b2c: 0,
 });
+
+function isNonBillableSystemRole(role) {
+  const norm = String(role || '').trim().toLowerCase();
+  return NON_BILLABLE_SYSTEM_ROLES.includes(norm);
+}
 
 /**
  * Catálogo canónico agrupado por módulo y acción.
@@ -233,6 +248,8 @@ function expandEffectivePermissions(rawPermissions) {
 }
 
 module.exports = {
+  KIOSK_SYSTEM_ROLE,
+  NON_BILLABLE_SYSTEM_ROLES,
   RESERVED_ROLE_NAMES,
   VERIFIED_ROLE_ALIASES,
   ROLE_HIERARCHY,
@@ -241,6 +258,7 @@ module.exports = {
   VALID_CANONICAL_KEYS,
   VALID_LEGACY_KEYS,
   LEGACY_TO_CANONICAL_MAP,
+  isNonBillableSystemRole,
   isReservedRoleName,
   sanitizePermissionsPayload,
   permissionMapGrants,

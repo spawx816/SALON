@@ -123,6 +123,30 @@ async function resolveKioskDevice(pool, req) {
     return { device, suspended: true };
   }
 
+  // Si el dispositivo está vinculado a una cuenta dedicada 'kiosco_asistencia',
+  // verificar que la cuenta siga activa, mantenga el rol kiosco y pertenezca a la misma sucursal.
+  if (device.bound_by_user_id) {
+    try {
+      const [uRows] = await pool.query(
+        `SELECT id, role, is_active, estado, branch_id
+         FROM users
+         WHERE id::text = ? AND tenant_id = ?
+         LIMIT 1`,
+        [String(device.bound_by_user_id), device.tenant_id]
+      );
+      if (uRows && uRows.length > 0) {
+        const boundUser = uRows[0];
+        if (String(boundUser.role || '').trim().toLowerCase() === 'kiosco_asistencia') {
+          const active = boundUser.is_active !== false && String(boundUser.estado || 'Activo').toLowerCase() !== 'inactivo';
+          const sameBranch = !boundUser.branch_id || String(boundUser.branch_id) === String(device.branch_id);
+          if (!active || !sameBranch) {
+            return null;
+          }
+        }
+      }
+    } catch { /* ignore if users lookup unavailable */ }
+  }
+
   // Rolling renewal if < 7 days left
   const msLeft = new Date(device.expires_at).getTime() - Date.now();
   const newExpires = msLeft < 7 * 24 * 60 * 60 * 1000 ? new Date(Date.now() + DEVICE_TTL_MS) : null;
@@ -203,6 +227,25 @@ async function revokeKioskDevice(pool, { deviceId, tenantId, actorUserId = null,
   ).catch(() => {});
 
   return Boolean(updated && updated.length > 0);
+}
+
+async function revokeDevicesByKioskUser(pool, { tenantId, userId, reason = 'Cuenta kiosco desactivada o sesión cerrada' }) {
+  if (!tenantId || !userId) return 0;
+  const [updated] = await pool.query(
+    `UPDATE kiosk_devices
+     SET status = 'revoked', revoked_at = NOW(), revoked_reason = ?
+     WHERE tenant_id = ? AND bound_by_user_id = ? AND status = 'active'
+     RETURNING id`,
+    [String(reason).slice(0, 255), tenantId, String(userId)]
+  ).catch(() => [[]]);
+
+  for (const row of updated || []) {
+    await pool.query(
+      'UPDATE kiosk_employee_sessions SET is_active = FALSE WHERE device_id = ? AND tenant_id = ?',
+      [row.id, tenantId]
+    ).catch(() => {});
+  }
+  return (updated || []).length;
 }
 
 async function isEmployeeAuthorizedForBranch(pool, tenantId, employeeId, branchId) {
@@ -403,6 +446,7 @@ module.exports = {
   bindKioskDevice,
   resolveKioskDevice,
   revokeKioskDevice,
+  revokeDevicesByKioskUser,
   isEmployeeAuthorizedForBranch,
   createKioskEmployeeSession,
   validatePunchSession,

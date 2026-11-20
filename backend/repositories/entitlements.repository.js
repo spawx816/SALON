@@ -88,7 +88,7 @@ class EntitlementsRepository {
 
     if (resourceKey === 'users') {
       const [rows] = await this.pool.query(
-        "SELECT COUNT(*) as total FROM users WHERE tenant_id = ? AND role != 'superadmin' AND (is_active = TRUE OR estado = 'Activo')",
+        "SELECT COUNT(*) as total FROM users WHERE tenant_id = ? AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (is_active = TRUE OR estado = 'Activo')",
         [tenantId]
       );
       return parseInt(rows[0]?.total || 0, 10);

@@ -346,6 +346,21 @@ const AppContent = () => {
     return <Landing initialIsLogin={true} initialAuthModal={false} />;
   }
 
+  // Rol reservado Kiosco de Asistencia: redirigir exclusivamente al Kiosco sin dashboard ni menú operativo
+  const isKioskOnlyAccount =
+    String(user?.role || user?.rol || '').trim().toLowerCase() === 'kiosco_asistencia' ||
+    Boolean(user?.kioskOnly);
+  if (isKioskOnlyAccount) {
+    return (
+      <Suspense fallback={<WorkspaceSkeleton />}>
+        <Routes>
+          <Route path="/asistencia" element={<AttendanceKiosk />} />
+          <Route path="*" element={<Navigate to="/asistencia" replace />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+
   if (location.pathname === '/asistencia') {
     return (
       <Suspense fallback={<WorkspaceSkeleton />}>

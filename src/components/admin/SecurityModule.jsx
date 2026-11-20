@@ -171,12 +171,19 @@ export default function SecurityModule() {
     }
 
     try {
+      const isKioskReserved = userForm.role_id === '__KIOSK_RESERVED__';
+      if (isKioskReserved && !userForm.salon_id) {
+        alert('Debes seleccionar una sucursal obligatoria para el usuario Kiosco de Asistencia.');
+        return;
+      }
       const payload = {
         ...userForm,
         id: editingUser ? editingUser.id : undefined,
-        role_id: userForm.role_id || (roles[0]?.id || null),
+        role: isKioskReserved ? 'kiosco_asistencia' : (editingUser && String(editingUser.role || '').toLowerCase() === 'kiosco_asistencia' ? 'empleado' : undefined),
+        role_id: isKioskReserved ? null : (userForm.role_id || (roles[0]?.id || null)),
         salon_id: userForm.salon_id ? userForm.salon_id : null,
         branch_id: userForm.salon_id ? userForm.salon_id : null,
+        all_branches_access: isKioskReserved ? false : undefined,
         staff_id: userForm.staff_id ? parseInt(userForm.staff_id, 10) : null
       };
 
@@ -211,12 +218,13 @@ export default function SecurityModule() {
 
   const startEditUser = (u) => {
     setEditingUser(u);
+    const isKioskUser = String(u.role || '').toLowerCase() === 'kiosco_asistencia';
     setUserForm({
       nombre: u.nombre || '',
       email: u.email || '',
       password: '', // En blanco para no sobreescribir si no se desea
-      role_id: u.role_id || '',
-      salon_id: u.salon_id || '',
+      role_id: isKioskUser ? '__KIOSK_RESERVED__' : (u.role_id || ''),
+      salon_id: u.salon_id || u.branch_id || '',
       staff_id: u.staff_id ? String(u.staff_id) : '',
       profile_photo: u.profile_photo || null
     });
@@ -1489,6 +1497,9 @@ export default function SecurityModule() {
                       cursor: 'pointer'
                     }}
                   >
+                    <option value="__KIOSK_RESERVED__" style={{ color: '#047857', background: '#ecfdf5', fontWeight: 800 }}>
+                      🖥️ Kiosco de Asistencia (Sin licencia)
+                    </option>
                     {(roles && roles.length > 0 ? roles : [
                       { id: 1, nombre: 'Administrador' },
                       { id: 2, nombre: 'Encargada' },
@@ -1503,9 +1514,10 @@ export default function SecurityModule() {
 
                 <div>
                   <label style={{ display: 'block', fontWeight: 700, color: '#334155', marginBottom: '0.35rem', fontSize: '0.85rem' }}>
-                    Sucursal Asignada
+                    {userForm.role_id === '__KIOSK_RESERVED__' ? 'Sucursal Asignada (Obligatoria)' : 'Sucursal Asignada'}
                   </label>
                   <select
+                    required={userForm.role_id === '__KIOSK_RESERVED__'}
                     value={userForm.salon_id || ''}
                     onChange={(e) => setUserForm({ ...userForm, salon_id: e.target.value })}
                     style={{
@@ -1520,9 +1532,15 @@ export default function SecurityModule() {
                       cursor: 'pointer'
                     }}
                   >
-                    <option value="" style={{ color: '#0f172a', background: '#ffffff', fontWeight: 700 }}>
-                      🌐 Global (Todas las sucursales)
-                    </option>
+                    {userForm.role_id === '__KIOSK_RESERVED__' ? (
+                      <option value="" disabled style={{ color: '#64748b' }}>
+                        -- Seleccionar sucursal del kiosco --
+                      </option>
+                    ) : (
+                      <option value="" style={{ color: '#0f172a', background: '#ffffff', fontWeight: 700 }}>
+                        🌐 Global (Todas las sucursales)
+                      </option>
+                    )}
                     {(salons && salons.length > 0 ? salons : [
                       { id: 1, name: 'Empresa Principal Sede Norte' },
                       { id: 4, name: 'Empresa Sucursal Centro' },
@@ -1537,6 +1555,22 @@ export default function SecurityModule() {
                   </select>
                 </div>
               </div>
+
+              {userForm.role_id === '__KIOSK_RESERVED__' && (
+                <div style={{
+                  marginTop: '-0.75rem',
+                  marginBottom: '1.25rem',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '10px',
+                  background: '#ecfdf5',
+                  border: '1px solid #10b981',
+                  color: '#065f46',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                }}>
+                  ✅ Este usuario no consume licencia. Sus permisos son fijos y exclusivos para el Kiosco de Asistencia de la sucursal asignada (sin acceso al panel administrativo ni operativo).
+                </div>
+              )}
 
               {/* Selector de vinculación opcional a Empleado / Colaborador */}
               <div style={{ marginBottom: '1.5rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>

@@ -169,7 +169,7 @@ function createTenantRouter(pool, options = {}) {
           sp.slug as plan_slug,
           sp.price_monthly as plan_price,
           (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id) as current_branches,
-          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id) as current_users
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (u.is_active = TRUE OR u.estado = 'Activo')) as current_users
         FROM tenants t
         LEFT JOIN saas_plans sp ON t.plan_id = sp.id
         WHERE t.id = ?
@@ -201,7 +201,7 @@ function createTenantRouter(pool, options = {}) {
           sp.slug as plan_slug,
           sp.price_monthly as plan_price,
           (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id) as current_branches,
-          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id) as current_users
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (u.is_active = TRUE OR u.estado = 'Activo')) as current_users
         FROM tenants t
         LEFT JOIN saas_plans sp ON t.plan_id = sp.id
         WHERE t.id = ?
@@ -392,7 +392,7 @@ function createTenantRouter(pool, options = {}) {
           sp.slug as plan_slug,
           sp.price_monthly as plan_price,
           (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id) as current_branches,
-          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id) as current_users
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (u.is_active = TRUE OR u.estado = 'Activo')) as current_users
         FROM tenants t
         LEFT JOIN saas_plans sp ON t.plan_id = sp.id
         WHERE t.id = ?

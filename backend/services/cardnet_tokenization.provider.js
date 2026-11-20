@@ -29,6 +29,34 @@ function maskCardNumber(raw) {
   return str.slice(-8);
 }
 
+const SOFT_DECLINE_CODES = new Set(['51', '61', '65', '91', '96', 'TIMEOUT']);
+const HARD_DECLINE_CODES = new Set(['05', '12', '13', '14', '41', '43', '54', '57', '58', '62', '63', '75', '78', '82']);
+
+function classifyCardNetResponseCode(responseCode, responseMessage = '') {
+  const code = String(responseCode || '').trim().toUpperCase();
+  const msg = String(responseMessage || '').toLowerCase();
+
+  if (code === '00') {
+    return { approved: true, retriable: false, requiresAuthentication: false, category: 'approved' };
+  }
+  if (
+    code === '3DS' ||
+    code === 'AUTH_REQUIRED' ||
+    msg.includes('3d') ||
+    msg.includes('authentication') ||
+    msg.includes('challenge')
+  ) {
+    return { approved: false, retriable: false, requiresAuthentication: true, category: 'auth_required' };
+  }
+  if (HARD_DECLINE_CODES.has(code)) {
+    return { approved: false, retriable: false, requiresAuthentication: false, category: 'hard_decline' };
+  }
+  if (SOFT_DECLINE_CODES.has(code)) {
+    return { approved: false, retriable: true, requiresAuthentication: false, category: 'soft_decline' };
+  }
+  return { approved: false, retriable: false, requiresAuthentication: false, category: 'hard_decline' };
+}
+
 class CardNetTokenizationProvider {
   constructor(options = {}) {
     const env = options.env || process.env;
@@ -324,6 +352,10 @@ class CardNetTokenizationProvider {
       throw err;
     }
 
+    const classification = isApproved
+      ? { approved: true, retriable: false, requiresAuthentication: false, category: 'approved' }
+      : classifyCardNetResponseCode(responseCode, responseMessage);
+
     return {
       approved: Boolean(isApproved),
       pending: false,
@@ -335,6 +367,9 @@ class CardNetTokenizationProvider {
       retrievalReferenceNumber: retrievalReferenceNumber ? String(retrievalReferenceNumber) : null,
       cardBrand: raw.CardBrand || raw.Brand || null,
       maskedCard: maskCardNumber(raw.Last4 || raw.CardNumber),
+      retriable: classification.retriable,
+      requiresAuthentication: classification.requiresAuthentication,
+      declineCategory: classification.category,
       rawSafeSummary: {
         transactionStatus: raw.Transaction?.Status || null,
         responseCode: responseCode ? String(responseCode) : null,
@@ -342,9 +377,62 @@ class CardNetTokenizationProvider {
       },
     };
   }
+
+  async queryTransaction({ transactionId }) {
+    this.assertReadyForCheckout();
+    const safeTxId = encodeURIComponent(String(transactionId || '').trim());
+    if (!safeTxId) {
+      return { found: false, approved: false, pending: false, status: 'not_found' };
+    }
+
+    const res = await this._fetchJson(`${this.baseUrl}/api/Purchase/${safeTxId}`, {
+      method: 'GET',
+      headers: this._authHeaders(),
+    });
+    if (res.status === 404) {
+      return { found: false, approved: false, pending: false, status: 'not_found' };
+    }
+
+    const raw = res.data?.Response || res.data || {};
+    const steps = Array.isArray(raw.Transaction?.Steps) ? raw.Transaction.Steps : [];
+    const approvedStep = steps.find((s) => s.ResponseCode === '00');
+    const isApproved =
+      raw.Transaction?.Status === 'Approved' ||
+      raw.ResponseCode === '00' ||
+      Boolean(approvedStep);
+    const responseCode =
+      approvedStep?.ResponseCode ||
+      raw.ResponseCode ||
+      steps[0]?.ResponseCode ||
+      null;
+    const authorizationCode =
+      approvedStep?.AuthorizationCode ||
+      raw.AuthorizationCode ||
+      raw.Transaction?.AuthorizationCode ||
+      null;
+
+    const classification = isApproved
+      ? { approved: true, retriable: false, requiresAuthentication: false, category: 'approved' }
+      : classifyCardNetResponseCode(responseCode, raw.ResponseMessage);
+
+    return {
+      found: res.ok,
+      approved: Boolean(isApproved),
+      pending: !res.ok && res.status >= 500,
+      status: isApproved ? 'approved' : res.ok ? 'declined' : 'unknown',
+      responseCode: responseCode ? String(responseCode) : null,
+      authorizationCode: authorizationCode ? String(authorizationCode) : null,
+      transactionId: raw.Transaction?.TransactionId || raw.TransactionId || String(transactionId),
+      retrievalReferenceNumber: approvedStep?.RetrievalReferenceNumber || raw.RetrievalReferenceNumber || null,
+      retriable: classification.retriable,
+      requiresAuthentication: classification.requiresAuthentication,
+      declineCategory: classification.category,
+    };
+  }
 }
 
 module.exports = {
   CardNetTokenizationProvider,
   maskCardNumber,
+  classifyCardNetResponseCode,
 };

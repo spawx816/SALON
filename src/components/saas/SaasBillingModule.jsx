@@ -131,17 +131,22 @@ export default function SaasBillingModule() {
   const [checkoutOrders, setCheckoutOrders] = useState([]);
   const [gatewayStatus, setGatewayStatus] = useState(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
+  const [renewalQuote, setRenewalQuote] = useState(null);
+  const [recurringConsentChecked, setRecurringConsentChecked] = useState(false);
+  const [migrateCalendarChecked, setMigrateCalendarChecked] = useState(false);
+  const [authorizingRenewal, setAuthorizingRenewal] = useState(false);
 
   const loadBillingData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [subRes, invRes, pmRes, ordersRes, cfgRes] = await Promise.all([
+      const [subRes, invRes, pmRes, ordersRes, cfgRes, quoteRes] = await Promise.all([
         dataService.getSaasSubscription(),
         dataService.getSaasInvoices(),
         dataService.getSaasPaymentMethods(),
         fetch('/api/saas/billing/checkout/orders', { credentials: 'include' }).then((r) => (r.ok ? r.json() : { orders: [] })).catch(() => ({ orders: [] })),
         fetch('/api/saas/billing/checkout/config', { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch('/api/saas/billing/renewal/quote', { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
 
       setSubscription(subRes?.subscription || null);
@@ -151,6 +156,7 @@ export default function SaasBillingModule() {
       setPaymentMethods(Array.isArray(pmRes?.paymentMethods) ? pmRes.paymentMethods : []);
       setCheckoutOrders(Array.isArray(ordersRes?.orders) ? ordersRes.orders : []);
       setGatewayStatus(cfgRes?.gateway || null);
+      setRenewalQuote(quoteRes?.quote || null);
     } catch (err) {
       setError(err.message || 'Error al cargar la información de suscripción');
     } finally {
@@ -585,6 +591,137 @@ export default function SaasBillingModule() {
           </div>
         </section>
       </div>
+
+      {/* Row 1b: Renovación Mensual Consolidada en DOP y Consentimiento Separado */}
+      {renewalQuote && (
+        <section className="sb-card" aria-labelledby="sb-consolidated-renewal-title" style={{ marginBottom: '1.25rem' }}>
+          <div className="sb-card-head">
+            <div className="sb-card-title-wrap">
+              <span className="sb-icon-box" aria-hidden="true">
+                <ShieldCheck size={18} />
+              </span>
+              <h2 id="sb-consolidated-renewal-title" className="sb-card-title">
+                Renovación Mensual Consolidada (DOP)
+              </h2>
+            </div>
+            <span className="sb-badge sb-badge-info">
+              {renewalQuote.periodicityMode === 'calendar_month'
+                ? `Mes calendario (día ${renewalQuote.anchorDay})`
+                : 'Ciclo previo de 30 días'}
+            </span>
+          </div>
+
+          <div className="sb-kv-list" style={{ marginTop: '0.75rem' }}>
+            {(renewalQuote.lineItems || []).map((it, idx) => (
+              <div className="sb-kv-row" key={idx}>
+                <span className="sb-kv-label">{it.description}</span>
+                <span className="sb-kv-value">
+                  RD$ {(Number(it.amount_minor || 0) / 100).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            ))}
+            <div className="sb-kv-row">
+              <span className="sb-kv-label">Tasa manual vigente USD/DOP</span>
+              <span className="sb-kv-value">{renewalQuote.fxSnapshot?.rateFormatted || '—'}</span>
+            </div>
+            <div className="sb-kv-row">
+              <span className="sb-kv-label">Total recurrente consolidado (sin cargos únicos)</span>
+              <span className="sb-kv-value" style={{ fontWeight: 800 }}>
+                RD$ {(Number(renewalQuote.totalDopMinor || 0) / 100).toLocaleString('es-DO', { minimumFractionDigits: 2 })} DOP
+              </span>
+            </div>
+            <div className="sb-kv-row">
+              <span className="sb-kv-label">Próximo cargo estimado</span>
+              <span className="sb-kv-value">
+                {renewalQuote.nextChargeDate ? new Date(renewalQuote.nextChargeDate).toLocaleDateString('es-DO') : '—'}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(148,163,184,0.2)', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={recurringConsentChecked}
+                onChange={(e) => setRecurringConsentChecked(e.target.checked)}
+              />
+              <span>
+                Autorizo expresamente el cobro mensual automático consolidado en <strong>DOP</strong> (convertido con la tasa manual vigente al emitir cada factura) mediante mi tarjeta registrada en CardNet. Puedo cancelar directamente en cualquier momento desde esta pantalla sin penalidad.
+              </span>
+            </label>
+
+            {renewalQuote.periodicityMode !== 'calendar_month' && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={migrateCalendarChecked}
+                  onChange={(e) => setMigrateCalendarChecked(e.target.checked)}
+                />
+                <span>
+                  Acepto migrar mi periodicidad actual de 30 días a <strong>mes calendario</strong> (conservando mi día aniversario).
+                </span>
+              </label>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+              <button
+                type="button"
+                className="sb-btn sb-btn-primary"
+                disabled={authorizingRenewal || !recurringConsentChecked}
+                onClick={async () => {
+                  try {
+                    setAuthorizingRenewal(true);
+                    setError(null);
+                    const res = await fetch('/api/saas/billing/renewal/authorize', {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        authorize_recurring: recurringConsentChecked,
+                        accept_calendar_migration: migrateCalendarChecked,
+                      }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'No se pudo autorizar la renovación');
+                    setSuccessMsg('Autorización de renovación mensual automática registrada.');
+                    await loadBillingData();
+                  } catch (err) {
+                    setError(err.message);
+                  } finally {
+                    setAuthorizingRenewal(false);
+                  }
+                }}
+              >
+                {authorizingRenewal ? 'Guardando...' : 'Confirmar autorización automática'}
+              </button>
+
+              {subscription?.auto_renew !== false && (
+                <button
+                  type="button"
+                  className="sb-btn sb-btn-secondary"
+                  onClick={async () => {
+                    try {
+                      setError(null);
+                      const res = await fetch('/api/saas/billing/subscription/cancel-renewal', {
+                        method: 'POST',
+                        credentials: 'include',
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || 'No se pudo desactivar la renovación');
+                      setSuccessMsg(data.message || 'Renovación automática desactivada.');
+                      await loadBillingData();
+                    } catch (err) {
+                      setError(err.message);
+                    }
+                  }}
+                >
+                  Desactivar renovación automática
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Row 2: Tus licencias + Método de pago */}
       <div className="sb-grid-2">

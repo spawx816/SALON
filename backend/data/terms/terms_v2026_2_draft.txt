@@ -1,0 +1,17 @@
+[BORRADOR PENDIENTE DE APROBACIÓN DEL OPERADOR — NO PUBLICADO COMO VERSIÓN ACTIVA]
+TÉRMINOS Y CONDICIONES DE SUSCRIPCIÓN Y USO DE ETEREAS (BORRADOR v2026.2)
+
+Resumen de modificaciones propuestas respecto a v2026.1 (v2026.1 permanece inalterada para aceptaciones previas):
+
+1. Periodicidad por mes calendario (Cláusulas 3, 5, 6, 8, 9 y 10):
+- Se sustituye el intervalo fijo de "treinta días naturales" (que desplazaba las fechas y generaba 13 cobros en 12 meses) por **mes calendario**.
+- La fecha de renovación conserva el día de aniversario original del inicio del servicio. Cuando un mes calendario tenga menos días que el día de aniversario (por ejemplo, inicio día 31 en febrero o abril), el vencimiento se ajustará al último día de ese mes y recuperará automáticamente el día de aniversario original en los meses siguientes.
+- Las suscripciones anteriores contratadas bajo modalidad de 30 días conservan su periodicidad vigente salvo aceptación expresa de migración por parte del titular.
+
+2. Facturación consolidada única y moneda de cobro DOP (Cláusulas 5, 6 y 8):
+- Se emitirá un único cargo mensual consolidado por empresa que incluye todas las sucursales facturables, usuarios adicionales, add-ons contratados por sucursal (como Membresías B2C) e impuestos aplicables, excluyendo implementaciones y cargos únicos.
+- Aunque los precios de referencia se expresen en dólares estadounidenses (USD), el cobro autorizado y procesado mediante CardNet se ejecutará en pesos dominicanos (DOP), aplicando la tasa manual USD/DOP vigente publicada por Etereas al momento de emitir la orden/factura mensual.
+- Al emitirse la factura mensual se congelan los conceptos, precios, tasa USD/DOP y el total en DOP; eventuales reintentos por rechazo no recalcularán la deuda.
+
+3. Prorrateo de ampliaciones intermedias (Cláusula 8):
+- Las adiciones de sucursales, usuarios o add-ons durante un ciclo activo se prorratean de forma proporcional al tiempo restante del mes calendario vigente, mostrando antes de aceptar el cargo inmediato en DOP y el nuevo total recurrente mensual.

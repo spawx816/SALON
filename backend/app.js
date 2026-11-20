@@ -479,6 +479,31 @@ function createApp(dependencies = {}) {
     }
     return authenticate(req, res, async (authErr) => {
       if (authErr) return next(authErr);
+
+      // Guard fail-closed para rol técnico reservado 'kiosco_asistencia':
+      // Solo permite sesión propia, logout y endpoints operativos del kiosco (nunca módulos administrativos/POS/SaaS).
+      if (String(req.auth?.role || '').trim().toLowerCase() === 'kiosco_asistencia') {
+        const pathUrl = (req.originalUrl || req.url || '').split('?')[0];
+        const allowedForKioskUser =
+          pathUrl === '/api/auth/me' ||
+          pathUrl === '/api/auth/session' ||
+          pathUrl === '/api/auth/logout' ||
+          pathUrl === '/api/logout' ||
+          pathUrl === '/api/demo/status' ||
+          pathUrl === '/api/kiosk/session' ||
+          pathUrl === '/api/kiosk/employees' ||
+          pathUrl === '/api/kiosk/today' ||
+          pathUrl === '/api/kiosk/verify-employee' ||
+          pathUrl === '/api/kiosk/punch' ||
+          pathUrl.startsWith('/api/kiosk/self-service/');
+        if (!allowedForKioskUser) {
+          return res.status(403).json({
+            error: 'Acceso denegado: esta cuenta Kiosco de Asistencia no tiene permisos para acceder a módulos operativos o administrativos.',
+            code: 'KIOSK_ACCOUNT_RESTRICTED',
+          });
+        }
+      }
+
       if (req.auth?.isSuperAdmin || !req.tenantId || isPaywallExemptPath(req) || !pool || pool.isInMemory || pool.constructor?.name === 'InMemoryDbMock') {
         return next();
       }
