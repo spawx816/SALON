@@ -338,18 +338,31 @@ class ConsolidatedRenewalService {
     const nowIso = now.toISOString();
     const lockUntilIso = new Date(now.getTime() + 120000).toISOString();
 
-    // 1. Encolar corridas idempotentes para suscripciones activas vencidas (sin acumular suspendidas ni canceladas)
-    const [dueSubs] = await this.pool.query(
-      `SELECT * FROM tenant_subscriptions
-       WHERE status = 'active'
-         AND COALESCE(auto_renew, TRUE) = TRUE
-         AND COALESCE(cancel_at_period_end, FALSE) = FALSE
-         AND current_period_end IS NOT NULL
-         AND current_period_end <= ?
-       ORDER BY current_period_end ASC
-       LIMIT ?`,
-      [nowIso, limit]
+    // 1. Separar descubrimiento global de tenants activos de la consulta scoped por tenant_id
+    const [activeTenants] = await this.pool.query(
+      `SELECT id FROM tenants WHERE status = 'active' ORDER BY id ASC LIMIT ?`,
+      [Math.max(limit * 5, 100)]
     );
+
+    const dueSubs = [];
+    for (const t of activeTenants || []) {
+      if (dueSubs.length >= limit) break;
+      const [subRows] = await this.pool.query(
+        `SELECT * FROM tenant_subscriptions
+         WHERE tenant_id = ?
+           AND status = 'active'
+           AND COALESCE(auto_renew, TRUE) = TRUE
+           AND COALESCE(cancel_at_period_end, FALSE) = FALSE
+           AND current_period_end IS NOT NULL
+           AND current_period_end <= ?
+         ORDER BY current_period_end ASC
+         LIMIT 1`,
+        [t.id, nowIso]
+      );
+      if (subRows && subRows[0]) {
+        dueSubs.push(subRows[0]);
+      }
+    }
 
     for (const sub of dueSubs || []) {
       const periodKey = toPeriodKey(sub.current_period_end);
@@ -483,8 +496,8 @@ class ConsolidatedRenewalService {
             await this.pool.query(
               `UPDATE saas_payments
                SET status = 'success', gateway_reference = COALESCE(?, gateway_reference), requires_reconciliation = FALSE
-               WHERE id = ?`,
-              [rec.transactionId || rec.authorizationCode || null, prevPay.id]
+               WHERE id = ? AND tenant_id = ?`,
+              [rec.transactionId || rec.authorizationCode || null, prevPay.id, tenantId]
             );
             return await this._finalizeApprovedRenewal({ run, sub, invoice, periodStart, periodEnd, gatewayRef: rec.transactionId || rec.authorizationCode });
           }
@@ -497,8 +510,8 @@ class ConsolidatedRenewalService {
           }
           // Confirmed not approved -> close uncertain payment as failed before charging
           await this.pool.query(
-            `UPDATE saas_payments SET status = 'failed', requires_reconciliation = FALSE, failure_code = COALESCE(?, 'RECONCILED_NOT_APPROVED') WHERE id = ?`,
-            [rec?.responseCode || null, prevPay.id]
+            `UPDATE saas_payments SET status = 'failed', requires_reconciliation = FALSE, failure_code = COALESCE(?, 'RECONCILED_NOT_APPROVED') WHERE id = ? AND tenant_id = ?`,
+            [rec?.responseCode || null, prevPay.id, tenantId]
           );
         } else {
           // No se puede conciliar -> nunca volver a cobrar automáticamente a ciegas
@@ -551,8 +564,8 @@ class ConsolidatedRenewalService {
             await this.pool.query(
               `UPDATE saas_payments
                SET gateway_reference = COALESCE(?, gateway_reference), failure_code = 'TIMEOUT', failure_message = ?
-               WHERE id = ?`,
-              [gwErr.transactionId || null, gwErr.message, pendingPayId]
+               WHERE id = ? AND tenant_id = ?`,
+              [gwErr.transactionId || null, gwErr.message, pendingPayId, tenantId]
             );
           }
           await this.pool.query(
@@ -572,8 +585,8 @@ class ConsolidatedRenewalService {
           await this.pool.query(
             `UPDATE saas_payments
              SET status = 'success', gateway_reference = ?, is_retriable = FALSE, requires_reconciliation = FALSE
-             WHERE id = ?`,
-            [gwRef, pendingPayId]
+             WHERE id = ? AND tenant_id = ?`,
+            [gwRef, pendingPayId, tenantId]
           );
         }
         return await this._finalizeApprovedRenewal({ run, sub, invoice, periodStart, periodEnd, gatewayRef: gwRef });
@@ -593,13 +606,14 @@ class ConsolidatedRenewalService {
                failure_message = ?,
                is_retriable = ?,
                requires_reconciliation = FALSE
-           WHERE id = ?`,
+           WHERE id = ? AND tenant_id = ?`,
           [
             chargeRes?.transactionId || null,
             chargeRes?.responseCode || 'DECLINED',
             chargeRes?.responseMessage || 'Cargo rechazado',
             isRetriable,
             pendingPayId,
+            tenantId,
           ]
         );
       }

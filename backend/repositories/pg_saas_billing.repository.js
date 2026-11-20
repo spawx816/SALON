@@ -394,16 +394,19 @@ class PgSaasBillingRepository extends SaasBillingRepository {
     return this.getInvoiceById(tenantId, invoiceId);
   }
 
-  async markInvoicePaid(invoiceId, { amountPaidMinor } = {}) {
+  async markInvoicePaid(invoiceId, { tenantId, amountPaidMinor } = {}) {
+    if (!tenantId) {
+      throw new Error('tenantId es obligatorio en markInvoicePaid');
+    }
     const [rows] = await this.pool.query(
       `UPDATE saas_invoices
        SET status = 'paid',
            amount_paid_minor = COALESCE(?, total_minor),
            amount_due_minor = 0,
            paid_at = COALESCE(paid_at, NOW())
-       WHERE id = ?
+       WHERE id = ? AND tenant_id = ?
        RETURNING *`,
-      [amountPaidMinor !== undefined ? toBigInt(amountPaidMinor).toString() : null, invoiceId]
+      [amountPaidMinor !== undefined ? toBigInt(amountPaidMinor).toString() : null, invoiceId, tenantId]
     );
     return rows[0] || null;
   }

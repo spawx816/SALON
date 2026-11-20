@@ -189,9 +189,11 @@ El sistema opera actualmente con **dos modelos paralelos desconectados** entre s
 - `npm run test:runner-guards`: **PASS (17/17 + 46 archivos aislados)**.
 - `npm run test:scanner`: **14/14 negative checks PASS**; **0 violaciones** en todos los archivos RBAC/aislamiento tocados; **12 hallazgos preexistentes** fuera de RBAC en `auth.routes.js` (3 en recovery por email/cédula), `consolidated_renewal.service.js` (6 en worker/updates por id), `pg_saas_billing.repository.js` (2 en lookup/update por id) y `platform_email.service.js` (1 falso positivo en `Buffer.from` de salt).
 
-### C. Pendientes / Decisiones Necesarias
-1. **Scanner AST (`npm run test:scanner`)**: Resolver o anotar los 12 hallazgos preexistentes en `auth.routes.js`, `consolidated_renewal.service.js`, `pg_saas_billing.repository.js` y `platform_email.service.js` antes de exigir gate verde del scanner en CI de producción.
-2. **Alcance multi-sucursal en UI de usuarios**: `authorized_branch_ids` y `all_branches_access` ya están aplicados en backend y BD; definir si se expone el selector múltiple de sucursales en el modal de `SecurityModule.jsx`.
+### C. Cierre de Pendientes (2026-11-20 — Post-01d277e)
+1. **Scanner AST (`npm run test:scanner`) — CERRADO (Exit Code 0)**:
+   - Resueltos los 12 hallazgos: 5 `UPDATE saas_payments` con `AND tenant_id = ?` + descubrimiento global separado de `tenant_subscriptions` en `consolidated_renewal.service.js`; `markInvoicePaid` con `tenantId` obligatorio (`AND tenant_id = ?`) y `saas_webhook_events` clasificada como inbox global de idempotencia en `pg_saas_billing.repository.js` / scanner; `auth.routes.js` con `INNER JOIN tenants t ON c.tenant_id = t.id WHERE t.status = 'active'` y consulta estática sin `verifySql` dinámico; refinamiento preciso de `Buffer.from` para `AAD_CONTEXT` con Fixture 15 anti-evasión (`15/15` checks negativos PASS, `0` violaciones en 104 archivos runtime).
+2. **Selector Multi-Sucursal en `SecurityModule.jsx` — CERRADO**:
+   - Agregados **Sucursal Principal**, checkboxes de **Sucursales Autorizadas** (solo sucursales reales de la empresa) y **Acceso a todas las sucursales** (exclusivo para Owner); rol `kiosco_asistencia` restringido a 1 sucursal obligatoria sin acceso global; `GET /api/users` devuelve `authorized_branch_ids` y `all_branches_access` preservando asignaciones existentes e invalidando sesiones al modificar el alcance (`test_rbac_closure_matrix.cjs` Bloque 8 PASS).
 3. **Recursos explícitamente compartidos a nivel empresa**: `clients` (directorio CRM) y `services` (catálogo de servicios) se mantienen compartidos a nivel `tenant_id` por diseño operativo; `visits`, `cash_registers`, `inventory`, `reports/bi` y `salons` aplican alcance estricto por `branch_id`.
 
 

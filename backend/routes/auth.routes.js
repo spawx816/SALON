@@ -136,7 +136,7 @@ function createAuthRouter(pool, options = {}) {
           isSystemUser = true;
         } else {
           const [clients] = await pool.query(
-            "SELECT id, nombre, email, cedula, tenant_id FROM clients WHERE LOWER(email) = LOWER(?) OR (LENGTH(?) >= 5 AND (cedula = ? OR REPLACE(cedula, '-', '') = ?)) ORDER BY id DESC LIMIT 1",
+            "SELECT c.id, c.nombre, c.email, c.cedula, c.tenant_id FROM clients c INNER JOIN tenants t ON c.tenant_id = t.id WHERE t.status = 'active' AND (LOWER(c.email) = LOWER(?) OR (LENGTH(?) >= 5 AND (c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?))) ORDER BY c.id DESC LIMIT 1",
             [cleanId, cleanDigits, cleanId, cleanDigits]
           );
           if (clients.length > 0) {
@@ -385,15 +385,9 @@ function createAuthRouter(pool, options = {}) {
     try {
       const inputHash = crypto.createHash('sha256').update(cleanCode).digest('hex');
 
-      let verifySql;
-      let verifyParams;
+      let resolvedTenantId = tenantId || null;
 
-      if (targetUserId) {
-        verifySql = tenantId
-          ? "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
-          : "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
-        verifyParams = tenantId ? [tenantId, targetUserId, targetUserId] : [targetUserId, targetUserId];
-      } else {
+      if (!targetUserId) {
         // Resolve userId/clientId from emailOrCedula when resetting from public Landing
         const cleanDigits = rawIdentifier.replace(/\D/g, '');
         let resolvedAccount = null;
@@ -420,7 +414,7 @@ function createAuthRouter(pool, options = {}) {
             resolvedAccount = { targetId: `USER-${uRows[0].id}`, tenantId: uRows[0].tenant_id };
           } else {
             const [cRows] = await pool.query(
-              "SELECT id, tenant_id FROM clients WHERE LOWER(email) = LOWER(?) OR (LENGTH(?) >= 5 AND (cedula = ? OR REPLACE(cedula, '-', '') = ?)) ORDER BY id DESC LIMIT 1",
+              "SELECT c.id, c.tenant_id FROM clients c INNER JOIN tenants t ON c.tenant_id = t.id WHERE t.status = 'active' AND (LOWER(c.email) = LOWER(?) OR (LENGTH(?) >= 5 AND (c.cedula = ? OR REPLACE(c.cedula, '-', '') = ?))) ORDER BY c.id DESC LIMIT 1",
               [rawIdentifier, cleanDigits, rawIdentifier, cleanDigits]
             );
             if (cRows.length > 0) resolvedAccount = { targetId: String(cRows[0].id), tenantId: cRows[0].tenant_id };
@@ -432,15 +426,18 @@ function createAuthRouter(pool, options = {}) {
         }
 
         targetUserId = resolvedAccount.targetId;
-        verifySql = resolvedAccount.tenantId
-          ? "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1"
-          : "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1";
-        verifyParams = resolvedAccount.tenantId
-          ? [resolvedAccount.tenantId, targetUserId, targetUserId]
-          : [targetUserId, targetUserId];
+        resolvedTenantId = resolvedAccount.tenantId || null;
       }
 
-      const [rows] = await pool.query(verifySql, verifyParams);
+      const [rows] = resolvedTenantId
+        ? await pool.query(
+            "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id = ? AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1",
+            [resolvedTenantId, targetUserId, targetUserId]
+          )
+        : await pool.query(
+            "SELECT id, code_hash, attempts, max_attempts, client_id, user_id, tenant_id FROM verification_codes WHERE tenant_id IS NULL AND (user_id = ? OR client_id = ?) AND purpose = 'password_reset' AND is_used = 0 AND expires_at > NOW() ORDER BY id DESC LIMIT 1",
+            [targetUserId, targetUserId]
+          );
 
       if (rows.length === 0) {
         return res.status(400).json({ error: 'El código de verificación es inválido o ha expirado.' });
@@ -713,6 +710,8 @@ function createAuthRouter(pool, options = {}) {
                u.hora_salida,
                u.dias_laborables,
                u.tolerancia_minutos,
+               u.authorized_branch_ids,
+               u.all_branches_access,
                u.created_at,
                COALESCE(r.nombre, u.role, 'Administrador') as role_name,
                COALESCE(r.permisos, '["all"]') as role_permissions,

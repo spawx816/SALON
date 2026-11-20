@@ -308,6 +308,34 @@ async function main() {
     assert.strictEqual(Number(billableUsers), 4, `Conteo facturable debe excluir kiosco_asistencia (esperado 4, recibido ${billableUsers})`);
     console.log('  ✅ 7. Conteo de licencias excluye rol reservado kiosco_asistencia (4/4 facturables + 1 kiosco exento).');
 
+    // 8. MULTI-BRANCH SELECTOR SCOPE VALIDATION & SESSION INVALIDATION
+    const crossBranchUpdate = await reqJson(baseUrl, 'PUT', `/api/users/${customNoPermId}`, {
+      token: tokens.owner,
+      body: { branch_id: b1, authorized_branch_ids: [b1, b3] },
+    });
+    assert.strictEqual(crossBranchUpdate.status, 403, 'Debe rechazar authorized_branch_ids de otra empresa');
+
+    const kioskGlobalAttempt = await reqJson(baseUrl, 'PUT', `/api/users/${kioskT1Id}`, {
+      token: tokens.owner,
+      body: { role: 'kiosco_asistencia', branch_id: b1, all_branches_access: true },
+    });
+    assert(kioskGlobalAttempt.status === 400 || kioskGlobalAttempt.status === 403, 'Kiosco no debe permitir all_branches_access');
+
+    const multiBranchGrant = await reqJson(baseUrl, 'PUT', `/api/users/${customNoPermId}`, {
+      token: tokens.owner,
+      body: { branch_id: b1, authorized_branch_ids: [b1, b2], all_branches_access: false },
+    });
+    assert.strictEqual(multiBranchGrant.status, 200);
+    const [uListRes] = [await reqJson(baseUrl, 'GET', '/api/users', { token: tokens.owner })];
+    assert.strictEqual(uListRes.status, 200);
+    const updatedUserRow = uListRes.body.find((u) => String(u.id) === String(customNoPermId));
+    assert(updatedUserRow && String(updatedUserRow.authorized_branch_ids || '').includes(b2), 'GET /api/users debe reflejar authorized_branch_ids');
+
+    // Previous token (tokenVersion=1) must be immediately rejected after branch scope change!
+    const staleAfterScope = await reqJson(baseUrl, 'GET', '/api/salons', { token: tokens.customNoPerm });
+    assert.strictEqual(staleAfterScope.status, 401, 'Cambiar alcance de sucursales debe invalidar sesiones abiertas (401)');
+    console.log('  ✅ 8. Selector multi-sucursal (validación servidor, bloqueo global en kiosco e invalidación inmediata de sesión) verificado.');
+
     console.log('\n🎉 CIERRE RBAC Y AISLAMIENTO: TODAS LAS PRUEBAS PASARON EN salon_saas_test.');
   } finally {
     await new Promise((r) => server.close(r));

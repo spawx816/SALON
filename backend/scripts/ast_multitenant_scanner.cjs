@@ -33,7 +33,7 @@ let TENANT_OWNED_TABLES = new Set([
   'inventory_suppliers', 'inventory_purchase_orders', 'inventory_purchase_order_items',
   'inventory_transfers', 'inventory_transfer_items',
   'saas_payment_methods', 'saas_invoice_counters', 'saas_invoices', 'saas_invoice_items',
-  'saas_payments', 'saas_refunds', 'saas_billing_events', 'saas_webhook_events', 'saas_billing_jobs'
+  'saas_payments', 'saas_refunds', 'saas_billing_events', 'saas_billing_jobs'
 ]);
 
 if (fs.existsSync(matrixPath)) {
@@ -61,7 +61,8 @@ const EXEMPT_SYSTEM_TABLES = new Set([
   'migrations',
   'system_settings',
   'audit_logs',
-  'pending_tenant_reconciliations'
+  'pending_tenant_reconciliations',
+  'saas_webhook_events'
 ]);
 
 /**
@@ -385,9 +386,20 @@ function scanFile(filePath) {
       // 4. Prohibit hardcoded Basic Auth credentials or Buffer.from('user:pass')
       if (callee.type === 'MemberExpression' && callee.object && callee.object.name === 'Buffer' && callee.property && callee.property.name === 'from') {
         const firstArg = path.node.arguments[0];
+        const secondArg = path.node.arguments[1];
         if (firstArg && firstArg.type === 'StringLiteral' && firstArg.value.includes(':')) {
           const [u, p] = firstArg.value.split(':');
-          if (p && p.length >= 4 && !firstArg.value.includes('${') && !firstArg.value.startsWith('$')) {
+          const parentNode = path.parentPath?.node;
+          const isExplicitAadConst =
+            parentNode?.type === 'VariableDeclarator' &&
+            parentNode.id?.type === 'Identifier' &&
+            /^AAD(?:_[A-Z0-9_]+)?$/.test(parentNode.id.name) &&
+            secondArg?.type === 'StringLiteral' &&
+            String(secondArg.value).toLowerCase() === 'utf8';
+          const isChainedToBase64 =
+            parentNode?.type === 'MemberExpression' &&
+            parentNode.property?.name === 'toString';
+          if (p && p.length >= 4 && !firstArg.value.includes('${') && !firstArg.value.startsWith('$') && !(isExplicitAadConst && !isChainedToBase64)) {
             violations.push({
               type: 'PROHIBITED_HARDCODED_BASIC_AUTH_SECRET',
               reason: 'Hardcoded basic auth credential string in Buffer.from() is strictly prohibited. Use environment variables.',

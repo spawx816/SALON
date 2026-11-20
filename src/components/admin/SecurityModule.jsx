@@ -39,12 +39,15 @@ export default function SecurityModule() {
   // User Form Modal State
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
+  const isCurrentUserOwner = ['propietario', 'owner'].includes(String(currentUser?.role || '').toLowerCase());
   const [userForm, setUserForm] = useState({
     nombre: '',
     email: '',
     password: '',
     role_id: '',
     salon_id: '',
+    authorized_branch_ids: [],
+    all_branches_access: false,
     staff_id: '',
     profile_photo: null
   });
@@ -176,21 +179,33 @@ export default function SecurityModule() {
         alert('Debes seleccionar una sucursal obligatoria para el usuario Kiosco de Asistencia.');
         return;
       }
+      const primaryBranchId = userForm.salon_id ? String(userForm.salon_id) : null;
+      const normalizedAuthorizedBranches = isKioskReserved
+        ? (primaryBranchId ? [primaryBranchId] : [])
+        : Array.from(new Set([
+            ...(Array.isArray(userForm.authorized_branch_ids) ? userForm.authorized_branch_ids.map(String) : []),
+            ...(primaryBranchId ? [primaryBranchId] : []),
+          ].filter(Boolean)));
+      const effectiveAllBranches = isKioskReserved
+        ? false
+        : (isCurrentUserOwner ? Boolean(userForm.all_branches_access) : undefined);
+
       const payload = {
         ...userForm,
         id: editingUser ? editingUser.id : undefined,
         role: isKioskReserved ? 'kiosco_asistencia' : (editingUser && String(editingUser.role || '').toLowerCase() === 'kiosco_asistencia' ? 'empleado' : undefined),
         role_id: isKioskReserved ? null : (userForm.role_id || (roles[0]?.id || null)),
-        salon_id: userForm.salon_id ? userForm.salon_id : null,
-        branch_id: userForm.salon_id ? userForm.salon_id : null,
-        all_branches_access: isKioskReserved ? false : undefined,
+        salon_id: primaryBranchId,
+        branch_id: primaryBranchId,
+        authorized_branch_ids: normalizedAuthorizedBranches,
+        all_branches_access: effectiveAllBranches,
         staff_id: userForm.staff_id ? parseInt(userForm.staff_id, 10) : null
       };
 
       await dataService.saveUser(payload);
       setShowUserModal(false);
       setEditingUser(null);
-      setUserForm({ nombre: '', email: '', password: '', role_id: '', salon_id: '', staff_id: '', profile_photo: null });
+      setUserForm({ nombre: '', email: '', password: '', role_id: '', salon_id: '', authorized_branch_ids: [], all_branches_access: false, staff_id: '', profile_photo: null });
       await loadAllSecurityData();
       alert(editingUser ? 'Usuario actualizado exitosamente' : 'Usuario creado exitosamente');
     } catch (err) {
@@ -216,15 +231,38 @@ export default function SecurityModule() {
     }
   };
 
+  const parseAuthorizedBranches = (raw, primaryId) => {
+    let list = [];
+    if (Array.isArray(raw)) {
+      list = raw.map(String);
+    } else if (typeof raw === 'string' && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) list = parsed.map(String);
+      } catch {
+        list = raw.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+    if (primaryId && !list.includes(String(primaryId))) {
+      list.unshift(String(primaryId));
+    }
+    return Array.from(new Set(list.filter(Boolean)));
+  };
+
   const startEditUser = (u) => {
     setEditingUser(u);
     const isKioskUser = String(u.role || '').toLowerCase() === 'kiosco_asistencia';
+    const primaryBranch = u.branch_id || u.salon_id || '';
     setUserForm({
       nombre: u.nombre || '',
       email: u.email || '',
       password: '', // En blanco para no sobreescribir si no se desea
       role_id: isKioskUser ? '__KIOSK_RESERVED__' : (u.role_id || ''),
-      salon_id: u.salon_id || u.branch_id || '',
+      salon_id: primaryBranch ? String(primaryBranch) : '',
+      authorized_branch_ids: isKioskUser
+        ? (primaryBranch ? [String(primaryBranch)] : [])
+        : parseAuthorizedBranches(u.authorized_branch_ids, primaryBranch),
+      all_branches_access: isKioskUser ? false : Boolean(u.all_branches_access),
       staff_id: u.staff_id ? String(u.staff_id) : '',
       profile_photo: u.profile_photo || null
     });
@@ -633,7 +671,18 @@ export default function SecurityModule() {
             <button
               onClick={() => {
                 setEditingUser(null);
-                setUserForm({ nombre: '', email: '', password: '', role_id: roles[0]?.id || '', salon_id: '', staff_id: '', profile_photo: null });
+                const defaultBranch = salons[0]?.id ? String(salons[0].id) : '';
+                setUserForm({
+                  nombre: '',
+                  email: '',
+                  password: '',
+                  role_id: roles[0]?.id || '',
+                  salon_id: defaultBranch,
+                  authorized_branch_ids: defaultBranch ? [defaultBranch] : [],
+                  all_branches_access: false,
+                  staff_id: '',
+                  profile_photo: null
+                });
                 setShowUserModal(true);
               }}
               style={{
@@ -732,7 +781,15 @@ export default function SecurityModule() {
                         </span>
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
-                        {empresa ? (empresa.name || empresa.nombre) : '🌐 Todas (Global)'}
+                        {(() => {
+                          if (String(u.role || '').toLowerCase() === 'kiosco_asistencia') {
+                            return empresa ? `🖥️ ${empresa.name || empresa.nombre}` : '🖥️ Sin sucursal';
+                          }
+                          if (u.all_branches_access) return '🌐 Todas las sucursales';
+                          const extraIds = parseAuthorizedBranches(u.authorized_branch_ids, u.branch_id || u.salon_id);
+                          const baseName = empresa ? (empresa.name || empresa.nombre) : 'Sin asignar';
+                          return extraIds.length > 1 ? `📍 ${baseName} (+${extraIds.length - 1})` : `📍 ${baseName}`;
+                        })()}
                       </td>
                       <td style={{ padding: '1rem 1.5rem', color: '#64748b', fontSize: '0.85rem' }}>
                         {u.last_login ? new Date(u.last_login).toLocaleString('es-DO') : 'Nunca'}
@@ -1484,7 +1541,18 @@ export default function SecurityModule() {
                   </label>
                   <select
                     value={userForm.role_id}
-                    onChange={(e) => setUserForm({ ...userForm, role_id: e.target.value })}
+                    onChange={(e) => {
+                      const nextRoleId = e.target.value;
+                      const isKioskNext = nextRoleId === '__KIOSK_RESERVED__';
+                      setUserForm(prev => ({
+                        ...prev,
+                        role_id: nextRoleId,
+                        all_branches_access: isKioskNext ? false : prev.all_branches_access,
+                        authorized_branch_ids: isKioskNext
+                          ? (prev.salon_id ? [String(prev.salon_id)] : [])
+                          : prev.authorized_branch_ids,
+                      }));
+                    }}
                     style={{
                       width: '100%',
                       padding: '0.75rem',
@@ -1500,11 +1568,7 @@ export default function SecurityModule() {
                     <option value="__KIOSK_RESERVED__" style={{ color: '#047857', background: '#ecfdf5', fontWeight: 800 }}>
                       🖥️ Kiosco de Asistencia (Sin licencia)
                     </option>
-                    {(roles && roles.length > 0 ? roles : [
-                      { id: 1, nombre: 'Administrador' },
-                      { id: 2, nombre: 'Encargada' },
-                      { id: 3, nombre: 'Recepcionista' }
-                    ]).map(r => (
+                    {(roles || []).map(r => (
                       <option key={r.id} value={r.id} style={{ color: '#0f172a', background: '#ffffff' }}>
                         {r.nombre}
                       </option>
@@ -1514,12 +1578,21 @@ export default function SecurityModule() {
 
                 <div>
                   <label style={{ display: 'block', fontWeight: 700, color: '#334155', marginBottom: '0.35rem', fontSize: '0.85rem' }}>
-                    {userForm.role_id === '__KIOSK_RESERVED__' ? 'Sucursal Asignada (Obligatoria)' : 'Sucursal Asignada'}
+                    {userForm.role_id === '__KIOSK_RESERVED__' ? 'Sucursal del Kiosco (Obligatoria)' : 'Sucursal Principal'}
                   </label>
                   <select
-                    required={userForm.role_id === '__KIOSK_RESERVED__'}
+                    required={userForm.role_id === '__KIOSK_RESERVED__' || !userForm.all_branches_access}
                     value={userForm.salon_id || ''}
-                    onChange={(e) => setUserForm({ ...userForm, salon_id: e.target.value })}
+                    onChange={(e) => {
+                      const nextPrimary = e.target.value;
+                      setUserForm(prev => {
+                        const isKiosk = prev.role_id === '__KIOSK_RESERVED__';
+                        const nextAuth = isKiosk
+                          ? (nextPrimary ? [String(nextPrimary)] : [])
+                          : Array.from(new Set([...(prev.authorized_branch_ids || []).map(String), ...(nextPrimary ? [String(nextPrimary)] : [])]));
+                        return { ...prev, salon_id: nextPrimary, authorized_branch_ids: nextAuth };
+                      });
+                    }}
                     style={{
                       width: '100%',
                       padding: '0.75rem',
@@ -1532,29 +1605,92 @@ export default function SecurityModule() {
                       cursor: 'pointer'
                     }}
                   >
-                    {userForm.role_id === '__KIOSK_RESERVED__' ? (
-                      <option value="" disabled style={{ color: '#64748b' }}>
-                        -- Seleccionar sucursal del kiosco --
-                      </option>
-                    ) : (
-                      <option value="" style={{ color: '#0f172a', background: '#ffffff', fontWeight: 700 }}>
-                        🌐 Global (Todas las sucursales)
-                      </option>
-                    )}
-                    {(salons && salons.length > 0 ? salons : [
-                      { id: 1, name: 'Empresa Principal Sede Norte' },
-                      { id: 4, name: 'Empresa Sucursal Centro' },
-                      { id: 6, name: 'Disponibles (*)' }
-                    ])
-                    .filter(s => s && (s.name || s.nombre) && String(s.name || s.nombre).trim() !== '')
-                    .map(s => (
-                      <option key={s.id} value={s.id} style={{ color: '#0f172a', background: '#ffffff', fontWeight: 600 }}>
-                        📍 {s.name || s.nombre}
-                      </option>
-                    ))}
+                    <option value="" disabled={userForm.role_id === '__KIOSK_RESERVED__'} style={{ color: '#64748b' }}>
+                      -- Seleccionar sucursal --
+                    </option>
+                    {(salons || [])
+                      .filter(s => s && (s.name || s.nombre) && String(s.name || s.nombre).trim() !== '')
+                      .map(s => (
+                        <option key={s.id} value={String(s.id)} style={{ color: '#0f172a', background: '#ffffff', fontWeight: 600 }}>
+                          📍 {s.name || s.nombre}
+                        </option>
+                      ))}
                   </select>
                 </div>
               </div>
+
+              {/* Alcance Multi-Sucursal (solo roles operativos/administrativos, nunca Kiosco) */}
+              {userForm.role_id !== '__KIOSK_RESERVED__' && (
+                <div style={{ marginBottom: '1.25rem', background: '#f8fafc', padding: '0.95rem 1rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.84rem' }}>
+                      📍 Sucursales Autorizadas
+                    </span>
+                    {isCurrentUserOwner && (
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 700, color: '#0f172a', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(userForm.all_branches_access)}
+                          onChange={(e) => setUserForm(prev => ({ ...prev, all_branches_access: e.target.checked }))}
+                        />
+                        <span>🌐 Acceso a todas las sucursales</span>
+                      </label>
+                    )}
+                  </div>
+
+                  {userForm.all_branches_access ? (
+                    <div style={{ fontSize: '0.78rem', color: '#0369a1', fontWeight: 600 }}>
+                      Este usuario podrá operar en todas las sucursales activas de la empresa. Cambiar este alcance cerrará sus sesiones abiertas.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {(salons || [])
+                        .filter(s => s && (s.name || s.nombre))
+                        .map(s => {
+                          const sid = String(s.id);
+                          const isPrimary = String(userForm.salon_id || '') === sid;
+                          const isChecked = isPrimary || (userForm.authorized_branch_ids || []).map(String).includes(sid);
+                          return (
+                            <label
+                              key={sid}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '8px',
+                                border: isChecked ? '1px solid #0f172a' : '1px solid #cbd5e1',
+                                background: isChecked ? '#eef2ff' : '#ffffff',
+                                fontSize: '0.78rem',
+                                fontWeight: isPrimary ? 800 : 600,
+                                color: '#0f172a',
+                                cursor: isPrimary ? 'not-allowed' : 'pointer',
+                                opacity: isPrimary ? 0.9 : 1,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                disabled={isPrimary}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setUserForm(prev => {
+                                    const current = (prev.authorized_branch_ids || []).map(String);
+                                    const updated = checked
+                                      ? Array.from(new Set([...current, sid]))
+                                      : current.filter(id => id !== sid);
+                                    return { ...prev, authorized_branch_ids: updated };
+                                  });
+                                }}
+                              />
+                              <span>{s.name || s.nombre}{isPrimary ? ' (Principal)' : ''}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {userForm.role_id === '__KIOSK_RESERVED__' && (
                 <div style={{

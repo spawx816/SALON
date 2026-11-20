@@ -1512,6 +1512,7 @@ class SaasCheckoutService {
       invoice = await this.billingRepo.getInvoiceById(order.tenant_id, order.invoice_id);
       if (invoice && invoice.status !== 'paid' && typeof this.billingRepo.markInvoicePaid === 'function') {
         await this.billingRepo.markInvoicePaid(invoice.id, {
+          tenantId: invoice.tenant_id || order.tenant_id,
           amountPaidMinor: totalMinor,
           externalReference: gatewayRef,
         });

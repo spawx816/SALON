@@ -118,5 +118,12 @@ assert(fix14.some(v => v.type === 'PROHIBITED_HARDCODED_CREDENTIAL_OBJECT'), 'Fi
 assert(fix14.some(v => v.type === 'PROHIBITED_HARDCODED_AUTH_HEADER'), 'Fixture 14 must flag PROHIBITED_HARDCODED_AUTH_HEADER');
 console.log('  [PASS] Fixture 14 correctly caught: PROHIBITED_HARDCODED_BASIC_AUTH_SECRET, PROHIBITED_HARDCODED_CREDENTIAL_OBJECT, PROHIBITED_HARDCODED_AUTH_HEADER\n');
 
-console.log('=== TEST RESULT: ALL 14 SCANNER NEGATIVE CHECKS PASSED (PASS) ===\n');
+// Case 15: AES-GCM AAD domain separator vs Basic Auth evasion attempts
+console.log('Testing Fixture 15: AAD domain separator vs Basic Auth evasion...');
+const fix15 = scanFile(path.join(fixturesDir, 'fixture_15_aad_vs_basic_auth_evasion.js'));
+assert.strictEqual(fix15.length, 2, `Fixture 15 must allow AAD_CONTEXT and catch both evasion attempts (got ${fix15.length})`);
+assert(fix15.every(v => v.type === 'PROHIBITED_HARDCODED_BASIC_AUTH_SECRET'), 'Fixture 15 must flag PROHIBITED_HARDCODED_BASIC_AUTH_SECRET on both evasion attempts');
+console.log('  [PASS] Fixture 15 allowed legitimate AAD_CONTEXT and caught both Basic Auth evasion attempts\n');
+
+console.log('=== TEST RESULT: ALL 15 SCANNER NEGATIVE CHECKS PASSED (PASS) ===\n');
 process.exit(0);
