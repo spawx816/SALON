@@ -1,5 +1,21 @@
 const express = require('express');
-const { getBranchScope } = require('../middleware/rbac.middleware');
+const { getBranchScope, requirePermission } = require('../middleware/rbac.middleware');
+
+const toCents = (val) => Math.round(Number(val || 0) * 100);
+const fromCents = (cents) => Number((Number(cents || 0) / 100).toFixed(2));
+const toIsoDateOnly = (val) => {
+  if (!val) return '';
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  const s = String(val).trim();
+  return s.includes('T') ? s.split('T')[0] : s.slice(0, 10);
+};
+const addDaysIso = (isoDate, days) => {
+  if (!isoDate) return '';
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
 
 /**
  * Creates and configures the Express Router for Payroll & Regalías management.
@@ -164,7 +180,7 @@ function createPayrollRouter(pool) {
   });
 
   // 1.2 Actualizar parámetros de cálculo salarial (Scoped strictly by tenant_id)
-  router.post('/settings/calculation-config', async (req, res) => {
+  router.post('/settings/calculation-config', requirePermission('payroll.generate'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
       const {
@@ -301,7 +317,7 @@ function createPayrollRouter(pool) {
             AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada')
         `, [tenantId, empId, `EMP-${empId}`, empName, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
         comisiones = Number(parseFloat(commRows[0]?.total_comm || 0).toFixed(2));
-      } catch(e) {
+      } catch (e) {
         console.warn(`[COMMISSIONS CALC WARN for ${empName}]:`, e.message);
       }
     }
@@ -346,11 +362,11 @@ function createPayrollRouter(pool) {
           db_id: d.id
         });
       }
-    } catch(e) {
+    } catch (e) {
       console.warn(`[EMPLOYEE DISCOUNTS CALC WARN for ${empName}]:`, e.message);
     }
 
-    // 3. ASISTENCIA: Ausencias y Tardanzas automáticas
+    // 3. ASISTENCIA: Ausencias, Tardanzas, Turnos nocturnos (cruce de medianoche) e Ingreso/Salida parcial
     const cfg = await getCalculationSettings(pool, tenantId);
     const salarioBaseGarantizado = parseFloat(cfg.salario_mensual_base || 18421.00);
     const diasLaboralesMes = parseFloat(cfg.dias_laborables_mes || 23.83);
@@ -366,74 +382,197 @@ function createPayrollRouter(pool) {
     let feriados = 0.00;
     let horasExtras = 0.00;
 
-    if (ausenciasMonto === 0 && tardanzasMonto === 0) {
-      try {
-        const [attPunches] = await pool.query(`
-          SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
-          FROM attendance
-          WHERE tenant_id = ?
-            AND (employee_id = ? OR employee_id = ?) 
-            AND DATE(timestamp) BETWEEN ? AND ?
-          ORDER BY timestamp ASC
-        `, [tenantId, empId, empName, start_date, end_date]);
+    const reviewFlags = [];
+    const attendanceBreakdown = [];
 
-        const punchesByDay = {};
-        attPunches.forEach(p => {
-          if (!punchesByDay[p.p_date]) punchesByDay[p.p_date] = [];
-          punchesByDay[p.p_date].push(p);
-        });
+    // 3a. Detectar ingreso o salida a mitad de período (sin aprobar quincena completa silenciosamente)
+    const hireDate = toIsoDateOnly(emp.fecha_entrada);
+    const termDate = toIsoDateOnly(emp.fecha_salida);
+    if (hireDate && hireDate > start_date && hireDate <= end_date) {
+      reviewFlags.push({
+        code: 'MID_PERIOD_HIRE',
+        severity: 'warning',
+        date: hireDate,
+        message: `Ingreso durante el período (${hireDate}). Requiere revisión/prorrateo manual antes de aprobar.`,
+      });
+    }
+    if (termDate && termDate >= start_date && termDate < end_date) {
+      reviewFlags.push({
+        code: 'MID_PERIOD_TERMINATION',
+        severity: 'warning',
+        date: termDate,
+        message: `Salida durante el período (${termDate}). Requiere revisión/prorrateo manual antes de aprobar.`,
+      });
+    }
 
-        let totalNetLatenessMins = 0;
-        let totalOvertimeMins = 0;
-        let totalCalculatedAusencias = 0;
+    // Separar control anti-duplicación por concepto (manual vs automático)
+    const hasManualAbsenceDiscount = ausenciasMonto > 0;
+    const hasManualLatenessDiscount = tardanzasMonto > 0;
+    if (hasManualAbsenceDiscount) {
+      attendanceBreakdown.push({
+        type: 'Ausencia',
+        source: 'manual_discount',
+        rule_used: 'Descuento manual autorizado en employee_discounts (suprime deducción automática de ausencia)',
+        base_salary_monthly: salarioBaseGarantizado,
+        amount: ausenciasMonto,
+        amount_cents: toCents(ausenciasMonto),
+      });
+    }
+    if (hasManualLatenessDiscount) {
+      attendanceBreakdown.push({
+        type: 'Tardanza',
+        source: 'manual_discount',
+        rule_used: 'Descuento manual autorizado en employee_discounts (suprime deducción automática de tardanza)',
+        base_salary_monthly: salarioBaseGarantizado,
+        amount: tardanzasMonto,
+        amount_cents: toCents(tardanzasMonto),
+      });
+    }
 
-        Object.keys(punchesByDay).forEach(dateStr => {
-          const dayPunches = punchesByDay[dateStr];
-          const ins = dayPunches.filter(p => p.type === 'Check-In');
-          const outs = dayPunches.filter(p => p.type === 'Check-Out');
-          const abs = dayPunches.find(p => p.type === 'Ausencia');
+    try {
+      const extendedEndDate = addDaysIso(end_date, 1);
+      const [attPunches] = await pool.query(`
+        SELECT id, type, status, lateness_minutes, extra_minutes, timestamp, DATE_FORMAT(timestamp, '%Y-%m-%d') as p_date
+        FROM attendance
+        WHERE tenant_id = ?
+          AND (employee_id = ? OR employee_id = ?) 
+          AND DATE(timestamp) BETWEEN ? AND ?
+        ORDER BY timestamp ASC
+      `, [tenantId, empId, empName, start_date, extendedEndDate]);
 
-          if (abs && ins.length === 0) {
-            const scheduledHrs = horasDiaCompleto;
-            const descuentoDia = scheduledHrs * salarioHoraGarantizado;
-            totalCalculatedAusencias += descuentoDia;
-          } else if (ins.length > 0) {
-            const checkIn = ins[0];
-            const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
-            const morningLate = Number(checkIn.lateness_minutes) || 0;
+      // 3b. Detectar turnos que cruzan medianoche (Check-In en día D sin Check-Out ese día, seguido de Check-Out en D+1 <= 16h)
+      const overnightConsumedIds = new Set();
+      for (let i = 0; i < attPunches.length - 1; i++) {
+        const cur = attPunches[i];
+        const nxt = attPunches[i + 1];
+        if (cur.type === 'Check-In' && nxt.type === 'Check-Out' && cur.p_date !== nxt.p_date) {
+          const tIn = new Date(cur.timestamp).getTime();
+          const tOut = new Date(nxt.timestamp).getTime();
+          const diffHours = (tOut - tIn) / 3600000;
+          if (diffHours > 0 && diffHours <= 16 && cur.p_date >= start_date && cur.p_date <= end_date) {
+            overnightConsumedIds.add(cur.id);
+            overnightConsumedIds.add(nxt.id);
+            const workedMins = Math.round((tOut - tIn) / 60000);
+            reviewFlags.push({
+              code: 'OVERNIGHT_SHIFT_DETECTED',
+              severity: 'warning',
+              date: cur.p_date,
+              check_in: cur.timestamp,
+              check_out: nxt.timestamp,
+              worked_minutes: workedMins,
+              message: `Turno nocturno detectado (${cur.p_date} → ${nxt.p_date}, ${workedMins} min). No se trató como ponches independientes ni se descontó automáticamente; requiere revisión.`,
+            });
+            attendanceBreakdown.push({
+              type: 'TurnoNocturno',
+              source: 'automatic_detection',
+              date: cur.p_date,
+              minutes: workedMins,
+              rule_used: 'Cruce de medianoche detectado (pendiente de regla de turno nocturno; sin deducción automática)',
+              amount: 0,
+              amount_cents: 0,
+            });
+          }
+        }
+      }
 
-            if (checkOut) {
-              const inTime = new Date(checkIn.timestamp).getTime();
-              const outTime = new Date(checkOut.timestamp).getTime();
-              if (outTime > inTime) {
-                const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
-                const scheduledSecs = horasDiaCompleto * 3600;
-                if (workedSecs >= scheduledSecs) {
-                  const surplusSecs = workedSecs - scheduledSecs;
-                  totalOvertimeMins += Math.round(surplusSecs / 60);
-                } else {
-                  const missingSecs = scheduledSecs - workedSecs;
-                  totalNetLatenessMins += Math.round(missingSecs / 60);
+      const punchesByDay = {};
+      attPunches.forEach(p => {
+        if (overnightConsumedIds.has(p.id)) return;
+        if (p.p_date < start_date || p.p_date > end_date) return;
+        if (!punchesByDay[p.p_date]) punchesByDay[p.p_date] = [];
+        punchesByDay[p.p_date].push(p);
+      });
+
+      let totalNetLatenessMins = 0;
+      let totalOvertimeMins = 0;
+      let totalCalculatedAusenciasCents = 0;
+      let totalAbsenceDays = 0;
+
+      Object.keys(punchesByDay).forEach(dateStr => {
+        const dayPunches = punchesByDay[dateStr];
+        const ins = dayPunches.filter(p => p.type === 'Check-In');
+        const outs = dayPunches.filter(p => p.type === 'Check-Out');
+        const abs = dayPunches.find(p => p.type === 'Ausencia');
+
+        if (abs && ins.length === 0) {
+          totalAbsenceDays += 1;
+          if (!hasManualAbsenceDiscount) {
+            const descuentoDiaCents = toCents(horasDiaCompleto * salarioHoraGarantizado);
+            totalCalculatedAusenciasCents += descuentoDiaCents;
+            attendanceBreakdown.push({
+              type: 'Ausencia',
+              source: 'automatic_attendance',
+              date: dateStr,
+              days: 1,
+              hours: horasDiaCompleto,
+              base_salary_monthly: salarioBaseGarantizado,
+              rule_used: `Jornada completa (${horasDiaCompleto}h × RD$${salarioHoraGarantizado.toFixed(2)}/h sobre base RD$${salarioBaseGarantizado})`,
+              amount: fromCents(descuentoDiaCents),
+              amount_cents: descuentoDiaCents,
+            });
+          }
+        } else if (ins.length > 0) {
+          const checkIn = ins[0];
+          const checkOut = outs.length > 0 ? outs[outs.length - 1] : null;
+          const morningLate = Number(checkIn.lateness_minutes) || 0;
+
+          if (checkOut) {
+            const inTime = new Date(checkIn.timestamp).getTime();
+            const outTime = new Date(checkOut.timestamp).getTime();
+            if (outTime > inTime) {
+              const workedSecs = Math.max(0, Math.round((outTime - inTime) / 1000));
+              const scheduledSecs = horasDiaCompleto * 3600;
+              if (workedSecs >= scheduledSecs) {
+                const surplusSecs = workedSecs - scheduledSecs;
+                totalOvertimeMins += Math.round(surplusSecs / 60);
+              } else {
+                const missingMins = Math.round((scheduledSecs - workedSecs) / 60);
+                totalNetLatenessMins += missingMins;
+                if (!hasManualLatenessDiscount && missingMins > 0) {
+                  const lateCents = toCents(missingMins * salarioMinutoGarantizado);
+                  attendanceBreakdown.push({
+                    type: 'Tardanza',
+                    source: 'automatic_attendance',
+                    date: dateStr,
+                    minutes: missingMins,
+                    base_salary_monthly: salarioBaseGarantizado,
+                    rule_used: `Minutos faltantes jornada (${missingMins} min × RD$${salarioMinutoGarantizado.toFixed(4)}/min)`,
+                    amount: fromCents(lateCents),
+                    amount_cents: lateCents,
+                  });
                 }
               }
-            } else if (morningLate > 0) {
-              totalNetLatenessMins += morningLate;
+            }
+          } else if (morningLate > 0) {
+            totalNetLatenessMins += morningLate;
+            if (!hasManualLatenessDiscount) {
+              const lateCents = toCents(morningLate * salarioMinutoGarantizado);
+              attendanceBreakdown.push({
+                type: 'Tardanza',
+                source: 'automatic_attendance',
+                date: dateStr,
+                minutes: morningLate,
+                base_salary_monthly: salarioBaseGarantizado,
+                rule_used: `Minutos de tardanza en entrada (${morningLate} min × RD$${salarioMinutoGarantizado.toFixed(4)}/min)`,
+                amount: fromCents(lateCents),
+                amount_cents: lateCents,
+              });
             }
           }
-        });
+        }
+      });
 
-        if (totalCalculatedAusencias > 0) {
-          ausenciasMonto = Number(totalCalculatedAusencias.toFixed(2));
-        }
-        if (totalNetLatenessMins > 0) {
-          tardanzasMonto = Number((totalNetLatenessMins * salarioMinutoGarantizado).toFixed(2));
-        }
-        if (totalOvertimeMins > 0) {
-          horasExtras = Number((totalOvertimeMins * salarioMinutoGarantizado * recargoHorasExtras).toFixed(2));
-        }
-      } catch(e) {
-        console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
+      if (!hasManualAbsenceDiscount && totalCalculatedAusenciasCents > 0) {
+        ausenciasMonto = fromCents(totalCalculatedAusenciasCents);
       }
+      if (!hasManualLatenessDiscount && totalNetLatenessMins > 0) {
+        tardanzasMonto = fromCents(toCents(totalNetLatenessMins * salarioMinutoGarantizado));
+      }
+      if (totalOvertimeMins > 0) {
+        horasExtras = fromCents(toCents(totalOvertimeMins * salarioMinutoGarantizado * recargoHorasExtras));
+      }
+    } catch(e) {
+      console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
     }
 
     // 4. FERIADOS (Scoped by tenant_id)
@@ -483,7 +622,7 @@ function createPayrollRouter(pool) {
         });
         feriados = Number(feriados.toFixed(2));
       }
-    } catch (hErr) {}
+    } catch (hErr) { }
 
     let otrosIngresos = 0.00;
     const ingresosItemsList = [];
@@ -526,18 +665,39 @@ function createPayrollRouter(pool) {
     }
     otrosIngresos = Number(otrosIngresos.toFixed(2));
 
-    // 5. TSS: Seguro Familiar de Salud (SFS 3.04%) + Pensión (AFP 2.87%) = 5.91% de ley
-    const tss = salarioFijo > 0 ? Number((salarioFijo * 0.0591).toFixed(2)) : 0.00;
+    // 5. TSS y aritmética exacta en unidades menores (centavos DOP)
+    const salarioFijoCents = toCents(salarioFijo);
+    const comisionesCents = toCents(comisiones);
+    const feriadosCents = toCents(feriados);
+    const horasExtrasCents = toCents(horasExtras);
+    const otrosIngresosCents = toCents(otrosIngresos);
 
-    serviciosConsumo = Number(serviciosConsumo.toFixed(2));
-    prestamosMonto = Number(prestamosMonto.toFixed(2));
-    ausenciasMonto = Number(ausenciasMonto.toFixed(2));
-    tardanzasMonto = Number(tardanzasMonto.toFixed(2));
-    otrosDescuentos = Number(otrosDescuentos.toFixed(2));
+    const tssCents = salarioFijoCents > 0 ? Math.round(salarioFijoCents * 0.0591) : 0;
+    const serviciosCents = toCents(serviciosConsumo);
+    const prestamosCents = toCents(prestamosMonto);
+    const ausenciasCents = toCents(ausenciasMonto);
+    const tardanzasCents = toCents(tardanzasMonto);
+    const otrosDescuentosCents = toCents(otrosDescuentos);
 
-    const totalIngresos = Number((salarioFijo + comisiones + feriados + horasExtras + otrosIngresos).toFixed(2));
-    const totalDescuentos = Number((tss + serviciosConsumo + prestamosMonto + ausenciasMonto + tardanzasMonto + otrosDescuentos).toFixed(2));
-    const netoPagar = Number((totalIngresos - totalDescuentos).toFixed(2));
+    const totalIngresosCents = salarioFijoCents + comisionesCents + feriadosCents + horasExtrasCents + otrosIngresosCents;
+    const totalDescuentosCents = tssCents + serviciosCents + prestamosCents + ausenciasCents + tardanzasCents + otrosDescuentosCents;
+    const netoPagarCents = totalIngresosCents - totalDescuentosCents;
+
+    salarioFijo = fromCents(salarioFijoCents);
+    comisiones = fromCents(comisionesCents);
+    feriados = fromCents(feriadosCents);
+    horasExtras = fromCents(horasExtrasCents);
+    otrosIngresos = fromCents(otrosIngresosCents);
+    const tss = fromCents(tssCents);
+    serviciosConsumo = fromCents(serviciosCents);
+    prestamosMonto = fromCents(prestamosCents);
+    ausenciasMonto = fromCents(ausenciasCents);
+    tardanzasMonto = fromCents(tardanzasCents);
+    otrosDescuentos = fromCents(otrosDescuentosCents);
+
+    const totalIngresos = fromCents(totalIngresosCents);
+    const totalDescuentos = fromCents(totalDescuentosCents);
+    const netoPagar = fromCents(netoPagarCents);
 
     return {
       employee_id: empId,
@@ -561,6 +721,42 @@ function createPayrollRouter(pool) {
       neto_pagar: netoPagar,
       tenant_id: tenantId,
       detalles_json: {
+        requires_review: reviewFlags.length > 0,
+        review_resolved: reviewFlags.length === 0,
+        review_flags: reviewFlags,
+        attendance_deductions_breakdown: {
+          manual_absence_override: hasManualAbsenceDiscount,
+          manual_lateness_override: hasManualLatenessDiscount,
+          events: attendanceBreakdown,
+        },
+        minor_units_cents: {
+          currency: 'DOP',
+          salario_fijo_cents: salarioFijoCents,
+          comisiones_cents: comisionesCents,
+          feriados_cents: feriadosCents,
+          horas_extras_cents: horasExtrasCents,
+          otros_ingresos_cents: otrosIngresosCents,
+          total_ingresos_cents: totalIngresosCents,
+          tss_cents: tssCents,
+          servicios_cents: serviciosCents,
+          prestamos_cents: prestamosCents,
+          ausencias_cents: ausenciasCents,
+          tardanzas_cents: tardanzasCents,
+          otros_descuentos_cents: otrosDescuentosCents,
+          total_descuentos_cents: totalDescuentosCents,
+          neto_pagar_cents: netoPagarCents,
+        },
+        deductions_policy_metadata: {
+          tss: {
+            rate: 0.0591,
+            components: { sfs: 0.0304, afp: 0.0287 },
+            base_concept: 'salario_fijo_quincenal',
+            cap_applied: false,
+            isr_applied: false,
+            source: 'software_default_parameter',
+            note: 'Parámetro configurado en software (5.91% sobre salario fijo sin topes salariales SFS/AFP ni retención ISR automática). Verificar contra resoluciones vigentes TSS/DGII RD.',
+          },
+        },
         conceptos_ingresos: [
           { id: 'c1', label: 'Salario fijo', monto: salarioFijo },
           { id: 'c2', label: 'Comisiones', monto: comisiones },
@@ -583,7 +779,7 @@ function createPayrollRouter(pool) {
   }
 
   // 3. Generar / Procesar Nómina Automática con Datos Reales (Atómico con lock por empresa y anti-duplicado)
-  router.post('/generate', async (req, res) => {
+  router.post('/generate', requirePermission('payroll.generate'), async (req, res) => {
     const conn = await pool.getConnection();
     try {
       const tenantId = req.verifiedTenantId;
@@ -627,9 +823,9 @@ function createPayrollRouter(pool) {
         });
       }
 
-      // 1. Obtener empleados activos de esta empresa exclusivamente
-      let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND (status = 'Activo' OR status = 'Active' OR status IS NULL)";
-      const staffParams = [tenantId];
+      // 1. Obtener empleados activos o que salieron durante este período (para no omitir liquidaciones parciales)
+      let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND ((status = 'Activo' OR status = 'Active' OR status IS NULL) OR (fecha_salida IS NOT NULL AND fecha_salida BETWEEN ? AND ?))";
+      const staffParams = [tenantId, start_date, end_date];
       if (sucursal && sucursal !== 'Todas') {
         staffQuery += " AND (salon_id::text = ? OR localidad LIKE ?)";
         staffParams.push(String(sucursal), `%${sucursal}%`);
@@ -721,7 +917,7 @@ function createPayrollRouter(pool) {
         items: generatedItems
       });
     } catch (err) {
-      await conn.rollback().catch(() => {});
+      await conn.rollback().catch(() => { });
       console.error('[PAYROLL GENERATE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
     } finally {
@@ -730,7 +926,7 @@ function createPayrollRouter(pool) {
   });
 
   // 4. Guardar borrador / Actualizar items de nómina (Scoped strictly by tenant_id)
-  router.post('/save-draft', async (req, res) => {
+  router.post('/save-draft', requirePermission('payroll.generate'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
       const { payroll_id, items, status = 'En preparación', reason = 'Ajuste de borrador', user_name = 'Administrador' } = req.body;
@@ -791,7 +987,7 @@ function createPayrollRouter(pool) {
               INSERT INTO payroll_audit_logs (payroll_id, employee_id, employee_name, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
               VALUES (?, ?, ?, 'neto_pagar', ?, ?, 'Modificación Manual', ?, ?, ?)
             `, [payroll_id, it.employee_id, it.employee_name, String(oldItem.neto_pagar), String(netoPagar), reason, user_name, tenantId]);
-          } catch (e) {}
+          } catch (e) { }
         }
 
         await pool.query(`
@@ -822,7 +1018,7 @@ function createPayrollRouter(pool) {
   });
 
   // 5. Aplicar concepto masivo a selección de colaboradores (Scoped strictly by tenant_id)
-  router.post('/bulk-apply', async (req, res) => {
+  router.post('/bulk-apply', requirePermission('payroll.generate'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
       const { payroll_id, item_ids, concept_name, concept_type, amount, is_percentage = false, percentage = 0 } = req.body;
@@ -887,7 +1083,7 @@ function createPayrollRouter(pool) {
             INSERT INTO payroll_audit_logs (payroll_id, employee_id, employee_name, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
             VALUES (?, ?, ?, ?, '0', ?, 'Aplicación Masiva', ?, 'Administrador', ?)
           `, [payroll_id, it.employee_id, it.employee_name, concept_name, String(calculatedAmount), `Concepto masivo aplicado: ${concept_name}`, tenantId]);
-        } catch(e) {}
+        } catch (e) { }
       }
 
       const [allItems] = await pool.query(
@@ -915,11 +1111,11 @@ function createPayrollRouter(pool) {
   });
 
   // 6. Aprobar Nómina con Inmutabilidad y Liquidación Atómica (Scoped strictly by tenant_id y empleados incluidos)
-  router.post('/approve', async (req, res) => {
+  router.post('/approve', requirePermission('payroll.approve'), async (req, res) => {
     const conn = await pool.getConnection();
     try {
       const tenantId = req.verifiedTenantId;
-      let { payroll_id, approved_by = 'Administrador' } = req.body;
+      let { payroll_id, approved_by = 'Administrador', acknowledge_review_flags = false, review_resolution_note = '' } = req.body;
       if (!payroll_id && req.body && typeof req.body === 'object') {
         if (req.body.id) payroll_id = req.body.id;
       }
@@ -971,6 +1167,37 @@ function createPayrollRouter(pool) {
         'SELECT * FROM payroll_items WHERE payroll_id = ? AND tenant_id = ? ORDER BY id ASC',
         [payroll_id, tenantId]
       );
+
+      // Bloquear aprobación silenciosa si existen novedades pendientes de revisión (ingreso/salida parcial o turno nocturno)
+      const pendingReviewItems = [];
+      for (const it of items) {
+        let det = {};
+        try {
+          det = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
+        } catch { det = {}; }
+        if (det.requires_review === true && det.review_resolved !== true) {
+          pendingReviewItems.push({
+            employee_id: it.employee_id,
+            employee_name: it.employee_name,
+            flags: Array.isArray(det.review_flags) ? det.review_flags : [],
+          });
+        }
+      }
+      if (pendingReviewItems.length > 0 && !Boolean(acknowledge_review_flags)) {
+        await conn.rollback();
+        return res.status(409).json({
+          error: `Hay ${pendingReviewItems.length} colaborador(es) con novedades pendientes de revisión (ingreso/salida parcial o turno nocturno). Revisa y confirma explícitamente antes de aprobar.`,
+          code: 'PAYROLL_PENDING_REVIEW',
+          pending_review_items: pendingReviewItems,
+        });
+      }
+      if (pendingReviewItems.length > 0 && Boolean(acknowledge_review_flags)) {
+        await conn.query(
+          `INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
+           VALUES (?, 'REVISION_NOVEDADES', 'Pendiente', 'Resuelto', 'Confirmación de Revisión', ?, ?, ?)`,
+          [payroll_id, String(review_resolution_note || 'Revisión confirmada explícitamente al aprobar').slice(0, 250), actorName, tenantId]
+        );
+      }
 
       const snapshot = {
         period: period,
@@ -1046,13 +1273,13 @@ function createPayrollRouter(pool) {
 
       await conn.commit();
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         status: 'Aprobada',
-        message: 'Nómina aprobada exitosamente. Se han saldado los descuentos y liquidado las comisiones de los colaboradores incluidos en este período.' 
+        message: 'Nómina aprobada exitosamente. Se han saldado los descuentos y liquidado las comisiones de los colaboradores incluidos en este período.'
       });
     } catch (err) {
-      await conn.rollback().catch(() => {});
+      await conn.rollback().catch(() => { });
       console.error('[PAYROLL APPROVE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
     } finally {
@@ -1061,7 +1288,7 @@ function createPayrollRouter(pool) {
   });
 
   // 6.0b Registrar pago administrativo interno de una nómina aprobada (NO ejecuta transferencia bancaria)
-  router.post('/periods/:id/register-payment', async (req, res) => {
+  router.post('/periods/:id/register-payment', requirePermission('payroll.pay'), async (req, res) => {
     const conn = await pool.getConnection();
     try {
       const { id } = req.params;
@@ -1129,7 +1356,7 @@ function createPayrollRouter(pool) {
         message: 'Pago administrativo registrado internamente (no ejecuta transferencia bancaria automática).'
       });
     } catch (err) {
-      await conn.rollback().catch(() => {});
+      await conn.rollback().catch(() => { });
       console.error('[PAYROLL REGISTER PAYMENT ERROR]:', err.message);
       res.status(500).json({ error: err.message });
     } finally {
@@ -1138,7 +1365,7 @@ function createPayrollRouter(pool) {
   });
 
   // 6.1 Sincronizar datos reales de comisiones y descuentos en tiempo real (Transaccional con FOR UPDATE)
-  router.post('/periods/:id/sync-real-data', async (req, res) => {
+  router.post('/periods/:id/sync-real-data', requirePermission('payroll.generate'), async (req, res) => {
     const conn = await pool.getConnection();
     try {
       const { id } = req.params;
@@ -1161,7 +1388,7 @@ function createPayrollRouter(pool) {
         await conn.rollback();
         return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
       }
-      
+
       const period = periodRows[0];
       if (!isSucursalAllowedForActor(period.sucursal, authBranches)) {
         await conn.rollback();
@@ -1175,8 +1402,8 @@ function createPayrollRouter(pool) {
       const startDate = period.start_date ? String(period.start_date).split('T')[0] : '';
       const endDate = period.end_date ? String(period.end_date).split('T')[0] : '';
 
-      let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND (status = 'Activo' OR status = 'Active' OR status IS NULL)";
-      const staffParams = [tenantId];
+      let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND ((status = 'Activo' OR status = 'Active' OR status IS NULL) OR (fecha_salida IS NOT NULL AND fecha_salida BETWEEN ? AND ?))";
+      const staffParams = [tenantId, startDate, endDate];
       if (period.sucursal && period.sucursal !== 'Todas') {
         staffQuery += " AND (salon_id::text = ? OR localidad LIKE ?)";
         staffParams.push(String(period.sucursal), `%${period.sucursal}%`);
@@ -1260,7 +1487,7 @@ function createPayrollRouter(pool) {
         items: generatedItems
       });
     } catch (err) {
-      await conn.rollback().catch(() => {});
+      await conn.rollback().catch(() => { });
       console.error('[PAYROLL SYNC REAL DATA ERROR]:', err.message);
       res.status(500).json({ error: err.message });
     } finally {
@@ -1286,7 +1513,7 @@ function createPayrollRouter(pool) {
   });
 
   // 8. Eliminar Período de Nómina (Solo borradores no aprobados; scoped by tenant_id y sucursal)
-  router.delete('/periods/:id', async (req, res) => {
+  router.delete('/periods/:id', requirePermission('payroll.generate'), async (req, res) => {
     try {
       const { id } = req.params;
       const tenantId = req.verifiedTenantId;

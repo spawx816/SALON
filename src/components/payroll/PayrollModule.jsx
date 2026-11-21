@@ -2284,8 +2284,34 @@ export default function PayrollModule({ initialTab }) {
                               }}
                               className="hover-underline"
                             >
-                              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                <span style={{ fontSize: '0.88rem' }}>{item.employee_name}</span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span style={{ fontSize: '0.88rem' }}>{item.employee_name}</span>
+                                  {(() => {
+                                    const rowDet = typeof item.detalles_json === 'string'
+                                      ? (() => { try { return JSON.parse(item.detalles_json || '{}'); } catch { return {}; } })()
+                                      : (item.detalles_json || {});
+                                    if (!rowDet.requires_review || rowDet.review_resolved) return null;
+                                    const tip = (rowDet.review_flags || []).map(f => f.message).join(' | ');
+                                    return (
+                                      <span
+                                        title={tip || 'Requiere revisión antes de aprobar'}
+                                        style={{
+                                          background: '#fef3c7',
+                                          color: '#92400e',
+                                          border: '1px solid #f59e0b',
+                                          borderRadius: '999px',
+                                          padding: '1px 7px',
+                                          fontSize: '0.65rem',
+                                          fontWeight: 800,
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                      >
+                                        Pendiente revisión
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
                                 <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>{item.posicion}</span>
                               </div>
                             </td>
@@ -2808,8 +2834,67 @@ export default function PayrollModule({ initialTab }) {
                 const customDescuentos = (detObj.conceptos_descuentos || []).filter(d => d.custom || (d.id && String(d.id).startsWith('custom_')));
                 const desglose = detObj.desglose_descuentos || {};
 
+                const reviewFlags = Array.isArray(detObj.review_flags) ? detObj.review_flags : [];
+                const attendanceBreakdown = Array.isArray(detObj.attendance_deductions_breakdown?.events)
+                  ? detObj.attendance_deductions_breakdown.events
+                  : (Array.isArray(detObj.attendance_deductions_breakdown) ? detObj.attendance_deductions_breakdown : []);
+
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                  <>
+                    {reviewFlags.length > 0 && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '14px', padding: '0.9rem 1.1rem', marginBottom: '1rem', color: '#92400e' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.82rem', marginBottom: '0.35rem' }}>
+                          Novedades pendientes de revisión antes de aprobar ({reviewFlags.length})
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {reviewFlags.map((f, idx) => (
+                            <li key={`${f.code || 'flag'}-${idx}`}>
+                              <strong>{f.code}:</strong> {f.message}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {attendanceBreakdown.length > 0 && (
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '0.9rem 1.1rem', marginBottom: '1rem' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#0f172a', marginBottom: '0.5rem' }}>
+                          Detalle de deducciones de asistencia (sin duplicación manual/automática)
+                        </div>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                            <thead>
+                              <tr style={{ background: '#f1f5f9', color: '#475569', textAlign: 'left' }}>
+                                <th style={{ padding: '6px 8px' }}>Novedad</th>
+                                <th style={{ padding: '6px 8px' }}>Origen / Autorización</th>
+                                <th style={{ padding: '6px 8px' }}>Regla aplicada</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Base / Unidad</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Importe</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {attendanceBreakdown.map((row, idx) => (
+                                <tr key={`${row.type || row.event || 'att'}-${idx}`} style={{ borderTop: '1px solid #e2e8f0' }}>
+                                  <td style={{ padding: '6px 8px', fontWeight: 700, color: '#0f172a' }}>{row.type || row.event}</td>
+                                  <td style={{ padding: '6px 8px', color: '#334155' }}>
+                                    {row.source === 'manual_discount' ? 'Descuento manual autorizado' : 'Asistencia automática'}
+                                  </td>
+                                  <td style={{ padding: '6px 8px', color: '#475569' }}>{row.rule_used}</td>
+                                  <td style={{ padding: '6px 8px', textAlign: 'right', color: '#475569', fontVariantNumeric: 'tabular-nums' }}>
+                                    {row.days ? `${row.days} día(s)` : (row.minutes ? `${row.minutes} min` : (row.base_salary_monthly ? `Base RD$ ${Number(row.base_salary_monthly).toLocaleString('en-US')}` : '—'))}
+                                  </td>
+                                  <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>
+                                    RD$ {Number(row.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
                     
                     {/* COLUMNA 1: INGRESOS (VERDE) */}
                     <div style={{ background: '#fafcfa', border: '1px solid #e2ece2', borderRadius: '18px', padding: '1.25rem' }}>
@@ -3321,6 +3406,7 @@ export default function PayrollModule({ initialTab }) {
                       </div>
                     </div>
                   </div>
+                  </>
                 );
               })()}
 

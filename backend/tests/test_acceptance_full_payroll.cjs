@@ -124,6 +124,10 @@ async function main() {
   const ownerBEmail = `ownB_pay_${tag}@test.local`;
   const branchAPayrollEmail = `brA_pay_${tag}@test.local`;
   const noPayrollEmail = `nopay_${tag}@test.local`;
+  const viewOnlyEmail = `payview_${tag}@test.local`;
+  const genOnlyEmail = `paygen_${tag}@test.local`;
+  const appOnlyEmail = `payapp_${tag}@test.local`;
+  const payOnlyEmail = `paypay_${tag}@test.local`;
   const kioskAEmail = `kioskA_pay_${tag}@test.local`;
   const empBaseEmail = `empbase_${tag}@test.local`;
 
@@ -134,9 +138,13 @@ async function main() {
   let browser = null;
 
   try {
+    // 0. Ensure unique constraint migration on schedule_overrides is applied in salon_saas_test
+    const schedOverrideMigration = require('../migrations/20261120_schedule_overrides_unique_tenant_emp_date.cjs');
+    await schedOverrideMigration.up(pool);
+
     // 1. Seed synthetic tenants, branches, roles, users, and staff
     await pool.query(
-      "INSERT INTO tenants (id, business_name, email, slug, status, licensed_branches, max_branches, extra_user_seats, max_users) VALUES (?, ?, ?, ?, 'active', 2, 2, 4, 10), (?, ?, ?, ?, 'active', 1, 1, 0, 3)",
+      "INSERT INTO tenants (id, business_name, email, slug, status, licensed_branches, max_branches, extra_user_seats, max_users) VALUES (?, ?, ?, ?, 'active', 2, 2, 10, 16), (?, ?, ?, ?, 'active', 1, 1, 0, 3)",
       [TENANT_A, `Nomina Emp A ${tag}`, ownerAEmail, `nom-a-${tag}`, TENANT_B, `Nomina Emp B ${tag}`, ownerBEmail, `nom-b-${tag}`]
     );
     await pool.query(
@@ -154,11 +162,27 @@ async function main() {
 
     const [roleBranchPayRows] = await pool.query(
       `INSERT INTO roles (tenant_id, nombre, permisos) VALUES (?, 'Nomina Sucursal A', ?::jsonb) RETURNING id`,
-      [TENANT_A, JSON.stringify({ 'payroll.view': true, 'payroll.approve': true, 'attendance.view': true, 'attendance.manage': true })]
+      [TENANT_A, JSON.stringify({ 'payroll.view': true, 'payroll.generate': true, 'payroll.approve': true, 'attendance.view': true, 'attendance.manage': true })]
     );
     const [roleNoPayRows] = await pool.query(
       `INSERT INTO roles (tenant_id, nombre, permisos) VALUES (?, 'Solo POS', ?::jsonb) RETURNING id`,
       [TENANT_A, JSON.stringify({ 'pos.view': true })]
+    );
+    const [roleViewOnlyRows] = await pool.query(
+      `INSERT INTO roles (tenant_id, nombre, permisos) VALUES (?, 'Nomina Solo Ver', ?::jsonb) RETURNING id`,
+      [TENANT_A, JSON.stringify({ 'payroll.view': true })]
+    );
+    const [roleGenOnlyRows] = await pool.query(
+      `INSERT INTO roles (tenant_id, nombre, permisos) VALUES (?, 'Nomina Solo Generar', ?::jsonb) RETURNING id`,
+      [TENANT_A, JSON.stringify({ 'payroll.view': true, 'payroll.generate': true })]
+    );
+    const [roleAppOnlyRows] = await pool.query(
+      `INSERT INTO roles (tenant_id, nombre, permisos) VALUES (?, 'Nomina Solo Aprobar', ?::jsonb) RETURNING id`,
+      [TENANT_A, JSON.stringify({ 'payroll.view': true, 'payroll.approve': true })]
+    );
+    const [rolePayOnlyRows] = await pool.query(
+      `INSERT INTO roles (tenant_id, nombre, permisos) VALUES (?, 'Nomina Solo Pagar', ?::jsonb) RETURNING id`,
+      [TENANT_A, JSON.stringify({ 'payroll.view': true, 'payroll.pay': true })]
     );
 
     await pool.query(
@@ -169,7 +193,11 @@ async function main() {
          (?, ?, ?, ?, 'Encargada Nomina A', 'Encargada Nomina A', ?, ?, ?, 'empleado', ?, ?::jsonb, FALSE, TRUE, 'Activo'),
          (?, ?, ?, ?, 'Operador Sin Nomina', 'Operador Sin Nomina', ?, ?, ?, 'empleado', ?, ?::jsonb, FALSE, TRUE, 'Activo'),
          (?, ?, ?, ?, 'Kiosco A', 'Kiosco A', ?, ?, ?, 'kiosco_asistencia', NULL, ?::jsonb, FALSE, TRUE, 'Activo'),
-         (?, ?, ?, ?, 'Emp Base User', 'Emp Base User', ?, ?, ?, 'empleado', ?, ?::jsonb, FALSE, TRUE, 'Activo')`,
+         (?, ?, ?, ?, 'Emp Base User', 'Emp Base User', ?, ?, ?, 'empleado', ?, ?::jsonb, FALSE, TRUE, 'Activo'),
+         (?, ?, ?, ?, 'Solo Ver Nomina', 'Solo Ver Nomina', ?, ?, ?, 'empleado', ?, ?::jsonb, TRUE, TRUE, 'Activo'),
+         (?, ?, ?, ?, 'Solo Generar Nomina', 'Solo Generar Nomina', ?, ?, ?, 'empleado', ?, ?::jsonb, TRUE, TRUE, 'Activo'),
+         (?, ?, ?, ?, 'Solo Aprobar Nomina', 'Solo Aprobar Nomina', ?, ?, ?, 'empleado', ?, ?::jsonb, TRUE, TRUE, 'Activo'),
+         (?, ?, ?, ?, 'Solo Pagar Nomina', 'Solo Pagar Nomina', ?, ?, ?, 'empleado', ?, ?::jsonb, TRUE, TRUE, 'Activo')`,
       [
         crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, ownerAEmail, ownerAEmail, PASS_HASH, JSON.stringify([BRANCH_A, BRANCH_B]),
         crypto.randomUUID(), TENANT_B, BRANCH_B_OTHER, BRANCH_B_OTHER, ownerBEmail, ownerBEmail, PASS_HASH, JSON.stringify([BRANCH_B_OTHER]),
@@ -177,6 +205,10 @@ async function main() {
         crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, noPayrollEmail, noPayrollEmail, PASS_HASH, roleNoPayRows[0].id, JSON.stringify([BRANCH_A]),
         crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, kioskAEmail, kioskAEmail, PASS_HASH, JSON.stringify([BRANCH_A]),
         crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, empBaseEmail, empBaseEmail, PASS_HASH, roleNoPayRows[0].id, JSON.stringify([BRANCH_A]),
+        crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, viewOnlyEmail, viewOnlyEmail, PASS_HASH, roleViewOnlyRows[0].id, JSON.stringify([BRANCH_A, BRANCH_B]),
+        crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, genOnlyEmail, genOnlyEmail, PASS_HASH, roleGenOnlyRows[0].id, JSON.stringify([BRANCH_A, BRANCH_B]),
+        crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, appOnlyEmail, appOnlyEmail, PASS_HASH, roleAppOnlyRows[0].id, JSON.stringify([BRANCH_A, BRANCH_B]),
+        crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, payOnlyEmail, payOnlyEmail, PASS_HASH, rolePayOnlyRows[0].id, JSON.stringify([BRANCH_A, BRANCH_B]),
       ]
     );
 
@@ -236,19 +268,30 @@ async function main() {
     const branchAPayUser = await loginAs(baseUrl, branchAPayrollEmail, PASS);
     const noPayUser = await loginAs(baseUrl, noPayrollEmail, PASS);
 
-    // 2. Asistencia: schedule override + ausencia + tardanza (Emp Asistencia)
-    const overrideRes = await reqJson(baseUrl, 'POST', '/api/attendance/schedule-override', {
-      cookie: ownerA.cookie,
-      body: {
-        employeeId: EMP_ASIST_ID,
-        date: '2026-11-05',
-        newHoraEntrada: '10:00:00',
-        newHoraSalida: '18:00:00',
-        reason: 'Cambio temporal autorizado',
-        createdBy: 'Owner A',
-      },
+    // 2. Asistencia: schedule override concurrente (5 paralelos -> 1 fila única en BD) + ausencia + tardanza (Emp Asistencia)
+    const overrideCalls = await Promise.all(
+      [1, 2, 3, 4, 5].map((n) =>
+        reqJson(baseUrl, 'POST', '/api/attendance/schedule-override', {
+          cookie: ownerA.cookie,
+          body: {
+            employeeId: EMP_ASIST_ID,
+            date: '2026-11-05',
+            newHoraEntrada: '10:00:00',
+            newHoraSalida: '18:00:00',
+            reason: `Cambio temporal autorizado #${n}`,
+            createdBy: 'Owner A',
+          },
+        })
+      )
+    );
+    overrideCalls.forEach((r, idx) => {
+      assert.strictEqual(r.status, 200, `Schedule override paralelo #${idx + 1} falló: ${JSON.stringify(r.body)}`);
     });
-    assert.strictEqual(overrideRes.status, 200, `Schedule override falló: ${JSON.stringify(overrideRes.body)}`);
+    const [overrideCountRows] = await pool.query(
+      'SELECT COUNT(*)::int AS cnt FROM schedule_overrides WHERE tenant_id = ? AND employee_id = ? AND date = ?',
+      [TENANT_A, EMP_ASIST_ID, '2026-11-05']
+    );
+    assert.strictEqual(overrideCountRows[0].cnt, 1, 'Upsert concurrente de schedule_overrides no debe crear duplicados');
 
     // Insert 1 Ausencia (2026-11-03) and 1 Check-In tardanza 30m + Check-Out (7.5h worked vs 8h scheduled -> 30m missing) on 2026-11-04
     await pool.query(
@@ -347,6 +390,15 @@ async function main() {
     assert.strictEqual(Number(baseItem.prestamos), 500);
     assert.strictEqual(Number(baseItem.total_descuentos), 1091);
     assert.strictEqual(Number(baseItem.neto_pagar), 9909);
+    const baseDet = typeof baseItem.detalles_json === 'string' ? JSON.parse(baseItem.detalles_json) : baseItem.detalles_json;
+    assert.strictEqual(baseDet.minor_units_cents.salario_fijo_cents, 1000000, 'Aritmética en centavos salario_fijo');
+    assert.strictEqual(baseDet.minor_units_cents.comisiones_cents, 100000, 'Aritmética en centavos comisiones');
+    assert.strictEqual(baseDet.minor_units_cents.tss_cents, 59100, 'Aritmética en centavos TSS');
+    assert.strictEqual(baseDet.minor_units_cents.prestamos_cents, 50000, 'Aritmética en centavos prestamos');
+    assert.strictEqual(baseDet.minor_units_cents.neto_pagar_cents, 990900, 'Aritmética en centavos neto_pagar');
+    assert.strictEqual(baseDet.deductions_policy_metadata.tss.source, 'software_default_parameter', 'Debe distinguir parámetros de software de cumplimiento legal verificado');
+    assert.strictEqual(baseDet.deductions_policy_metadata.tss.cap_applied, false);
+    assert.strictEqual(baseDet.deductions_policy_metadata.tss.isr_applied, false);
 
     assert.strictEqual(Number(noCommItem.salario_fijo), 8000);
     assert.strictEqual(Number(noCommItem.comisiones), 0);
@@ -393,6 +445,36 @@ async function main() {
     assert.ok(nominaText.includes('1ra Quincena Nov 2026'), 'UI /nomina debe mostrar el período generado');
     assert.ok(nominaText.includes('9,909'), 'UI /nomina debe mostrar neto RD$9,909 del caso base');
 
+    // Verificar volante imprimible individual desde UI (capturando window.open)
+    await page.evaluate(() => {
+      window.__CAPTURED_SLIP_HTML__ = '';
+      window.open = () => ({
+        document: {
+          write(html) { window.__CAPTURED_SLIP_HTML__ += String(html || ''); },
+          close() {},
+        },
+        print() {},
+      });
+    });
+    const printClicked = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('tr'));
+      const baseRow = rows.find((r) => r.innerText.includes('Emp Base Determinista'));
+      if (!baseRow) return false;
+      const btn = baseRow.querySelector('button[title="Imprimir Volante Individual"]');
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    assert.strictEqual(printClicked, true, 'Debe existir botón Imprimir Volante Individual para Emp Base Determinista');
+    const slipHtml = await page.evaluate(() => window.__CAPTURED_SLIP_HTML__ || '');
+    assert.ok(slipHtml.includes('VOLANTE OFICIAL DE PAGO DE NÓMINA'), 'Volante imprimible debe contener cabecera oficial');
+    assert.ok(slipHtml.includes('Emp Base Determinista'), 'Volante imprimible debe mostrar colaborador');
+    assert.ok(slipHtml.includes('10,000.00'), 'Volante imprimible debe mostrar Salario Fijo 10,000.00');
+    assert.ok(slipHtml.includes('1,000.00'), 'Volante imprimible debe mostrar Comisiones 1,000.00');
+    assert.ok(slipHtml.includes('591.00'), 'Volante imprimible debe mostrar TSS 591.00');
+    assert.ok(slipHtml.includes('500.00'), 'Volante imprimible debe mostrar Préstamos/Adelantos 500.00');
+    assert.ok(slipHtml.includes('9,909.00'), 'Volante imprimible debe mostrar Neto 9,909.00');
+
     // Recargar y confirmar persistencia
     await page.reload({ waitUntil: 'networkidle2' });
     await page.waitForFunction(() => document.body.innerText.includes('Emp Base Determinista'), { timeout: 15000 });
@@ -400,7 +482,7 @@ async function main() {
     assert.strictEqual(server5xx.length, 0, `5xx en /nomina: ${server5xx.join(' | ')}`);
     await browser.close();
     browser = null;
-    console.log('  ✅ 4. Navegador real (/nomina): período, desglose RD$9,909 y persistencia tras recarga verificados (0 pageerrors, 0 5xx).');
+    console.log('  ✅ 4. Navegador real (/nomina): período, desglose RD$9,909, volante imprimible y persistencia tras recarga verificados (0 pageerrors, 0 5xx).');
 
     // 7. Aprobación concurrente ([200, 409 PAYROLL_ALREADY_APPROVED]) + liquidación solo de empleados incluidos + inmutabilidad
     const [a1, a2] = await Promise.all([
@@ -504,7 +586,155 @@ async function main() {
     assert.strictEqual(allBranchesBlockedGen.body.code, 'FORBIDDEN_BRANCH_SCOPE');
     console.log('  ✅ 7. Aislamiento Empresa B (404), sin permiso nómina (403) y alcance limitado Sucursal A (403 FORBIDDEN_BRANCH_SCOPE) PASS.');
 
-    console.log('\n🎉 PRUEBA DE ACEPTACIÓN "NÓMINA COMPLETA" SUPERADA (7/7 BLOQUES PASS).');
+    // 10. Regresiones de limitaciones cerradas (0116d5e+):
+    //     - Alta/baja en medio del período -> requires_review + bloqueo 409 PAYROLL_PENDING_REVIEW hasta confirmación explícita
+    //     - Turno que cruza medianoche -> OVERNIGHT_SHIFT_DETECTED sin descuento automático ni falsos ponches
+    //     - Descuento manual de Ausencia + Ausencia automática en asistencia -> NO se duplica + desglose auditado
+    //     - Permisos separados: payroll.view, payroll.generate, payroll.approve, payroll.pay
+    const viewOnlyUser = await loginAs(baseUrl, viewOnlyEmail, PASS);
+    const genOnlyUser = await loginAs(baseUrl, genOnlyEmail, PASS);
+    const appOnlyUser = await loginAs(baseUrl, appOnlyEmail, PASS);
+    const payOnlyUser = await loginAs(baseUrl, payOnlyEmail, PASS);
+
+    const P2_START = '2026-11-16';
+    const P2_END = '2026-11-30';
+
+    const [sMidHire] = await pool.query(
+      "INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salon_id, email, status, salario_base, tipo_salario, fecha_entrada) VALUES (?, 'Emp Alta Mitad Periodo', 'Estilista', 'Sucursal B', ?, ?, 'Activo', 20000.00, 'fijo_puro', '2026-11-20') RETURNING id",
+      [TENANT_A, BRANCH_B, `midhire_${tag}@test.local`]
+    );
+    const EMP_MIDHIRE_ID = String(sMidHire[0].id);
+
+    const [sMidTerm] = await pool.query(
+      "INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salon_id, email, status, salario_base, tipo_salario, fecha_entrada, fecha_salida) VALUES (?, 'Emp Baja Mitad Periodo', 'Estilista', 'Sucursal B', ?, ?, 'Inactivo', 20000.00, 'fijo_puro', '2026-01-10', '2026-11-22') RETURNING id",
+      [TENANT_A, BRANCH_B, `midterm_${tag}@test.local`]
+    );
+    const EMP_MIDTERM_ID = String(sMidTerm[0].id);
+
+    const [sOvernight] = await pool.query(
+      "INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salon_id, email, status, salario_base, tipo_salario, hora_entrada, hora_salida, tolerancia_minutos) VALUES (?, 'Emp Turno Nocturno', 'Estilista', 'Sucursal B', ?, ?, 'Activo', 20000.00, 'fijo_puro', '22:00:00', '06:00:00', 15) RETURNING id",
+      [TENANT_A, BRANCH_B, `overnight_${tag}@test.local`]
+    );
+    const EMP_OVERNIGHT_ID = String(sOvernight[0].id);
+
+    // Ponche nocturno: entrada 2026-11-18 22:00 -> salida 2026-11-19 06:00 (480 min, cruza medianoche)
+    await pool.query(
+      `INSERT INTO attendance (id, employee_id, type, timestamp, status, lateness_minutes, extra_minutes, tenant_id)
+       VALUES
+         (?, ?, 'Check-In', '2026-11-18 22:00:00', 'Normal', 0, 0, ?),
+         (?, ?, 'Check-Out', '2026-11-19 06:00:00', 'Normal', 0, 0, ?)`,
+      [`ATT-OVN-IN-${tag}`, EMP_OVERNIGHT_ID, TENANT_A, `ATT-OVN-OUT-${tag}`, EMP_OVERNIGHT_ID, TENANT_A]
+    );
+
+    // Ausencia automática + descuento manual de Ausencia (RD$400) para Emp Sucursal B -> no debe duplicarse
+    await pool.query(
+      `INSERT INTO attendance (id, employee_id, type, timestamp, status, lateness_minutes, extra_minutes, tenant_id)
+       VALUES (?, ?, 'Ausencia', '2026-11-17 09:00:00', 'Ausencia', 0, 0, ?)`,
+      [`ATT-DUP-ABS-${tag}`, EMP_SUCB_ID, TENANT_A]
+    );
+    const manualAbsRes = await reqJson(baseUrl, 'POST', '/api/employee-discounts', {
+      cookie: ownerA.cookie,
+      body: { employee_id: Number(EMP_SUCB_ID), type: 'Ausencia', amount: 400, date: '2026-11-17', notes: 'Ausencia autorizada manual' },
+    });
+    assert.strictEqual(manualAbsRes.status, 200);
+
+    // RBAC separado: payroll.view solo lee; no puede generar
+    const viewListOk = await reqJson(baseUrl, 'GET', '/api/payroll/periods', { cookie: viewOnlyUser.cookie });
+    assert.strictEqual(viewListOk.status, 200);
+    const viewGenBlocked = await reqJson(baseUrl, 'POST', '/api/payroll/generate', {
+      cookie: viewOnlyUser.cookie,
+      body: { period_name: '2da Quincena Nov 2026', start_date: P2_START, end_date: P2_END, sucursal: 'Sucursal B' },
+    });
+    assert.strictEqual(viewGenBlocked.status, 403);
+
+    // appOnly y payOnly tampoco pueden generar
+    const appGenBlocked = await reqJson(baseUrl, 'POST', '/api/payroll/generate', {
+      cookie: appOnlyUser.cookie,
+      body: { period_name: '2da Quincena Nov 2026', start_date: P2_START, end_date: P2_END, sucursal: 'Sucursal B' },
+    });
+    const payGenBlocked = await reqJson(baseUrl, 'POST', '/api/payroll/generate', {
+      cookie: payOnlyUser.cookie,
+      body: { period_name: '2da Quincena Nov 2026', start_date: P2_START, end_date: P2_END, sucursal: 'Sucursal B' },
+    });
+    assert.strictEqual(appGenBlocked.status, 403);
+    assert.strictEqual(payGenBlocked.status, 403);
+
+    // genOnly genera el período de Sucursal B
+    const genP2 = await reqJson(baseUrl, 'POST', '/api/payroll/generate', {
+      cookie: genOnlyUser.cookie,
+      body: { period_name: '2da Quincena Nov 2026', start_date: P2_START, end_date: P2_END, sucursal: 'Sucursal B' },
+    });
+    assert.strictEqual(genP2.status, 200, `genOnly debe poder generar: ${JSON.stringify(genP2.body)}`);
+    const PAYROLL_2_ID = genP2.body.payroll_id;
+
+    const midHireItem = genP2.body.items.find((it) => String(it.employee_id) === EMP_MIDHIRE_ID);
+    const midTermItem = genP2.body.items.find((it) => String(it.employee_id) === EMP_MIDTERM_ID);
+    const overnightItem = genP2.body.items.find((it) => String(it.employee_id) === EMP_OVERNIGHT_ID);
+    const sucBItem = genP2.body.items.find((it) => String(it.employee_id) === EMP_SUCB_ID);
+
+    assert.ok(midHireItem, 'Alta mitad período debe aparecer');
+    assert.ok(midTermItem, 'Baja mitad período (Inactivo con fecha_salida en período) debe incluirse');
+    assert.ok(overnightItem, 'Turno nocturno debe aparecer');
+    assert.ok(sucBItem, 'Emp Sucursal B debe aparecer');
+
+    assert.strictEqual(midHireItem.detalles_json.requires_review, true);
+    assert.ok(midHireItem.detalles_json.review_flags.some((f) => f.code === 'MID_PERIOD_HIRE'));
+    assert.strictEqual(midTermItem.detalles_json.requires_review, true);
+    assert.ok(midTermItem.detalles_json.review_flags.some((f) => f.code === 'MID_PERIOD_TERMINATION'));
+
+    assert.strictEqual(overnightItem.detalles_json.requires_review, true);
+    const overnightFlag = overnightItem.detalles_json.review_flags.find((f) => f.code === 'OVERNIGHT_SHIFT_DETECTED');
+    assert.ok(overnightFlag, 'Debe detectar OVERNIGHT_SHIFT_DETECTED');
+    assert.strictEqual(Number(overnightItem.ausencias), 0, 'Turno nocturno no debe descontar ausencia automática');
+    assert.strictEqual(Number(overnightItem.tardanzas), 0, 'Turno nocturno no debe descontar tardanza automática');
+    assert.strictEqual(overnightFlag.worked_minutes, 480);
+
+    // No duplicación de descuento manual + automático de ausencia
+    assert.strictEqual(Number(sucBItem.ausencias), 400, 'Descuento manual RD$400 no debe sumarse con ausencia automática');
+    assert.strictEqual(sucBItem.detalles_json.attendance_deductions_breakdown.manual_absence_override, true);
+    assert.ok(
+      Array.isArray(sucBItem.detalles_json.attendance_deductions_breakdown.events) &&
+      sucBItem.detalles_json.attendance_deductions_breakdown.events.some((b) => b.source === 'manual_discount' && Number(b.amount) === 400),
+      'Desglose de asistencia debe documentar regla, fuente y monto sin duplicar'
+    );
+
+    // genOnly y payOnly NO pueden aprobar (403)
+    const genAppBlocked = await reqJson(baseUrl, 'POST', '/api/payroll/approve', { cookie: genOnlyUser.cookie, body: { payroll_id: PAYROLL_2_ID } });
+    const payAppBlocked = await reqJson(baseUrl, 'POST', '/api/payroll/approve', { cookie: payOnlyUser.cookie, body: { payroll_id: PAYROLL_2_ID } });
+    assert.strictEqual(genAppBlocked.status, 403);
+    assert.strictEqual(payAppBlocked.status, 403);
+
+    // appOnly intenta aprobar sin confirmar novedades -> 409 PAYROLL_PENDING_REVIEW
+    const pendingReviewBlocked = await reqJson(baseUrl, 'POST', '/api/payroll/approve', {
+      cookie: appOnlyUser.cookie,
+      body: { payroll_id: PAYROLL_2_ID },
+    });
+    assert.strictEqual(pendingReviewBlocked.status, 409, `Debe bloquear aprobación con novedades pendientes: ${JSON.stringify(pendingReviewBlocked.body)}`);
+    assert.strictEqual(pendingReviewBlocked.body.code, 'PAYROLL_PENDING_REVIEW');
+    assert.ok(Array.isArray(pendingReviewBlocked.body.pending_review_items) && pendingReviewBlocked.body.pending_review_items.length >= 3);
+
+    // appOnly aprueba con confirmación explícita de revisión
+    const appWithAck = await reqJson(baseUrl, 'POST', '/api/payroll/approve', {
+      cookie: appOnlyUser.cookie,
+      body: { payroll_id: PAYROLL_2_ID, acknowledge_review_flags: true },
+    });
+    assert.strictEqual(appWithAck.status, 200, `Aprobación con acknowledge_review_flags debe pasar: ${JSON.stringify(appWithAck.body)}`);
+
+    // appOnly y genOnly NO pueden registrar pago (403); payOnly SÍ puede (200)
+    const appPayBlocked = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/register-payment`, { cookie: appOnlyUser.cookie });
+    const genPayBlocked = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/register-payment`, { cookie: genOnlyUser.cookie });
+    assert.strictEqual(appPayBlocked.status, 403);
+    assert.strictEqual(genPayBlocked.status, 403);
+
+    const payOnlyOk = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/register-payment`, {
+      cookie: payOnlyUser.cookie,
+      body: { payment_method: 'Transferencia manual', payment_reference: 'REF-PAYONLY-01' },
+    });
+    assert.strictEqual(payOnlyOk.status, 200);
+    assert.strictEqual(payOnlyOk.body.status, 'Pagada');
+    console.log('  ✅ 8. Altas/bajas mitad período (409 PAYROLL_PENDING_REVIEW), turno nocturno (480m), no-duplicación manual/auto, concurrencia schedule_overrides y RBAC separado (view/generate/approve/pay) PASS.');
+
+    console.log('\n🎉 PRUEBA DE ACEPTACIÓN "NÓMINA COMPLETA" SUPERADA (8/8 BLOQUES PASS).');
   } finally {
     if (browser) await browser.close().catch(() => {});
     if (serverProc && !serverProc.killed) serverProc.kill();

@@ -667,7 +667,7 @@ function createApp(dependencies = {}) {
   };
   app.use('/api/marketing', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, marketingPlanGuard, createMarketingRouter(pool));
   app.use('/api/holidays', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['attendance.view', 'payroll.view', 'staff.view'], ['attendance.manage', 'payroll.approve', 'security.manage']), createHolidaysRouter(pool));
-  app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requireMethodPermission(['payroll.view', 'payroll.approve'], 'payroll.approve'), createPayrollRouter(pool));
+  app.use('/api/payroll', rejectControlPlaneRoleOnTenantRoutes, rejectClientRoleOnStaffRoutes, requirePermission('payroll.view', 'payroll.generate', 'payroll.approve', 'payroll.pay'), createPayrollRouter(pool));
   const servicesGuard = (req, res, next) => {
     const isRead = ['GET', 'HEAD', 'OPTIONS'].includes(String(req.method || '').toUpperCase());
     if (isRead) return next();

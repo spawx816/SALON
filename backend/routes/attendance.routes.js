@@ -164,27 +164,20 @@ function createAttendanceRouter(pool) {
   });
 
   async function upsertScheduleOverride(runner, { tenantId, employeeId, date, origEntrada, origSalida, newEntrada, newSalida, reason, createdBy }) {
-    const [existing] = await runner.query(
-      'SELECT id FROM schedule_overrides WHERE tenant_id = ? AND employee_id = ? AND date = ? LIMIT 1',
-      [tenantId, String(employeeId), date]
+    await runner.query(
+      `INSERT INTO schedule_overrides
+       (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?)
+       ON CONFLICT (tenant_id, employee_id, date) DO UPDATE SET
+         original_hora_entrada = EXCLUDED.original_hora_entrada,
+         original_hora_salida = EXCLUDED.original_hora_salida,
+         new_hora_entrada = EXCLUDED.new_hora_entrada,
+         new_hora_salida = EXCLUDED.new_hora_salida,
+         reason = EXCLUDED.reason,
+         created_by = EXCLUDED.created_by,
+         status = 'Activo'`,
+      [String(employeeId), date, origEntrada, origSalida, newEntrada, newSalida, reason, createdBy, tenantId]
     );
-    if (existing && existing.length > 0) {
-      await runner.query(
-        `UPDATE schedule_overrides
-         SET original_hora_entrada = ?, original_hora_salida = ?,
-             new_hora_entrada = ?, new_hora_salida = ?,
-             reason = ?, created_by = ?, status = 'Activo'
-         WHERE id = ? AND tenant_id = ?`,
-        [origEntrada, origSalida, newEntrada, newSalida, reason, createdBy, existing[0].id, tenantId]
-      );
-    } else {
-      await runner.query(
-        `INSERT INTO schedule_overrides
-         (employee_id, date, original_hora_entrada, original_hora_salida, new_hora_entrada, new_hora_salida, reason, created_by, status, tenant_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Activo', ?)`,
-        [String(employeeId), date, origEntrada, origSalida, newEntrada, newSalida, reason, createdBy, tenantId]
-      );
-    }
   }
 
   // Helper para resolver el horario programado o descanso de un empleado en una fecha dada
