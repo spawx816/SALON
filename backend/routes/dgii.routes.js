@@ -356,7 +356,7 @@ function createDgiiRouter(pool) {
 
   // 3. POST /api/dgii/sequences & PUT /api/dgii/sequences/:id
   router.post('/sequences', createQuarantineGuard(pool, 'ticket_sequences', req => req.body.id), upsertSequenceHandler);
-  router.put('/sequences/:id', createQuarantineGuard(pool, 'ticket_sequences', req => req.params.id), upsertSequenceHandler);
+  router.put('/sequences/:id', createQuarantineGuard(pool, 'dgii_ncf_sequences', req => req.params.id), upsertSequenceHandler);
 
   // 3b. DELETE /api/dgii/sequences/:id - Protected against deleting used sequences
   router.delete('/sequences/:id', async (req, res) => {

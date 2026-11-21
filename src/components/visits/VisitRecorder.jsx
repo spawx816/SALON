@@ -745,6 +745,8 @@ const VisitRecorder = () => {
   // Real-Time Cash Movements States
   const [registerMovements, setRegisterMovements] = useState([]);
   const [registerSummary, setRegisterSummary] = useState(null);
+  const [registerSummaryLoading, setRegisterSummaryLoading] = useState(false);
+  const [registerSummaryError, setRegisterSummaryError] = useState('');
   const [movementActiveTab, setMovementActiveTab] = useState('resumen');
   const [newMovementType, setNewMovementType] = useState('Gasto_Imprevisto');
   const [newMovementAmount, setNewMovementAmount] = useState('');
@@ -2935,12 +2937,20 @@ const VisitRecorder = () => {
   const fetchRegisterMovements = async (regId) => {
     const idToUse = regId || activeRegister?.id;
     if (!idToUse) return;
+    setRegisterSummaryLoading(true);
+    setRegisterSummaryError('');
     try {
       const data = await dataService.getCashRegisterMovements(idToUse);
+      if (data?.error) {
+        throw new Error(data.error);
+      }
       setRegisterMovements(data.movements || []);
       setRegisterSummary(data.summary || null);
     } catch (e) {
       console.error('Error cargando movimientos de caja:', e);
+      setRegisterSummaryError(e?.message || 'No se pudo cargar el resumen de caja.');
+    } finally {
+      setRegisterSummaryLoading(false);
     }
   };
 
@@ -6233,7 +6243,18 @@ const VisitRecorder = () => {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  {registerSummaryError && (
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: '12px', padding: '0.75rem 1rem', marginBottom: '0.85rem', fontSize: '0.8rem', fontWeight: 700 }}>
+                      ⚠️ {registerSummaryError} (los montos mostrados pueden no estar actualizados; pulsa Recargar).
+                    </div>
+                  )}
+                  {registerSummaryLoading && !registerSummary && (
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#475569', borderRadius: '12px', padding: '0.75rem 1rem', marginBottom: '0.85rem', fontSize: '0.8rem', fontWeight: 600 }}>
+                      Cargando desglose canónico de caja...
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
                     {/* CARD LEFT: DINERO RECIBIDO */}
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1rem', background: '#ffffff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                       <div>
@@ -6247,7 +6268,7 @@ const VisitRecorder = () => {
                             <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ color: '#475569' }}>💳 Tarjeta (Cardnet)</span>
+                            <span style={{ color: '#475569' }}>💳 Tarjeta</span>
                             <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.tarjetaTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -6258,29 +6279,35 @@ const VisitRecorder = () => {
                             <span style={{ color: '#475569' }}>🎁 Gift Card</span>
                             <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.giftCardTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
                           </div>
+                          {(registerSummary?.otrosTotal || 0) > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ color: '#475569' }}>🧾 Otros medios</span>
+                              <strong style={{ color: '#0f172a' }}>RD$ {(registerSummary?.otrosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                            </div>
+                          )}
                         </div>
                       </div>
 
                       <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '0.75rem', marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#166534' }}>Total dinero recibido</span>
                         <strong style={{ fontSize: '0.9rem', fontWeight: 900, color: '#15803d' }}>
-                          RD$ {((registerSummary?.efectivoTotal || 0) + (registerSummary?.tarjetaTotal || 0) + (registerSummary?.transferenciaTotal || 0) + (registerSummary?.giftCardTotal || 0)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          RD$ {(registerSummary?.totalDineroRecibido ?? ((registerSummary?.efectivoTotal || 0) + (registerSummary?.tarjetaTotal || 0) + (registerSummary?.transferenciaTotal || 0) + (registerSummary?.giftCardTotal || 0) + (registerSummary?.otrosTotal || 0))).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
                     </div>
 
-                    {/* CARD RIGHT: OPERACIONES SIN EFECTIVO */}
+                    {/* CARD RIGHT: OPERACIONES SIN INGRESO MONETARIO */}
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1rem', background: '#ffffff', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                       <div>
                         <h4 style={{ margin: '0 0 0.85rem', fontSize: '0.75rem', fontWeight: 800, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          ⚙️ OPERACIONES SIN EFECTIVO
+                          ⚙️ OPERACIONES SIN INGRESO MONETARIO
                         </h4>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', fontSize: '0.8rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ color: '#475569' }}>💎 Membresía (Cantidad)</span>
                             <strong style={{ color: '#be185d', fontWeight: 800 }}>
-                              {registerMovements.filter(m => (m.payment_method || '').toLowerCase().includes('plan')).length || 0} atenciones
+                              {registerSummary?.planBeautyCount || 0} atenciones
                             </strong>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -6291,80 +6318,78 @@ const VisitRecorder = () => {
                       </div>
 
                       <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '12px', padding: '0.75rem', marginTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#9a3412' }}>Total operaciones sin efectivo</span>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#9a3412' }}>Total sin ingreso monetario</span>
                         <strong style={{ fontSize: '0.9rem', fontWeight: 900, color: '#c2410c' }}>
-                          RD$ {(registerSummary?.consumoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                          RD$ {(registerSummary?.totalSinIngreso ?? (registerSummary?.consumoTotal || 0)).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* SECTION 2: CAJA ESPERADA (EFECTIVO EN CAJA) */}
+                {/* SECTION 2: CAJA ESPERADA (EFECTIVO EN CAJA) — RESPONSIVE SIN DESBORDAMIENTO HORIZONTAL */}
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '16px', padding: '1.25rem', background: '#faf5ff' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
-                      👛
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.85rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#f3e8ff', color: '#7e22ce', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
+                        👛
+                      </div>
+                      <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>
+                        Caja esperada (solo efectivo físico)
+                      </h4>
                     </div>
-                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>
-                      Caja esperada (efectivo en caja)
-                    </h4>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', cursor: 'pointer' }} title="Fórmula: Inicial + Efectivo + Entradas - Gastos - Retiros">ℹ️</span>
+                    <span style={{ fontSize: '0.72rem', color: '#6b21a8', fontWeight: 600 }}>
+                      Inicial + Efectivo + Entradas − Gastos − Retiros
+                    </span>
                   </div>
 
-                  {/* FORMULA PILLS */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.35rem', overflowX: 'auto', paddingBottom: '0.35rem' }}>
-                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
-                      <span style={{ fontSize: '0.675rem', color: '#64748b', fontWeight: 700, display: 'block' }}>Inicial</span>
+                  {/* COMPONENTES EN GRID RESPONSIVE (SIN SCROLL HORIZONTAL) */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))', gap: '0.55rem', marginBottom: '0.75rem' }}>
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.7rem', borderRadius: '12px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b', fontWeight: 700, display: 'block' }}>Fondo inicial</span>
                       <strong style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 800 }}>
-                        RD$ {(registerSummary?.montoInicial || activeRegister.monto_inicial || 1000).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                        RD$ {Number(registerSummary?.montoInicial ?? activeRegister.monto_inicial ?? 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
 
-                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>+</span>
-
-                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
-                      <span style={{ fontSize: '0.675rem', color: '#64748b', fontWeight: 700, display: 'block' }}>Efectivo en ventas</span>
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.7rem', borderRadius: '12px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b', fontWeight: 700, display: 'block' }}>+ Ventas efectivo</span>
                       <strong style={{ fontSize: '0.85rem', color: '#0f172a', fontWeight: 800 }}>
                         RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
 
-                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>+</span>
-
-                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
-                      <span style={{ fontSize: '0.675rem', color: '#16a34a', fontWeight: 700, display: 'block' }}>Entradas</span>
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.7rem', borderRadius: '12px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.675rem', color: '#16a34a', fontWeight: 700, display: 'block' }}>+ Entradas</span>
                       <strong style={{ fontSize: '0.85rem', color: '#16a34a', fontWeight: 800 }}>
                         RD$ {(registerSummary?.entradasTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
 
-                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>-</span>
-
-                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
-                      <span style={{ fontSize: '0.675rem', color: '#dc2626', fontWeight: 700, display: 'block' }}>Gastos</span>
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.7rem', borderRadius: '12px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.675rem', color: '#dc2626', fontWeight: 700, display: 'block' }}>− Gastos</span>
                       <strong style={{ fontSize: '0.85rem', color: '#dc2626', fontWeight: 800 }}>
                         RD$ {(registerSummary?.gastosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
 
-                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>-</span>
-
-                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '90px', flex: 1 }}>
-                      <span style={{ fontSize: '0.675rem', color: '#dc2626', fontWeight: 700, display: 'block' }}>Retiros</span>
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', padding: '0.6rem 0.7rem', borderRadius: '12px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.675rem', color: '#dc2626', fontWeight: 700, display: 'block' }}>− Retiros</span>
                       <strong style={{ fontSize: '0.85rem', color: '#dc2626', fontWeight: 800 }}>
                         RD$ {(registerSummary?.retirosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
+                  </div>
 
-                    <span style={{ color: '#94a3b8', fontWeight: 800, fontSize: '0.9rem' }}>=</span>
-
-                    <div style={{ background: '#ffffff', border: '1.5px solid #d8b4fe', padding: '0.6rem 0.75rem', borderRadius: '12px', textAlign: 'center', minWidth: '115px', flex: 1.2 }}>
-                      <span style={{ fontSize: '0.675rem', color: '#7e22ce', fontWeight: 800, display: 'block' }}>Total caja esperada</span>
-                      <strong style={{ fontSize: '1rem', color: '#7e22ce', fontWeight: 900 }}>
-                        RD$ {(registerSummary?.montoEstimadoEnCaja || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
-                      </strong>
+                  {/* RESULTADO SIEMPRE VISIBLE */}
+                  <div style={{ background: '#ffffff', border: '1.5px solid #c084fc', borderRadius: '14px', padding: '0.85rem 1.1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: '#7e22ce', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Total efectivo esperado en caja</span>
+                      <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Las ventas con tarjeta, transferencia y gift card no suman al efectivo físico.</span>
                     </div>
+                    <strong style={{ fontSize: '1.25rem', color: '#6b21a8', fontWeight: 900 }}>
+                      RD$ {Number(registerSummary?.montoEstimadoEnCaja ?? registerSummary?.expected_cash ?? activeRegister.expected_cash ?? activeRegister.monto_inicial ?? 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}
+                    </strong>
                   </div>
 
                   <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
@@ -6379,7 +6404,7 @@ const VisitRecorder = () => {
 
                   {showDetailedBreakdown && (
                     <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed #d8b4fe', display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.75rem', color: '#475569' }}>
-                      <div>💵 Monto Inicial de Apertura: <strong>RD$ {(registerSummary?.montoInicial || activeRegister.monto_inicial || 1000).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
+                      <div>💵 Monto Inicial de Apertura: <strong>RD$ {Number(registerSummary?.montoInicial ?? activeRegister.monto_inicial ?? 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                       <div>🛒 Total Ventas en Efectivo: <strong>+ RD$ {(registerSummary?.efectivoTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                       <div>📥 Entradas Adicionales de Caja: <strong>+ RD$ {(registerSummary?.entradasTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>
                       <div>💸 Gastos Imprevistos en Efectivo: <strong>- RD$ {(registerSummary?.gastosTotal || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong></div>

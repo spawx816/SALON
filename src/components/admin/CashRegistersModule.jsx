@@ -779,6 +779,20 @@ const CashRegistersModule = () => {
                           <span>Transferencias:</span>
                           <strong>RD$ {Number(selectedRegister.transferencia_total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
                         </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>Gift Card:</span>
+                          <strong>RD$ {Number(selectedRegister.gift_card_total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                        </div>
+                        {Number(selectedRegister.otros_total || 0) > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Otros medios:</span>
+                            <strong>RD$ {Number(selectedRegister.otros_total || 0).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.4rem', borderTop: '1px dashed #bbf7d0', color: '#15803d' }}>
+                          <span><strong>Total dinero recibido:</strong></span>
+                          <strong>RD$ {Number(selectedRegister.total_dinero_recibido ?? ((Number(selectedRegister.efectivo_total) || 0) + (Number(selectedRegister.tarjeta_total) || 0) + (Number(selectedRegister.transferencia_total) || 0) + (Number(selectedRegister.gift_card_total) || 0) + (Number(selectedRegister.otros_total) || 0))).toLocaleString('es-DO', { minimumFractionDigits: 2 })}</strong>
+                        </div>
                       </div>
                     </div>
 

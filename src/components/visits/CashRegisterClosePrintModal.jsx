@@ -246,7 +246,7 @@ export const CashRegisterClosePrintModal = ({
                     <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 700 }}>{fmtRD(efectivoTotal)}</td>
                   </tr>
                   <tr style={{ borderBottom: '1px dashed #e2e8f0' }}>
-                    <td style={{ padding: '3px 0' }}>💳 Tarjeta / Verifone</td>
+                    <td style={{ padding: '3px 0' }}>💳 Tarjeta</td>
                     <td style={{ padding: '3px 0', textAlign: 'right', fontWeight: 700 }}>{fmtRD(tarjetaTotal)}</td>
                   </tr>
                   <tr style={{ borderBottom: '1px dashed #e2e8f0' }}>

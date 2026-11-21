@@ -6,6 +6,7 @@ const { createQuarantineGuard } = require('../middleware/quarantine.middleware.c
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
 const { getBranchScope, isBranchAuthorized } = require('../middleware/rbac.middleware');
 const { getGlobalSmtpConfig, resolveTransporterForTenant } = require('../services/platform_email.service');
+const { computeCanonicalRegisterSummary, aggregateRegisterSummary } = require('../services/cash_register_aggregation.service');
 
 const escapeHtml = (v) => String(v ?? '')
   .replace(/&/g, '&amp;')
@@ -207,7 +208,50 @@ function createCashRegistersRouter(pool) {
       const filtered = scope.allBranches
         ? (rows || [])
         : (rows || []).filter((r) => isBranchAuthorized(req, r.branch_id ?? r.salon_id));
-      res.json(filtered);
+
+      if (filtered.length === 0) {
+        return res.json([]);
+      }
+
+      // Enriquecer cada caja en lote con el resumen canónico (estrictamente por tenant_id y cash_register_id)
+      const regIds = filtered.map((r) => String(r.id));
+      const idPlaceholders = regIds.map(() => '?').join(', ');
+      const [allVisits] = await pool.query(
+        `SELECT id, cash_register_id, ticket_number, client_name, total, total_cents, metodo_pago, applied_payments, status, visited_at, ncf, void_reason, voided_at
+         FROM visits
+         WHERE tenant_id = ? AND cash_register_id::text IN (${idPlaceholders})`,
+        [tenantId, ...regIds]
+      );
+      const [allMovs] = await pool.query(
+        `SELECT id, cash_register_id, type, payment_method, amount, amount_cents, concept, user_name, created_at
+         FROM cash_register_movements
+         WHERE tenant_id = ? AND cash_register_id::text IN (${idPlaceholders})`,
+        [tenantId, ...regIds]
+      );
+
+      const visitsByReg = new Map();
+      (allVisits || []).forEach((v) => {
+        const k = String(v.cash_register_id);
+        if (!visitsByReg.has(k)) visitsByReg.set(k, []);
+        visitsByReg.get(k).push(v);
+      });
+      const movsByReg = new Map();
+      (allMovs || []).forEach((m) => {
+        const k = String(m.cash_register_id);
+        if (!movsByReg.has(k)) movsByReg.set(k, []);
+        movsByReg.get(k).push(m);
+      });
+
+      const enriched = filtered.map((reg) => {
+        const k = String(reg.id);
+        const summary = aggregateRegisterSummary(reg, visitsByReg.get(k) || [], movsByReg.get(k) || []);
+        return {
+          ...reg,
+          ...summary,
+        };
+      });
+
+      res.json(enriched);
     } catch (err) {
       console.error('Error listing cash registers:', err);
       res.status(500).json({ error: 'Error consultando listado de cajas' });
@@ -248,70 +292,11 @@ function createCashRegistersRouter(pool) {
       }
 
       const register = rows[0];
-
-      // Calcular movimientos manuales de esta caja dentro del tenant (excluyendo 'anulacion_venta' para no descontar doble)
-      const [movs] = await pool.query(
-        'SELECT type, COALESCE(SUM(amount), 0) as total FROM cash_register_movements WHERE cash_register_id = ? AND tenant_id = ? GROUP BY type',
-        [String(register.id), tenantId]
-      );
-
-      let totalIngresosManuales = 0;
-      let totalSalidasManuales = 0;
-      movs.forEach(m => {
-        const t = String(m.type || '').toLowerCase();
-        if (t === 'anulacion_venta') return;
-        if (t === 'ingreso' || t === 'in' || t === 'entrada') {
-          totalIngresosManuales += Number(m.total || 0);
-        } else {
-          totalSalidasManuales += Number(m.total || 0);
-        }
-      });
-
-      // Calcular ventas POS cobradas estrictamente en esta caja dentro del tenant
-      const [sales] = await pool.query(`
-        SELECT metodo_pago, COALESCE(SUM(total), 0) as total, COUNT(*) as count
-        FROM visits
-        WHERE tenant_id = ?
-          AND cash_register_id::text = ?
-          AND status = 'Facturado'
-        GROUP BY metodo_pago
-      `, [tenantId, String(register.id)]);
-
-      let ventasEfectivo = 0;
-      let ventasTarjeta = 0;
-      let ventasTransferencia = 0;
-      let ventasOtros = 0;
-
-      sales.forEach(s => {
-        const mp = String(s.metodo_pago || 'Efectivo').toLowerCase();
-        const amt = Number(s.total || 0);
-        if (mp.includes('efectivo') || mp.includes('cash')) {
-          ventasEfectivo += amt;
-        } else if (mp.includes('tarjeta') || mp.includes('card')) {
-          ventasTarjeta += amt;
-        } else if (mp.includes('transf')) {
-          ventasTransferencia += amt;
-        } else {
-          ventasOtros += amt;
-        }
-      });
-
-      const openingBalance = Number(register.monto_inicial ?? register.opening_amount ?? register.opening_balance ?? 0);
-      const expectedCashCents = Math.round((openingBalance + ventasEfectivo + totalIngresosManuales - totalSalidasManuales) * 100);
-      const expectedCash = expectedCashCents / 100;
+      const { summary } = await computeCanonicalRegisterSummary(pool, tenantId, register);
 
       res.json({
         ...register,
-        opening_balance: openingBalance,
-        opening_balance_cents: Math.round(openingBalance * 100),
-        ventas_efectivo: ventasEfectivo,
-        ventas_tarjeta: ventasTarjeta,
-        ventas_transferencia: ventasTransferencia,
-        ventas_otros: ventasOtros,
-        ingresos_manuales: totalIngresosManuales,
-        salidas_manuales: totalSalidasManuales,
-        expected_cash: expectedCash,
-        expected_cash_cents: expectedCashCents
+        ...summary,
       });
     } catch (err) {
       console.error('[CASH REGISTER ACTIVE ERROR]:', err);
@@ -410,37 +395,16 @@ function createCashRegistersRouter(pool) {
         });
       }
 
-      const openingBalance = Number(register.monto_inicial ?? register.opening_balance ?? register.opening_amount ?? 0);
-
-      const [movs] = await pool.query(
-        'SELECT type, COALESCE(SUM(amount), 0) as total FROM cash_register_movements WHERE cash_register_id = ? AND tenant_id = ? GROUP BY type',
-        [String(id), tenantId]
-      );
-
-      let ingresos = 0;
-      let salidas = 0;
-      movs.forEach(m => {
-        const t = String(m.type || '').toLowerCase();
-        if (t === 'anulacion_venta') return;
-        if (t === 'ingreso' || t === 'in' || t === 'entrada') ingresos += Number(m.total || 0);
-        else salidas += Number(m.total || 0);
-      });
-
-      const [sales] = await pool.query(`
-        SELECT COALESCE(SUM(total), 0) as cash_sales
-        FROM visits
-        WHERE tenant_id = ?
-          AND cash_register_id::text = ?
-          AND status = 'Facturado'
-          AND (LOWER(metodo_pago) LIKE '%efectivo%' OR LOWER(metodo_pago) LIKE '%cash%' OR metodo_pago IS NULL)
-      `, [tenantId, String(id)]);
-
-      const cashSales = Number(sales[0]?.cash_sales || 0);
-      const expectedBalance = openingBalance + cashSales + ingresos - salidas;
+      const { summary: closeSummary } = await computeCanonicalRegisterSummary(pool, tenantId, register);
+      const openingBalance = closeSummary.opening_balance;
+      const ingresos = closeSummary.ingresos_manuales;
+      const salidas = closeSummary.salidas_manuales;
+      const cashSales = closeSummary.ventas_efectivo;
+      const expectedBalanceCents = closeSummary.expected_cash_cents;
+      const expectedBalance = expectedBalanceCents / 100;
       const actualClosing = Number(closing_balance) || 0;
 
       // Exact Minor Currency Units (Cents) calculation
-      const expectedBalanceCents = Math.round(expectedBalance * 100);
       const actualClosingCents = Math.round(actualClosing * 100);
       const differenceCents = actualClosingCents - expectedBalanceCents;
       const difference = (differenceCents / 100);
@@ -597,72 +561,74 @@ function createCashRegistersRouter(pool) {
     }
   });
 
-  // 4. Reporte detallado de cierre de caja dentro del tenant autenticado
+  // 4. Reporte detallado de cierre de caja dentro del tenant autenticado (fuente canónica)
   router.get('/:id/close-report', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const [rows] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      const [rows] = await pool.query(
+        `SELECT cr.*, COALESCE(b.name, 'Sede Principal') AS salon_name
+         FROM cash_registers cr
+         LEFT JOIN branches b ON b.id::text = cr.branch_id::text AND b.tenant_id = cr.tenant_id
+         WHERE cr.id = ? AND cr.tenant_id = ?`,
+        [id, tenantId]
+      );
       if (rows.length === 0) {
         return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
       }
       const register = rows[0];
+      if (!isBranchAuthorized(req, register.branch_id ?? register.salon_id)) {
+        return res.status(403).json({ error: 'No tienes autorización para consultar esta caja.', code: 'BRANCH_ACCESS_DENIED' });
+      }
 
-      const [movements] = await pool.query(
-        'SELECT * FROM cash_register_movements WHERE cash_register_id = ? AND tenant_id = ? ORDER BY created_at DESC',
-        [id, tenantId]
-      );
+      const { summary, visits, movements } = await computeCanonicalRegisterSummary(pool, tenantId, register);
+      const facturadas = visits.filter((v) => String(v.status || '').toLowerCase() === 'facturado');
 
-      const endTime = register.closed_at || new Date();
-      const [visits] = await pool.query(`
-        SELECT id, ticket_number, client_name, total, metodo_pago, visited_at, ncf, empleado_peluquera, empleado_manicurista
-        FROM visits
-        WHERE tenant_id = ?
-          AND (cash_register_id = ? OR (visited_at >= ? AND visited_at <= ?))
-          AND status = 'Facturado'
-        ORDER BY visited_at DESC
-      `, [tenantId, id, register.opened_at, endTime]);
+      const report = {
+        registerNumber: register.register_number || `CAJA-${register.id}`,
+        employeeName: register.closed_by_name || register.employee_name || register.opened_by_name || 'Recepción',
+        salonName: register.salon_name || 'Sede Principal',
+        openedAt: register.opened_at,
+        closedAt: register.closed_at || null,
+        initialAmt: summary.opening_balance,
+        finalAmt: Number(register.monto_final ?? summary.expected_cash),
+        montoEsperado: summary.expected_cash,
+        diferencia: Number(register.diferencia ?? 0),
+        observaciones: register.observaciones || '',
+        stats: summary,
+      };
 
       res.json({
-        register,
+        register: { ...register, ...summary },
         movements,
-        visits
+        visits: facturadas,
+        summary,
+        report,
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 5. Obtener movimientos de una caja dentro del tenant autenticado
+  // 5. Obtener movimientos y resumen canónico de una caja dentro del tenant autenticado
   router.get('/:id/movements', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const [regCheck] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+      const [regCheck] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (regCheck.length === 0) {
         return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
       }
+      const register = regCheck[0];
+      if (!isBranchAuthorized(req, register.branch_id ?? register.salon_id)) {
+        return res.status(403).json({ error: 'No tienes autorización para consultar esta caja.', code: 'BRANCH_ACCESS_DENIED' });
+      }
 
-      const [movements] = await pool.query(
-        'SELECT * FROM cash_register_movements WHERE cash_register_id = ? AND tenant_id = ? ORDER BY created_at DESC',
-        [id, tenantId]
-      );
-
-      let totalIn = 0;
-      let totalOut = 0;
-      movements.forEach(m => {
-        const t = String(m.type || '').toLowerCase();
-        if (t === 'ingreso' || t === 'in' || t === 'entrada') totalIn += Number(m.amount || 0);
-        else totalOut += Number(m.amount || 0);
-      });
+      const { summary, movements } = await computeCanonicalRegisterSummary(pool, tenantId, register);
 
       res.json({
         movements,
-        summary: {
-          totalIn,
-          totalOut,
-          net: totalIn - totalOut
-        }
+        summary,
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -732,19 +698,22 @@ function createCashRegistersRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
-      const [regRows] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      const [regRows] = await pool.query('SELECT id, branch_id, salon_id FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (regRows.length === 0) {
         return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
       }
+      if (!isBranchAuthorized(req, regRows[0].branch_id ?? regRows[0].salon_id)) {
+        return res.status(403).json({ error: 'No tienes autorización para consultar las facturas de esta caja.', code: 'BRANCH_ACCESS_DENIED' });
+      }
       const [rows] = await pool.query(`
-        SELECT v.id, v.ticket_number, v.ticket_number as invoice_number, v.ncf, v.total, v.metodo_pago, v.status, v.visited_at,
+        SELECT v.id, v.ticket_number, v.ticket_number as invoice_number, v.ncf, v.total, v.total_cents, v.metodo_pago, v.applied_payments, v.status, v.visited_at,
                COALESCE(c.nombre, v.client_name, 'Cliente General') as client_name
         FROM visits v
         LEFT JOIN clients c ON c.id::text = v.client_id::text AND c.tenant_id = v.tenant_id
-        WHERE v.tenant_id = ? AND v.cash_register_id = ?
+        WHERE v.tenant_id = ? AND v.cash_register_id::text = ?
         ORDER BY v.visited_at DESC
         LIMIT 200
-      `, [tenantId, id]);
+      `, [tenantId, String(id)]);
       res.json(rows || []);
     } catch (err) {
       console.error('Error fetching cash register invoices:', err);

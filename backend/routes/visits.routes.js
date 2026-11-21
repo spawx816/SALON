@@ -3,6 +3,7 @@ const { createQuarantineGuard } = require('../middleware/quarantine.middleware.c
 const { createIdempotencyMiddleware } = require('../middleware/idempotency.middleware.cjs');
 const { getBranchScope, isBranchAuthorized } = require('../middleware/rbac.middleware');
 const { permissionMapGrants } = require('../domain/rbac_catalog');
+const { buildCanonicalAppliedPayments } = require('../services/cash_register_aggregation.service');
 
 function createVisitsRouter(pool, helpers = {}) {
   const router = express.Router();
@@ -1047,12 +1048,17 @@ function createVisitsRouter(pool, helpers = {}) {
       const subtotalCents = Math.round(numSubtotal * 100);
       const discountCents = Math.round(numDescuento * 100);
       const totalCents = Math.round(numTotal * 100);
-      const appliedPaymentsJson = JSON.stringify({
-        efectivo: Number(pago_efectivo) || (String(metodo_pago).toLowerCase().includes('efectivo') ? numTotal : 0),
-        tarjeta: Number(pago_tarjeta) || 0,
-        transferencia: Number(pago_transferencia) || 0,
-        currency: 'DOP'
-      });
+      const appliedPaymentsJson = JSON.stringify(
+        buildCanonicalAppliedPayments({
+          applied_payments: req.body?.applied_payments,
+          pago_efectivo,
+          pago_tarjeta,
+          pago_transferencia,
+          metodo_pago,
+          total_cents: totalCents,
+          total: numTotal,
+        })
+      );
 
       if (txExisting.length > 0) {
         await db.query(
