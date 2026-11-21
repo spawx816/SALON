@@ -243,8 +243,8 @@ function createPublicRouter(pool, options = {}) {
         tenantId, business_name, cleanSlug, owner_email.trim(), owner_phone || '',
         owner_name || 'Propietario', owner_email.trim(), owner_phone || '',
         rnc || '', address || '',
-        parseInt(basePlan.max_users) || 3,
-        parseInt(basePlan.max_branches) || 1,
+        (parseInt(basePlan.max_branches, 10) || 1) * 3,
+        parseInt(basePlan.max_branches, 10) || 1,
         JSON.stringify(principalModules)
       ]);
 

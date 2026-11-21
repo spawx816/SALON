@@ -916,98 +916,145 @@ function createAuthRouter(pool, options = {}) {
         return res.status(400).json({ error: 'Nombre, correo electrónico y contraseña son obligatorios.' });
       }
 
-      // El rol técnico reservado 'kiosco_asistencia' NO consume asientos facturables
-      if (!req.auth?.isSuperAdmin && !isKioskRole) {
-        if (options.entitlementsService) {
-          const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users');
-          if (!limitCheck.allowed) {
-            return res.status(403).json({
-              error: limitCheck.reason || 'Has alcanzado el límite permitido por tu plan.',
-              code: limitCheck.code || 'PLAN_LIMIT_REACHED',
-              limit: 'users',
-              current: limitCheck.current,
-              maximum: limitCheck.maximum
-            });
-          }
-        } else {
-          const [tenantRows] = await pool.query('SELECT max_users FROM tenants WHERE id = ?', [tenantId]);
-          const [userCount] = await pool.query(
-            "SELECT COUNT(*) as total FROM users WHERE tenant_id = ? AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (is_active = TRUE OR estado = 'Activo')",
-            [tenantId]
-          );
-          const maxUsers = parseInt(tenantRows[0]?.max_users || 3, 10);
-          const currentUsers = parseInt(userCount[0]?.total || 0, 10);
-          if (currentUsers >= maxUsers) {
-            return res.status(403).json({
-              error: 'Has alcanzado el límite permitido por tu plan.',
-              code: 'PLAN_LIMIT_REACHED',
-              limit: 'users',
-              current: currentUsers,
-              maximum: maxUsers
-            });
-          }
-        }
-      }
-
-      const [existingEmail] = await pool.query('SELECT id, tenant_id FROM users WHERE LOWER(email) = LOWER(?)', [finalEmail]);
-      if (existingEmail.length > 0) {
-        return res.status(400).json({ error: 'Ya existe un usuario con ese correo electrónico.' });
-      }
-
-      let { resolvedBranchId, resolvedAuthList } = await validateTenantBranches(
-        { branch_id, salon_id, authorized_branch_ids },
-        tenantId
-      );
-      if (!resolvedBranchId) {
-        const [mainBranch] = await pool.query('SELECT id FROM branches WHERE tenant_id = ? ORDER BY is_main DESC, created_at ASC LIMIT 1', [tenantId]);
-        if (mainBranch.length > 0) resolvedBranchId = mainBranch[0].id;
-      }
-
       const passwordHash = await bcrypt.hash(String(password), 10);
       const effectiveRole = targetRole !== 'superadmin' ? targetRole : 'empleado';
       const isActive = String(estado || 'Activo').toLowerCase() !== 'inactivo';
       const finalRoleId = roleCheck.roleRow ? roleCheck.roleRow.id : null;
+      const isBillableNewUser = !isKioskRole && isActive;
 
-      const [result] = await pool.query(
-        `INSERT INTO users (
-           tenant_id, branch_id, name, nombre, username, email, password_hash, password,
-           role_id, role, salon_id, estado, is_active, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos
-         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         RETURNING id`,
-        [
-          tenantId,
-          resolvedBranchId,
-          finalName,
-          finalName,
-          username || finalEmail,
-          finalEmail,
-          passwordHash,
-          finalRoleId,
-          effectiveRole,
-          resolvedBranchId ? String(resolvedBranchId) : null,
-          estado || 'Activo',
-          isActive,
-          hora_entrada || '09:00:00',
-          hora_salida || '18:00:00',
-          typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables || null),
-          tolerancia_minutos !== undefined ? tolerancia_minutos : 15
-        ]
-      );
+      // Protección atómica por empresa (lock + transacción PostgreSQL) para evitar que solicitudes concurrentes superen el cupo
+      const createOutcome = await withTenantUserLock(tenantId, async () => {
+        let txClient = null;
+        const runner = pool.isPostgres && typeof pool.connect === 'function'
+          ? (txClient = await pool.connect())
+          : pool;
 
-      const newUserId = result.insertId || result[0]?.id;
-      if (newUserId && (resolvedAuthList !== undefined || all_branches_access !== undefined)) {
         try {
-          await pool.query(
-            'UPDATE users SET authorized_branch_ids = ?, all_branches_access = ? WHERE id::text = ? AND tenant_id = ?',
+          if (txClient) await txClient.query('BEGIN');
+
+          // El rol técnico reservado 'kiosco_asistencia' NO consume asientos facturables
+          if (!req.auth?.isSuperAdmin && isBillableNewUser) {
+            if (options.entitlementsService) {
+              const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users', { conn: runner });
+              if (!limitCheck.allowed) {
+                if (txClient) await txClient.query('ROLLBACK');
+                return {
+                  status: 403,
+                  body: {
+                    error: limitCheck.reason || 'Has alcanzado el límite permitido por tu plan.',
+                    code: limitCheck.code || 'PLAN_LIMIT_REACHED',
+                    limit: 'users',
+                    current: limitCheck.current,
+                    maximum: limitCheck.maximum
+                  }
+                };
+              }
+            } else {
+              const lockClause = pool.isPostgres ? ' FOR UPDATE' : '';
+              const [tenantRows] = await runner.query(
+                `SELECT COALESCE(licensed_branches, max_branches, 1) AS licensed_branches, COALESCE(extra_user_seats, 0) AS extra_user_seats FROM tenants WHERE id = ?${lockClause}`,
+                [tenantId]
+              );
+              const [userCount] = await runner.query(
+                `SELECT COUNT(*) as total
+                 FROM users
+                 WHERE tenant_id = ?
+                   AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia')
+                   AND COALESCE(is_active, TRUE) = TRUE
+                   AND LOWER(COALESCE(estado, 'Activo')) != 'inactivo'`,
+                [tenantId]
+              );
+              const licensedBranches = Math.max(1, parseInt(tenantRows[0]?.licensed_branches || 1, 10));
+              const extraSeats = Math.max(0, parseInt(tenantRows[0]?.extra_user_seats || 0, 10));
+              const maxUsers = (licensedBranches * 3) + extraSeats;
+              const currentUsers = parseInt(userCount[0]?.total || 0, 10);
+              if (currentUsers >= maxUsers) {
+                if (txClient) await txClient.query('ROLLBACK');
+                return {
+                  status: 403,
+                  body: {
+                    error: `Has alcanzado el límite de ${maxUsers} usuarios facturables permitidos por tus licencias contratadas (${currentUsers} de ${maxUsers} en uso).`,
+                    code: 'PLAN_LIMIT_REACHED',
+                    limit: 'users',
+                    current: currentUsers,
+                    maximum: maxUsers
+                  }
+                };
+              }
+            }
+          }
+
+          const [existingEmail] = await runner.query('SELECT id, tenant_id FROM users WHERE LOWER(email) = LOWER(?)', [finalEmail]);
+          if (existingEmail.length > 0) {
+            if (txClient) await txClient.query('ROLLBACK');
+            return { status: 400, body: { error: 'Ya existe un usuario con ese correo electrónico.' } };
+          }
+
+          let { resolvedBranchId, resolvedAuthList } = await validateTenantBranches(
+            { branch_id, salon_id, authorized_branch_ids },
+            tenantId
+          );
+          if (!resolvedBranchId) {
+            const [mainBranch] = await runner.query('SELECT id FROM branches WHERE tenant_id = ? ORDER BY is_main DESC, created_at ASC LIMIT 1', [tenantId]);
+            if (mainBranch.length > 0) resolvedBranchId = mainBranch[0].id;
+          }
+
+          const [result] = await runner.query(
+            `INSERT INTO users (
+               tenant_id, branch_id, name, nombre, username, email, password_hash, password,
+               role_id, role, salon_id, estado, is_active, hora_entrada, hora_salida, dias_laborables, tolerancia_minutos
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             RETURNING id`,
             [
-              JSON.stringify(resolvedAuthList || (resolvedBranchId ? [String(resolvedBranchId)] : [])),
-              Boolean(all_branches_access) && actorRole === 'propietario',
-              String(newUserId),
-              tenantId
+              tenantId,
+              resolvedBranchId,
+              finalName,
+              finalName,
+              username || finalEmail,
+              finalEmail,
+              passwordHash,
+              finalRoleId,
+              effectiveRole,
+              resolvedBranchId ? String(resolvedBranchId) : null,
+              estado || 'Activo',
+              isActive,
+              hora_entrada || '09:00:00',
+              hora_salida || '18:00:00',
+              typeof dias_laborables === 'object' ? JSON.stringify(dias_laborables) : (dias_laborables || null),
+              tolerancia_minutos !== undefined ? tolerancia_minutos : 15
             ]
           );
-        } catch { /* pre-migration optional columns */ }
+
+          const newUserId = result.insertId || result[0]?.id;
+          if (newUserId && (resolvedAuthList !== undefined || all_branches_access !== undefined)) {
+            try {
+              await runner.query(
+                'UPDATE users SET authorized_branch_ids = ?, all_branches_access = ? WHERE id::text = ? AND tenant_id = ?',
+                [
+                  JSON.stringify(resolvedAuthList || (resolvedBranchId ? [String(resolvedBranchId)] : [])),
+                  Boolean(all_branches_access) && actorRole === 'propietario' && !isKioskRole,
+                  String(newUserId),
+                  tenantId
+                ]
+              );
+            } catch { /* pre-migration optional columns */ }
+          }
+
+          if (txClient) await txClient.query('COMMIT');
+          return { status: 200, body: { id: newUserId, success: true } };
+        } catch (innerErr) {
+          if (txClient) {
+            try { await txClient.query('ROLLBACK'); } catch { }
+          }
+          throw innerErr;
+        } finally {
+          if (txClient) txClient.release();
+        }
+      });
+
+      if (createOutcome.status !== 200) {
+        return res.status(createOutcome.status).json(createOutcome.body);
       }
 
       try {
@@ -1017,7 +1064,7 @@ function createAuthRouter(pool, options = {}) {
         `, [String(req.auth?.id || 'SYSTEM'), req.auth?.name || 'Admin', `Usuario creado: ${finalEmail} (rol=${effectiveRole}, role_id=${finalRoleId || 'none'})`, tenantId]);
       } catch { }
 
-      res.json({ id: newUserId, success: true });
+      res.json(createOutcome.body);
     } catch (err) {
       if (err.statusCode) {
         return res.status(err.statusCode).json({ error: err.message, code: err.code });
@@ -1150,10 +1197,20 @@ function createAuthRouter(pool, options = {}) {
             }
           }
 
-          // Si una cuenta exenta (kiosco_asistencia) cambia a un rol facturable, validar cupo disponible antes de aplicar
-          if (currentTargetRole === 'kiosco_asistencia' && nextEffectiveRole !== 'kiosco_asistencia' && !req.auth?.isSuperAdmin) {
+          // Validar cupo atómicamente ante cualquier cambio que incremente usuarios facturables:
+          // - Reactivación de cuenta inactiva a activa
+          // - Cambio de cuenta exenta (kiosco_asistencia / cliente_b2c) a rol operativo facturable
+          const isExemptSysRole = (r) => ['superadmin', 'cliente_b2c', 'kiosco_asistencia'].includes(String(r || '').toLowerCase());
+          const wasActiveRec = (targetUser.is_active === true || targetUser.is_active === 1 || targetUser.is_active === null) &&
+            String(targetUser.estado || 'Activo').toLowerCase() !== 'inactivo';
+          const wasBillableActive = !isExemptSysRole(currentTargetRole) && wasActiveRec;
+          const nextActiveRec = isActive !== undefined ? isActive : wasActiveRec;
+          const willBeBillableActive = !isExemptSysRole(nextEffectiveRole) && nextActiveRec;
+          const increasesBillableUsage = !wasBillableActive && willBeBillableActive;
+
+          if (increasesBillableUsage && !req.auth?.isSuperAdmin) {
             if (options.entitlementsService) {
-              const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users');
+              const limitCheck = await options.entitlementsService.checkLimit(tenantId, 'users', { conn: runner });
               if (!limitCheck.allowed) {
                 if (txClient) await txClient.query('ROLLBACK');
                 return {
@@ -1168,19 +1225,30 @@ function createAuthRouter(pool, options = {}) {
                 };
               }
             } else {
-              const [tRows] = await runner.query('SELECT max_users FROM tenants WHERE id = ?', [tenantId]);
-              const [uCnt] = await runner.query(
-                "SELECT COUNT(*) as total FROM users WHERE tenant_id = ? AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (is_active = TRUE OR estado = 'Activo')",
+              const lockClause = pool.isPostgres ? ' FOR UPDATE' : '';
+              const [tRows] = await runner.query(
+                `SELECT COALESCE(licensed_branches, max_branches, 1) AS licensed_branches, COALESCE(extra_user_seats, 0) AS extra_user_seats FROM tenants WHERE id = ?${lockClause}`,
                 [tenantId]
               );
-              const maxU = parseInt(tRows[0]?.max_users || 3, 10);
+              const [uCnt] = await runner.query(
+                `SELECT COUNT(*) as total
+                 FROM users
+                 WHERE tenant_id = ?
+                   AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia')
+                   AND COALESCE(is_active, TRUE) = TRUE
+                   AND LOWER(COALESCE(estado, 'Activo')) != 'inactivo'`,
+                [tenantId]
+              );
+              const licB = Math.max(1, parseInt(tRows[0]?.licensed_branches || 1, 10));
+              const extS = Math.max(0, parseInt(tRows[0]?.extra_user_seats || 0, 10));
+              const maxU = (licB * 3) + extS;
               const curU = parseInt(uCnt[0]?.total || 0, 10);
               if (curU >= maxU) {
                 if (txClient) await txClient.query('ROLLBACK');
                 return {
                   status: 403,
                   body: {
-                    error: 'Has alcanzado el límite de usuarios facturables de tu plan.',
+                    error: `Has alcanzado el límite de ${maxU} usuarios facturables permitidos por tus licencias contratadas (${curU} de ${maxU} en uso).`,
                     code: 'PLAN_LIMIT_REACHED',
                     limit: 'users',
                     current: curU,

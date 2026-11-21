@@ -1163,7 +1163,7 @@ export default function SuperAdminDashboard({ initialTab = 'tenants' }) {
                     const licensedBranches = parseInt(t.licensed_branches ?? t.max_branches ?? 1, 10);
                     const currentUsers = parseInt(t.users_count ?? t.user_count ?? 1, 10);
                     const usersPerBranch = parseInt(t.plan_users_per_branch || 3, 10);
-                    const maxAllowedUsers = parseInt(t.max_users ?? t.max_allowed_users ?? ((licensedBranches * usersPerBranch) + (parseInt(t.extra_user_seats, 10) || 0)), 10);
+                    const maxAllowedUsers = parseInt(t.max_allowed_users ?? ((licensedBranches * usersPerBranch) + (parseInt(t.extra_user_seats, 10) || 0)), 10);
                     const isBranchesAtLimit = currentBranches >= licensedBranches;
                     const isUsersAtLimit = currentUsers >= maxAllowedUsers;
                     const extraUserRate = t.plan_extra_user_price ? `US$${Number(t.plan_extra_user_price).toFixed(2)}/mes` : 'según tarifa vigente';

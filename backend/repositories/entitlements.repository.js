@@ -81,21 +81,39 @@ class EntitlementsRepository {
     };
   }
 
-  async countResourceUsage(tenantId, resourceKey) {
+  async countResourceUsage(tenantId, resourceKey, conn = null) {
     if (!tenantId) throw new Error('tenant_id es requerido para conteo de recursos');
-
-    if (!this.pool) return 0;
+    const executor = conn || this.pool;
+    if (!executor) return 0;
 
     if (resourceKey === 'users') {
-      const [rows] = await this.pool.query(
-        "SELECT COUNT(*) as total FROM users WHERE tenant_id = ? AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (is_active = TRUE OR estado = 'Activo')",
+      const [rows] = await executor.query(
+        `SELECT COUNT(*) as total
+         FROM users
+         WHERE tenant_id = ?
+           AND LOWER(COALESCE(role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia')
+           AND COALESCE(is_active, TRUE) = TRUE
+           AND LOWER(COALESCE(estado, 'Activo')) != 'inactivo'`,
+        [tenantId]
+      );
+      return parseInt(rows[0]?.total || 0, 10);
+    }
+
+    if (resourceKey === 'exempt_kiosk_users') {
+      const [rows] = await executor.query(
+        `SELECT COUNT(*) as total
+         FROM users
+         WHERE tenant_id = ?
+           AND LOWER(COALESCE(role, '')) = 'kiosco_asistencia'
+           AND COALESCE(is_active, TRUE) = TRUE
+           AND LOWER(COALESCE(estado, 'Activo')) != 'inactivo'`,
         [tenantId]
       );
       return parseInt(rows[0]?.total || 0, 10);
     }
 
     if (resourceKey === 'branches') {
-      const [rows] = await this.pool.query(
+      const [rows] = await executor.query(
         "SELECT COUNT(*) as total FROM branches WHERE tenant_id = ? AND is_active = TRUE",
         [tenantId]
       );
@@ -103,6 +121,20 @@ class EntitlementsRepository {
     }
 
     return 0;
+  }
+
+  async lockTenantForCapacityCheck(tenantId, conn) {
+    if (!tenantId || !conn) return null;
+    const [rows] = await conn.query(
+      `SELECT id,
+              COALESCE(licensed_branches, max_branches, 1) AS licensed_branches,
+              COALESCE(extra_user_seats, 0) AS extra_user_seats
+       FROM tenants
+       WHERE id = ?
+       FOR UPDATE`,
+      [tenantId]
+    );
+    return rows?.[0] || null;
   }
 }
 

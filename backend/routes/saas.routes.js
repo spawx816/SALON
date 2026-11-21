@@ -72,7 +72,7 @@ function createSaasRouter(pool, options = {}) {
       const [activeTenants] = await pool.query("SELECT COUNT(*) as active FROM tenants WHERE status = 'active'");
       const [suspendedTenants] = await pool.query("SELECT COUNT(*) as suspended FROM tenants WHERE status = 'suspended'");
       const [branchesCount] = await pool.query("SELECT COUNT(b.id) as total FROM branches b JOIN tenants t ON b.tenant_id = t.id");
-      const [usersCount] = await pool.query("SELECT COUNT(u.id) as total FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (u.is_active = TRUE OR u.estado = 'Activo')");
+      const [usersCount] = await pool.query("SELECT COUNT(u.id) as total FROM users u JOIN tenants t ON u.tenant_id = t.id WHERE LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo'");
 
       // Regla explícita de MRR recurrente:
       // - Solo suscripciones/tenants en estado comercial elegible ('active')
@@ -167,8 +167,10 @@ function createSaasRouter(pool, options = {}) {
           COALESCE(sp.users_per_branch, 3) as plan_users_per_branch,
           COALESCE(sp.extra_user_price, 0) as plan_extra_user_price,
           COALESCE(sp.is_public, true) as plan_is_public,
-          (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id) as branches_count,
-          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND (u.is_active = TRUE OR u.estado = 'Activo')) as users_count,
+          (SELECT COUNT(*) FROM branches b WHERE b.tenant_id = t.id AND COALESCE(b.is_active, TRUE) = TRUE) as branches_count,
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) NOT IN ('superadmin', 'cliente_b2c', 'kiosco_asistencia') AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo') as users_count,
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND LOWER(COALESCE(u.role, '')) = 'kiosco_asistencia' AND COALESCE(u.is_active, TRUE) = TRUE AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo') as exempt_kiosk_users_count,
+          ((GREATEST(COALESCE(t.licensed_branches, t.max_branches, 1), 1) * 3) + GREATEST(COALESCE(t.extra_user_seats, 0), 0)) as max_allowed_users,
           (SELECT COUNT(*) FROM clients c WHERE c.tenant_id = t.id) as clients_count
         FROM tenants t
         LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = t.id

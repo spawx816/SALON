@@ -112,24 +112,31 @@ class EntitlementsService {
         };
       }
 
-      // Límites del plan: derivados de suscripción y licencias contratadas
+      // Límites del plan: fuente única comercial = (sucursales contratadas × 3) + asientos adicionales contratados.
+      // Nunca usar tenants.max_users obsoleto (ej. 5 heredado) por encima de la fórmula contratada.
       const defaultLimits = (planCode && DEFAULT_PLAN_LIMITS[planCode])
         ? DEFAULT_PLAN_LIMITS[planCode]
         : { users: 3, branches: 1 };
 
-      const licensedBranches = sub.licensed_branches !== undefined && sub.licensed_branches !== null
-        ? Number(sub.licensed_branches)
-        : (sub.max_branches !== undefined && sub.max_branches !== null ? Number(sub.max_branches) : defaultLimits.branches);
+      const licensedBranches = Math.max(
+        1,
+        Number(
+          sub.licensed_branches !== undefined && sub.licensed_branches !== null
+            ? sub.licensed_branches
+            : (sub.max_branches !== undefined && sub.max_branches !== null ? sub.max_branches : defaultLimits.branches)
+        ) || 1
+      );
 
-      const extraSeats = Number(sub.extra_user_seats || 0);
+      const extraSeats = Math.max(0, Number(sub.extra_user_seats || 0) || 0);
       const usersPerBranch = 3;
-      const calculatedMaxUsers = sub.max_users !== undefined && sub.max_users !== null
-        ? Number(sub.max_users)
-        : (licensedBranches * usersPerBranch) + extraSeats;
+      const calculatedMaxUsers = (licensedBranches * usersPerBranch) + extraSeats;
 
       const planLimits = {
-        branches: Math.max(licensedBranches, defaultLimits.branches || 1),
-        users: Math.max(calculatedMaxUsers, defaultLimits.users || 3)
+        branches: licensedBranches,
+        users: calculatedMaxUsers,
+        licensedBranches,
+        extraUserSeats: extraSeats,
+        usersPerBranch
       };
 
       // Sucursales activas del tenant (para resolución canónica de alcance por sucursal)
@@ -137,8 +144,9 @@ class EntitlementsService {
         ? await this.entitlementsRepo.findActiveBranchesByTenantId(tenantId)
         : null;
 
-      // Conteo actual de recursos
+      // Conteo actual de recursos (fuente única)
       const usersUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'users');
+      const exemptKioskUsers = await this.entitlementsRepo.countResourceUsage(tenantId, 'exempt_kiosk_users');
       const branchesUsage = await this.entitlementsRepo.countResourceUsage(tenantId, 'branches');
 
       // Add-on Suscripciones/Membresías B2C (separado del plan principal, con procedencia y sucursales habilitadas)
@@ -215,6 +223,7 @@ class EntitlementsService {
         pricing: getConfiguredPricing(),
         usage: {
           users: usersUsage,
+          exemptKioskUsers,
           branches: branchesUsage
         }
       };
@@ -302,11 +311,12 @@ class EntitlementsService {
     };
   }
 
-  async checkLimit(tenantId, limitKey) {
+  async checkLimit(tenantId, limitKey, options = {}) {
     if (!tenantId) {
       return { allowed: false, reason: 'TENANT_REQUIRED', code: 'TENANT_REQUIRED' };
     }
 
+    const conn = options?.conn || null;
     const entitlements = await this.getTenantEntitlements(tenantId);
 
     if (!entitlements.hasSubscription || !entitlements.isActive) {
@@ -318,13 +328,25 @@ class EntitlementsService {
       };
     }
 
-    const maxAllowed = entitlements.limits[limitKey] ?? 0;
-    const current = entitlements.usage[limitKey] ?? 0;
+    let maxAllowed = entitlements.limits[limitKey] ?? 0;
+    let current = entitlements.usage[limitKey] ?? 0;
+
+    // Si estamos dentro de una transacción con conexión dedicada, bloquear la fila del tenant
+    // y recalcular capacidad + uso de forma atómica bajo el lock FOR UPDATE.
+    if (conn && limitKey === 'users' && typeof this.entitlementsRepo?.lockTenantForCapacityCheck === 'function') {
+      const lockedTenant = await this.entitlementsRepo.lockTenantForCapacityCheck(tenantId, conn);
+      if (lockedTenant) {
+        const licensedBranches = Math.max(1, Number(lockedTenant.licensed_branches || 1));
+        const extraSeats = Math.max(0, Number(lockedTenant.extra_user_seats || 0));
+        maxAllowed = (licensedBranches * 3) + extraSeats;
+      }
+      current = await this.entitlementsRepo.countResourceUsage(tenantId, 'users', conn);
+    }
 
     if (current >= maxAllowed) {
       return {
         allowed: false,
-        reason: 'Has alcanzado el límite permitido por tu plan.',
+        reason: `Has alcanzado el límite de ${maxAllowed} usuarios facturables permitidos por tus licencias contratadas (${current} de ${maxAllowed} en uso).`,
         code: 'PLAN_LIMIT_REACHED',
         limit: limitKey,
         current,

@@ -747,11 +747,19 @@ export default function SaasBillingModule() {
                 </span>
               </div>
               <div className="sb-kv-row">
-                <span className="sb-kv-label">Usuarios</span>
+                <span className="sb-kv-label">Usuarios facturables</span>
                 <span className="sb-kv-value">
-                  {usersUsed} de {usersLimit} en uso
+                  {usersUsed} de {usersLimit} usuarios facturables
                 </span>
               </div>
+              {Number(entitlements?.usage?.exemptKioskUsers || 0) > 0 && (
+                <div className="sb-kv-row">
+                  <span className="sb-kv-label">Cuentas exentas (Kiosco)</span>
+                  <span className="sb-kv-value">
+                    {entitlements.usage.exemptKioskUsers} (sin consumo de licencia)
+                  </span>
+                </div>
+              )}
             </div>
 
             <p className="sb-footnote">El kiosco no consume licencias.</p>

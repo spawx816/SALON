@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Shield, Users, Key, Mail, Trash2, Edit2, UserPlus, CheckCircle2, XCircle, 
   Search, Lock, Unlock, Smartphone, Globe, AlertTriangle, RefreshCw, Send,
@@ -10,10 +10,13 @@ import { dataService } from '../../utils/dataService';
 import { PERMISSION_MODULES, ACTION_LABELS, hasUiPermission, isReservedRoleName } from '../../utils/rbacCatalog';
 import { useTranslation } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { useEntitlements } from '../../context/EntitlementsContext';
 
 export default function SecurityModule() {
   const { t } = useTranslation();
   const { user: currentUser } = useAuth();
+  const { entitlements, refreshEntitlements } = useEntitlements();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   // Tabs: 'users' | 'roles' | 'monitoring' | 'access_control' | 'pin_settings'
@@ -212,6 +215,9 @@ export default function SecurityModule() {
       setEditingUser(null);
       setUserForm({ nombre: '', email: '', password: '', role_id: '', salon_id: '', authorized_branch_ids: [], all_branches_access: false, staff_id: '', profile_photo: null });
       await loadAllSecurityData();
+      if (typeof refreshEntitlements === 'function') {
+        await refreshEntitlements().catch(() => {});
+      }
       alert(editingUser ? 'Usuario actualizado exitosamente' : 'Usuario creado exitosamente');
     } catch (err) {
       alert('Error al guardar usuario: ' + err.message);
@@ -230,6 +236,9 @@ export default function SecurityModule() {
     try {
       await dataService.deleteUser(userToDelete.id);
       await loadAllSecurityData();
+      if (typeof refreshEntitlements === 'function') {
+        await refreshEntitlements().catch(() => {});
+      }
       alert('Usuario eliminado correctamente y sus sesiones activas fueron finalizadas.');
     } catch (err) {
       alert('Error al eliminar usuario: ' + err.message);
@@ -653,8 +662,84 @@ export default function SecurityModule() {
       </div>
 
       {/* TAB 1: USUARIOS DEL SISTEMA */}
-      {activeTab === 'users' && (
+      {activeTab === 'users' && (() => {
+        const localBillable = (users || []).filter((u) => {
+          const r = String(u.role || '').toLowerCase();
+          const active = (u.is_active !== false && u.is_active !== 0) && String(u.estado || 'Activo').toLowerCase() !== 'inactivo';
+          return active && !['superadmin', 'cliente_b2c', 'kiosco_asistencia'].includes(r);
+        }).length;
+        const localKioskExempt = (users || []).filter((u) => {
+          const r = String(u.role || '').toLowerCase();
+          const active = (u.is_active !== false && u.is_active !== 0) && String(u.estado || 'Activo').toLowerCase() !== 'inactivo';
+          return active && r === 'kiosco_asistencia';
+        }).length;
+        const billableUsed = entitlements?.usage?.users ?? localBillable;
+        const billableLimit = entitlements?.limits?.users ?? 3;
+        const exemptKioskCount = entitlements?.usage?.exemptKioskUsers ?? localKioskExempt;
+        const isAtLimit = billableUsed >= billableLimit;
+        const isOverLimit = billableUsed > billableLimit;
+        return (
         <div>
+          {/* Barra de capacidad de asientos facturables vs cuentas exentas */}
+          <div
+            data-testid="users-license-summary"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              padding: '0.9rem 1.25rem',
+              marginBottom: '1.25rem',
+              borderRadius: '14px',
+              background: isOverLimit ? '#fef2f2' : (isAtLimit ? '#fffbeb' : '#f8fafc'),
+              border: `1px solid ${isOverLimit ? '#fecaca' : (isAtLimit ? '#fde68a' : '#e2e8f0')}`,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, fontSize: '0.92rem', color: isOverLimit ? '#b91c1c' : (isAtLimit ? '#92400e' : '#0f172a') }}>
+                {billableUsed} de {billableLimit} usuarios facturables
+              </span>
+              <span style={{
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                padding: '0.2rem 0.65rem',
+                borderRadius: '999px',
+                background: '#ecfdf5',
+                color: '#047857',
+                border: '1px solid #a7f3d0',
+              }}>
+                🖥️ {exemptKioskCount} {exemptKioskCount === 1 ? 'cuenta exenta (Kiosco)' : 'cuentas exentas (Kiosco)'} · Sin licencia
+              </span>
+            </div>
+
+            {isAtLimit && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.8rem', color: isOverLimit ? '#991b1b' : '#92400e', fontWeight: 600 }}>
+                  {isOverLimit
+                    ? `Exceso detectado (${billableUsed}/${billableLimit}). Solo puedes crear cuentas Kiosco exentas hasta regularizar asientos.`
+                    : 'Cupo lleno para usuarios operativos. Aún puedes crear cuentas Kiosco de Asistencia (sin licencia).'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigate('/mi-suscripcion')}
+                  style={{
+                    padding: '0.45rem 0.9rem',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: '#0f172a',
+                    color: '#ffffff',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Gestionar licencias / Solicitar asientos
+                </button>
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
             <div style={{ position: 'relative', width: '320px' }}>
               <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
@@ -851,7 +936,8 @@ export default function SecurityModule() {
             </table>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* TAB 2: ROLES Y PERMISOS */}
       {activeTab === 'roles' && (
