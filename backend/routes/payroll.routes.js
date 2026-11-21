@@ -346,12 +346,28 @@ function createPayrollRouter(pool) {
   }
 
   // 2b. Resolución individual auditada de novedades (altas/bajas parciales o turnos nocturnos)
+  const RESOLVE_ALLOWED_ADJUSTABLE_FIELDS = new Set([
+    'salario_fijo',
+    'comisiones',
+    'feriados',
+    'horas_extras',
+    'otros_ingresos',
+    'tss',
+    'servicios',
+    'prestamos',
+    'ausencias',
+    'tardanzas',
+    'otros_descuentos',
+  ]);
+  const PAYROLL_DRAFT_STATUSES = new Set(['En preparación', 'Borrador']);
+
   router.post('/periods/:id/items/:itemId/resolve-review', requirePermission('payroll.approve', 'payroll.generate'), async (req, res) => {
     const conn = await pool.getConnection();
     try {
       const { id: payrollId, itemId } = req.params;
       const tenantId = req.verifiedTenantId;
-      const { decision, reason, adjustments = {} } = req.body || {};
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      const { decision, reason, adjustments } = body;
 
       if (decision !== 'accept_as_is' && decision !== 'adjust') {
         return res.status(400).json({
@@ -365,6 +381,41 @@ function createPayrollRouter(pool) {
           error: 'Debes indicar un motivo de resolución (mínimo 5 caracteres).',
           code: 'REVIEW_REASON_REQUIRED',
         });
+      }
+
+      if (adjustments !== undefined && (typeof adjustments !== 'object' || adjustments === null || Array.isArray(adjustments))) {
+        return res.status(400).json({
+          error: 'El campo adjustments debe ser un objeto válido.',
+          code: 'INVALID_ADJUSTMENT_FIELDS',
+        });
+      }
+      const safeAdjustments = adjustments || {};
+      const adjustmentKeys = Object.keys(safeAdjustments);
+      const disallowedKeys = adjustmentKeys.filter((k) => !RESOLVE_ALLOWED_ADJUSTABLE_FIELDS.has(k));
+      if (disallowedKeys.length > 0) {
+        return res.status(400).json({
+          error: `Campos no permitidos en adjustments: ${disallowedKeys.join(', ')}. No se permite alterar empleado, empresa, período ni totales derivados.`,
+          code: 'INVALID_ADJUSTMENT_FIELDS',
+          rejected_fields: disallowedKeys,
+        });
+      }
+      if (decision === 'accept_as_is' && adjustmentKeys.length > 0) {
+        return res.status(400).json({
+          error: 'No se permiten ajustes numéricos cuando decision es "accept_as_is".',
+          code: 'ADJUSTMENTS_NOT_ALLOWED_FOR_ACCEPT',
+        });
+      }
+      for (const k of adjustmentKeys) {
+        const raw = safeAdjustments[k];
+        if (raw === undefined || raw === null || raw === '') continue;
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          return res.status(400).json({
+            error: `Valor inválido para "${k}": debe ser un número finito mayor o igual a 0.`,
+            code: 'INVALID_ADJUSTMENT_VALUE',
+            field: k,
+          });
+        }
       }
 
       const actorName = req.auth?.name || req.auth?.email || 'Administrador';
@@ -388,9 +439,9 @@ function createPayrollRouter(pool) {
         await conn.rollback();
         return res.status(403).json({ error: 'No tienes permiso para resolver novedades en esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
       }
-      if (periodRows[0].status === 'Aprobada' || periodRows[0].status === 'Pagada' || Number(periodRows[0].is_immutable) === 1) {
+      if (!PAYROLL_DRAFT_STATUSES.has(String(periodRows[0].status || '')) || Number(periodRows[0].is_immutable) === 1) {
         await conn.rollback();
-        return res.status(403).json({ error: 'Esta nómina ya está aprobada o pagada y es inmutable.', code: 'PAYROLL_IMMUTABLE' });
+        return res.status(403).json({ error: 'Solo se pueden resolver novedades en períodos en borrador. Esta nómina es inmutable.', code: 'PAYROLL_IMMUTABLE' });
       }
 
       const [itemRows] = await conn.query(
@@ -429,12 +480,10 @@ function createPayrollRouter(pool) {
       const prevNetoCents = toCents(it.neto_pagar);
 
       const pickCents = (key, fallbackCents) => {
-        if (decision !== 'adjust' || !adjustments || adjustments[key] === undefined || adjustments[key] === null || adjustments[key] === '') {
+        if (decision !== 'adjust' || safeAdjustments[key] === undefined || safeAdjustments[key] === null || safeAdjustments[key] === '') {
           return fallbackCents;
         }
-        const parsed = Number(adjustments[key]);
-        if (!Number.isFinite(parsed) || parsed < 0) return fallbackCents;
-        return toCents(parsed);
+        return toCents(Number(safeAdjustments[key]));
       };
 
       const newSalarioCents = pickCents('salario_fijo', prevSalarioCents);
@@ -444,7 +493,7 @@ function createPayrollRouter(pool) {
       const newOtrosIngCents = pickCents('otros_ingresos', prevOtrosIngCents);
 
       // Si el salario fijo cambia y no se envió un TSS manual explícito, recalcular TSS con el parámetro configurado (5.91%)
-      const newTssCents = (decision === 'adjust' && adjustments && adjustments.tss !== undefined && adjustments.tss !== null && adjustments.tss !== '')
+      const newTssCents = (decision === 'adjust' && safeAdjustments.tss !== undefined && safeAdjustments.tss !== null && safeAdjustments.tss !== '')
         ? pickCents('tss', prevTssCents)
         : (newSalarioCents !== prevSalarioCents ? Math.round(newSalarioCents * 0.0591) : prevTssCents);
       const newServiciosCents = pickCents('servicios', prevServiciosCents);
@@ -592,7 +641,7 @@ function createPayrollRouter(pool) {
         review_summary: buildReviewSummary(parsedAll),
       });
     } catch (err) {
-      await conn.rollback().catch(() => {});
+      await conn.rollback().catch(() => { });
       console.error('[PAYROLL RESOLVE REVIEW ERROR]:', err.message);
       res.status(500).json({ error: err.message });
     } finally {

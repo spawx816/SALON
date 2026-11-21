@@ -867,6 +867,18 @@ CREATE TABLE IF NOT EXISTS {{SCHEMA}}."schedule_overrides" (
   "tenant_id" uuid
 );
 
+CREATE TABLE IF NOT EXISTS {{SCHEMA}}."schedule_overrides_dedup_archive" (
+  "archive_id" SERIAL,
+  "original_id" INTEGER,
+  "tenant_id" uuid NOT NULL,
+  "employee_id" VARCHAR(100) NOT NULL,
+  "date" date NOT NULL,
+  "row_snapshot" jsonb NOT NULL,
+  "kept_id" INTEGER,
+  "archived_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  "reason" text NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS {{SCHEMA}}."schema_migrations" (
   "version" VARCHAR(100) NOT NULL,
   "applied_at" TIMESTAMP WITH TIME ZONE DEFAULT now(),
@@ -1252,6 +1264,7 @@ ALTER TABLE {{SCHEMA}}."saas_plans" ADD CONSTRAINT "saas_plans_code_key" UNIQUE 
 ALTER TABLE {{SCHEMA}}."saas_plans" ADD CONSTRAINT "saas_plans_pkey" PRIMARY KEY ("id");
 ALTER TABLE {{SCHEMA}}."salons" ADD CONSTRAINT "salons_pkey" PRIMARY KEY ("id");
 ALTER TABLE {{SCHEMA}}."schedule_overrides" ADD CONSTRAINT "schedule_overrides_pkey" PRIMARY KEY ("id");
+ALTER TABLE {{SCHEMA}}."schedule_overrides_dedup_archive" ADD CONSTRAINT "schedule_overrides_dedup_archive_pkey" PRIMARY KEY ("archive_id");
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -1353,6 +1366,7 @@ ALTER TABLE {{SCHEMA}}."roles" ADD CONSTRAINT "fk_roles_tenant_id" FOREIGN KEY (
 ALTER TABLE {{SCHEMA}}."salons" ADD CONSTRAINT "fk_salons_tenant_id" FOREIGN KEY ("tenant_id") REFERENCES {{SCHEMA}}."tenants"("id") ON DELETE CASCADE;
 ALTER TABLE {{SCHEMA}}."salons" ADD CONSTRAINT "salons_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES {{SCHEMA}}."tenants"("id") ON DELETE CASCADE;
 ALTER TABLE {{SCHEMA}}."schedule_overrides" ADD CONSTRAINT "fk_schedule_overrides_tenant_id" FOREIGN KEY ("tenant_id") REFERENCES {{SCHEMA}}."tenants"("id") ON DELETE CASCADE;
+ALTER TABLE {{SCHEMA}}."schedule_overrides_dedup_archive" ADD CONSTRAINT "fk_schedule_overrides_dedup_archive_tenant_id" FOREIGN KEY ("tenant_id") REFERENCES {{SCHEMA}}."tenants"("id") ON DELETE CASCADE;
 ALTER TABLE {{SCHEMA}}."security_audit_logs" ADD CONSTRAINT "fk_security_audit_logs_tenant_id" FOREIGN KEY ("tenant_id") REFERENCES {{SCHEMA}}."tenants"("id") ON DELETE CASCADE;
 ALTER TABLE {{SCHEMA}}."security_requests" ADD CONSTRAINT "fk_security_requests_tenant_id" FOREIGN KEY ("tenant_id") REFERENCES {{SCHEMA}}."tenants"("id") ON DELETE CASCADE;
 ALTER TABLE {{SCHEMA}}."security_settings" ADD CONSTRAINT "fk_security_settings_tenant_id" FOREIGN KEY ("tenant_id") REFERENCES {{SCHEMA}}."tenants"("id") ON DELETE CASCADE;
@@ -1443,6 +1457,8 @@ CREATE INDEX idx_plans_tenant_id ON {{SCHEMA}}.plans USING btree (tenant_id);
 CREATE INDEX idx_roles_tenant_id ON {{SCHEMA}}.roles USING btree (tenant_id);
 CREATE INDEX idx_salons_tenant_id ON {{SCHEMA}}.salons USING btree (tenant_id);
 CREATE INDEX idx_schedule_overrides_tenant_id ON {{SCHEMA}}.schedule_overrides USING btree (tenant_id);
+CREATE UNIQUE INDEX uq_schedule_overrides_tenant_emp_date ON {{SCHEMA}}.schedule_overrides USING btree (tenant_id, employee_id, date);
+CREATE INDEX idx_schedule_overrides_dedup_archive_tenant_id ON {{SCHEMA}}.schedule_overrides_dedup_archive USING btree (tenant_id);
 CREATE INDEX idx_security_audit_logs_tenant_id ON {{SCHEMA}}.security_audit_logs USING btree (tenant_id);
 CREATE INDEX idx_security_requests_tenant_id ON {{SCHEMA}}.security_requests USING btree (tenant_id);
 CREATE INDEX idx_security_settings_tenant_id ON {{SCHEMA}}.security_settings USING btree (tenant_id);

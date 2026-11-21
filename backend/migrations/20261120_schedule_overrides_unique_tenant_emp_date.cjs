@@ -10,6 +10,25 @@
  * - Conserva únicamente el registro más reciente (MAX(id)) por clave (tenant_id, employee_id, date).
  */
 async function up(pool) {
+  // 0. Garantizar tabla canónica de archivo de duplicados (multi-tenant con FK a tenants)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schedule_overrides_dedup_archive (
+      archive_id SERIAL PRIMARY KEY,
+      original_id INTEGER,
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      employee_id VARCHAR(100) NOT NULL,
+      date DATE NOT NULL,
+      row_snapshot JSONB NOT NULL,
+      kept_id INTEGER,
+      archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reason TEXT NOT NULL
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_schedule_overrides_dedup_archive_tenant_id
+    ON schedule_overrides_dedup_archive (tenant_id)
+  `);
+
   // 1. Inspeccionar si existen duplicados antes de modificar datos
   const [dupGroups] = await pool.query(`
     SELECT tenant_id, employee_id, date, COUNT(*)::int AS cnt, MAX(id) AS kept_id
@@ -22,24 +41,9 @@ async function up(pool) {
   let deletedCount = 0;
 
   if (Array.isArray(dupGroups) && dupGroups.length > 0) {
-    // Crear tabla de archivo trazable solo si existen duplicados a depurar
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS schedule_overrides_dedup_archive (
-        archive_id SERIAL PRIMARY KEY,
-        original_id INTEGER,
-        tenant_id TEXT,
-        employee_id TEXT,
-        date TEXT,
-        row_snapshot JSONB,
-        kept_id INTEGER,
-        archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        reason TEXT NOT NULL
-      )
-    `);
-
     const [archivedRows] = await pool.query(`
       INSERT INTO schedule_overrides_dedup_archive (original_id, tenant_id, employee_id, date, row_snapshot, kept_id, reason)
-      SELECT a.id, a.tenant_id::text, a.employee_id::text, a.date::text, to_jsonb(a), d.kept_id,
+      SELECT a.id, a.tenant_id, a.employee_id, a.date, to_jsonb(a), d.kept_id,
              'Deduplicación previa a uq_schedule_overrides_tenant_emp_date (se conserva MAX(id))'
       FROM schedule_overrides a
       INNER JOIN (

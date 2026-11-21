@@ -29,7 +29,8 @@ const CANONICAL_MIGRATIONS = [
   '20261111_phase3c_clients_in_base_plan',
   '20261115_saas_fx_rates',
   '20261116_platform_email_settings',
-  '20261116_print_templates_and_turn_tickets'
+  '20261116_print_templates_and_turn_tickets',
+  '20261120_schedule_overrides_unique_tenant_emp_date'
 ];
 
 // Global / Control Plane / System Tables
@@ -134,6 +135,7 @@ const TENANT_OWNED_TABLES = [
   'saas_webhook_events',
   'salons',
   'schedule_overrides',
+  'schedule_overrides_dedup_archive',
   'security_audit_logs',
   'security_requests',
   'security_settings',
@@ -212,6 +214,7 @@ const CANONICAL_44_SEQUENCES = [
   'roles_id_seq',
   'saas_plans_id_seq',
   'schedule_overrides_id_seq',
+  'schedule_overrides_dedup_archive_archive_id_seq',
   'security_audit_logs_id_seq',
   'security_requests_id_seq',
   'security_settings_id_seq',

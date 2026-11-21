@@ -732,6 +732,44 @@ async function main() {
     assert.strictEqual(noAdjRes.status, 400);
     assert.strictEqual(noAdjRes.body.code, 'NO_ADJUSTMENT_DETECTED');
 
+    // Impedir campos prohibidos (empleado, tenant, período, totales derivados) y valores inválidos
+    const forbiddenFieldsRes = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midHireItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: {
+        decision: 'adjust',
+        reason: 'Intento de inyectar campos prohibidos',
+        adjustments: {
+          salario_fijo: 7000,
+          employee_id: 99999,
+          tenant_id: TENANT_B,
+          payroll_id: 99999,
+          total_ingresos: 999999,
+          total_descuentos: 0,
+          neto_pagar: 999999,
+        },
+      },
+    });
+    assert.strictEqual(forbiddenFieldsRes.status, 400, 'Debe rechazar campos de identidad o totales derivados');
+    assert.strictEqual(forbiddenFieldsRes.body.code, 'INVALID_ADJUSTMENT_FIELDS');
+    assert.ok(forbiddenFieldsRes.body.rejected_fields.includes('employee_id'));
+    assert.ok(forbiddenFieldsRes.body.rejected_fields.includes('tenant_id'));
+    assert.ok(forbiddenFieldsRes.body.rejected_fields.includes('payroll_id'));
+    assert.ok(forbiddenFieldsRes.body.rejected_fields.includes('neto_pagar'));
+
+    const negValRes = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midHireItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: { decision: 'adjust', reason: 'Intento valor negativo', adjustments: { salario_fijo: -100 } },
+    });
+    assert.strictEqual(negValRes.status, 400);
+    assert.strictEqual(negValRes.body.code, 'INVALID_ADJUSTMENT_VALUE');
+
+    const acceptWithAdjRes = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midHireItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: { decision: 'accept_as_is', reason: 'Intento aceptar con ajuste', adjustments: { salario_fijo: 7000 } },
+    });
+    assert.strictEqual(acceptWithAdjRes.status, 400);
+    assert.strictEqual(acceptWithAdjRes.body.code, 'ADJUSTMENTS_NOT_ALLOWED_FOR_ACCEPT');
+
     // Resolver individualmente los 3 colaboradores con novedad (2 con ajuste + 1 aceptación justificada)
     const resolveMidHire = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midHireItem.id}/resolve-review`, {
       cookie: appOnlyUser.cookie,
@@ -791,6 +829,7 @@ async function main() {
     assert.strictEqual(blockedAfterSync.body.code, 'PAYROLL_PENDING_REVIEW');
 
     // Re-resolver los 3 nuevos ítems generados tras el recálculo
+    let reResolvedMidHireItem = null;
     for (const newIt of syncInvalidatesRes.body.items) {
       if (newIt.detalles_json?.requires_review === true) {
         assert.ok(newIt.detalles_json.invalidated_previous_resolution, 'Debe conservar trazabilidad de resolución invalidada');
@@ -799,15 +838,63 @@ async function main() {
           body: { decision: 'accept_as_is', reason: 'Re-validado tras recálculo oficial del borrador' },
         });
         assert.strictEqual(reRes.status, 200);
+        if (String(newIt.employee_id) === EMP_MIDHIRE_ID) {
+          reResolvedMidHireItem = reRes.body.item;
+        }
       }
     }
+    assert.ok(reResolvedMidHireItem, 'Debe existir ítem re-resuelto de EMP_MIDHIRE_ID');
 
-    // Ahora appOnly SÍ puede aprobar sin ningún booleano global
-    const appAfterIndividual = await reqJson(baseUrl, 'POST', '/api/payroll/approve', {
+    // Carrera concurrente: resolve-review (ajuste a RD$7,500) vs approve simultáneos sobre el mismo período
+    const [raceResolve, raceApprove] = await Promise.all([
+      reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${reResolvedMidHireItem.id}/resolve-review`, {
+        cookie: appOnlyUser.cookie,
+        body: {
+          decision: 'adjust',
+          reason: 'Carrera concurrente resolver vs aprobar',
+          adjustments: { salario_fijo: 7500 },
+        },
+      }),
+      reqJson(baseUrl, 'POST', '/api/payroll/approve', {
+        cookie: appOnlyUser.cookie,
+        body: { payroll_id: PAYROLL_2_ID },
+      }),
+    ]);
+    assert.strictEqual(raceApprove.status, 200, `Aprobación en carrera debe completarse: ${JSON.stringify(raceApprove.body)}`);
+    assert.ok(
+      raceResolve.status === 403 || raceResolve.status === 200,
+      `En carrera resolve vs approve, resolve debe ser 403 (si aprobó primero) o 200 (si resolvió antes de aprobar): ${raceResolve.status} ${JSON.stringify(raceResolve.body)}`
+    );
+    const [postRacePeriodRows] = await pool.query(
+      'SELECT status, is_immutable, total_neto, snapshot_json FROM payroll_periods WHERE id = ? AND tenant_id = ?',
+      [PAYROLL_2_ID, TENANT_A]
+    );
+    const [postRaceItemRows] = await pool.query(
+      'SELECT salario_fijo, neto_pagar FROM payroll_items WHERE id = ? AND tenant_id = ?',
+      [reResolvedMidHireItem.id, TENANT_A]
+    );
+    const postRaceSnap = typeof postRacePeriodRows[0].snapshot_json === 'string'
+      ? JSON.parse(postRacePeriodRows[0].snapshot_json)
+      : postRacePeriodRows[0].snapshot_json;
+    const snapMidHire = postRaceSnap.items.find((x) => String(x.id) === String(reResolvedMidHireItem.id));
+    if (raceResolve.status === 403) {
+      assert.strictEqual(raceResolve.body.code, 'PAYROLL_IMMUTABLE');
+      assert.strictEqual(Number(postRaceItemRows[0].salario_fijo), 10000, 'Si approve ganó, item NO debe haber mutado');
+      assert.strictEqual(Number(snapMidHire.salario_fijo), 10000);
+    } else {
+      assert.strictEqual(Number(postRaceItemRows[0].salario_fijo), 7500, 'Si resolve ganó antes del lock de approve, DB y snapshot deben reflejar 7500');
+      assert.strictEqual(Number(snapMidHire.salario_fijo), 7500, 'Snapshot debe coincidir exactamente con el ítem persistido');
+      assert.strictEqual(Number(postRaceSnap.period.total_neto), Number(postRacePeriodRows[0].total_neto));
+    }
+
+    // Intento de ajustar nómina APROBADA debe rechazarse (403 PAYROLL_IMMUTABLE) sin mutar BD
+    const savedNetoAfterApprove = Number(postRaceItemRows[0].neto_pagar);
+    const resolveApprovedBlocked = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${reResolvedMidHireItem.id}/resolve-review`, {
       cookie: appOnlyUser.cookie,
-      body: { payroll_id: PAYROLL_2_ID },
+      body: { decision: 'adjust', reason: 'Intento post-aprobación', adjustments: { salario_fijo: 1234 } },
     });
-    assert.strictEqual(appAfterIndividual.status, 200, `Aprobación tras resolución individual debe pasar: ${JSON.stringify(appAfterIndividual.body)}`);
+    assert.strictEqual(resolveApprovedBlocked.status, 403);
+    assert.strictEqual(resolveApprovedBlocked.body.code, 'PAYROLL_IMMUTABLE');
 
     // Verificar que un rol legacy { manage_payroll: true } NO recibe payroll.pay (no se amplía silenciosamente)
     const legacyEmail = `legpay_${tag}@test.local`;
@@ -842,7 +929,27 @@ async function main() {
     });
     assert.strictEqual(payOnlyOk.status, 200);
     assert.strictEqual(payOnlyOk.body.status, 'Pagada');
-    console.log('  ✅ 8. Resolución individual + efecto económico, invalidación al recalcular, bloqueo booleano global, legacy manage_payroll sin payroll.pay y RBAC separado PASS.');
+
+    // Intento de ajustar nómina PAGADA debe rechazarse (403 PAYROLL_IMMUTABLE) y mantener BD intacta
+    const resolvePaidBlocked = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${reResolvedMidHireItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: { decision: 'adjust', reason: 'Intento post-pago', adjustments: { salario_fijo: 4321 } },
+    });
+    assert.strictEqual(resolvePaidBlocked.status, 403);
+    assert.strictEqual(resolvePaidBlocked.body.code, 'PAYROLL_IMMUTABLE');
+    const [afterPaidItemRows] = await pool.query('SELECT neto_pagar FROM payroll_items WHERE id = ? AND tenant_id = ?', [reResolvedMidHireItem.id, TENANT_A]);
+    assert.strictEqual(Number(afterPaidItemRows[0].neto_pagar), savedNetoAfterApprove);
+
+    // Confirmar existencia de tabla canónica schedule_overrides_dedup_archive en BD, contrato y schema de restauración
+    const [archTableRows] = await pool.query("SELECT to_regclass('public.schedule_overrides_dedup_archive') AS tbl");
+    assert.ok(archTableRows[0].tbl, 'Tabla schedule_overrides_dedup_archive debe existir en BD');
+    const canonicalContract = require('../scripts/canonical_schema_contract.cjs');
+    assert.ok(canonicalContract.TENANT_OWNED_TABLES.includes('schedule_overrides_dedup_archive'), 'Debe estar registrada en canonical_schema_contract.cjs');
+    assert.ok(canonicalContract.CANONICAL_MIGRATIONS.includes('20261120_schedule_overrides_unique_tenant_emp_date'));
+    const indepSql = fs.readFileSync(path.resolve(__dirname, '../backups/independent_schema.sql'), 'utf8');
+    assert.ok(indepSql.includes('"schedule_overrides_dedup_archive"'), 'Debe estar en independent_schema.sql');
+    assert.ok(indepSql.includes('uq_schedule_overrides_tenant_emp_date'), 'Índice único debe estar en independent_schema.sql');
+    console.log('  ✅ 8. Resolución individual (allowlist campos, carrera resolver/aprobar, bloqueo Aprobada/Pagada), invalidación al recalcular, legacy manage_payroll y esquema canónico PASS.');
 
     console.log('\n🎉 PRUEBA DE ACEPTACIÓN "NÓMINA COMPLETA" SUPERADA (8/8 BLOQUES PASS).');
   } finally {
