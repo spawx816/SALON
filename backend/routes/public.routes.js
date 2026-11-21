@@ -60,6 +60,13 @@ function createPublicRouter(pool, options = {}) {
       return res.status(400).json({ error: 'La contraseña de administrador debe tener al menos 8 caracteres' });
     }
 
+    if (req.body.accept_terms !== true) {
+      return res.status(400).json({
+        error: 'Debes leer y aceptar expresamente los Términos y Condiciones vigentes para continuar.',
+        code: 'TERMS_ACCEPTANCE_REQUIRED',
+      });
+    }
+
     // Adquirir conexión dedicada del pool para aislamiento transaccional real
     const conn = await pool.getConnection();
 
@@ -351,25 +358,20 @@ function createPublicRouter(pool, options = {}) {
         maxAge: 24 * 60 * 60 * 1000,
       });
 
-      if (req.body.accept_terms) {
-        try {
-          await termsService.recordAcceptance({
-            tenantId,
-            userId,
-            termsVersion: req.body.terms_version || 'v2026.1',
-            recurringAuthorized: Boolean(req.body.authorize_recurring),
-            acceptanceMechanism: 'onboarding_checkbox',
-            ipAddress: req.ip || req.connection?.remoteAddress,
-            userAgent: req.headers['user-agent'],
-            recipientEmail: owner_email.trim(),
-            recipientName: owner_name || 'Propietario',
-            companyName: business_name,
-            accountStatus: 'pending_payment'
-          });
-        } catch (termsErr) {
-          console.warn('[ONBOARDING] Error registrando términos (no bloqueante):', termsErr.message);
-        }
-      }
+      let termsAcceptance = null;
+      termsAcceptance = await termsService.recordAcceptance({
+        tenantId,
+        userId,
+        termsVersion: req.body.terms_version || 'v2026.1',
+        recurringAuthorized: Boolean(req.body.authorize_recurring),
+        acceptanceMechanism: 'onboarding_checkbox',
+        ipAddress: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        recipientEmail: owner_email.trim(),
+        recipientName: owner_name || 'Propietario',
+        companyName: business_name,
+        accountStatus: 'pending_payment'
+      });
 
       res.status(201).json({
         success: true,
@@ -379,6 +381,7 @@ function createPublicRouter(pool, options = {}) {
         branch_id: branchId,
         user_id: userId,
         status: 'pending',
+        terms_acceptance: termsAcceptance,
         order: checkoutOrder,
         user: {
           id: userId,

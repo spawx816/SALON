@@ -82,6 +82,7 @@ function readConfiguredPrice(envKey) {
 
 const PRINCIPAL_PLAN_DEFAULT_USD = 99;
 const PRINCIPAL_PLAN_REFERENCE_USD = 149;
+const EXTRA_USER_DEFAULT_USD = 30;
 const MEMBERSHIPS_ADDON_DEFAULT_USD = 99;
 const MEMBERSHIPS_ADDON_PRICING_DISPLAY =
   'US$99/mes por sucursal + implementación e integración con pasarela de pago';
@@ -90,7 +91,8 @@ function getConfiguredPricing() {
   const principalUsd =
     readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_USD') ?? PRINCIPAL_PLAN_DEFAULT_USD;
   const principalDop = readConfiguredPrice('SAAS_PRINCIPAL_PLAN_PRICE_DOP');
-  const extraUserUsd = readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD');
+  const extraUserUsd =
+    readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD') ?? EXTRA_USER_DEFAULT_USD;
   const extraUserDop = readConfiguredPrice('SAAS_EXTRA_USER_PRICE_DOP');
   const membershipsAddonUsd =
     readConfiguredPrice('SAAS_MEMBERSHIPS_ADDON_PRICE_USD') ?? MEMBERSHIPS_ADDON_DEFAULT_USD;

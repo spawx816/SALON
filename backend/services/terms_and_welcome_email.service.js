@@ -253,7 +253,13 @@ class TermsAndWelcomeEmailService {
   }
 
   async _sendEmail({ tenantId, to, subject, html, text }) {
-    // Si estamos en entorno de pruebas y no hay SMTP configurado, simular éxito
+    if (process.env.NODE_ENV === 'test' && process.env.TEST_FAIL_SMTP === 'true') {
+      const err = new Error('SMTP_UNAVAILABLE_TEST: Servidor SMTP no disponible');
+      err.code = 'SMTP_UNAVAILABLE';
+      throw err;
+    }
+
+    // Si estamos en entorno de pruebas y no hay SMTP configurado, simular éxito salvo que se fuerce fallo SMTP
     if (process.env.NODE_ENV === 'test' && !process.env.SMTP_HOST) {
       return { messageId: 'test_simulated_email' };
     }
@@ -261,8 +267,9 @@ class TermsAndWelcomeEmailService {
     const { transporter, fromAddress } = await resolveTransporterForTenant(this.pool, tenantId, 'Etereas');
 
     if (!transporter) {
-      console.warn('[WELCOME EMAIL] No hay transporte SMTP configurado. Correo simulado como enviado.');
-      return { messageId: 'simulated_no_smtp' };
+      const err = new Error('No hay transporte SMTP configurado para enviar el correo de bienvenida.');
+      err.code = 'SMTP_NOT_CONFIGURED';
+      throw err;
     }
 
     return await transporter.sendMail({
