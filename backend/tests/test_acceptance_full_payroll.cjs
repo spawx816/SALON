@@ -444,6 +444,10 @@ async function main() {
     const nominaText = await page.evaluate(() => document.body.innerText);
     assert.ok(nominaText.includes('1ra Quincena Nov 2026'), 'UI /nomina debe mostrar el período generado');
     assert.ok(nominaText.includes('9,909'), 'UI /nomina debe mostrar neto RD$9,909 del caso base');
+    assert.ok(
+      nominaText.includes('topes salariales') && nominaText.includes('ISR'),
+      'UI /nomina debe mostrar advertencia visible de parámetros legales pendientes (topes SFS/AFP e ISR)'
+    );
 
     // Verificar volante imprimible individual desde UI (capturando window.open)
     await page.evaluate(() => {
@@ -451,9 +455,9 @@ async function main() {
       window.open = () => ({
         document: {
           write(html) { window.__CAPTURED_SLIP_HTML__ += String(html || ''); },
-          close() {},
+          close() { },
         },
-        print() {},
+        print() { },
       });
     });
     const printClicked = await page.evaluate(() => {
@@ -704,21 +708,127 @@ async function main() {
     assert.strictEqual(genAppBlocked.status, 403);
     assert.strictEqual(payAppBlocked.status, 403);
 
-    // appOnly intenta aprobar sin confirmar novedades -> 409 PAYROLL_PENDING_REVIEW
+    // appOnly intenta aprobar sin resolver individualmente (incluso enviando booleano global acknowledge_review_flags: true) -> 409 PAYROLL_PENDING_REVIEW
     const pendingReviewBlocked = await reqJson(baseUrl, 'POST', '/api/payroll/approve', {
-      cookie: appOnlyUser.cookie,
-      body: { payroll_id: PAYROLL_2_ID },
-    });
-    assert.strictEqual(pendingReviewBlocked.status, 409, `Debe bloquear aprobación con novedades pendientes: ${JSON.stringify(pendingReviewBlocked.body)}`);
-    assert.strictEqual(pendingReviewBlocked.body.code, 'PAYROLL_PENDING_REVIEW');
-    assert.ok(Array.isArray(pendingReviewBlocked.body.pending_review_items) && pendingReviewBlocked.body.pending_review_items.length >= 3);
-
-    // appOnly aprueba con confirmación explícita de revisión
-    const appWithAck = await reqJson(baseUrl, 'POST', '/api/payroll/approve', {
       cookie: appOnlyUser.cookie,
       body: { payroll_id: PAYROLL_2_ID, acknowledge_review_flags: true },
     });
-    assert.strictEqual(appWithAck.status, 200, `Aprobación con acknowledge_review_flags debe pasar: ${JSON.stringify(appWithAck.body)}`);
+    assert.strictEqual(pendingReviewBlocked.status, 409, `Booleano global NO debe permitir aprobar sin resolución individual: ${JSON.stringify(pendingReviewBlocked.body)}`);
+    assert.strictEqual(pendingReviewBlocked.body.code, 'PAYROLL_PENDING_REVIEW');
+    assert.strictEqual(pendingReviewBlocked.body.pending_review_items.length, 3);
+
+    // Validaciones de resolución individual: motivo obligatorio y ajuste real
+    const badReasonRes = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midHireItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: { decision: 'accept_as_is', reason: 'ok' },
+    });
+    assert.strictEqual(badReasonRes.status, 400);
+    assert.strictEqual(badReasonRes.body.code, 'REVIEW_REASON_REQUIRED');
+
+    const noAdjRes = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midHireItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: { decision: 'adjust', reason: 'Ajuste sin cambios reales', adjustments: { salario_fijo: midHireItem.salario_fijo } },
+    });
+    assert.strictEqual(noAdjRes.status, 400);
+    assert.strictEqual(noAdjRes.body.code, 'NO_ADJUSTMENT_DETECTED');
+
+    // Resolver individualmente los 3 colaboradores con novedad (2 con ajuste + 1 aceptación justificada)
+    const resolveMidHire = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midHireItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: {
+        decision: 'adjust',
+        reason: 'Prorrateo manual aprobado por gerencia (alta 20/11)',
+        adjustments: { salario_fijo: 7000 },
+      },
+    });
+    assert.strictEqual(resolveMidHire.status, 200, `Resolución midHire falló: ${JSON.stringify(resolveMidHire.body)}`);
+    assert.strictEqual(resolveMidHire.body.resolution.previous_values.salario_fijo, 10000);
+    assert.strictEqual(resolveMidHire.body.resolution.new_values.salario_fijo, 7000);
+    assert.strictEqual(resolveMidHire.body.resolution.economic_delta.salario_fijo_delta, -3000);
+    assert.ok(resolveMidHire.body.resolution.economic_delta.neto_pagar_delta < 0, 'Debe calcular efecto económico negativo');
+    assert.ok(resolveMidHire.body.resolution.resolved_by && resolveMidHire.body.resolution.resolved_at);
+
+    const resolveMidTerm = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${midTermItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: {
+        decision: 'adjust',
+        reason: 'Liquidación parcial autorizada por gerencia (baja 22/11)',
+        adjustments: { salario_fijo: 5000 },
+      },
+    });
+    assert.strictEqual(resolveMidTerm.status, 200);
+
+    const resolveOvernight = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${overnightItem.id}/resolve-review`, {
+      cookie: appOnlyUser.cookie,
+      body: {
+        decision: 'accept_as_is',
+        reason: 'Turno nocturno validado sin recargo adicional por acuerdo',
+      },
+    });
+    assert.strictEqual(resolveOvernight.status, 200);
+    assert.strictEqual(resolveOvernight.body.resolution.economic_delta.neto_pagar_delta, 0);
+
+    // Verificar review_summary en GET /periods/:id antes de aprobar
+    const p2DetailBeforeSync = await reqJson(baseUrl, 'GET', `/api/payroll/periods/${PAYROLL_2_ID}`, { cookie: appOnlyUser.cookie });
+    assert.strictEqual(p2DetailBeforeSync.status, 200);
+    assert.strictEqual(p2DetailBeforeSync.body.review_summary.pending_count, 0);
+    assert.strictEqual(p2DetailBeforeSync.body.review_summary.resolved_count, 3);
+    assert.ok(p2DetailBeforeSync.body.review_summary.total_economic_delta_neto < 0, 'Debe exponer efecto económico acumulado');
+
+    // Recalcular borrador (sync-real-data) DEBE invalidar las 3 resoluciones previas y volver a bloquear aprobación
+    const syncInvalidatesRes = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/sync-real-data`, {
+      cookie: genOnlyUser.cookie,
+    });
+    assert.strictEqual(syncInvalidatesRes.status, 200);
+    assert.strictEqual(syncInvalidatesRes.body.invalidated_resolutions_count, 3, 'Recálculo debe invalidar las 3 resoluciones previas');
+    assert.strictEqual(syncInvalidatesRes.body.review_summary.pending_count, 3);
+
+    const blockedAfterSync = await reqJson(baseUrl, 'POST', '/api/payroll/approve', {
+      cookie: appOnlyUser.cookie,
+      body: { payroll_id: PAYROLL_2_ID },
+    });
+    assert.strictEqual(blockedAfterSync.status, 409);
+    assert.strictEqual(blockedAfterSync.body.code, 'PAYROLL_PENDING_REVIEW');
+
+    // Re-resolver los 3 nuevos ítems generados tras el recálculo
+    for (const newIt of syncInvalidatesRes.body.items) {
+      if (newIt.detalles_json?.requires_review === true) {
+        assert.ok(newIt.detalles_json.invalidated_previous_resolution, 'Debe conservar trazabilidad de resolución invalidada');
+        const reRes = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/items/${newIt.id}/resolve-review`, {
+          cookie: appOnlyUser.cookie,
+          body: { decision: 'accept_as_is', reason: 'Re-validado tras recálculo oficial del borrador' },
+        });
+        assert.strictEqual(reRes.status, 200);
+      }
+    }
+
+    // Ahora appOnly SÍ puede aprobar sin ningún booleano global
+    const appAfterIndividual = await reqJson(baseUrl, 'POST', '/api/payroll/approve', {
+      cookie: appOnlyUser.cookie,
+      body: { payroll_id: PAYROLL_2_ID },
+    });
+    assert.strictEqual(appAfterIndividual.status, 200, `Aprobación tras resolución individual debe pasar: ${JSON.stringify(appAfterIndividual.body)}`);
+
+    // Verificar que un rol legacy { manage_payroll: true } NO recibe payroll.pay (no se amplía silenciosamente)
+    const legacyEmail = `legpay_${tag}@test.local`;
+    const [roleLegacyRows] = await pool.query(
+      `INSERT INTO roles (tenant_id, nombre, permisos) VALUES (?, 'Legacy Manage Payroll', ?::jsonb) RETURNING id`,
+      [TENANT_A, JSON.stringify({ manage_payroll: true })]
+    );
+    await pool.query(
+      `INSERT INTO users (id, tenant_id, branch_id, salon_id, name, nombre, username, email, password_hash, role, role_id, authorized_branch_ids, all_branches_access, is_active, estado)
+       VALUES (?, ?, ?, ?, 'Legacy Payroll User', 'Legacy Payroll User', ?, ?, ?, 'empleado', ?, ?::jsonb, TRUE, TRUE, 'Activo')`,
+      [crypto.randomUUID(), TENANT_A, BRANCH_A, BRANCH_A, legacyEmail, legacyEmail, PASS_HASH, roleLegacyRows[0].id, JSON.stringify([BRANCH_A, BRANCH_B])]
+    );
+    const legacyPayUser = await loginAs(baseUrl, legacyEmail, PASS);
+    const legacyViewOk = await reqJson(baseUrl, 'GET', `/api/payroll/periods/${PAYROLL_2_ID}`, { cookie: legacyPayUser.cookie });
+    assert.strictEqual(legacyViewOk.status, 200, 'Legacy manage_payroll conserva payroll.view');
+    const legacyPayBlocked = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/register-payment`, {
+      cookie: legacyPayUser.cookie,
+      body: { payment_method: 'Transferencia manual', payment_reference: 'REF-LEGACY-DENIED' },
+    });
+    assert.strictEqual(legacyPayBlocked.status, 403, 'Legacy manage_payroll NO debe conceder payroll.pay');
+    assert.strictEqual(legacyPayBlocked.body.code, 'FORBIDDEN_MISSING_PERMISSION');
 
     // appOnly y genOnly NO pueden registrar pago (403); payOnly SÍ puede (200)
     const appPayBlocked = await reqJson(baseUrl, 'POST', `/api/payroll/periods/${PAYROLL_2_ID}/register-payment`, { cookie: appOnlyUser.cookie });
@@ -732,30 +842,30 @@ async function main() {
     });
     assert.strictEqual(payOnlyOk.status, 200);
     assert.strictEqual(payOnlyOk.body.status, 'Pagada');
-    console.log('  ✅ 8. Altas/bajas mitad período (409 PAYROLL_PENDING_REVIEW), turno nocturno (480m), no-duplicación manual/auto, concurrencia schedule_overrides y RBAC separado (view/generate/approve/pay) PASS.');
+    console.log('  ✅ 8. Resolución individual + efecto económico, invalidación al recalcular, bloqueo booleano global, legacy manage_payroll sin payroll.pay y RBAC separado PASS.');
 
     console.log('\n🎉 PRUEBA DE ACEPTACIÓN "NÓMINA COMPLETA" SUPERADA (8/8 BLOQUES PASS).');
   } finally {
-    if (browser) await browser.close().catch(() => {});
+    if (browser) await browser.close().catch(() => { });
     if (serverProc && !serverProc.killed) serverProc.kill();
-    await pool.query('DELETE FROM payroll_audit_logs WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM payroll_items WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM payroll_periods WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM employee_discounts WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM employee_commissions_log WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM schedule_overrides WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM attendance WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM kiosk_employee_sessions WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM kiosk_devices WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM user_sessions WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM security_audit_logs WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM staff_records WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM clients WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM users WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM roles WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM tenant_subscriptions WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM branches WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
-    await pool.query('DELETE FROM tenants WHERE id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => {});
+    await pool.query('DELETE FROM payroll_audit_logs WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM payroll_items WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM payroll_periods WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM employee_discounts WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM employee_commissions_log WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM schedule_overrides WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM attendance WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM kiosk_employee_sessions WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM kiosk_devices WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM user_sessions WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM security_audit_logs WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM staff_records WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM clients WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM users WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM roles WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM tenant_subscriptions WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM branches WHERE tenant_id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
+    await pool.query('DELETE FROM tenants WHERE id IN (?, ?)', [TENANT_A, TENANT_B]).catch(() => { });
     await pool.end();
   }
 }

@@ -276,16 +276,327 @@ function createPayrollRouter(pool) {
         ORDER BY id ASC
       `, [id, tenantId]);
 
+      const parsedItems = items.map(item => ({
+        ...item,
+        detalles_json: typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {})
+      }));
+
       return res.json({
         period: periods[0],
-        items: items.map(item => ({
-          ...item,
-          detalles_json: typeof item.detalles_json === 'string' ? JSON.parse(item.detalles_json || '{}') : (item.detalles_json || {})
-        }))
+        items: parsedItems,
+        review_summary: buildReviewSummary(parsedItems),
       });
     } catch (err) {
       console.error('[PAYROLL PERIOD DETAIL ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Construye resumen de novedades de revisión y efecto económico acumulado antes de aprobar
+   */
+  function buildReviewSummary(items = []) {
+    let totalFlagged = 0;
+    let pendingCount = 0;
+    let resolvedCount = 0;
+    let totalDeltaNetoCents = 0;
+    const summaryItems = [];
+
+    for (const it of items) {
+      let det = {};
+      try {
+        det = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
+      } catch { det = {}; }
+      if (det.requires_review !== true) continue;
+      totalFlagged += 1;
+      const resObj = det.review_resolution && typeof det.review_resolution === 'object' ? det.review_resolution : null;
+      const isValidResolved = det.review_resolved === true && Boolean(
+        resObj &&
+        (resObj.decision === 'accept_as_is' || resObj.decision === 'adjust') &&
+        typeof resObj.reason === 'string' && resObj.reason.trim().length >= 5 &&
+        resObj.resolved_at &&
+        resObj.resolved_by
+      );
+      if (isValidResolved) {
+        resolvedCount += 1;
+        const deltaCents = Number(resObj.economic_delta?.neto_pagar_delta_cents || 0);
+        totalDeltaNetoCents += deltaCents;
+      } else {
+        pendingCount += 1;
+      }
+      summaryItems.push({
+        item_id: it.id,
+        employee_id: it.employee_id,
+        employee_name: it.employee_name,
+        resolved: isValidResolved,
+        flags: Array.isArray(det.review_flags) ? det.review_flags : [],
+        resolution: isValidResolved ? resObj : null,
+        invalidated_previous_resolution: det.invalidated_previous_resolution || null,
+      });
+    }
+
+    return {
+      total_flagged: totalFlagged,
+      pending_count: pendingCount,
+      resolved_count: resolvedCount,
+      total_economic_delta_neto_cents: totalDeltaNetoCents,
+      total_economic_delta_neto: fromCents(totalDeltaNetoCents),
+      items: summaryItems,
+    };
+  }
+
+  // 2b. Resolución individual auditada de novedades (altas/bajas parciales o turnos nocturnos)
+  router.post('/periods/:id/items/:itemId/resolve-review', requirePermission('payroll.approve', 'payroll.generate'), async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+      const { id: payrollId, itemId } = req.params;
+      const tenantId = req.verifiedTenantId;
+      const { decision, reason, adjustments = {} } = req.body || {};
+
+      if (decision !== 'accept_as_is' && decision !== 'adjust') {
+        return res.status(400).json({
+          error: 'Debes indicar una decisión válida: "accept_as_is" o "adjust".',
+          code: 'INVALID_REVIEW_DECISION',
+        });
+      }
+      const cleanReason = String(reason || '').trim();
+      if (cleanReason.length < 5) {
+        return res.status(400).json({
+          error: 'Debes indicar un motivo de resolución (mínimo 5 caracteres).',
+          code: 'REVIEW_REASON_REQUIRED',
+        });
+      }
+
+      const actorName = req.auth?.name || req.auth?.email || 'Administrador';
+      const actorMeta = {
+        user_id: req.auth?.userId || null,
+        email: req.auth?.email || null,
+        name: actorName,
+      };
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
+
+      await conn.beginTransaction();
+      const [periodRows] = await conn.query(
+        'SELECT id, status, is_immutable, sucursal FROM payroll_periods WHERE id = ? AND tenant_id = ? FOR UPDATE',
+        [payrollId, tenantId]
+      );
+      if (periodRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
+      }
+      if (!isSucursalAllowedForActor(periodRows[0].sucursal, authBranches)) {
+        await conn.rollback();
+        return res.status(403).json({ error: 'No tienes permiso para resolver novedades en esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
+      if (periodRows[0].status === 'Aprobada' || periodRows[0].status === 'Pagada' || Number(periodRows[0].is_immutable) === 1) {
+        await conn.rollback();
+        return res.status(403).json({ error: 'Esta nómina ya está aprobada o pagada y es inmutable.', code: 'PAYROLL_IMMUTABLE' });
+      }
+
+      const [itemRows] = await conn.query(
+        'SELECT * FROM payroll_items WHERE id = ? AND payroll_id = ? AND tenant_id = ? FOR UPDATE',
+        [itemId, payrollId, tenantId]
+      );
+      if (itemRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Ítem de nómina no encontrado en este período.' });
+      }
+      const it = itemRows[0];
+      let det = {};
+      try {
+        det = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
+      } catch { det = {}; }
+
+      if (det.requires_review !== true) {
+        await conn.rollback();
+        return res.status(400).json({ error: 'Este colaborador no tiene novedades pendientes de revisión.', code: 'NO_REVIEW_REQUIRED' });
+      }
+
+      const prevSalarioCents = toCents(it.salario_fijo);
+      const prevComisionesCents = toCents(it.comisiones);
+      const prevFeriadosCents = toCents(it.feriados);
+      const prevHorasExtrasCents = toCents(it.horas_extras);
+      const prevOtrosIngCents = toCents(it.otros_ingresos);
+      const prevTotalIngCents = toCents(it.total_ingresos);
+
+      const prevTssCents = toCents(it.tss);
+      const prevServiciosCents = toCents(it.servicios);
+      const prevPrestamosCents = toCents(it.prestamos);
+      const prevAusenciasCents = toCents(it.ausencias);
+      const prevTardanzasCents = toCents(it.tardanzas);
+      const prevOtrosDescCents = toCents(it.otros_descuentos);
+      const prevTotalDescCents = toCents(it.total_descuentos);
+      const prevNetoCents = toCents(it.neto_pagar);
+
+      const pickCents = (key, fallbackCents) => {
+        if (decision !== 'adjust' || !adjustments || adjustments[key] === undefined || adjustments[key] === null || adjustments[key] === '') {
+          return fallbackCents;
+        }
+        const parsed = Number(adjustments[key]);
+        if (!Number.isFinite(parsed) || parsed < 0) return fallbackCents;
+        return toCents(parsed);
+      };
+
+      const newSalarioCents = pickCents('salario_fijo', prevSalarioCents);
+      const newComisionesCents = pickCents('comisiones', prevComisionesCents);
+      const newFeriadosCents = pickCents('feriados', prevFeriadosCents);
+      const newHorasExtrasCents = pickCents('horas_extras', prevHorasExtrasCents);
+      const newOtrosIngCents = pickCents('otros_ingresos', prevOtrosIngCents);
+
+      // Si el salario fijo cambia y no se envió un TSS manual explícito, recalcular TSS con el parámetro configurado (5.91%)
+      const newTssCents = (decision === 'adjust' && adjustments && adjustments.tss !== undefined && adjustments.tss !== null && adjustments.tss !== '')
+        ? pickCents('tss', prevTssCents)
+        : (newSalarioCents !== prevSalarioCents ? Math.round(newSalarioCents * 0.0591) : prevTssCents);
+      const newServiciosCents = pickCents('servicios', prevServiciosCents);
+      const newPrestamosCents = pickCents('prestamos', prevPrestamosCents);
+      const newAusenciasCents = pickCents('ausencias', prevAusenciasCents);
+      const newTardanzasCents = pickCents('tardanzas', prevTardanzasCents);
+      const newOtrosDescCents = pickCents('otros_descuentos', prevOtrosDescCents);
+
+      const newTotalIngCents = newSalarioCents + newComisionesCents + newFeriadosCents + newHorasExtrasCents + newOtrosIngCents;
+      const newTotalDescCents = newTssCents + newServiciosCents + newPrestamosCents + newAusenciasCents + newTardanzasCents + newOtrosDescCents;
+      const newNetoCents = newTotalIngCents - newTotalDescCents;
+
+      const changedAnyField =
+        newSalarioCents !== prevSalarioCents ||
+        newComisionesCents !== prevComisionesCents ||
+        newFeriadosCents !== prevFeriadosCents ||
+        newHorasExtrasCents !== prevHorasExtrasCents ||
+        newOtrosIngCents !== prevOtrosIngCents ||
+        newTssCents !== prevTssCents ||
+        newServiciosCents !== prevServiciosCents ||
+        newPrestamosCents !== prevPrestamosCents ||
+        newAusenciasCents !== prevAusenciasCents ||
+        newTardanzasCents !== prevTardanzasCents ||
+        newOtrosDescCents !== prevOtrosDescCents;
+
+      if (decision === 'adjust' && !changedAnyField) {
+        await conn.rollback();
+        return res.status(400).json({
+          error: 'Para resolver con "adjust" debes modificar al menos un importe; si el importe calculado es correcto, utiliza "accept_as_is".',
+          code: 'NO_ADJUSTMENT_DETECTED',
+        });
+      }
+
+      const resolvedAt = new Date().toISOString();
+      const reviewResolution = {
+        decision,
+        reason: cleanReason,
+        resolved_by: actorMeta,
+        resolved_at: resolvedAt,
+        previous_values: {
+          salario_fijo: fromCents(prevSalarioCents),
+          total_ingresos: fromCents(prevTotalIngCents),
+          total_descuentos: fromCents(prevTotalDescCents),
+          neto_pagar: fromCents(prevNetoCents),
+          neto_pagar_cents: prevNetoCents,
+        },
+        new_values: {
+          salario_fijo: fromCents(newSalarioCents),
+          total_ingresos: fromCents(newTotalIngCents),
+          total_descuentos: fromCents(newTotalDescCents),
+          neto_pagar: fromCents(newNetoCents),
+          neto_pagar_cents: newNetoCents,
+        },
+        economic_delta: {
+          salario_fijo_delta: fromCents(newSalarioCents - prevSalarioCents),
+          total_ingresos_delta: fromCents(newTotalIngCents - prevTotalIngCents),
+          total_descuentos_delta: fromCents(newTotalDescCents - prevTotalDescCents),
+          neto_pagar_delta: fromCents(newNetoCents - prevNetoCents),
+          neto_pagar_delta_cents: newNetoCents - prevNetoCents,
+        },
+      };
+
+      det.review_resolved = true;
+      det.review_resolution = reviewResolution;
+      det.minor_units_cents = {
+        currency: 'DOP',
+        salario_fijo_cents: newSalarioCents,
+        comisiones_cents: newComisionesCents,
+        feriados_cents: newFeriadosCents,
+        horas_extras_cents: newHorasExtrasCents,
+        otros_ingresos_cents: newOtrosIngCents,
+        total_ingresos_cents: newTotalIngCents,
+        tss_cents: newTssCents,
+        servicios_cents: newServiciosCents,
+        prestamos_cents: newPrestamosCents,
+        ausencias_cents: newAusenciasCents,
+        tardanzas_cents: newTardanzasCents,
+        otros_descuentos_cents: newOtrosDescCents,
+        total_descuentos_cents: newTotalDescCents,
+        neto_pagar_cents: newNetoCents,
+      };
+
+      await conn.query(`
+        UPDATE payroll_items
+        SET salario_fijo = ?, comisiones = ?, feriados = ?, horas_extras = ?, otros_ingresos = ?, total_ingresos = ?,
+            tss = ?, servicios = ?, prestamos = ?, ausencias = ?, tardanzas = ?, otros_descuentos = ?, total_descuentos = ?,
+            neto_pagar = ?, detalles_json = ?
+        WHERE id = ? AND payroll_id = ? AND tenant_id = ?
+      `, [
+        fromCents(newSalarioCents), fromCents(newComisionesCents), fromCents(newFeriadosCents), fromCents(newHorasExtrasCents), fromCents(newOtrosIngCents), fromCents(newTotalIngCents),
+        fromCents(newTssCents), fromCents(newServiciosCents), fromCents(newPrestamosCents), fromCents(newAusenciasCents), fromCents(newTardanzasCents), fromCents(newOtrosDescCents), fromCents(newTotalDescCents),
+        fromCents(newNetoCents), JSON.stringify(det),
+        itemId, payrollId, tenantId,
+      ]);
+
+      // Recalcular totales del período en centavos
+      const [allItems] = await conn.query(
+        'SELECT * FROM payroll_items WHERE payroll_id = ? AND tenant_id = ? ORDER BY id ASC',
+        [payrollId, tenantId]
+      );
+      let sumIngCents = 0;
+      let sumDescCents = 0;
+      let sumNetoCents = 0;
+      for (const row of allItems) {
+        sumIngCents += toCents(row.total_ingresos);
+        sumDescCents += toCents(row.total_descuentos);
+        sumNetoCents += toCents(row.neto_pagar);
+      }
+
+      await conn.query(
+        'UPDATE payroll_periods SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ? WHERE id = ? AND tenant_id = ?',
+        [fromCents(sumIngCents), fromCents(sumDescCents), fromCents(sumNetoCents), allItems.length, payrollId, tenantId]
+      );
+
+      await conn.query(`
+        INSERT INTO payroll_audit_logs (payroll_id, employee_id, employee_name, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
+        VALUES (?, ?, ?, 'REVISION_INDIVIDUAL', ?, ?, ?, ?, ?, ?)
+      `, [
+        payrollId,
+        it.employee_id,
+        it.employee_name,
+        `salario=${fromCents(prevSalarioCents)}|neto=${fromCents(prevNetoCents)}`,
+        `salario=${fromCents(newSalarioCents)}|neto=${fromCents(newNetoCents)}|delta=${fromCents(newNetoCents - prevNetoCents)}`,
+        decision === 'adjust' ? 'Resolución con Ajuste' : 'Resolución Aceptada',
+        cleanReason.slice(0, 250),
+        actorName,
+        tenantId,
+      ]);
+
+      await conn.commit();
+
+      const updatedItem = allItems.find((row) => String(row.id) === String(itemId));
+      const parsedAll = allItems.map((row) => ({
+        ...row,
+        detalles_json: typeof row.detalles_json === 'string' ? JSON.parse(row.detalles_json || '{}') : (row.detalles_json || {}),
+      }));
+
+      return res.json({
+        success: true,
+        item: {
+          ...updatedItem,
+          detalles_json: det,
+        },
+        resolution: reviewResolution,
+        review_summary: buildReviewSummary(parsedAll),
+      });
+    } catch (err) {
+      await conn.rollback().catch(() => {});
+      console.error('[PAYROLL RESOLVE REVIEW ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
@@ -571,7 +882,7 @@ function createPayrollRouter(pool) {
       if (totalOvertimeMins > 0) {
         horasExtras = fromCents(toCents(totalOvertimeMins * salarioMinutoGarantizado * recargoHorasExtras));
       }
-    } catch(e) {
+    } catch (e) {
       console.warn(`[ATTENDANCE CALC WARN for ${empName}]:`, e.message);
     }
 
@@ -1168,35 +1479,17 @@ function createPayrollRouter(pool) {
         [payroll_id, tenantId]
       );
 
-      // Bloquear aprobación silenciosa si existen novedades pendientes de revisión (ingreso/salida parcial o turno nocturno)
-      const pendingReviewItems = [];
-      for (const it of items) {
-        let det = {};
-        try {
-          det = typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {});
-        } catch { det = {}; }
-        if (det.requires_review === true && det.review_resolved !== true) {
-          pendingReviewItems.push({
-            employee_id: it.employee_id,
-            employee_name: it.employee_name,
-            flags: Array.isArray(det.review_flags) ? det.review_flags : [],
-          });
-        }
-      }
-      if (pendingReviewItems.length > 0 && !Boolean(acknowledge_review_flags)) {
+      // Bloquear aprobación si existen novedades sin resolución individual auditada
+      // (NO se acepta un booleano global para omitir la resolución por colaborador)
+      const reviewSummary = buildReviewSummary(items);
+      if (reviewSummary.pending_count > 0) {
         await conn.rollback();
         return res.status(409).json({
-          error: `Hay ${pendingReviewItems.length} colaborador(es) con novedades pendientes de revisión (ingreso/salida parcial o turno nocturno). Revisa y confirma explícitamente antes de aprobar.`,
+          error: `Hay ${reviewSummary.pending_count} colaborador(es) con novedades pendientes de resolución individual (ingreso/salida parcial o turno nocturno). Resuelve cada caso individualmente (ajuste explícito o aceptación justificada) antes de aprobar.`,
           code: 'PAYROLL_PENDING_REVIEW',
-          pending_review_items: pendingReviewItems,
+          pending_review_items: reviewSummary.items.filter((x) => !x.resolved),
+          review_summary: reviewSummary,
         });
-      }
-      if (pendingReviewItems.length > 0 && Boolean(acknowledge_review_flags)) {
-        await conn.query(
-          `INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
-           VALUES (?, 'REVISION_NOVEDADES', 'Pendiente', 'Resuelto', 'Confirmación de Revisión', ?, ?, ?)`,
-          [payroll_id, String(review_resolution_note || 'Revisión confirmada explícitamente al aprobar').slice(0, 250), actorName, tenantId]
-        );
       }
 
       const snapshot = {
@@ -1205,7 +1498,9 @@ function createPayrollRouter(pool) {
           ...calcSettingsSnapshot,
           tss_rate: 0.0591,
           currency: 'DOP',
+          legal_compliance_notice: 'Parámetros configurados en software (no contempla todavía topes salariales SFS/AFP vigentes ni retención automática ISR DGII).',
         },
+        review_summary: reviewSummary,
         items: items.map(it => ({
           ...it,
           detalles_json: typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {})
@@ -1428,16 +1723,59 @@ function createPayrollRouter(pool) {
         }));
       }
 
+      // Capturar resoluciones individuales previas antes de recalcular para invalidarlas explícitamente
+      const [prevItemsBeforeSync] = await conn.query(
+        'SELECT id, employee_id, employee_name, detalles_json FROM payroll_items WHERE payroll_id = ? AND tenant_id = ?',
+        [id, tenantId]
+      );
+      const priorResolvedByEmp = new Map();
+      for (const prevIt of prevItemsBeforeSync) {
+        let pDet = {};
+        try {
+          pDet = typeof prevIt.detalles_json === 'string' ? JSON.parse(prevIt.detalles_json || '{}') : (prevIt.detalles_json || {});
+        } catch { pDet = {}; }
+        if (pDet.review_resolved === true && pDet.review_resolution) {
+          priorResolvedByEmp.set(String(prevIt.employee_id), pDet.review_resolution);
+        }
+      }
+
       await conn.query('DELETE FROM payroll_items WHERE payroll_id = ? AND tenant_id = ?', [id, tenantId]);
 
       let sumTotalIngresos = 0;
       let sumTotalDescuentos = 0;
       let sumTotalNeto = 0;
+      let invalidatedResolutionsCount = 0;
+      const syncActor = req.auth?.name || req.auth?.email || 'Administrador';
+      const syncNowIso = new Date().toISOString();
       const generatedItems = [];
 
       for (const emp of staffList) {
         const itemData = await calculateEmployeePayrollValues(conn, emp, startDate, endDate, tenantId);
         itemData.payroll_id = parseInt(id, 10);
+
+        const priorRes = priorResolvedByEmp.get(String(itemData.employee_id));
+        if (priorRes && itemData.detalles_json?.requires_review === true) {
+          invalidatedResolutionsCount += 1;
+          itemData.detalles_json.review_resolved = false;
+          itemData.detalles_json.review_resolution = null;
+          itemData.detalles_json.invalidated_previous_resolution = {
+            ...priorRes,
+            invalidated_at: syncNowIso,
+            invalidated_by: syncActor,
+            invalidation_reason: 'Recálculo de borrador (sync-real-data)',
+          };
+          await conn.query(`
+            INSERT INTO payroll_audit_logs (payroll_id, employee_id, employee_name, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
+            VALUES (?, ?, ?, 'INVALIDACION_REVISION', 'Resuelto', 'Pendiente', 'Invalidación por Recálculo', ?, ?, ?)
+          `, [
+            id,
+            itemData.employee_id,
+            itemData.employee_name,
+            `Resolución previa (${priorRes.decision}) invalidada al recalcular el borrador.`,
+            syncActor,
+            tenantId,
+          ]);
+        }
 
         const [resItem] = await conn.query(`
           INSERT INTO payroll_items (
@@ -1470,13 +1808,17 @@ function createPayrollRouter(pool) {
       await conn.query(`
         INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
         VALUES (?, 'SINCRONIZACION_DATOS', 'Anterior', 'Datos Reales', 'Sincronización', 'Sincronización automática de comisiones y descuentos en tiempo real', ?, ?)
-      `, [id, req.auth?.name || req.auth?.email || 'Administrador', tenantId]);
+      `, [id, syncActor, tenantId]);
 
       await conn.commit();
 
       res.json({
         success: true,
-        message: 'Datos reales de comisiones y descuentos sincronizados exitosamente',
+        message: invalidatedResolutionsCount > 0
+          ? `Datos recalculados. Se invalidaron ${invalidatedResolutionsCount} resolución(es) previa(s) de revisión; requieren nueva confirmación.`
+          : 'Datos reales de comisiones y descuentos sincronizados exitosamente',
+        invalidated_resolutions_count: invalidatedResolutionsCount,
+        review_summary: buildReviewSummary(generatedItems),
         period: {
           ...period,
           total_ingresos: sumTotalIngresos,

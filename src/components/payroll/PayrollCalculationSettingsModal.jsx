@@ -139,14 +139,15 @@ export default function PayrollCalculationSettingsModal({
                     Configuración Salarial & Unidad por Minuto
                   </h2>
                   <span style={{
-                    background: '#ede9fe',
-                    color: '#6d28d9',
+                    background: '#fef3c7',
+                    color: '#92400e',
+                    border: '1px solid #f59e0b',
                     fontSize: '0.72rem',
                     fontWeight: 800,
                     padding: '3px 8px',
                     borderRadius: '20px'
                   }}>
-                    Ley 16-92 RD
+                    Parámetros de software (RD)
                   </span>
                 </div>
                 <p style={{ color: '#64748b', fontSize: '0.82rem', margin: '0.2rem 0 0 0' }}>
@@ -178,6 +179,23 @@ export default function PayrollCalculationSettingsModal({
           {/* CONTENIDO DEL MODAL */}
           <div style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
+            {/* ADVERTENCIA VISIBLE DE ALCANCE LEGAL Y PARÁMETROS PENDIENTES */}
+            <div style={{
+              background: '#fffbeb',
+              border: '1.5px solid #f59e0b',
+              borderRadius: '16px',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              gap: '0.85rem',
+              alignItems: 'flex-start'
+            }}>
+              <AlertCircle size={20} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '0.82rem', color: '#78350f', lineHeight: 1.55 }}>
+                <strong style={{ color: '#92400e' }}>Advertencia — Parámetros legales pendientes (no constituye cumplimiento legal completo): </strong>
+                El motor actual aplica parámetros configurados de software (TSS fija de <strong>5.91%</strong> sobre salario fijo) y <strong>todavía no contempla todas las bases cotizables, topes salariales SFS/AFP vigentes (TSS) ni la retención automática de ISR (DGII)</strong>. Valida con contabilidad/asesoría laboral antes de aprobar y declarar.
+              </div>
+            </div>
+
             {/* AVISO EXPLICATIVO DE LA REGLA */}
             <div style={{
               background: '#f8fafc',
@@ -190,8 +208,8 @@ export default function PayrollCalculationSettingsModal({
             }}>
               <ShieldCheck size={20} color="#7c3aed" style={{ flexShrink: 0, marginTop: '2px' }} />
               <div style={{ fontSize: '0.82rem', color: '#475569', lineHeight: 1.5 }}>
-                <strong style={{ color: '#0f172a' }}>Regla Oficial de Nómina: </strong>
-                Aunque las comisiones varían para cada colaboradora, los descuentos de <strong>tardanzas</strong>, <strong>ausencias (8h o 4h)</strong> y el pago de <strong>horas extras y feriados</strong> se calculan estrictamente en base a este salario mensual garantizado convertido a minutos mediante el factor de <strong>23.83 días</strong> laborales al mes.
+                <strong style={{ color: '#0f172a' }}>Regla de cálculo configurada en software: </strong>
+                Aunque las comisiones varían para cada colaboradora, los descuentos de <strong>tardanzas</strong>, <strong>ausencias (8h o 4h)</strong> y el pago de <strong>horas extras y feriados</strong> se calculan en base a este salario mensual garantizado convertido a minutos mediante el factor de <strong>23.83 días</strong> laborales al mes.
               </div>
             </div>
 

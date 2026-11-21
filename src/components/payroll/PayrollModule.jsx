@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { 
-  DollarSign, Users, Calendar, Download, Plus, Search, Filter, 
-  ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Printer, 
-  Sliders, ArrowUpRight, ArrowDownRight, Edit2, Trash2, Eye, 
-  Settings, FileText, Check, X, RefreshCw, Layers, PieChart as PieIcon, 
+import {
+  DollarSign, Users, Calendar, Download, Plus, Search, Filter,
+  ChevronLeft, ChevronRight, CheckCircle2, AlertCircle, Printer,
+  Sliders, ArrowUpRight, ArrowDownRight, Edit2, Trash2, Eye,
+  Settings, FileText, Check, X, RefreshCw, Layers, PieChart as PieIcon,
   CreditCard, Sparkles, Building2, Briefcase, ChevronDown, ChevronUp, CheckSquare, Square,
   RotateCcw, History, ShieldAlert, Lock, Info, FileSpreadsheet, UserCheck
 } from 'lucide-react';
@@ -64,7 +64,7 @@ export default function PayrollModule({ initialTab }) {
     try {
       const saved = localStorage.getItem('payroll_items_per_page_v1');
       if (saved) return parseInt(saved, 10);
-    } catch (e) {}
+    } catch (e) { }
     return 25; // Predeterminado a 25 para ver la gran mayoría de colaboradores sin fricción
   });
 
@@ -115,7 +115,7 @@ export default function PayrollModule({ initialTab }) {
     try {
       const saved = localStorage.getItem('payroll_visible_columns_v1');
       if (saved) return JSON.parse(saved);
-    } catch (e) {}
+    } catch (e) { }
     return {
       salario_fijo: true,
       comisiones: true,
@@ -141,7 +141,7 @@ export default function PayrollModule({ initialTab }) {
       const updated = { ...prev, [colKey]: !prev[colKey] };
       try {
         localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
-      } catch (e) {}
+      } catch (e) { }
       return updated;
     });
   };
@@ -167,7 +167,7 @@ export default function PayrollModule({ initialTab }) {
     setVisibleColumns(updated);
     try {
       localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const handleSetEssentialColumns = () => {
@@ -191,7 +191,7 @@ export default function PayrollModule({ initialTab }) {
     setVisibleColumns(updated);
     try {
       localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const handleSetAttendanceColumns = () => {
@@ -215,7 +215,7 @@ export default function PayrollModule({ initialTab }) {
     setVisibleColumns(updated);
     try {
       localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const handleSetFiscalColumns = () => {
@@ -239,7 +239,7 @@ export default function PayrollModule({ initialTab }) {
     setVisibleColumns(updated);
     try {
       localStorage.setItem('payroll_visible_columns_v1', JSON.stringify(updated));
-    } catch (e) {}
+    } catch (e) { }
   };
 
   // Atajo universal de teclado Ctrl+Z / Cmd+Z para deshacer cambios
@@ -567,11 +567,11 @@ export default function PayrollModule({ initialTab }) {
   // Filtrado de items
   const filteredItems = useMemo(() => {
     return items.filter(item => {
-      const matchSearch = searchTerm === '' || 
+      const matchSearch = searchTerm === '' ||
         item.employee_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.posicion?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.departamento?.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
       const itemSuc = (item.sucursal || '').toLowerCase();
       const filterSuc = (filterSucursal || 'Todas').toLowerCase();
 
@@ -588,7 +588,7 @@ export default function PayrollModule({ initialTab }) {
         }
       }
 
-      const matchDept = filterDepartamento === 'Todos' || 
+      const matchDept = filterDepartamento === 'Todos' ||
         (item.departamento && item.departamento.toLowerCase() === filterDepartamento.toLowerCase()) ||
         (item.posicion && item.posicion.toLowerCase() === filterDepartamento.toLowerCase()) ||
         (item.posicion && item.posicion.toLowerCase().includes(filterDepartamento.toLowerCase()));
@@ -615,7 +615,7 @@ export default function PayrollModule({ initialTab }) {
   };
 
   const handleToggleSelect = (id) => {
-    setSelectedItemIds(prev => 
+    setSelectedItemIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
@@ -796,7 +796,7 @@ export default function PayrollModule({ initialTab }) {
     const copy = JSON.parse(JSON.stringify(editingItem));
     let det = copy.detalles_json || {};
     if (typeof det === 'string') {
-      try { det = JSON.parse(det); } catch(e) { det = {}; }
+      try { det = JSON.parse(det); } catch (e) { det = {}; }
     }
 
     if (type === 'ingreso' && det.conceptos_ingresos) {
@@ -1457,7 +1457,7 @@ export default function PayrollModule({ initialTab }) {
 
   return (
     <div className="payroll-module-container" style={{ padding: '1.5rem', maxWidth: '1600px', margin: '0 auto' }}>
-      
+
       {/* PESTAÑAS PRINCIPALES SUPERIORES (Procesar Nómina | Histórico Inmutable | Regalías del Año) */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', gap: '0.5rem', background: '#f1f5f9', padding: '6px', borderRadius: '14px' }}>
@@ -1527,7 +1527,7 @@ export default function PayrollModule({ initialTab }) {
 
         {mainTab === 'payroll' && (
           <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-            <button 
+            <button
               onClick={() => setShowNewPeriodModal(true)}
               className="btn-secondary"
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', fontSize: '0.85rem', fontWeight: 800 }}
@@ -1629,7 +1629,7 @@ export default function PayrollModule({ initialTab }) {
             {/* BOTONES DE ACCIÓN SUPERIORES */}
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
               {currentPeriod?.status !== 'Aprobada' && (
-                <div 
+                <div
                   style={{
                     background: '#f0fdf4',
                     border: '1.5px solid #86efac',
@@ -1650,7 +1650,7 @@ export default function PayrollModule({ initialTab }) {
                 </div>
               )}
 
-              <button 
+              <button
                 onClick={() => setShowAuditModal(true)}
                 className="btn-secondary"
                 style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.2rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem' }}
@@ -1658,7 +1658,7 @@ export default function PayrollModule({ initialTab }) {
                 <History size={16} /> Auditoría
               </button>
 
-              <button 
+              <button
                 onClick={handlePrintFullPayroll}
                 className="btn-secondary"
                 style={{ background: '#ffffff', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.2rem', borderRadius: '12px', fontWeight: 700, fontSize: '0.85rem' }}
@@ -1666,7 +1666,7 @@ export default function PayrollModule({ initialTab }) {
                 <Printer size={16} /> Imprimir planilla
               </button>
 
-              <button 
+              <button
                 onClick={() => setShowSummaryModal(true)}
                 style={{
                   background: '#ffffff',
@@ -1687,7 +1687,7 @@ export default function PayrollModule({ initialTab }) {
                 <PieIcon size={18} /> Resumen de nómina
               </button>
 
-              <button 
+              <button
                 onClick={() => {
                   setCalcForm({
                     salario_mensual_base: calcConfig.salario_mensual_base || 18421.00,
@@ -1716,7 +1716,7 @@ export default function PayrollModule({ initialTab }) {
                 }}
                 title="Configuración de salario garantizado ($18,421), factor 23.83 días, valor por minuto y reglas de descuento"
               >
-                <Sliders size={18} color="#7c3aed" /> 
+                <Sliders size={18} color="#7c3aed" />
                 <span>Configuración de Tarifas</span>
                 <span style={{
                   background: '#7c3aed',
@@ -1730,6 +1730,27 @@ export default function PayrollModule({ initialTab }) {
                   RD$ {(calcConfig.salario_minuto || 1.6105).toFixed(2)}/min
                 </span>
               </button>
+            </div>
+          </div>
+
+          {/* ADVERTENCIA VISIBLE DE PARÁMETROS LEGALES PENDIENTES */}
+          <div style={{
+            background: '#fffbeb',
+            border: '1.5px solid #f59e0b',
+            borderRadius: '14px',
+            padding: '0.85rem 1.15rem',
+            marginBottom: '1.25rem',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '0.75rem',
+            color: '#78350f',
+            fontSize: '0.82rem',
+            lineHeight: 1.5
+          }}>
+            <AlertCircle size={18} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <strong style={{ color: '#92400e' }}>Parámetros legales pendientes (no constituye cumplimiento legal completo): </strong>
+              El motor actual calcula con parámetros de software (TSS fija de 5.91% sobre salario fijo) y <strong>no contempla todavía todas las bases cotizables, topes salariales SFS/AFP vigentes (TSS) ni retención automática de ISR (DGII)</strong>. Revisa cada novedad individual y valida con contabilidad antes de aprobar.
             </div>
           </div>
 
@@ -1789,7 +1810,7 @@ export default function PayrollModule({ initialTab }) {
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
                 Sucursal
               </label>
-              <select 
+              <select
                 value={filterSucursal}
                 onChange={(e) => setFilterSucursal(e.target.value)}
                 className="input-field"
@@ -1806,7 +1827,7 @@ export default function PayrollModule({ initialTab }) {
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', marginBottom: '0.4rem', textTransform: 'uppercase' }}>
                 Departamento / Cargo
               </label>
-              <select 
+              <select
                 value={filterDepartamento}
                 onChange={(e) => setFilterDepartamento(e.target.value)}
                 className="input-field"
@@ -1825,7 +1846,7 @@ export default function PayrollModule({ initialTab }) {
               </label>
               <div style={{ position: 'relative' }}>
                 <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)' }} />
-                <input 
+                <input
                   type="text"
                   placeholder="Nombre o cargo..."
                   value={searchTerm}
@@ -1877,7 +1898,7 @@ export default function PayrollModule({ initialTab }) {
 
               {/* POPOVER FLOTANTE DE CASILLAS */}
               {showColumnsPopover && (
-                <div 
+                <div
                   style={{
                     position: 'absolute',
                     top: 'calc(100% + 8px)',
@@ -1894,9 +1915,9 @@ export default function PayrollModule({ initialTab }) {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>
                     <strong style={{ fontSize: '0.88rem', color: '#0f172a' }}>Ocultar / Mostrar Columnas</strong>
-                    <button 
-                      type="button" 
-                      onClick={() => setShowColumnsPopover(false)} 
+                    <button
+                      type="button"
+                      onClick={() => setShowColumnsPopover(false)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                     >
                       <X size={16} />
@@ -1920,7 +1941,7 @@ export default function PayrollModule({ initialTab }) {
                           { key: 'total_ingresos', label: 'Total Ingresos' }
                         ].map(col => (
                           <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#334155', cursor: 'pointer', background: visibleColumns[col.key] ? '#eff6ff' : '#f8fafc', padding: '4px 7px', borderRadius: '6px', border: '1px solid', borderColor: visibleColumns[col.key] ? '#bfdbfe' : '#e2e8f0' }}>
-                            <input 
+                            <input
                               type="checkbox"
                               checked={!!visibleColumns[col.key]}
                               onChange={() => handleToggleColumn(col.key)}
@@ -1948,7 +1969,7 @@ export default function PayrollModule({ initialTab }) {
                           { key: 'total_descuentos', label: 'Total Descuentos' }
                         ].map(col => (
                           <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#334155', cursor: 'pointer', background: visibleColumns[col.key] ? '#fef2f2' : '#f8fafc', padding: '4px 7px', borderRadius: '6px', border: '1px solid', borderColor: visibleColumns[col.key] ? '#fecaca' : '#e2e8f0' }}>
-                            <input 
+                            <input
                               type="checkbox"
                               checked={!!visibleColumns[col.key]}
                               onChange={() => handleToggleColumn(col.key)}
@@ -1966,7 +1987,7 @@ export default function PayrollModule({ initialTab }) {
                         A Desembolsar
                       </div>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: '#334155', cursor: 'pointer', background: visibleColumns.neto_pagar ? '#f0fdf4' : '#f8fafc', padding: '4px 7px', borderRadius: '6px', border: '1px solid', borderColor: visibleColumns.neto_pagar ? '#bbf7d0' : '#e2e8f0' }}>
-                        <input 
+                        <input
                           type="checkbox"
                           checked={!!visibleColumns.neto_pagar}
                           onChange={() => handleToggleColumn('neto_pagar')}
@@ -2136,8 +2157,8 @@ export default function PayrollModule({ initialTab }) {
                       {/* Fila Superior de Grupos */}
                       <tr style={{ background: '#f8fafc' }}>
                         <th style={{ padding: '0.85rem 1rem', width: '40px', position: 'sticky', left: 0, top: 0, zIndex: 35, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             onChange={handleSelectAll}
                             checked={paginatedItems.length > 0 && selectedItemIds.length === paginatedItems.length}
                             style={{ width: '16px', height: '16px', accentColor: '#0066ff', cursor: 'pointer' }}
@@ -2147,7 +2168,7 @@ export default function PayrollModule({ initialTab }) {
                         <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 800, position: 'sticky', left: '85px', top: 0, zIndex: 35, background: '#f8fafc', minWidth: '180px', borderRight: '2px solid #e2e8f0', boxShadow: '4px 0 6px -2px rgba(0,0,0,0.04)', borderBottom: '1px solid #e2e8f0' }}>Colaborador</th>
                         <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700, borderBottom: '1px solid #e2e8f0' }}>Posición</th>
                         <th style={{ padding: '0.85rem 1rem', color: '#64748b', fontWeight: 700, borderBottom: '1px solid #e2e8f0' }}>Sucursal</th>
-                        
+
                         {/* Grupo Ingresos */}
                         {ingresosCount > 0 && (
                           <th colSpan={ingresosCount} style={{ background: '#eff6ff', color: '#1e40af', fontWeight: 900, textAlign: 'center', borderLeft: '1px solid #dbeafe', borderRight: '1px solid #dbeafe', borderBottom: '1px solid #dbeafe', padding: '0.6rem' }}>
@@ -2180,7 +2201,7 @@ export default function PayrollModule({ initialTab }) {
                         <th style={{ position: 'sticky', left: '85px', top: '41px', zIndex: 35, background: '#ffffff', borderRight: '2px solid #e2e8f0', boxShadow: '4px 0 6px -2px rgba(0,0,0,0.04)', borderBottom: '2px solid #e2e8f0' }}></th>
                         <th style={{ borderBottom: '2px solid #e2e8f0', background: '#ffffff' }}></th>
                         <th style={{ borderBottom: '2px solid #e2e8f0', background: '#ffffff' }}></th>
-                        
+
                         {/* Columnas Ingresos */}
                         {visibleColumns.salario_fijo && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderLeft: '1px solid #dbeafe', borderBottom: '2px solid #e2e8f0' }}>S. Fijo</th>}
                         {visibleColumns.comisiones && <th style={{ background: '#f8faff', padding: '0.6rem 0.75rem', textAlign: 'right', borderBottom: '2px solid #e2e8f0' }}>Comisiones</th>}
@@ -2247,7 +2268,7 @@ export default function PayrollModule({ initialTab }) {
                         const isSelected = selectedItemIds.includes(item.id);
 
                         return (
-                          <tr 
+                          <tr
                             key={item.id || idx}
                             style={{
                               background: isSelected ? '#f0f9ff' : (idx % 2 === 0 ? '#ffffff' : '#fafafa'),
@@ -2255,8 +2276,8 @@ export default function PayrollModule({ initialTab }) {
                             }}
                           >
                             <td style={{ padding: '0.85rem 1rem', width: '40px', position: 'sticky', left: 0, zIndex: 15, background: isSelected ? '#f0f9ff' : (idx % 2 === 0 ? '#ffffff' : '#fafafa'), borderBottom: '1px solid #f1f5f9' }}>
-                              <input 
-                                type="checkbox" 
+                              <input
+                                type="checkbox"
                                 checked={isSelected}
                                 onChange={() => handleToggleSelect(item.id)}
                                 style={{ width: '16px', height: '16px', accentColor: '#0066ff', cursor: 'pointer' }}
@@ -2265,12 +2286,12 @@ export default function PayrollModule({ initialTab }) {
                             <td style={{ padding: '0.85rem 0.5rem', color: '#94a3b8', fontWeight: 700, position: 'sticky', left: '40px', zIndex: 15, background: isSelected ? '#f0f9ff' : (idx % 2 === 0 ? '#ffffff' : '#fafafa'), borderBottom: '1px solid #f1f5f9' }}>
                               {rowNumber}
                             </td>
-                            <td 
+                            <td
                               onClick={() => handleOpenEmployeeModal(item, (currentPage - 1) * (itemsPerPage === -1 ? 0 : itemsPerPage) + idx)}
-                              style={{ 
-                                padding: '0.85rem 1rem', 
-                                fontWeight: 800, 
-                                color: '#0f172a', 
+                              style={{
+                                padding: '0.85rem 1rem',
+                                fontWeight: 800,
+                                color: '#0f172a',
                                 cursor: 'pointer',
                                 position: 'sticky',
                                 left: '85px',
@@ -2443,7 +2464,7 @@ export default function PayrollModule({ initialTab }) {
                           setCurrentPage(1);
                           try {
                             localStorage.setItem('payroll_items_per_page_v1', String(val));
-                          } catch (err) {}
+                          } catch (err) { }
                         }}
                         style={{
                           padding: '0.3rem 0.6rem',
@@ -2493,7 +2514,7 @@ export default function PayrollModule({ initialTab }) {
 
                   {itemsPerPage !== -1 && totalPages > 1 && (
                     <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
-                      <button 
+                      <button
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
                         style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff', cursor: currentPage === 1 ? 'not-allowed' : 'pointer', opacity: currentPage === 1 ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -2521,7 +2542,7 @@ export default function PayrollModule({ initialTab }) {
                         </button>
                       ))}
 
-                      <button 
+                      <button
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
                         style={{ width: '32px', height: '32px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#ffffff', cursor: currentPage === totalPages ? 'not-allowed' : 'pointer', opacity: currentPage === totalPages ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -2539,7 +2560,7 @@ export default function PayrollModule({ initialTab }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', padding: '0.5rem 0 3rem' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
               {undoStack.length > 0 && currentPeriod?.status !== 'Aprobada' && (
-                <button 
+                <button
                   onClick={handleUndo}
                   className="btn-secondary"
                   style={{ background: '#f8fafc', border: '1px solid #cbd5e1', color: '#475569', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', borderRadius: '12px', fontWeight: 700 }}
@@ -2551,7 +2572,7 @@ export default function PayrollModule({ initialTab }) {
 
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
               {currentPeriod?.status !== 'Aprobada' && (
-                <button 
+                <button
                   onClick={handleSaveDraft}
                   disabled={loading}
                   style={{
@@ -2574,7 +2595,7 @@ export default function PayrollModule({ initialTab }) {
               )}
 
               {currentPeriod?.status !== 'Aprobada' ? (
-                <button 
+                <button
                   onClick={() => setShowApproveModal(true)}
                   disabled={loading}
                   style={{
@@ -2604,7 +2625,7 @@ export default function PayrollModule({ initialTab }) {
         </>
       ) : mainTab === 'historical' ? (
         /* VISTA DE HISTÓRICO DE NÓMINAS APROBADAS */
-        <PayrollHistoryView 
+        <PayrollHistoryView
           periods={periods}
           onViewPeriod={(periodId) => {
             loadPeriodDetail(periodId);
@@ -2627,7 +2648,7 @@ export default function PayrollModule({ initialTab }) {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569' }}>Año Fiscal:</span>
-              <select 
+              <select
                 value={regaliasYear}
                 onChange={(e) => setRegaliasYear(parseInt(e.target.value))}
                 className="input-field"
@@ -2795,7 +2816,7 @@ export default function PayrollModule({ initialTab }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   {/* Navegación Anterior / Siguiente */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '4px 8px' }}>
-                    <button 
+                    <button
                       onClick={() => handleNavigateEmployee(-1)}
                       style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}
                     >
@@ -2804,7 +2825,7 @@ export default function PayrollModule({ initialTab }) {
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8' }}>
                       {activeEmployeeIndex + 1} de {filteredItems.length}
                     </span>
-                    <button 
+                    <button
                       onClick={() => handleNavigateEmployee(1)}
                       style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', fontWeight: 700, color: '#0066ff' }}
                     >
@@ -2812,7 +2833,7 @@ export default function PayrollModule({ initialTab }) {
                     </button>
                   </div>
 
-                  <button 
+                  <button
                     onClick={() => setShowEmployeeModal(false)}
                     style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                   >
@@ -2828,7 +2849,7 @@ export default function PayrollModule({ initialTab }) {
               {/* DOS COLUMNAS: INGRESOS Y DESCUENTOS */}
               {(() => {
                 const detObj = typeof editingItem.detalles_json === 'string'
-                  ? (() => { try { return JSON.parse(editingItem.detalles_json || '{}'); } catch(e) { return {}; } })()
+                  ? (() => { try { return JSON.parse(editingItem.detalles_json || '{}'); } catch (e) { return {}; } })()
                   : (editingItem.detalles_json || {});
                 const customIngresos = (detObj.conceptos_ingresos || []).filter(c => c.custom || (c.id && String(c.id).startsWith('custom_')));
                 const customDescuentos = (detObj.conceptos_descuentos || []).filter(d => d.custom || (d.id && String(d.id).startsWith('custom_')));
@@ -2842,9 +2863,11 @@ export default function PayrollModule({ initialTab }) {
                 return (
                   <>
                     {reviewFlags.length > 0 && (
-                      <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '14px', padding: '0.9rem 1.1rem', marginBottom: '1rem', color: '#92400e' }}>
+                      <div style={{ background: detObj.review_resolved ? '#f0fdf4' : '#fffbeb', border: `1.5px solid ${detObj.review_resolved ? '#22c55e' : '#f59e0b'}`, borderRadius: '14px', padding: '0.9rem 1.1rem', marginBottom: '1rem', color: detObj.review_resolved ? '#166534' : '#92400e' }}>
                         <div style={{ fontWeight: 800, fontSize: '0.82rem', marginBottom: '0.35rem' }}>
-                          Novedades pendientes de revisión antes de aprobar ({reviewFlags.length})
+                          {detObj.review_resolved && detObj.review_resolution
+                            ? `Novedad resuelta individualmente (${detObj.review_resolution.decision === 'adjust' ? 'Con ajuste' : 'Importe aceptado'})`
+                            : `Novedades pendientes de resolución individual antes de aprobar (${reviewFlags.length})`}
                         </div>
                         <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           {reviewFlags.map((f, idx) => (
@@ -2853,6 +2876,104 @@ export default function PayrollModule({ initialTab }) {
                             </li>
                           ))}
                         </ul>
+                        {detObj.review_resolved && detObj.review_resolution && (
+                          <div style={{ marginTop: '0.6rem', paddingTop: '0.6rem', borderTop: '1px solid #bbf7d0', fontSize: '0.76rem', color: '#14532d' }}>
+                            <div><strong>Motivo:</strong> {detObj.review_resolution.reason}</div>
+                            <div>
+                              <strong>Efecto económico neto:</strong> RD$ {Number(detObj.review_resolution.economic_delta?.neto_pagar_delta || 0) >= 0 ? '+' : ''}
+                              {Number(detObj.review_resolution.economic_delta?.neto_pagar_delta || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              {' · '}<strong>Actor:</strong> {detObj.review_resolution.resolved_by?.name || 'Administrador'}
+                              {' · '}<strong>Fecha:</strong> {detObj.review_resolution.resolved_at ? new Date(detObj.review_resolution.resolved_at).toLocaleString('es-DO') : ''}
+                            </div>
+                          </div>
+                        )}
+                        {detObj.invalidated_previous_resolution && !detObj.review_resolved && (
+                          <div style={{ marginTop: '0.5rem', fontSize: '0.74rem', color: '#b45309' }}>
+                            Resolución previa invalidada al recalcular el borrador ({detObj.invalidated_previous_resolution.invalidation_reason}). Requiere nueva resolución.
+                          </div>
+                        )}
+                        {!detObj.review_resolved && currentPeriod?.status !== 'Aprobada' && currentPeriod?.status !== 'Pagada' && (
+                          <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #fde68a', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <input
+                              type="text"
+                              placeholder="Motivo obligatorio de resolución individual (mín. 5 caracteres)..."
+                              value={editReason}
+                              onChange={(e) => setEditReason(e.target.value)}
+                              style={{ width: '100%', padding: '0.45rem 0.7rem', borderRadius: '8px', border: '1px solid #f59e0b', fontSize: '0.8rem', background: '#ffffff', color: '#0f172a' }}
+                            />
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!editReason || editReason.trim().length < 5) {
+                                    showNotification('Indica un motivo de al menos 5 caracteres para resolver la novedad.', 'error');
+                                    return;
+                                  }
+                                  try {
+                                    const res = await fetch(`/api/payroll/periods/${currentPeriod.id}/items/${editingItem.id}/resolve-review`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      credentials: 'include',
+                                      body: JSON.stringify({ decision: 'accept_as_is', reason: editReason.trim() }),
+                                    });
+                                    const data = await res.json();
+                                    if (!res.ok) throw new Error(data.error || 'Error resolviendo novedad');
+                                    setEditingItem(data.item);
+                                    setItems((prev) => prev.map((x) => (x.id === data.item.id ? data.item : x)));
+                                    showNotification('Novedad resuelta (importe aceptado con justificación).', 'success');
+                                  } catch (err) {
+                                    showNotification(err.message, 'error');
+                                  }
+                                }}
+                                style={{ background: '#ffffff', border: '1px solid #d97706', color: '#92400e', padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.76rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                Aceptar importe calculado
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!editReason || editReason.trim().length < 5) {
+                                    showNotification('Indica un motivo de al menos 5 caracteres para resolver con ajuste.', 'error');
+                                    return;
+                                  }
+                                  try {
+                                    const res = await fetch(`/api/payroll/periods/${currentPeriod.id}/items/${editingItem.id}/resolve-review`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      credentials: 'include',
+                                      body: JSON.stringify({
+                                        decision: 'adjust',
+                                        reason: editReason.trim(),
+                                        adjustments: {
+                                          salario_fijo: Number(editingItem.salario_fijo || 0),
+                                          comisiones: Number(editingItem.comisiones || 0),
+                                          feriados: Number(editingItem.feriados || 0),
+                                          horas_extras: Number(editingItem.horas_extras || 0),
+                                          otros_ingresos: Number(editingItem.otros_ingresos || 0),
+                                          servicios: Number(editingItem.servicios || 0),
+                                          prestamos: Number(editingItem.prestamos || 0),
+                                          ausencias: Number(editingItem.ausencias || 0),
+                                          tardanzas: Number(editingItem.tardanzas || 0),
+                                          otros_descuentos: Number(editingItem.otros_descuentos || 0),
+                                        },
+                                      }),
+                                    });
+                                    const data = await res.json();
+                                    if (!res.ok) throw new Error(data.error || 'Error resolviendo novedad con ajuste');
+                                    setEditingItem(data.item);
+                                    setItems((prev) => prev.map((x) => (x.id === data.item.id ? data.item : x)));
+                                    showNotification('Novedad resuelta con ajuste explícito y efecto económico auditado.', 'success');
+                                  } catch (err) {
+                                    showNotification(err.message, 'error');
+                                  }
+                                }}
+                                style={{ background: '#d97706', border: 'none', color: '#ffffff', padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.76rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                Aplicar ajuste y resolver novedad
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2895,228 +3016,50 @@ export default function PayrollModule({ initialTab }) {
                     )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-                    
-                    {/* COLUMNA 1: INGRESOS (VERDE) */}
-                    <div style={{ background: '#fafcfa', border: '1px solid #e2ece2', borderRadius: '18px', padding: '1.25rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #e8f3e8', paddingBottom: '0.75rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#16a34a', fontWeight: 800 }}>
-                          <ArrowUpRight size={18} />
-                          <span>Ingresos</span>
-                        </div>
-                        {currentPeriod?.status !== 'Aprobada' && (
-                          <button 
-                            onClick={() => setNewConceptForm({ show: true, type: 'ingreso', label: '', amount: '' })}
-                            style={{ background: '#ffffff', border: '1px solid #d1e7dd', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            <Plus size={13} /> Agregar ingreso
-                          </button>
-                        )}
-                      </div>
 
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {[
-                          { label: 'Salario Fijo (Quincenal)', key: 'salario_fijo' },
-                          { label: 'Comisiones por Servicios', key: 'comisiones' },
-                          { label: 'Feriados Trabajados', key: 'feriados' },
-                          { label: 'Horas Extras', key: 'horas_extras' },
-                          { label: 'Día de Descanso Laborado', key: 'descanso' },
-                          { label: 'Otros Ingresos / Bonos', key: 'otros_ingresos' }
-                        ].map(field => (
-                          <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-                              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
-                                <input 
-                                  type="number"
-                                  step="0.01"
-                                  disabled={currentPeriod?.status === 'Aprobada'}
-                                  value={editingItem[field.key] || 0}
-                                  onChange={(e) => handleUpdateConceptValue('ingreso', field.key, e.target.value)}
-                                  style={{
-                                    width: '110px',
-                                    textAlign: 'right',
-                                    padding: '0.4rem 0.6rem',
-                                    borderRadius: '8px',
-                                    border: '1px solid #d8e2dc',
-                                    background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
-                                    fontWeight: 700,
-                                    fontSize: '0.85rem'
-                                  }}
-                                />
-                              </div>
-                            </div>
-                            {field.key === 'horas_extras' && currentPeriod?.status !== 'Aprobada' && (
-                              <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 700 }}>+35% (RD$ {(calcConfig.tarifa_hora_extra || 130.45).toFixed(2)}/h):</span>
-                                {[1, 2, 4].map(h => (
-                                  <button
-                                    key={h}
-                                    type="button"
-                                    onClick={() => {
-                                      const rate = parseFloat(calcConfig.tarifa_hora_extra || 130.45);
-                                      const curr = parseFloat(editingItem.horas_extras || 0);
-                                      handleUpdateConceptValue('ingreso', 'horas_extras', (curr + h * rate).toFixed(2));
-                                    }}
-                                    style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                                  >
-                                    +{h}h
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                            {field.key === 'descanso' && currentPeriod?.status !== 'Aprobada' && (
-                              <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.68rem', color: '#0891b2', fontWeight: 700 }}>Hora Regular (100%):</span>
-                                {[4, 8].map(h => (
-                                  <button
-                                    key={h}
-                                    type="button"
-                                    onClick={() => {
-                                      const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
-                                      const curr = parseFloat(editingItem.descanso || 0);
-                                      handleUpdateConceptValue('ingreso', 'descanso', (curr + h * rate).toFixed(2));
-                                    }}
-                                    style={{ background: '#ecfeff', border: '1px solid #a5f3fc', color: '#0e7490', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                                  >
-                                    +{h}h
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                            {field.key === 'feriados' && currentPeriod?.status !== 'Aprobada' && (
-                              <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>Hora Regular (RD$ {(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63).toFixed(2)}/h):</span>
-                                {[4, 8].map(h => (
-                                  <button
-                                    key={h}
-                                    type="button"
-                                    onClick={() => {
-                                      const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
-                                      const curr = parseFloat(editingItem.feriados || 0);
-                                      handleUpdateConceptValue('ingreso', 'feriados', (curr + h * rate).toFixed(2));
-                                    }}
-                                    style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                                  >
-                                    +{h}h
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                      {/* COLUMNA 1: INGRESOS (VERDE) */}
+                      <div style={{ background: '#fafcfa', border: '1px solid #e2ece2', borderRadius: '18px', padding: '1.25rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #e8f3e8', paddingBottom: '0.75rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#16a34a', fontWeight: 800 }}>
+                            <ArrowUpRight size={18} />
+                            <span>Ingresos</span>
                           </div>
-                        ))}
-                      </div>
-
-                      {/* CONCEPTOS PERSONALIZADOS DE INGRESO */}
-                      {customIngresos.length > 0 && (
-                        <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #e2ece2', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            Conceptos adicionales (+):
-                          </span>
-                          {customIngresos.map(c => (
-                            <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f0fdf4', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
-                              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#166534' }}>{c.label}</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#15803d' }}>
-                                  + RD$ {parseFloat(c.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                </span>
-                                {currentPeriod?.status !== 'Aprobada' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteCustomConcept(c.id, 'ingreso')}
-                                    title="Eliminar concepto adicional"
-                                    style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
+                          {currentPeriod?.status !== 'Aprobada' && (
+                            <button
+                              onClick={() => setNewConceptForm({ show: true, type: 'ingreso', label: '', amount: '' })}
+                              style={{ background: '#ffffff', border: '1px solid #d1e7dd', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <Plus size={13} /> Agregar ingreso
+                            </button>
+                          )}
                         </div>
-                      )}
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #d1e7dd' }}>
-                        <span style={{ fontWeight: 800, color: '#166534', fontSize: '0.9rem' }}>Total ingresos</span>
-                        <span style={{ fontWeight: 900, color: '#16a34a', fontSize: '1.25rem' }}>
-                          RD$ {parseFloat(editingItem.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* COLUMNA 2: DESCUENTOS (ROJO) */}
-                    <div style={{ background: '#fdfbfa', border: '1px solid #f2e6e2', borderRadius: '18px', padding: '1.25rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f8e8e4', paddingBottom: '0.75rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 800 }}>
-                          <ArrowDownRight size={18} />
-                          <span>Descuentos</span>
-                        </div>
-                        {currentPeriod?.status !== 'Aprobada' && (
-                          <button 
-                            onClick={() => setNewConceptForm({ show: true, type: 'descuento', label: '', amount: '' })}
-                            style={{ background: '#ffffff', border: '1px solid #fcd5ce', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            <Plus size={13} /> Agregar descuento
-                          </button>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {[
-                          { label: 'TSS (AFP 2.87% + SFS 3.04%)', key: 'tss' },
-                          { label: 'Servicios de empresa consumidos', key: 'servicios' },
-                          { label: 'Préstamos y Anticipos', key: 'prestamos' },
-                          { label: 'Ausencias no justificadas', key: 'ausencias' },
-                          { label: 'Tardanzas', key: 'tardanzas' },
-                          { label: 'Otros descuentos', key: 'otros_descuentos' }
-                        ].map(field => {
-                          const hasBreakdown = ['servicios', 'prestamos', 'ausencias', 'tardanzas'].includes(field.key);
-                          const breakdownItems = desglose[field.key]?.items || [];
-                          const isExpanded = modalExpandedDiscount === field.key;
-
-                          return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          {[
+                            { label: 'Salario Fijo (Quincenal)', key: 'salario_fijo' },
+                            { label: 'Comisiones por Servicios', key: 'comisiones' },
+                            { label: 'Feriados Trabajados', key: 'feriados' },
+                            { label: 'Horas Extras', key: 'horas_extras' },
+                            { label: 'Día de Descanso Laborado', key: 'descanso' },
+                            { label: 'Otros Ingresos / Bonos', key: 'otros_ingresos' }
+                          ].map(field => (
                             <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
-                                  {hasBreakdown && breakdownItems.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setModalExpandedDiscount(isExpanded ? null : field.key)}
-                                      style={{
-                                        border: 'none',
-                                        background: isExpanded ? '#fee2e2' : '#f1f5f9',
-                                        color: isExpanded ? '#b91c1c' : '#475569',
-                                        padding: '1px 6px',
-                                        borderRadius: '5px',
-                                        fontSize: '0.68rem',
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '2px'
-                                      }}
-                                      title="Ver desglose detallado (Punto 6)"
-                                    >
-                                      {breakdownItems.length} {breakdownItems.length === 1 ? 'det' : 'dets'}
-                                      {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                                    </button>
-                                  )}
-                                </div>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                                   <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
-                                  <input 
+                                  <input
                                     type="number"
                                     step="0.01"
                                     disabled={currentPeriod?.status === 'Aprobada'}
                                     value={editingItem[field.key] || 0}
-                                    onChange={(e) => handleUpdateConceptValue('descuento', field.key, e.target.value)}
+                                    onChange={(e) => handleUpdateConceptValue('ingreso', field.key, e.target.value)}
                                     style={{
                                       width: '110px',
                                       textAlign: 'right',
                                       padding: '0.4rem 0.6rem',
                                       borderRadius: '8px',
-                                      border: '1px solid #f0ded9',
+                                      border: '1px solid #d8e2dc',
                                       background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
                                       fontWeight: 700,
                                       fontSize: '0.85rem'
@@ -3124,288 +3067,466 @@ export default function PayrollModule({ initialTab }) {
                                   />
                                 </div>
                               </div>
-
-                              {/* ACCIONES RÁPIDAS */}
-                              {field.key === 'ausencias' && currentPeriod?.status !== 'Aprobada' && (
-                                <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const rate8 = parseFloat(calcConfig.descuento_ausencia_dia_completo || 773.02);
-                                      const curr = parseFloat(editingItem.ausencias || 0);
-                                      handleUpdateConceptValue('descuento', 'ausencias', (curr + rate8).toFixed(2));
-                                    }}
-                                    title="Sumar ausencia de día completo (8 horas estándar)"
-                                    style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                                  >
-                                    + Día Completo 8h (RD$ {(calcConfig.descuento_ausencia_dia_completo || 773.02).toFixed(2)})
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const rate4 = parseFloat(calcConfig.descuento_ausencia_medio_dia || 386.51);
-                                      const curr = parseFloat(editingItem.ausencias || 0);
-                                      handleUpdateConceptValue('descuento', 'ausencias', (curr + rate4).toFixed(2));
-                                    }}
-                                    title="Sumar ausencia de medio día / turno parcial (4 horas)"
-                                    style={{ background: '#fef3c7', border: '1px solid #fde047', color: '#b45309', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
-                                  >
-                                    + Medio Día 4h (RD$ {(calcConfig.descuento_ausencia_medio_dia || 386.51).toFixed(2)})
-                                  </button>
-                                </div>
-                              )}
-                              {field.key === 'tardanzas' && currentPeriod?.status !== 'Aprobada' && (
+                              {field.key === 'horas_extras' && currentPeriod?.status !== 'Aprobada' && (
                                 <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                                  <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>Minutos (RD$ {(calcConfig.salario_minuto || 1.6105).toFixed(2)}/min):</span>
-                                  {[15, 30, 60].map(m => (
+                                  <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 700 }}>+35% (RD$ {(calcConfig.tarifa_hora_extra || 130.45).toFixed(2)}/h):</span>
+                                  {[1, 2, 4].map(h => (
                                     <button
-                                      key={m}
+                                      key={h}
                                       type="button"
                                       onClick={() => {
-                                        const rateMin = parseFloat(calcConfig.salario_minuto || 1.6105);
-                                        const curr = parseFloat(editingItem.tardanzas || 0);
-                                        handleUpdateConceptValue('descuento', 'tardanzas', (curr + m * rateMin).toFixed(2));
+                                        const rate = parseFloat(calcConfig.tarifa_hora_extra || 130.45);
+                                        const curr = parseFloat(editingItem.horas_extras || 0);
+                                        handleUpdateConceptValue('ingreso', 'horas_extras', (curr + h * rate).toFixed(2));
                                       }}
-                                      style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                      style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
                                     >
-                                      +{m}m
+                                      +{h}h
                                     </button>
                                   ))}
                                 </div>
                               )}
-
-                              {/* PUNTO 6: DESGLOSE EXPANDIBLE DE DESCUENTOS EN EL MODAL */}
-                              {isExpanded && (
-                                <div style={{
-                                  background: '#ffffff',
-                                  border: '1px solid #fed7aa',
-                                  borderRadius: '10px',
-                                  padding: '0.6rem 0.75rem',
-                                  marginTop: '0.35rem',
-                                  boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
-                                  fontSize: '0.74rem'
-                                }}>
-                                  {field.key === 'tardanzas' && (
-                                    <div>
-                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
-                                        Desglose diario de tardanzas y salidas anticipadas:
-                                      </div>
-                                      {breakdownItems.length > 0 ? (
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                          <thead>
-                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Minutos</th>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Valor/min</th>
-                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {breakdownItems.map((t, idx) => (
-                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>
-                                                  <div>{t.fecha}</div>
-                                                  {t.horario && <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{t.horario}</div>}
-                                                </td>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#ea580c', fontWeight: 700 }}>
-                                                  {t.minutos_descontados} min
-                                                  {t.detalle_minutos && <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>{t.detalle_minutos}</div>}
-                                                </td>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>
-                                                  RD$ {Number(t.valor_minuto || 0).toFixed(2)}
-                                                </td>
-                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
-                                                  RD$ {Number(t.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                </td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                          <tfoot>
-                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
-                                              <td colSpan="3" style={{ padding: '0.35rem 0.3rem' }}>
-                                                Total Tardanzas ({desglose.tardanzas?.total_minutos || 0} min)
-                                              </td>
-                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
-                                                RD$ {Number(editingItem.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                              </td>
-                                            </tr>
-                                          </tfoot>
-                                        </table>
-                                      ) : (
-                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin tardanzas registradas en este período.</div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {field.key === 'ausencias' && (
-                                    <div>
-                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
-                                        Desglose de ausencias descontadas:
-                                      </div>
-                                      {breakdownItems.length > 0 ? (
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                          <thead>
-                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Jornada</th>
-                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {breakdownItems.map((a, idx) => (
-                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>{a.fecha}</td>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>{a.tipo || `${a.horas || 8} hrs`}</td>
-                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
-                                                  RD$ {Number(a.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                </td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                          <tfoot>
-                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
-                                              <td colSpan="2" style={{ padding: '0.35rem 0.3rem' }}>Total Ausencias</td>
-                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
-                                                RD$ {Number(editingItem.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                              </td>
-                                            </tr>
-                                          </tfoot>
-                                        </table>
-                                      ) : (
-                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin ausencias descontadas en este período.</div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {field.key === 'servicios' && (
-                                    <div>
-                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
-                                        Desglose de consumos y servicios de empresa:
-                                      </div>
-                                      {breakdownItems.length > 0 ? (
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                          <thead>
-                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Servicio / Producto</th>
-                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {breakdownItems.map((s, idx) => (
-                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>{s.fecha}</td>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>{s.servicio_producto || s.descripcion}</td>
-                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
-                                                  RD$ {Number(s.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                </td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                          <tfoot>
-                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
-                                              <td colSpan="2" style={{ padding: '0.35rem 0.3rem' }}>Total Servicios</td>
-                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
-                                                RD$ {Number(editingItem.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                              </td>
-                                            </tr>
-                                          </tfoot>
-                                        </table>
-                                      ) : (
-                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin consumos registrados en este período.</div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {field.key === 'prestamos' && (
-                                    <div>
-                                      <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
-                                        Desglose de préstamos y cuotas de anticipos:
-                                      </div>
-                                      {breakdownItems.length > 0 ? (
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                          <thead>
-                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
-                                              <th style={{ padding: '0.2rem 0.3rem' }}>Concepto</th>
-                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Cuota desc.</th>
-                                              <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Saldo pend.</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {breakdownItems.map((p, idx) => (
-                                              <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                                <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>
-                                                  <div>{p.concepto || `Préstamo #${p.prestamo_id || idx + 1}`}</div>
-                                                  {p.fecha && <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{p.fecha}</div>}
-                                                </td>
-                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
-                                                  RD$ {Number(p.cuota_descontada || p.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                </td>
-                                                <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', color: '#d97706', fontWeight: 700 }}>
-                                                  RD$ {Number(p.saldo_pendiente || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                                </td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                          <tfoot>
-                                            <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
-                                              <td style={{ padding: '0.35rem 0.3rem' }}>Total Cuotas</td>
-                                              <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
-                                                RD$ {Number(editingItem.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                              </td>
-                                              <td></td>
-                                            </tr>
-                                          </tfoot>
-                                        </table>
-                                      ) : (
-                                        <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin cuotas ni préstamos pendientes en este período.</div>
-                                      )}
-                                    </div>
-                                  )}
+                              {field.key === 'descanso' && currentPeriod?.status !== 'Aprobada' && (
+                                <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.68rem', color: '#0891b2', fontWeight: 700 }}>Hora Regular (100%):</span>
+                                  {[4, 8].map(h => (
+                                    <button
+                                      key={h}
+                                      type="button"
+                                      onClick={() => {
+                                        const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
+                                        const curr = parseFloat(editingItem.descanso || 0);
+                                        handleUpdateConceptValue('ingreso', 'descanso', (curr + h * rate).toFixed(2));
+                                      }}
+                                      style={{ background: '#ecfeff', border: '1px solid #a5f3fc', color: '#0e7490', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                    >
+                                      +{h}h
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {field.key === 'feriados' && currentPeriod?.status !== 'Aprobada' && (
+                                <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.68rem', color: '#2563eb', fontWeight: 700 }}>Hora Regular (RD$ {(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63).toFixed(2)}/h):</span>
+                                  {[4, 8].map(h => (
+                                    <button
+                                      key={h}
+                                      type="button"
+                                      onClick={() => {
+                                        const rate = parseFloat(calcConfig.tarifa_hora_feriado || calcConfig.salario_hora || 96.63);
+                                        const curr = parseFloat(editingItem.feriados || 0);
+                                        handleUpdateConceptValue('ingreso', 'feriados', (curr + h * rate).toFixed(2));
+                                      }}
+                                      style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                    >
+                                      +{h}h
+                                    </button>
+                                  ))}
                                 </div>
                               )}
                             </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* CONCEPTOS PERSONALIZADOS DE DESCUENTO */}
-                      {customDescuentos.length > 0 && (
-                        <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #f2e6e2', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            Descuentos adicionales (-):
-                          </span>
-                          {customDescuentos.map(d => (
-                            <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fef2f2', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid #fecaca' }}>
-                              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#991b1b' }}>{d.label}</span>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#b91c1c' }}>
-                                  - RD$ {parseFloat(d.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                </span>
-                                {currentPeriod?.status !== 'Aprobada' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteCustomConcept(d.id, 'descuento')}
-                                    title="Eliminar descuento adicional"
-                                    style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
                           ))}
                         </div>
-                      )}
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #fcd5ce' }}>
-                        <span style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.9rem' }}>Total descuentos</span>
-                        <span style={{ fontWeight: 900, color: '#dc2626', fontSize: '1.25rem' }}>
-                          RD$ {parseFloat(editingItem.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </span>
+                        {/* CONCEPTOS PERSONALIZADOS DE INGRESO */}
+                        {customIngresos.length > 0 && (
+                          <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #e2ece2', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              Conceptos adicionales (+):
+                            </span>
+                            {customIngresos.map(c => (
+                              <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f0fdf4', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#166534' }}>{c.label}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#15803d' }}>
+                                    + RD$ {parseFloat(c.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </span>
+                                  {currentPeriod?.status !== 'Aprobada' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomConcept(c.id, 'ingreso')}
+                                      title="Eliminar concepto adicional"
+                                      style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #d1e7dd' }}>
+                          <span style={{ fontWeight: 800, color: '#166534', fontSize: '0.9rem' }}>Total ingresos</span>
+                          <span style={{ fontWeight: 900, color: '#16a34a', fontSize: '1.25rem' }}>
+                            RD$ {parseFloat(editingItem.total_ingresos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* COLUMNA 2: DESCUENTOS (ROJO) */}
+                      <div style={{ background: '#fdfbfa', border: '1px solid #f2e6e2', borderRadius: '18px', padding: '1.25rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f8e8e4', paddingBottom: '0.75rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#dc2626', fontWeight: 800 }}>
+                            <ArrowDownRight size={18} />
+                            <span>Descuentos</span>
+                          </div>
+                          {currentPeriod?.status !== 'Aprobada' && (
+                            <button
+                              onClick={() => setNewConceptForm({ show: true, type: 'descuento', label: '', amount: '' })}
+                              style={{ background: '#ffffff', border: '1px solid #fcd5ce', color: '#0066ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              <Plus size={13} /> Agregar descuento
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          {[
+                            { label: 'TSS (AFP 2.87% + SFS 3.04%)', key: 'tss' },
+                            { label: 'Servicios de empresa consumidos', key: 'servicios' },
+                            { label: 'Préstamos y Anticipos', key: 'prestamos' },
+                            { label: 'Ausencias no justificadas', key: 'ausencias' },
+                            { label: 'Tardanzas', key: 'tardanzas' },
+                            { label: 'Otros descuentos', key: 'otros_descuentos' }
+                          ].map(field => {
+                            const hasBreakdown = ['servicios', 'prestamos', 'ausencias', 'tardanzas'].includes(field.key);
+                            const breakdownItems = desglose[field.key]?.items || [];
+                            const isExpanded = modalExpandedDiscount === field.key;
+
+                            return (
+                              <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{field.label}</span>
+                                    {hasBreakdown && breakdownItems.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setModalExpandedDiscount(isExpanded ? null : field.key)}
+                                        style={{
+                                          border: 'none',
+                                          background: isExpanded ? '#fee2e2' : '#f1f5f9',
+                                          color: isExpanded ? '#b91c1c' : '#475569',
+                                          padding: '1px 6px',
+                                          borderRadius: '5px',
+                                          fontSize: '0.68rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '2px'
+                                        }}
+                                        title="Ver desglose detallado (Punto 6)"
+                                      >
+                                        {breakdownItems.length} {breakdownItems.length === 1 ? 'det' : 'dets'}
+                                        {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>RD$</span>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      disabled={currentPeriod?.status === 'Aprobada'}
+                                      value={editingItem[field.key] || 0}
+                                      onChange={(e) => handleUpdateConceptValue('descuento', field.key, e.target.value)}
+                                      style={{
+                                        width: '110px',
+                                        textAlign: 'right',
+                                        padding: '0.4rem 0.6rem',
+                                        borderRadius: '8px',
+                                        border: '1px solid #f0ded9',
+                                        background: currentPeriod?.status === 'Aprobada' ? '#f1f5f9' : '#ffffff',
+                                        fontWeight: 700,
+                                        fontSize: '0.85rem'
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* ACCIONES RÁPIDAS */}
+                                {field.key === 'ausencias' && currentPeriod?.status !== 'Aprobada' && (
+                                  <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const rate8 = parseFloat(calcConfig.descuento_ausencia_dia_completo || 773.02);
+                                        const curr = parseFloat(editingItem.ausencias || 0);
+                                        handleUpdateConceptValue('descuento', 'ausencias', (curr + rate8).toFixed(2));
+                                      }}
+                                      title="Sumar ausencia de día completo (8 horas estándar)"
+                                      style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                    >
+                                      + Día Completo 8h (RD$ {(calcConfig.descuento_ausencia_dia_completo || 773.02).toFixed(2)})
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const rate4 = parseFloat(calcConfig.descuento_ausencia_medio_dia || 386.51);
+                                        const curr = parseFloat(editingItem.ausencias || 0);
+                                        handleUpdateConceptValue('descuento', 'ausencias', (curr + rate4).toFixed(2));
+                                      }}
+                                      title="Sumar ausencia de medio día / turno parcial (4 horas)"
+                                      style={{ background: '#fef3c7', border: '1px solid #fde047', color: '#b45309', padding: '2px 7px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                    >
+                                      + Medio Día 4h (RD$ {(calcConfig.descuento_ausencia_medio_dia || 386.51).toFixed(2)})
+                                    </button>
+                                  </div>
+                                )}
+                                {field.key === 'tardanzas' && currentPeriod?.status !== 'Aprobada' && (
+                                  <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 700 }}>Minutos (RD$ {(calcConfig.salario_minuto || 1.6105).toFixed(2)}/min):</span>
+                                    {[15, 30, 60].map(m => (
+                                      <button
+                                        key={m}
+                                        type="button"
+                                        onClick={() => {
+                                          const rateMin = parseFloat(calcConfig.salario_minuto || 1.6105);
+                                          const curr = parseFloat(editingItem.tardanzas || 0);
+                                          handleUpdateConceptValue('descuento', 'tardanzas', (curr + m * rateMin).toFixed(2));
+                                        }}
+                                        style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#334155', padding: '1px 6px', borderRadius: '5px', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+                                      >
+                                        +{m}m
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* PUNTO 6: DESGLOSE EXPANDIBLE DE DESCUENTOS EN EL MODAL */}
+                                {isExpanded && (
+                                  <div style={{
+                                    background: '#ffffff',
+                                    border: '1px solid #fed7aa',
+                                    borderRadius: '10px',
+                                    padding: '0.6rem 0.75rem',
+                                    marginTop: '0.35rem',
+                                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                                    fontSize: '0.74rem'
+                                  }}>
+                                    {field.key === 'tardanzas' && (
+                                      <div>
+                                        <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                          Desglose diario de tardanzas y salidas anticipadas:
+                                        </div>
+                                        {breakdownItems.length > 0 ? (
+                                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                            <thead>
+                                              <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Minutos</th>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Valor/min</th>
+                                                <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {breakdownItems.map((t, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>
+                                                    <div>{t.fecha}</div>
+                                                    {t.horario && <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{t.horario}</div>}
+                                                  </td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#ea580c', fontWeight: 700 }}>
+                                                    {t.minutos_descontados} min
+                                                    {t.detalle_minutos && <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 400 }}>{t.detalle_minutos}</div>}
+                                                  </td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>
+                                                    RD$ {Number(t.valor_minuto || 0).toFixed(2)}
+                                                  </td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                    RD$ {Number(t.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                            <tfoot>
+                                              <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                                <td colSpan="3" style={{ padding: '0.35rem 0.3rem' }}>
+                                                  Total Tardanzas ({desglose.tardanzas?.total_minutos || 0} min)
+                                                </td>
+                                                <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                  RD$ {Number(editingItem.tardanzas || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            </tfoot>
+                                          </table>
+                                        ) : (
+                                          <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin tardanzas registradas en este período.</div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {field.key === 'ausencias' && (
+                                      <div>
+                                        <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                          Desglose de ausencias descontadas:
+                                        </div>
+                                        {breakdownItems.length > 0 ? (
+                                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                            <thead>
+                                              <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Jornada</th>
+                                                <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {breakdownItems.map((a, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>{a.fecha}</td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>{a.tipo || `${a.horas || 8} hrs`}</td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                    RD$ {Number(a.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                            <tfoot>
+                                              <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                                <td colSpan="2" style={{ padding: '0.35rem 0.3rem' }}>Total Ausencias</td>
+                                                <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                  RD$ {Number(editingItem.ausencias || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            </tfoot>
+                                          </table>
+                                        ) : (
+                                          <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin ausencias descontadas en este período.</div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {field.key === 'servicios' && (
+                                      <div>
+                                        <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                          Desglose de consumos y servicios de empresa:
+                                        </div>
+                                        {breakdownItems.length > 0 ? (
+                                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                            <thead>
+                                              <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Fecha</th>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Servicio / Producto</th>
+                                                <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Monto</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {breakdownItems.map((s, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>{s.fecha}</td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#64748b' }}>{s.servicio_producto || s.descripcion}</td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                    RD$ {Number(s.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                            <tfoot>
+                                              <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                                <td colSpan="2" style={{ padding: '0.35rem 0.3rem' }}>Total Servicios</td>
+                                                <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                  RD$ {Number(editingItem.servicios || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                              </tr>
+                                            </tfoot>
+                                          </table>
+                                        ) : (
+                                          <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin consumos registrados en este período.</div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {field.key === 'prestamos' && (
+                                      <div>
+                                        <div style={{ fontWeight: 800, color: '#991b1b', marginBottom: '0.35rem' }}>
+                                          Desglose de préstamos y cuotas de anticipos:
+                                        </div>
+                                        {breakdownItems.length > 0 ? (
+                                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                            <thead>
+                                              <tr style={{ color: '#64748b', borderBottom: '1px solid #f1f5f9', fontSize: '0.7rem' }}>
+                                                <th style={{ padding: '0.2rem 0.3rem' }}>Concepto</th>
+                                                <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Cuota desc.</th>
+                                                <th style={{ padding: '0.2rem 0.3rem', textAlign: 'right' }}>Saldo pend.</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {breakdownItems.map((p, idx) => (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                  <td style={{ padding: '0.25rem 0.3rem', color: '#1e293b' }}>
+                                                    <div>{p.concepto || `Préstamo #${p.prestamo_id || idx + 1}`}</div>
+                                                    {p.fecha && <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{p.fecha}</div>}
+                                                  </td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>
+                                                    RD$ {Number(p.cuota_descontada || p.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                  </td>
+                                                  <td style={{ padding: '0.25rem 0.3rem', textAlign: 'right', color: '#d97706', fontWeight: 700 }}>
+                                                    RD$ {Number(p.saldo_pendiente || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                            <tfoot>
+                                              <tr style={{ fontWeight: 800, color: '#dc2626', borderTop: '1px solid #fed7aa' }}>
+                                                <td style={{ padding: '0.35rem 0.3rem' }}>Total Cuotas</td>
+                                                <td style={{ padding: '0.35rem 0.3rem', textAlign: 'right' }}>
+                                                  RD$ {Number(editingItem.prestamos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                                </td>
+                                                <td></td>
+                                              </tr>
+                                            </tfoot>
+                                          </table>
+                                        ) : (
+                                          <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Sin cuotas ni préstamos pendientes en este período.</div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* CONCEPTOS PERSONALIZADOS DE DESCUENTO */}
+                        {customDescuentos.length > 0 && (
+                          <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #f2e6e2', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                              Descuentos adicionales (-):
+                            </span>
+                            {customDescuentos.map(d => (
+                              <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fef2f2', padding: '0.4rem 0.6rem', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#991b1b' }}>{d.label}</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#b91c1c' }}>
+                                    - RD$ {parseFloat(d.monto || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </span>
+                                  {currentPeriod?.status !== 'Aprobada' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteCustomConcept(d.id, 'descuento')}
+                                      title="Eliminar descuento adicional"
+                                      style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.25rem', paddingTop: '1rem', borderTop: '2px dashed #fcd5ce' }}>
+                          <span style={{ fontWeight: 800, color: '#991b1b', fontSize: '0.9rem' }}>Total descuentos</span>
+                          <span style={{ fontWeight: 900, color: '#dc2626', fontSize: '1.25rem' }}>
+                            RD$ {parseFloat(editingItem.total_descuentos || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
                   </>
                 );
               })()}
@@ -3417,14 +3538,14 @@ export default function PayrollModule({ initialTab }) {
                     Agregar nuevo concepto de {newConceptForm.type === 'ingreso' ? 'Ingreso (+)' : 'Descuento (-)'}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '0.75rem', alignItems: 'center' }}>
-                    <input 
+                    <input
                       type="text"
                       placeholder="Nombre del concepto (ej. Incentivo transporte, Seguro complementario...)"
                       value={newConceptForm.label}
                       onChange={(e) => setNewConceptForm(prev => ({ ...prev, label: e.target.value }))}
                       style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
                     />
-                    <input 
+                    <input
                       type="number"
                       placeholder="Monto RD$"
                       value={newConceptForm.amount}
@@ -3455,7 +3576,7 @@ export default function PayrollModule({ initialTab }) {
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#475569', marginBottom: '0.3rem' }}>
                     Motivo del cambio manual (opcional para auditoría):
                   </label>
-                  <input 
+                  <input
                     type="text"
                     placeholder="Ej. Ajuste de horas extras por jornada especial / Corrección de propina..."
                     value={editReason}
@@ -3576,7 +3697,7 @@ export default function PayrollModule({ initialTab }) {
                     Aplicarás este concepto a <strong>{selectedItemIds.length} colaboradores</strong> seleccionados.
                   </p>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowBulkModal(false)}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                 >
@@ -3654,7 +3775,7 @@ export default function PayrollModule({ initialTab }) {
                   </select>
 
                   {bulkForm.concept_label === 'Otro...' && (
-                    <input 
+                    <input
                       type="text"
                       placeholder="Escribe el nombre del concepto..."
                       value={bulkForm.custom_label}
@@ -3670,7 +3791,7 @@ export default function PayrollModule({ initialTab }) {
                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                       Monto (RD$)
                     </label>
-                    <input 
+                    <input
                       type="number"
                       step="0.01"
                       placeholder="0.00"
@@ -3701,7 +3822,7 @@ export default function PayrollModule({ initialTab }) {
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                     Motivo / Justificación (Auditoría)
                   </label>
-                  <input 
+                  <input
                     type="text"
                     placeholder="Ej. Aprobado por Gerencia General para el período..."
                     value={bulkForm.reason}
@@ -3791,7 +3912,7 @@ export default function PayrollModule({ initialTab }) {
                     </p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowBulkTssModal(false)}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                 >
@@ -3858,17 +3979,17 @@ export default function PayrollModule({ initialTab }) {
                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                       Valor de TSS a Asignar (RD$)
                     </label>
-                    <input 
+                    <input
                       type="number"
                       step="0.01"
                       placeholder="591.00"
                       value={bulkTssValue}
                       onChange={(e) => setBulkTssValue(e.target.value)}
-                      style={{ 
-                        width: '100%', 
-                        padding: '0.75rem 1rem', 
-                        borderRadius: '12px', 
-                        border: '1px solid #cbd5e1', 
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '12px',
+                        border: '1px solid #cbd5e1',
                         fontWeight: 900,
                         fontSize: '1.1rem',
                         color: '#b91c1c'
@@ -3909,21 +4030,21 @@ export default function PayrollModule({ initialTab }) {
                   </label>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#334155', cursor: 'pointer', fontWeight: 600 }}>
-                      <input 
-                        type="radio" 
-                        name="bulkTssScope" 
-                        checked={bulkTssScope === 'all'} 
-                        onChange={() => setBulkTssScope('all')} 
+                      <input
+                        type="radio"
+                        name="bulkTssScope"
+                        checked={bulkTssScope === 'all'}
+                        onChange={() => setBulkTssScope('all')}
                       />
                       Todos los colaboradores del período ({items.length})
                     </label>
                     {selectedItemIds.length > 0 && (
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: '#334155', cursor: 'pointer', fontWeight: 600 }}>
-                        <input 
-                          type="radio" 
-                          name="bulkTssScope" 
-                          checked={bulkTssScope === 'selected'} 
-                          onChange={() => setBulkTssScope('selected')} 
+                        <input
+                          type="radio"
+                          name="bulkTssScope"
+                          checked={bulkTssScope === 'selected'}
+                          onChange={() => setBulkTssScope('selected')}
                         />
                         Solo seleccionados ({selectedItemIds.length})
                       </label>
@@ -4038,6 +4159,45 @@ export default function PayrollModule({ initialTab }) {
                 </div>
               </div>
 
+              {/* ADVERTENCIA VISIBLE DE PARÁMETROS LEGALES PENDIENTES */}
+              <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', borderRadius: '14px', padding: '0.9rem 1.1rem', display: 'flex', gap: '0.7rem', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                <AlertCircle size={18} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <div style={{ fontSize: '0.78rem', color: '#78350f', lineHeight: 1.5 }}>
+                  <strong style={{ color: '#92400e' }}>Aviso de alcance legal:</strong> El motor actual aplica parámetros configurados de software (TSS fija 5.91% sobre salario fijo) y <strong>no contempla todavía todas las bases cotizables, topes salariales SFS/AFP vigentes ni retención automática de ISR (DGII)</strong>. No sustituye validación contable/laboral.
+                </div>
+              </div>
+
+              {/* RESUMEN DE NOVEDADES Y EFECTO ECONÓMICO ANTES DE APROBAR */}
+              {(() => {
+                const flagged = items.filter((it) => {
+                  const d = typeof it.detalles_json === 'string' ? (() => { try { return JSON.parse(it.detalles_json || '{}'); } catch { return {}; } })() : (it.detalles_json || {});
+                  return d.requires_review === true;
+                });
+                if (flagged.length === 0) return null;
+                const pending = flagged.filter((it) => {
+                  const d = typeof it.detalles_json === 'string' ? (() => { try { return JSON.parse(it.detalles_json || '{}'); } catch { return {}; } })() : (it.detalles_json || {});
+                  return !(d.review_resolved === true && d.review_resolution?.reason);
+                });
+                const totalDelta = flagged.reduce((acc, it) => {
+                  const d = typeof it.detalles_json === 'string' ? (() => { try { return JSON.parse(it.detalles_json || '{}'); } catch { return {}; } })() : (it.detalles_json || {});
+                  return acc + Number(d.review_resolution?.economic_delta?.neto_pagar_delta || 0);
+                }, 0);
+                return (
+                  <div style={{ background: pending.length > 0 ? '#fef2f2' : '#f0fdf4', border: `1.5px solid ${pending.length > 0 ? '#ef4444' : '#22c55e'}`, borderRadius: '14px', padding: '0.9rem 1.1rem', marginBottom: '1rem', fontSize: '0.8rem', color: pending.length > 0 ? '#991b1b' : '#166534' }}>
+                    <div style={{ fontWeight: 800, marginBottom: '0.35rem' }}>
+                      {pending.length > 0
+                        ? `Bloqueo activo: ${pending.length} de ${flagged.length} novedad(es) sin resolución individual`
+                        : `Novedades resueltas individualmente (${flagged.length}/${flagged.length}) · Efecto económico neto: RD$ ${totalDelta >= 0 ? '+' : ''}${totalDelta.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                    </div>
+                    {pending.length > 0 && (
+                      <div style={{ fontSize: '0.76rem' }}>
+                        Abre cada colaborador marcado como <strong>Pendiente revisión</strong> para registrar un ajuste explícito o aceptación justificada antes de aprobar: {pending.map((p) => p.employee_name).join(', ')}.
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* ALERTA DE INMUTABILIDAD Y LIQUIDACIÓN AUTOMÁTICA */}
               <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '14px', padding: '1.15rem', display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.75rem' }}>
                 <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
@@ -4055,7 +4215,7 @@ export default function PayrollModule({ initialTab }) {
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem' }}>
                   Aprobado por:
                 </label>
-                <input 
+                <input
                   type="text"
                   value={approverName}
                   onChange={(e) => setApproverName(e.target.value)}
@@ -4139,7 +4299,7 @@ export default function PayrollModule({ initialTab }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <button 
+                  <button
                     onClick={() => setShowSummaryModal(false)}
                     style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                   >
@@ -4233,12 +4393,12 @@ export default function PayrollModule({ initialTab }) {
 
               {/* GRÁFICO CIRCULAR + TABLA DE DESGLOSE */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '3rem', alignItems: 'center', marginBottom: '2.5rem' }}>
-                
+
                 {/* DONUT SVG INTERACTIVO */}
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
                   <svg width="280" height="280" viewBox="0 0 280 280">
                     <circle cx="140" cy="140" r="100" fill="transparent" stroke="#f1f5f9" strokeWidth="32" />
-                    
+
                     {summaryTab === 'ingresos' ? (
                       <>
                         <circle cx="140" cy="140" r="100" fill="transparent" stroke="#0066ff" strokeWidth="32" strokeDasharray="313 628" strokeDashoffset="0" />
@@ -4365,7 +4525,7 @@ export default function PayrollModule({ initialTab }) {
                     Trazabilidad de todos los cambios manuales y modificaciones aplicadas al período.
                   </p>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowAuditModal(false)}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                 >
@@ -4483,7 +4643,7 @@ export default function PayrollModule({ initialTab }) {
                 <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>
                   Generar Nuevo Período de Nómina
                 </h2>
-                <button 
+                <button
                   onClick={() => !generatingPeriod && setShowNewPeriodModal(false)}
                   disabled={generatingPeriod}
                   style={{ background: 'transparent', border: 'none', cursor: generatingPeriod ? 'not-allowed' : 'pointer', color: '#94a3b8' }}
@@ -4497,7 +4657,7 @@ export default function PayrollModule({ initialTab }) {
                   <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                     Nombre del Período
                   </label>
-                  <input 
+                  <input
                     type="text"
                     disabled={generatingPeriod}
                     value={newPeriodForm.period_name}
@@ -4512,7 +4672,7 @@ export default function PayrollModule({ initialTab }) {
                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                       Fecha de Inicio
                     </label>
-                    <input 
+                    <input
                       type="date"
                       disabled={generatingPeriod}
                       value={newPeriodForm.start_date}
@@ -4526,7 +4686,7 @@ export default function PayrollModule({ initialTab }) {
                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
                       Fecha de Fin (Corte)
                     </label>
-                    <input 
+                    <input
                       type="date"
                       disabled={generatingPeriod}
                       value={newPeriodForm.end_date}
@@ -4673,7 +4833,7 @@ export default function PayrollModule({ initialTab }) {
                     {selectedRegaliaEmployee.posicion} · Sucursal {selectedRegaliaEmployee.sucursal} · Año Fiscal {regaliasYear}
                   </p>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowRegaliaDetailModal(false)}
                   style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                 >
@@ -4743,7 +4903,7 @@ export default function PayrollModule({ initialTab }) {
       {/* ========================================================================= */}
       {/* MODAL 8: CONFIGURACIÓN SALARIAL & TARIFAS POR MINUTO */}
       {/* ========================================================================= */}
-      <PayrollCalculationSettingsModal 
+      <PayrollCalculationSettingsModal
         isOpen={showCalculationSettingsModal}
         onClose={() => setShowCalculationSettingsModal(false)}
         initialConfig={calcConfig}
