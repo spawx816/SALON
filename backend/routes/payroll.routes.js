@@ -1,4 +1,5 @@
 const express = require('express');
+const { getBranchScope } = require('../middleware/rbac.middleware');
 
 /**
  * Creates and configures the Express Router for Payroll & Regalías management.
@@ -21,6 +22,36 @@ function createPayrollRouter(pool) {
   };
 
   router.use(requireTenant);
+
+  async function resolveAuthorizedBranchDescriptors(req, tenantId) {
+    const scope = getBranchScope(req);
+    if (scope.allBranches) {
+      return { allBranches: true, ids: [], names: [] };
+    }
+    const ids = Array.isArray(scope.branchIds) ? scope.branchIds.map(String) : [];
+    if (ids.length === 0) {
+      return { allBranches: false, ids: [], names: [] };
+    }
+    const placeholders = ids.map(() => '?').join(', ');
+    const [rows] = await pool.query(
+      `SELECT id::text AS id, name FROM branches WHERE tenant_id = ? AND id::text IN (${placeholders})`,
+      [tenantId, ...ids]
+    );
+    return {
+      allBranches: false,
+      ids,
+      names: (rows || []).map((r) => String(r.name || '').trim().toLowerCase()).filter(Boolean),
+    };
+  }
+
+  function isSucursalAllowedForActor(sucursalValue, authBranches) {
+    if (authBranches.allBranches) return true;
+    const raw = String(sucursalValue || '').trim();
+    if (!raw || raw.toLowerCase() === 'todas') return false;
+    if (authBranches.ids.includes(raw)) return true;
+    if (authBranches.names.includes(raw.toLowerCase())) return true;
+    return false;
+  }
 
   /**
    * Helper para obtener o inicializar la configuración de cálculos de nómina por tenant
@@ -62,10 +93,11 @@ function createPayrollRouter(pool) {
     }
   }
 
-  // 1. Obtener lista de períodos de nómina (Scoped strictly by tenant_id)
+  // 1. Obtener lista de períodos de nómina (Scoped strictly by tenant_id y alcance de sucursales)
   router.get('/periods', async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
       const [rows] = await pool.query(`
         SELECT id, period_name, 
                DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
@@ -79,7 +111,10 @@ function createPayrollRouter(pool) {
         WHERE tenant_id = ?
         ORDER BY id DESC
       `, [tenantId]);
-      res.json(rows);
+      const scopedRows = authBranches.allBranches
+        ? rows
+        : (rows || []).filter((p) => isSucursalAllowedForActor(p.sucursal, authBranches));
+      res.json(scopedRows);
     } catch (err) {
       console.error('[PAYROLL PERIODS GET ERROR]:', err.message);
       res.status(500).json({ error: err.message });
@@ -214,6 +249,10 @@ function createPayrollRouter(pool) {
       if (!periods || periods.length === 0) {
         return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
       }
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
+      if (!isSucursalAllowedForActor(periods[0].sucursal, authBranches)) {
+        return res.status(403).json({ error: 'No tienes permiso para consultar la nómina de esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
 
       const [items] = await pool.query(`
         SELECT * FROM payroll_items 
@@ -257,9 +296,9 @@ function createPayrollRouter(pool) {
           SELECT COALESCE(SUM(monto_comision), 0) as total_comm 
           FROM employee_commissions_log 
           WHERE tenant_id = ?
-            AND (employee_id = ? OR employee_id = ? OR employee_name = ?)
+            AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
             AND created_at >= ? AND created_at <= ?
-            AND (status != 'Anulada' OR status IS NULL)
+            AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada')
         `, [tenantId, empId, `EMP-${empId}`, empName, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
         comisiones = Number(parseFloat(commRows[0]?.total_comm || 0).toFixed(2));
       } catch(e) {
@@ -280,9 +319,9 @@ function createPayrollRouter(pool) {
         SELECT id, type, amount, notes, status, DATE_FORMAT(date, '%Y-%m-%d') as d_date
         FROM employee_discounts
         WHERE tenant_id = ?
-          AND (employee_id = ? OR employee_id = ? OR employee_name = ?)
+          AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
           AND date BETWEEN ? AND ?
-          AND (status != 'Anulado' OR status IS NULL)
+          AND COALESCE(status, 'Pendiente') NOT IN ('Anulado', 'Saldado')
       `, [tenantId, empId, `EMP-${empId}`, empName, start_date, end_date]);
 
       for (const d of discountRows) {
@@ -464,10 +503,10 @@ function createPayrollRouter(pool) {
               SELECT COUNT(*) as count 
               FROM employee_commissions_log 
               WHERE tenant_id = ?
-                AND (employee_id = ? OR employee_id = ? OR employee_name = ?)
+                AND (employee_id::text = ? OR employee_id::text = ? OR employee_name = ?)
                 AND service_name LIKE ?
                 AND created_at >= ? AND created_at <= ?
-                AND (status != 'Anulada' OR status IS NULL)
+                AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada')
             `, [tenantId, empId, `EMP-${empId}`, empName, `%${cr.service_name}%`, `${start_date} 00:00:00`, `${end_date} 23:59:59`]);
 
             const totalPerformed = performed[0]?.count || 0;
@@ -543,8 +582,9 @@ function createPayrollRouter(pool) {
     };
   }
 
-  // 3. Generar / Procesar Nómina Automática con Datos Reales (Scoped strictly by tenant_id)
+  // 3. Generar / Procesar Nómina Automática con Datos Reales (Atómico con lock por empresa y anti-duplicado)
   router.post('/generate', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const tenantId = req.verifiedTenantId;
       const {
@@ -559,6 +599,34 @@ function createPayrollRouter(pool) {
         return res.status(400).json({ error: 'El nombre del período y las fechas de inicio y fin son obligatorios' });
       }
 
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
+      if (!isSucursalAllowedForActor(sucursal, authBranches)) {
+        return res.status(403).json({
+          error: 'No tienes permiso para generar nómina fuera de tus sucursales autorizadas.',
+          code: 'FORBIDDEN_BRANCH_SCOPE'
+        });
+      }
+
+      await conn.beginTransaction();
+      // Lock por empresa para impedir creación concurrente de períodos duplicados
+      await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [tenantId]);
+
+      const [dupPeriods] = await conn.query(
+        `SELECT id, status FROM payroll_periods
+         WHERE tenant_id = ? AND start_date = ? AND end_date = ?
+           AND COALESCE(sucursal, 'Todas') = ? AND COALESCE(departamento, 'Todos') = ?
+         LIMIT 1`,
+        [tenantId, start_date, end_date, sucursal, departamento]
+      );
+      if (dupPeriods && dupPeriods.length > 0) {
+        await conn.rollback();
+        return res.status(409).json({
+          error: `Ya existe un período de nómina (#${dupPeriods[0].id}, estado ${dupPeriods[0].status}) para esas fechas y alcance. Recalcula el borrador existente en lugar de duplicarlo.`,
+          code: 'PAYROLL_DUPLICATE_PERIOD',
+          existing_payroll_id: dupPeriods[0].id
+        });
+      }
+
       // 1. Obtener empleados activos de esta empresa exclusivamente
       let staffQuery = "SELECT * FROM staff_records WHERE tenant_id = ? AND (status = 'Activo' OR status = 'Active' OR status IS NULL)";
       const staffParams = [tenantId];
@@ -570,14 +638,15 @@ function createPayrollRouter(pool) {
         staffQuery += " AND (posicion LIKE ?)";
         staffParams.push(`%${departamento}%`);
       }
-      let [staffList] = await pool.query(staffQuery, staffParams);
+      let [staffList] = await conn.query(staffQuery, staffParams);
 
       if (staffList.length === 0) {
+        await conn.rollback();
         return res.status(400).json({ error: 'No se encontraron colaboradores registrados en esta empresa para procesar la nómina.' });
       }
 
       // 2. Crear registro del período con tenant_id
-      const [periodRes] = await pool.query(`
+      const [periodRes] = await conn.query(`
         INSERT INTO payroll_periods (period_name, start_date, end_date, sucursal, departamento, status, tenant_id)
         VALUES (?, ?, ?, ?, ?, 'En preparación', ?)
       `, [period_name, start_date, end_date, sucursal, departamento, tenantId]);
@@ -590,10 +659,10 @@ function createPayrollRouter(pool) {
 
       // 3. Procesar y calcular cada empleado de forma 100% real
       for (const emp of staffList) {
-        const itemData = await calculateEmployeePayrollValues(pool, emp, start_date, end_date, tenantId);
+        const itemData = await calculateEmployeePayrollValues(conn, emp, start_date, end_date, tenantId);
         itemData.payroll_id = payrollId;
 
-        const [resItem] = await pool.query(`
+        const [resItem] = await conn.query(`
           INSERT INTO payroll_items (
             payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
             salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
@@ -610,17 +679,28 @@ function createPayrollRouter(pool) {
         itemData.id = resItem.insertId;
         generatedItems.push(itemData);
 
-        sumTotalIngresos += itemData.total_ingresos;
-        sumTotalDescuentos += itemData.total_descuentos;
-        sumTotalNeto += itemData.neto_pagar;
+        sumTotalIngresos = Number((sumTotalIngresos + itemData.total_ingresos).toFixed(2));
+        sumTotalDescuentos = Number((sumTotalDescuentos + itemData.total_descuentos).toFixed(2));
+        sumTotalNeto = Number((sumTotalNeto + itemData.neto_pagar).toFixed(2));
+      }
+
+      // Hook controlado exclusivamente para pruebas de rollback atómico
+      if (
+        process.env.NODE_ENV === 'test' &&
+        process.env.ALLOW_TEST_FAULT_INJECTION === 'true' &&
+        req.headers['x-test-fail-payroll-generate'] === 'true'
+      ) {
+        throw new Error('SIMULATED_PAYROLL_GENERATE_FAILURE');
       }
 
       // 4. Actualizar totales del período
-      await pool.query(`
+      await conn.query(`
         UPDATE payroll_periods 
         SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ?
         WHERE id = ? AND tenant_id = ?
       `, [sumTotalIngresos, sumTotalDescuentos, sumTotalNeto, generatedItems.length, payrollId, tenantId]);
+
+      await conn.commit();
 
       res.json({
         success: true,
@@ -641,8 +721,11 @@ function createPayrollRouter(pool) {
         items: generatedItems
       });
     } catch (err) {
+      await conn.rollback().catch(() => {});
       console.error('[PAYROLL GENERATE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
@@ -662,8 +745,8 @@ function createPayrollRouter(pool) {
       if (periodRows.length === 0) {
         return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
       }
-      if (periodRows[0].status === 'Aprobada' || periodRows[0].is_immutable === 1) {
-        return res.status(403).json({ error: 'Esta nómina ya ha sido aprobada y es inmutable. No se pueden realizar modificaciones.' });
+      if (periodRows[0].status === 'Aprobada' || periodRows[0].status === 'Pagada' || periodRows[0].is_immutable === 1) {
+        return res.status(403).json({ error: 'Esta nómina ya ha sido aprobada o pagada y es inmutable. No se pueden realizar modificaciones.', code: 'PAYROLL_IMMUTABLE' });
       }
 
       const [currentDbItems] = await pool.query(
@@ -831,8 +914,9 @@ function createPayrollRouter(pool) {
     }
   });
 
-  // 6. Aprobar Nómina con Inmutabilidad y Liquidación (Scoped strictly by tenant_id)
+  // 6. Aprobar Nómina con Inmutabilidad y Liquidación Atómica (Scoped strictly by tenant_id y empleados incluidos)
   router.post('/approve', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const tenantId = req.verifiedTenantId;
       let { payroll_id, approved_by = 'Administrador' } = req.body;
@@ -843,91 +927,226 @@ function createPayrollRouter(pool) {
         return res.status(400).json({ error: 'payroll_id es requerido' });
       }
 
-      const [periodRows] = await pool.query(
-        'SELECT * FROM payroll_periods WHERE id = ? AND tenant_id = ?',
+      const actorName = req.auth?.name || req.auth?.email || approved_by || 'Administrador';
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
+      const calcSettingsSnapshot = await getCalculationSettings(pool, tenantId);
+
+      await conn.beginTransaction();
+      const [periodRows] = await conn.query(
+        `SELECT id, period_name,
+                DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date,
+                DATE_FORMAT(end_date, '%Y-%m-%d') AS end_date,
+                total_empleados, total_neto, total_ingresos, total_descuentos,
+                status, sucursal, departamento, is_immutable, approved_by, approved_at, snapshot_json, tenant_id
+         FROM payroll_periods WHERE id = ? AND tenant_id = ? FOR UPDATE`,
         [payroll_id, tenantId]
       );
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
+      if (periodRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
+      }
 
       const period = periodRows[0];
-      const startDate = period.start_date ? String(period.start_date).split('T')[0] : '';
-      const endDate = period.end_date ? String(period.end_date).split('T')[0] : '';
+      if (!isSucursalAllowedForActor(period.sucursal, authBranches)) {
+        await conn.rollback();
+        return res.status(403).json({ error: 'No tienes permiso para aprobar la nómina de esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
+      if (period.status === 'Aprobada' || period.status === 'Pagada' || Number(period.is_immutable) === 1) {
+        await conn.rollback();
+        return res.status(409).json({
+          error: 'Esta nómina ya fue aprobada anteriormente y es inmutable.',
+          code: 'PAYROLL_ALREADY_APPROVED'
+        });
+      }
 
-      const [items] = await pool.query(
+      const formatIsoDate = (val) => {
+        if (!val) return '';
+        if (val instanceof Date) return val.toISOString().slice(0, 10);
+        return String(val).split('T')[0];
+      };
+      const startDate = formatIsoDate(period.start_date);
+      const endDate = formatIsoDate(period.end_date);
+
+      const [items] = await conn.query(
         'SELECT * FROM payroll_items WHERE payroll_id = ? AND tenant_id = ? ORDER BY id ASC',
         [payroll_id, tenantId]
       );
 
       const snapshot = {
         period: period,
+        rules_snapshot: {
+          ...calcSettingsSnapshot,
+          tss_rate: 0.0591,
+          currency: 'DOP',
+        },
         items: items.map(it => ({
           ...it,
           detalles_json: typeof it.detalles_json === 'string' ? JSON.parse(it.detalles_json || '{}') : (it.detalles_json || {})
         })),
         approved_at: new Date().toISOString(),
-        approved_by: approved_by
+        approved_by: actorName
       };
 
-      await pool.query(`
+      await conn.query(`
         UPDATE payroll_periods 
         SET status = 'Aprobada', approved_at = NOW(), approved_by = ?, is_immutable = 1, snapshot_json = ?
         WHERE id = ? AND tenant_id = ?
-      `, [approved_by, JSON.stringify(snapshot), payroll_id, tenantId]);
+      `, [actorName, JSON.stringify(snapshot), payroll_id, tenantId]);
 
-      if (startDate && endDate) {
-        try {
-          await pool.query(`
-            UPDATE employee_discounts 
-            SET status = 'Saldado', 
-                notes = CASE 
-                  WHEN notes IS NULL OR notes = '' THEN CONCAT('Liquidado en Nómina ID #', ?) 
-                  ELSE CONCAT(notes, ' [Liquidado en Nómina ID #', ?, ']') 
-                END
-            WHERE tenant_id = ?
-              AND date BETWEEN ? AND ? 
-              AND (status != 'Anulado' OR status IS NULL) 
-              AND status != 'Saldado'
-          `, [payroll_id, payroll_id, tenantId, startDate, endDate]);
-        } catch (discErr) {
-          console.warn('[AUTO SETTLE DISCOUNTS WARN]:', discErr.message);
-        }
+      const includedEmpIds = [...new Set(items.map((it) => String(it.employee_id)).filter(Boolean))];
+      if (startDate && endDate && includedEmpIds.length > 0) {
+        const empPlaceholders = includedEmpIds.map(() => '?').join(', ');
+        const empPrefixedIds = includedEmpIds.map((id) => `EMP-${id}`);
+        const empNames = [...new Set(items.map((it) => String(it.employee_name || '')).filter(Boolean))];
+        const namePlaceholders = empNames.length > 0 ? empNames.map(() => '?').join(', ') : null;
 
-        try {
-          await pool.query(`
-            UPDATE employee_commissions_log 
-            SET status = 'Pagada'
-            WHERE tenant_id = ?
-              AND created_at >= ? AND created_at <= ? 
-              AND (status != 'Anulada' OR status IS NULL) 
-              AND status != 'Pagada'
-          `, [tenantId, `${startDate} 00:00:00`, `${endDate} 23:59:59`]);
-        } catch (commErr) {
-          console.warn('[AUTO SETTLE COMMISSIONS WARN]:', commErr.message);
-        }
+        const discWhereEmp = namePlaceholders
+          ? `(employee_id::text IN (${empPlaceholders}) OR employee_id::text IN (${empPlaceholders}) OR employee_name IN (${namePlaceholders}))`
+          : `(employee_id::text IN (${empPlaceholders}) OR employee_id::text IN (${empPlaceholders}))`;
+        const discParams = [
+          String(payroll_id), String(payroll_id), tenantId, startDate, endDate,
+          ...includedEmpIds, ...empPrefixedIds,
+          ...(namePlaceholders ? empNames : []),
+        ];
+        await conn.query(`
+          UPDATE employee_discounts 
+          SET status = 'Saldado', 
+              notes = CASE 
+                WHEN notes IS NULL OR notes = '' THEN ('Liquidado en Nómina ID #' || ?::text)
+                ELSE (notes || ' [Liquidado en Nómina ID #' || ?::text || ']')
+              END
+          WHERE tenant_id = ?
+            AND date BETWEEN ? AND ? 
+            AND COALESCE(status, 'Pendiente') NOT IN ('Anulado', 'Saldado')
+            AND ${discWhereEmp}
+        `, discParams);
+
+        const commWhereEmp = namePlaceholders
+          ? `(employee_id::text IN (${empPlaceholders}) OR employee_id::text IN (${empPlaceholders}) OR employee_name IN (${namePlaceholders}))`
+          : `(employee_id::text IN (${empPlaceholders}) OR employee_id::text IN (${empPlaceholders}))`;
+        const commParams = [
+          tenantId, `${startDate} 00:00:00`, `${endDate} 23:59:59`,
+          ...includedEmpIds, ...empPrefixedIds,
+          ...(namePlaceholders ? empNames : []),
+        ];
+        await conn.query(`
+          UPDATE employee_commissions_log 
+          SET status = 'Pagada'
+          WHERE tenant_id = ?
+            AND created_at >= ? AND created_at <= ? 
+            AND COALESCE(status, 'Pendiente') NOT IN ('Anulada', 'Pagada')
+            AND ${commWhereEmp}
+        `, commParams);
       }
 
-      await pool.query(`
+      await conn.query(`
         INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
         VALUES (?, 'ESTADO_NOMINA', 'En preparación', 'Aprobada', 'Aprobación Definitiva', 'Nómina aprobada e inmutable.', ?, ?)
-      `, [payroll_id, approved_by, tenantId]);
+      `, [payroll_id, actorName, tenantId]);
+
+      await conn.commit();
 
       res.json({ 
         success: true, 
-        message: 'Nómina aprobada exitosamente. Se han saldado los descuentos y liquidado las comisiones de los colaboradores para este período.' 
+        status: 'Aprobada',
+        message: 'Nómina aprobada exitosamente. Se han saldado los descuentos y liquidado las comisiones de los colaboradores incluidos en este período.' 
       });
     } catch (err) {
+      await conn.rollback().catch(() => {});
       console.error('[PAYROLL APPROVE ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
-  // 6.1 Sincronizar datos reales de comisiones y descuentos en tiempo real (Scoped by tenant_id)
-  router.post('/periods/:id/sync-real-data', async (req, res) => {
+  // 6.0b Registrar pago administrativo interno de una nómina aprobada (NO ejecuta transferencia bancaria)
+  router.post('/periods/:id/register-payment', async (req, res) => {
+    const conn = await pool.getConnection();
     try {
       const { id } = req.params;
       const tenantId = req.verifiedTenantId;
+      const { payment_method = 'Registro administrativo interno', payment_reference = '', notes = '' } = req.body || {};
+      const actorName = req.auth?.name || req.auth?.email || 'Administrador';
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
 
-      const [periodRows] = await pool.query(`
+      await conn.beginTransaction();
+      const [rows] = await conn.query(
+        'SELECT * FROM payroll_periods WHERE id = ? AND tenant_id = ? FOR UPDATE',
+        [id, tenantId]
+      );
+      if (!rows || rows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
+      }
+      const period = rows[0];
+      if (!isSucursalAllowedForActor(period.sucursal, authBranches)) {
+        await conn.rollback();
+        return res.status(403).json({ error: 'No tienes permiso para registrar el pago de esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
+      if (period.status === 'Pagada') {
+        await conn.rollback();
+        return res.status(409).json({ error: 'El pago administrativo de esta nómina ya fue registrado.', code: 'PAYROLL_ALREADY_PAID' });
+      }
+      if (period.status !== 'Aprobada') {
+        await conn.rollback();
+        return res.status(409).json({ error: 'Debes aprobar la nómina antes de registrar su pago administrativo.', code: 'PAYROLL_NOT_APPROVED' });
+      }
+
+      let snap = {};
+      try {
+        snap = typeof period.snapshot_json === 'string' ? JSON.parse(period.snapshot_json || '{}') : (period.snapshot_json || {});
+      } catch { snap = {}; }
+
+      const paymentRecord = {
+        type: 'administrative_payment_record',
+        registered_at: new Date().toISOString(),
+        registered_by: actorName,
+        payment_method: String(payment_method).slice(0, 100),
+        payment_reference: String(payment_reference || '').slice(0, 120),
+        notes: String(notes || '').slice(0, 250),
+      };
+      snap.administrative_payment = paymentRecord;
+
+      await conn.query(
+        `UPDATE payroll_periods
+         SET status = 'Pagada', is_immutable = 1, snapshot_json = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [JSON.stringify(snap), id, tenantId]
+      );
+
+      await conn.query(
+        `INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
+         VALUES (?, 'ESTADO_NOMINA', 'Aprobada', 'Pagada', 'Registro Administrativo de Pago', ?, ?, ?)`,
+        [id, `Registro administrativo interno (${paymentRecord.payment_method}${paymentRecord.payment_reference ? ' · Ref: ' + paymentRecord.payment_reference : ''})`, actorName, tenantId]
+      );
+
+      await conn.commit();
+      res.json({
+        success: true,
+        status: 'Pagada',
+        administrative_payment: paymentRecord,
+        message: 'Pago administrativo registrado internamente (no ejecuta transferencia bancaria automática).'
+      });
+    } catch (err) {
+      await conn.rollback().catch(() => {});
+      console.error('[PAYROLL REGISTER PAYMENT ERROR]:', err.message);
+      res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
+    }
+  });
+
+  // 6.1 Sincronizar datos reales de comisiones y descuentos en tiempo real (Transaccional con FOR UPDATE)
+  router.post('/periods/:id/sync-real-data', async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+      const { id } = req.params;
+      const tenantId = req.verifiedTenantId;
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
+
+      await conn.beginTransaction();
+      const [periodRows] = await conn.query(`
         SELECT id, period_name, 
                DATE_FORMAT(start_date, '%Y-%m-%d') as start_date, 
                DATE_FORMAT(end_date, '%Y-%m-%d') as end_date,
@@ -936,13 +1155,21 @@ function createPayrollRouter(pool) {
                DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') as created_at,
                DATE_FORMAT(approved_at, '%Y-%m-%d %H:%i:%s') as approved_at,
                approved_by
-        FROM payroll_periods WHERE id = ? AND tenant_id = ?
+        FROM payroll_periods WHERE id = ? AND tenant_id = ? FOR UPDATE
       `, [id, tenantId]);
-      if (periodRows.length === 0) return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
+      if (periodRows.length === 0) {
+        await conn.rollback();
+        return res.status(404).json({ error: 'Período no encontrado en esta empresa.' });
+      }
       
       const period = periodRows[0];
-      if (period.status === 'Aprobada' || period.is_immutable === 1) {
-        return res.status(403).json({ error: 'Esta nómina ya está aprobada y es inmutable' });
+      if (!isSucursalAllowedForActor(period.sucursal, authBranches)) {
+        await conn.rollback();
+        return res.status(403).json({ error: 'No tienes permiso para recalcular la nómina de esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
+      if (period.status === 'Aprobada' || period.status === 'Pagada' || Number(period.is_immutable) === 1) {
+        await conn.rollback();
+        return res.status(403).json({ error: 'Esta nómina ya está aprobada o pagada y es inmutable', code: 'PAYROLL_IMMUTABLE' });
       }
 
       const startDate = period.start_date ? String(period.start_date).split('T')[0] : '';
@@ -958,10 +1185,10 @@ function createPayrollRouter(pool) {
         staffQuery += " AND (posicion LIKE ?)";
         staffParams.push(`%${period.departamento}%`);
       }
-      let [staffList] = await pool.query(staffQuery, staffParams);
+      let [staffList] = await conn.query(staffQuery, staffParams);
 
       if (staffList.length === 0) {
-        const [existingItems] = await pool.query(
+        const [existingItems] = await conn.query(
           'SELECT * FROM payroll_items WHERE payroll_id = ? AND tenant_id = ?',
           [id, tenantId]
         );
@@ -974,7 +1201,7 @@ function createPayrollRouter(pool) {
         }));
       }
 
-      await pool.query('DELETE FROM payroll_items WHERE payroll_id = ? AND tenant_id = ?', [id, tenantId]);
+      await conn.query('DELETE FROM payroll_items WHERE payroll_id = ? AND tenant_id = ?', [id, tenantId]);
 
       let sumTotalIngresos = 0;
       let sumTotalDescuentos = 0;
@@ -982,10 +1209,10 @@ function createPayrollRouter(pool) {
       const generatedItems = [];
 
       for (const emp of staffList) {
-        const itemData = await calculateEmployeePayrollValues(pool, emp, startDate, endDate, tenantId);
-        itemData.payroll_id = parseInt(id);
+        const itemData = await calculateEmployeePayrollValues(conn, emp, startDate, endDate, tenantId);
+        itemData.payroll_id = parseInt(id, 10);
 
-        const [resItem] = await pool.query(`
+        const [resItem] = await conn.query(`
           INSERT INTO payroll_items (
             payroll_id, employee_id, employee_name, posicion, sucursal, departamento,
             salario_fijo, comisiones, feriados, horas_extras, otros_ingresos, total_ingresos,
@@ -1002,21 +1229,23 @@ function createPayrollRouter(pool) {
         itemData.id = resItem.insertId;
         generatedItems.push(itemData);
 
-        sumTotalIngresos += itemData.total_ingresos;
-        sumTotalDescuentos += itemData.total_descuentos;
-        sumTotalNeto += itemData.neto_pagar;
+        sumTotalIngresos = Number((sumTotalIngresos + itemData.total_ingresos).toFixed(2));
+        sumTotalDescuentos = Number((sumTotalDescuentos + itemData.total_descuentos).toFixed(2));
+        sumTotalNeto = Number((sumTotalNeto + itemData.neto_pagar).toFixed(2));
       }
 
-      await pool.query(`
+      await conn.query(`
         UPDATE payroll_periods 
         SET total_ingresos = ?, total_descuentos = ?, total_neto = ?, total_empleados = ?
         WHERE id = ? AND tenant_id = ?
       `, [sumTotalIngresos, sumTotalDescuentos, sumTotalNeto, generatedItems.length, id, tenantId]);
 
-      await pool.query(`
+      await conn.query(`
         INSERT INTO payroll_audit_logs (payroll_id, field_name, old_value, new_value, action_type, reason, user_name, tenant_id)
-        VALUES (?, 'SINCRONIZACION_DATOS', 'Anterior', 'Datos Reales', 'Sincronización', 'Sincronización automática de comisiones y descuentos en tiempo real', 'Administrador', ?)
-      `, [id, tenantId]);
+        VALUES (?, 'SINCRONIZACION_DATOS', 'Anterior', 'Datos Reales', 'Sincronización', 'Sincronización automática de comisiones y descuentos en tiempo real', ?, ?)
+      `, [id, req.auth?.name || req.auth?.email || 'Administrador', tenantId]);
+
+      await conn.commit();
 
       res.json({
         success: true,
@@ -1031,8 +1260,11 @@ function createPayrollRouter(pool) {
         items: generatedItems
       });
     } catch (err) {
+      await conn.rollback().catch(() => {});
       console.error('[PAYROLL SYNC REAL DATA ERROR]:', err.message);
       res.status(500).json({ error: err.message });
+    } finally {
+      conn.release();
     }
   });
 
@@ -1053,17 +1285,27 @@ function createPayrollRouter(pool) {
     }
   });
 
-  // 8. Eliminar Período de Nómina (Scoped strictly by tenant_id)
+  // 8. Eliminar Período de Nómina (Solo borradores no aprobados; scoped by tenant_id y sucursal)
   router.delete('/periods/:id', async (req, res) => {
     try {
       const { id } = req.params;
       const tenantId = req.verifiedTenantId;
+      const authBranches = await resolveAuthorizedBranchDescriptors(req, tenantId);
       const [existing] = await pool.query(
-        'SELECT id FROM payroll_periods WHERE id = ? AND tenant_id = ?',
+        'SELECT id, status, is_immutable, sucursal FROM payroll_periods WHERE id = ? AND tenant_id = ?',
         [id, tenantId]
       );
       if (!existing || existing.length === 0) {
         return res.status(404).json({ error: 'Período de nómina no encontrado en esta empresa.' });
+      }
+      if (!isSucursalAllowedForActor(existing[0].sucursal, authBranches)) {
+        return res.status(403).json({ error: 'No tienes permiso para eliminar la nómina de esta sucursal.', code: 'FORBIDDEN_BRANCH_SCOPE' });
+      }
+      if (existing[0].status === 'Aprobada' || existing[0].status === 'Pagada' || Number(existing[0].is_immutable) === 1) {
+        return res.status(403).json({
+          error: 'No se puede eliminar una nómina aprobada o pagada (es inmutable).',
+          code: 'PAYROLL_IMMUTABLE'
+        });
       }
 
       await pool.query('DELETE FROM payroll_items WHERE payroll_id = ? AND tenant_id = ?', [id, tenantId]);

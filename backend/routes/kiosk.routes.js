@@ -981,21 +981,31 @@ function createKioskRouter(pool, { authenticate }) {
 
       const { start_date, end_date } = req.query || {};
       let sql = `
-        SELECT * FROM payroll_items
-        WHERE tenant_id = ? AND employee_id::text = ?
+        SELECT pi.*,
+               pp.period_name,
+               DATE_FORMAT(pp.start_date, '%Y-%m-%d') AS period_start,
+               DATE_FORMAT(pp.end_date, '%Y-%m-%d') AS period_end,
+               pp.status AS period_status,
+               pp.approved_at,
+               pp.approved_by
+        FROM payroll_items pi
+        INNER JOIN payroll_periods pp ON pp.id = pi.payroll_id AND pp.tenant_id = pi.tenant_id
+        WHERE pi.tenant_id = ?
+          AND pi.employee_id::text = ?
+          AND pp.status IN ('Aprobada', 'Pagada')
       `;
       const params = [device.tenant_id, String(sess.employee_id)];
       if (start_date) {
-        sql += ' AND period_start >= ?';
+        sql += ' AND pp.start_date >= ?';
         params.push(String(start_date));
       }
       if (end_date) {
-        sql += ' AND period_end <= ?';
+        sql += ' AND pp.end_date <= ?';
         params.push(String(end_date));
       }
-      sql += ' ORDER BY created_at DESC LIMIT 20';
+      sql += ' ORDER BY pp.end_date DESC, pi.id DESC LIMIT 20';
 
-      const [items] = await pool.query(sql, params).catch(() => [[]]);
+      const [items] = await pool.query(sql, params);
       res.json({ employee_id: sess.employee_id, payslips: items || [] });
     } catch (err) {
       res.status(500).json({ error: err.message });
