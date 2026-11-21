@@ -1721,6 +1721,7 @@ function createAuthRouter(pool, options = {}) {
           LEFT JOIN roles r ON (u.role_id = r.id AND r.tenant_id = u.tenant_id)
           WHERE (LOWER(u.email) = LOWER(?) OR LOWER(u.username) = LOWER(?))
             AND COALESCE(u.is_active, true) = true
+            AND LOWER(COALESCE(u.estado, 'Activo')) != 'inactivo'
           ORDER BY u.created_at DESC
         `, [identifier, identifier]);
 

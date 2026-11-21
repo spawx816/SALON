@@ -1352,10 +1352,19 @@ class SaasCheckoutService {
           );
         }
 
-        // 1b. Activar estado del tenant en plataforma (desbloquea el acceso operativo tras pago verificado)
+        // 1b. Activar estado del tenant y sincronizar capacidad contratada (sucursales y asientos adicionales facturados)
+        const orderBranches = Math.max(1, Number(order.branches_count || 1));
+        const orderExtraSeats = Math.max(0, Number(order.extra_users_count || 0));
         await this.pool.query(
-          `UPDATE tenants SET status = 'active' WHERE id = ? AND status = 'pending'`,
-          [order.tenant_id]
+          `UPDATE tenants
+           SET status = CASE WHEN status = 'pending' THEN 'active' ELSE status END,
+               licensed_branches = GREATEST(COALESCE(licensed_branches, max_branches, 1), ?),
+               max_branches = GREATEST(COALESCE(max_branches, licensed_branches, 1), ?),
+               extra_user_seats = GREATEST(COALESCE(extra_user_seats, 0), ?),
+               max_users = (GREATEST(COALESCE(licensed_branches, max_branches, 1), ?) * 3) + GREATEST(COALESCE(extra_user_seats, 0), ?),
+               updated_at = NOW()
+           WHERE id = ?`,
+          [orderBranches, orderBranches, orderExtraSeats, orderBranches, orderExtraSeats, order.tenant_id]
         );
 
         // 2. Si contrató el add-on Suscripciones/Membresías B2C, activarlo de forma canónica

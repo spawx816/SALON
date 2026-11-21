@@ -60,7 +60,13 @@ class ConsolidatedRenewalService {
     if (!tenantId) throw new Error('tenantId es obligatorio');
 
     const [subRows] = await this.pool.query(
-      `SELECT * FROM tenant_subscriptions WHERE tenant_id = ? LIMIT 1`,
+      `SELECT ts.*,
+              COALESCE(t.licensed_branches, t.max_branches, 1) AS tenant_licensed_branches,
+              COALESCE(t.extra_user_seats, 0) AS tenant_extra_user_seats
+       FROM tenant_subscriptions ts
+       LEFT JOIN tenants t ON t.id = ts.tenant_id
+       WHERE ts.tenant_id = ?
+       LIMIT 1`,
       [tenantId]
     );
     const sub = subRows?.[0] || null;
@@ -71,13 +77,8 @@ class ConsolidatedRenewalService {
       throw err;
     }
 
-    const [branchRows] = await this.pool.query(
-      `SELECT COUNT(*)::int AS cnt FROM branches WHERE tenant_id = ? AND COALESCE(is_active, true) = true`,
-      [tenantId]
-    );
-    const activeBranches = Number(branchRows?.[0]?.cnt || 0);
-    const billableBranches = Math.max(1, activeBranches || Number(sub.branches_limit || 1));
-    const extraUsers = Math.max(0, Number(sub.extra_users_count || 0));
+    const billableBranches = Math.max(1, Number(sub.tenant_licensed_branches || sub.branches_limit || 1));
+    const extraUsers = Math.max(0, Number(sub.tenant_extra_user_seats ?? sub.extra_users_count ?? 0));
 
     let addonBranches = Math.max(0, Number(sub.addon_branches_count || 0));
     if (addonBranches === 0) {

@@ -209,18 +209,52 @@ async function main() {
     await pool.query('UPDATE tenants SET extra_user_seats = 2 WHERE id = ?', [tenantId]);
     const entWithExtra = await reqJson(baseUrl, 'GET', '/api/tenant/entitlements', { cookie: ownerCookie });
     assert.strictEqual(entWithExtra.body.limits.users, 8, '2 sucursales (6) + 2 asientos extra = 8');
-    console.log('  ✅ 7. 2 sucursales = 6 asientos compartidos (+2 extra = 8); usuario multi-sucursal consume 1 sola licencia.');
 
-    console.log('\n🎉 SUITE DE LICENCIAS Y ASIENTOS FACTURABLES COMPLETADA (7/7 PASS).');
+    // 8. Colaborador exclusivo de ponches/autoservicio (staff_records sin cuenta operativa en users) NO consume asiento
+    await pool.query(
+      "INSERT INTO staff_records (tenant_id, nombre, email, salon_id, status) VALUES (?, 'Colaborador Solo Ponches', ?, ?, 'Activo')",
+      [tenantId, `staff_only_${tag}@test.local`, branch1]
+    );
+    const entAfterStaffOnly = await reqJson(baseUrl, 'GET', '/api/tenant/entitlements', { cookie: ownerCookie });
+    assert.strictEqual(entAfterStaffOnly.body.usage.users, 3, 'Colaborador exclusivo en staff_records NO debe consumir asiento');
+
+    // 9. Estado distinto de Activo/Inactivo (ej. 'Pendiente' con is_active=true) que aún puede acceder SÍ se cuenta como facturable
+    const customStateUser = await reqJson(baseUrl, 'POST', '/api/users', {
+      cookie: ownerCookie,
+      body: { nombre: 'Estado Pendiente', email: `pend_${tag}@test.local`, password: 'Password!2026', role: 'empleado', branch_id: branch1, estado: 'Pendiente' },
+    });
+    assert.strictEqual(customStateUser.status, 200);
+    const entAfterPendingState = await reqJson(baseUrl, 'GET', '/api/tenant/entitlements', { cookie: ownerCookie });
+    assert.strictEqual(entAfterPendingState.body.usage.users, 4, 'Cuenta con estado distinto de Inactivo (Pendiente) que puede operar debe contarse como facturable');
+
+    // 10. Coincidencia exacta entre asientos adicionales facturados (ConsolidatedRenewalService) y capacidad disponible (EntitlementsService)
+    const { ConsolidatedRenewalService } = require('../services/consolidated_renewal.service');
+    const renewalSvc = new ConsolidatedRenewalService({
+      pool,
+      fxRateService: { requireCurrentRate: async () => ({ rateFormatted: '60.00', rate: '60.00' }) },
+      taxPolicy: { calculateTax: () => ({ taxAmountMinor: 0n }) },
+    });
+    const quote = await renewalSvc.calculateConsolidatedQuote({ tenantId });
+    assert.strictEqual(quote.billableBranches, 2, 'Renovación debe facturar exactamente las 2 sucursales licenciadas');
+    assert.strictEqual(quote.extraUsers, 2, 'Renovación debe facturar exactamente los 2 asientos adicionales contratados');
+    assert.strictEqual(
+      (quote.billableBranches * 3) + quote.extraUsers,
+      entAfterPendingState.body.limits.users,
+      'Capacidad disponible (limits.users) debe coincidir 1:1 con (sucursales facturadas × 3) + asientos extra facturados'
+    );
+    console.log('  ✅ 7-10. 2 sucursales = 6 (+2 extra = 8), multi-sucursal=1, staff_records solo ponches=0, estado "Pendiente" contado, y facturación consolidada coincide 1:1 con capacidad.');
+
+    console.log('\n🎉 SUITE DE LICENCIAS Y ASIENTOS FACTURABLES COMPLETADA (10/10 PASS).');
   } finally {
     server.close();
-    await pool.query('DELETE FROM security_audit_logs WHERE tenant_id = ?', [tenantId]).catch(() => {});
-    await pool.query('DELETE FROM user_sessions WHERE tenant_id = ?', [tenantId]).catch(() => {});
-    await pool.query('DELETE FROM users WHERE tenant_id = ?', [tenantId]).catch(() => {});
-    await pool.query('DELETE FROM roles WHERE tenant_id = ?', [tenantId]).catch(() => {});
-    await pool.query('DELETE FROM tenant_subscriptions WHERE tenant_id = ?', [tenantId]).catch(() => {});
-    await pool.query('DELETE FROM branches WHERE tenant_id = ?', [tenantId]).catch(() => {});
-    await pool.query('DELETE FROM tenants WHERE id = ?', [tenantId]).catch(() => {});
+    await pool.query('DELETE FROM security_audit_logs WHERE tenant_id = ?', [tenantId]).catch(() => { });
+    await pool.query('DELETE FROM user_sessions WHERE tenant_id = ?', [tenantId]).catch(() => { });
+    await pool.query('DELETE FROM staff_records WHERE tenant_id = ?', [tenantId]).catch(() => { });
+    await pool.query('DELETE FROM users WHERE tenant_id = ?', [tenantId]).catch(() => { });
+    await pool.query('DELETE FROM roles WHERE tenant_id = ?', [tenantId]).catch(() => { });
+    await pool.query('DELETE FROM tenant_subscriptions WHERE tenant_id = ?', [tenantId]).catch(() => { });
+    await pool.query('DELETE FROM branches WHERE tenant_id = ?', [tenantId]).catch(() => { });
+    await pool.query('DELETE FROM tenants WHERE id = ?', [tenantId]).catch(() => { });
     await pool.end();
   }
 }
