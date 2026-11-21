@@ -91,7 +91,7 @@ const getBirthdayCountdown = (client) => {
       bdayThisYear.setHours(0, 0, 0, 0);
 
       const diffFromBday = Math.round((today - bdayThisYear) / (1000 * 60 * 60 * 24));
-      
+
       // Ventana de elegibilidad: Se habilita el MISMO día del cumpleaños (0) y dura 7 días en total (0 a 6)
       // Antes del cumpleaños (diffFromBday < 0) NO está habilitado
       const isEligibleWindow = (diffFromBday >= 0 && diffFromBday <= 6);
@@ -208,6 +208,7 @@ const VisitRecorder = () => {
   const [showCloseRegisterPrintModal, setShowCloseRegisterPrintModal] = useState(false);
   const [closeRegisterPrintData, setCloseRegisterPrintData] = useState(null);
   const [isCreditoFiscal, setIsCreditoFiscal] = useState(false);
+  const [selectedComprobanteType, setSelectedComprobanteType] = useState('NONE');
   const [clientRncInput, setClientRncInput] = useState('');
   const [clientRazonSocialInput, setClientRazonSocialInput] = useState('');
   const [allClients, setAllClients] = useState([]);
@@ -227,11 +228,11 @@ const VisitRecorder = () => {
   const fetchSequenceAvailability = async () => {
     try {
       const res = await dataService.getSequenceAvailability();
-      if (res && res.success) {
+      if (res && (res.success || res.byType || Array.isArray(res.sequences))) {
         setSequenceAvailability(res);
       }
     } catch (err) {
-      console.warn('Error al consultar disponibilidad de secuencias fiscales:', err);
+      console.warn('Error al consultar disponibilidad de secuencias de comprobantes:', err);
     }
   };
 
@@ -302,23 +303,23 @@ const VisitRecorder = () => {
       clientFound?.clientStatus === 'Pending_Payment' ||
       clientFound?.clientStatus === 'Pending_Retry' ||
       clientFound?.clientStatus === 'Suspended' ||
-      (clientContracts && clientContracts.length > 0 && clientContracts.some(c => 
-        c.status === 'Pending_Payment' || 
-        c.status === 'Pending_Retry' || 
-        c.status === 'Suspended' || 
-        c.status === 'Past_Due' || 
-        c.status === 'Suspendido' || 
+      (clientContracts && clientContracts.length > 0 && clientContracts.some(c =>
+        c.status === 'Pending_Payment' ||
+        c.status === 'Pending_Retry' ||
+        c.status === 'Suspended' ||
+        c.status === 'Past_Due' ||
+        c.status === 'Suspendido' ||
         c.status === 'Pendiente' ||
         (Number(c.retry_count) > 0 && c.status !== 'Active' && c.status !== 'Cancelled')
       ) && (!activePlans || activePlans.length === 0))
     )
   );
-  const suspendedContract = (clientContracts || []).find(c => 
-    c.status === 'Pending_Payment' || 
-    c.status === 'Pending_Retry' || 
-    c.status === 'Suspended' || 
-    c.status === 'Past_Due' || 
-    c.status === 'Suspendido' || 
+  const suspendedContract = (clientContracts || []).find(c =>
+    c.status === 'Pending_Payment' ||
+    c.status === 'Pending_Retry' ||
+    c.status === 'Suspended' ||
+    c.status === 'Past_Due' ||
+    c.status === 'Suspendido' ||
     c.status === 'Pendiente' ||
     Number(c.retry_count) > 0
   ) || null;
@@ -524,7 +525,7 @@ const VisitRecorder = () => {
               });
             }
           }
-        } catch (e) {}
+        } catch (e) { }
 
         totalCycleWashesUsed += visitWashCount;
         totalCyclePromoUsed += visitPromoCount;
@@ -864,8 +865,8 @@ const VisitRecorder = () => {
     const cancelledContract = (clientContracts || []).find(c => c.status === 'Cancelled' || c.status === 'Cancelado');
     if (clientFound?.status === 'Cancelled' || clientFound?.status === 'Cancelado' || cancelledContract) {
       const cDate = cancelledContract?.next_billing_date || cancelledContract?.last_billed_date || cancelledContract?.signed_at;
-      return cDate 
-        ? `Cancelada el ${new Date(cDate).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })}` 
+      return cDate
+        ? `Cancelada el ${new Date(cDate).toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric' })}`
         : 'Suscripción Cancelada';
     }
     return 'Sin suscripción activa';
@@ -952,7 +953,7 @@ const VisitRecorder = () => {
             });
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       totalCycleWashesUsed += visitWashCount;
       totalCyclePromoUsed += visitPromoCount;
@@ -1019,7 +1020,7 @@ const VisitRecorder = () => {
 
     // Lifetime check for welcome promo gifts (Opción A: Lavado extra, Opción B: Tratamiento profundo)
     const contractStartTime = parseDate(contract?.signed_at || contract?.created_at);
-    const allContractVisits = contractStartTime > 0 
+    const allContractVisits = contractStartTime > 0
       ? visitsSource.filter(v => parseDate(v.visited_at) >= (contractStartTime - 60000))
       : visitsSource;
 
@@ -1049,7 +1050,7 @@ const VisitRecorder = () => {
             });
           }
         }
-      } catch (_) {}
+      } catch (_) { }
       lifetimePromoUsed += visitPromoCount;
     });
 
@@ -1112,8 +1113,8 @@ const VisitRecorder = () => {
     // Check if current client or selected ticket matches an employee
     const rawEmpId = String(selectedTicket?.client_id || '').replace('EMP-', '') || String(client?.id || '').replace('EMP-', '');
     const clientName = client?.nombre || client?.name || selectedTicket?.client_name || '';
-    const empObj = employees.find(e => 
-      (rawEmpId && String(e.id) === String(rawEmpId)) || 
+    const empObj = employees.find(e =>
+      (rawEmpId && String(e.id) === String(rawEmpId)) ||
       (clientName && (e.nombre?.toLowerCase().trim() === clientName.toLowerCase().trim() || e.name?.toLowerCase().trim() === clientName.toLowerCase().trim()))
     );
     if (empObj) {
@@ -1465,6 +1466,7 @@ const VisitRecorder = () => {
     setAdminPin('');
     setAdminOtpCode('');
     setIsCreditoFiscal(false);
+    setSelectedComprobanteType('NONE');
     setClientRncInput('');
     setClientRazonSocialInput('');
   };
@@ -1681,8 +1683,8 @@ const VisitRecorder = () => {
 
   const loadClientPlanData = async (clientId, clientName, ticketObj = null, customClient = null) => {
     try {
-      const clientQueryId = (clientId && clientId !== 'INVITADO' && !String(clientId).startsWith('INVITADO')) 
-        ? clientId 
+      const clientQueryId = (clientId && clientId !== 'INVITADO' && !String(clientId).startsWith('INVITADO'))
+        ? clientId
         : (customClient?.id && customClient.id !== 'INVITADO' ? customClient.id : null);
       const clientQueryCedula = customClient?.cedula || clientFound?.cedula || ticketObj?.client_cedula;
       const clientQueryName = clientName || customClient?.nombre || customClient?.name || clientFound?.nombre || ticketObj?.client_name;
@@ -1712,12 +1714,12 @@ const VisitRecorder = () => {
 
       // Filter strictly Active contracts (exclude Pending_Payment, Pending_Retry, Past_Due, Suspended)
       const activeContracts = (Array.isArray(contractsFound) ? contractsFound : []).filter(
-        c => (c.status === 'Active' || c.status === 'Activo') && 
-             c.status !== 'Pending_Retry' && 
-             c.status !== 'Pending_Payment' && 
-             c.status !== 'Past_Due' && 
-             c.status !== 'Suspended' && 
-             c.status !== 'Suspendido'
+        c => (c.status === 'Active' || c.status === 'Activo') &&
+          c.status !== 'Pending_Retry' &&
+          c.status !== 'Pending_Payment' &&
+          c.status !== 'Past_Due' &&
+          c.status !== 'Suspended' &&
+          c.status !== 'Suspendido'
       );
 
       let pastVisits = [];
@@ -1774,13 +1776,13 @@ const VisitRecorder = () => {
         promoExpiry.setMonth(promoExpiry.getMonth() + promoDuration);
         const isPromoActive = promoDuration > 0 && new Date() < promoExpiry;
 
-        const allServices = isPromoActive 
+        const allServices = isPromoActive
           ? [...baseArray, ...promoArray]
           : (baseArray.length > 0 ? baseArray : (matchedPlan?.services || []));
 
         const lastBillingTime = parseDate(contract.last_billed_date || contract.created_at || contract.signed_at);
         const threshold = lastBillingTime > 0 ? lastBillingTime - 60000 : 0;
-        
+
         // Filter visits in the current billing cycle
         const cycleVisits = pastVisits.filter(v => parseDate(v.visited_at) >= threshold);
 
@@ -1834,7 +1836,7 @@ const VisitRecorder = () => {
                 });
               }
             }
-          } catch (e) {}
+          } catch (e) { }
 
           totalCycleWashesUsed += visitWashCount;
           totalCyclePromoUsed += visitPromoCount;
@@ -2294,7 +2296,7 @@ const VisitRecorder = () => {
     }
 
     const isExtra = regWashes <= 0 && extraWashes > 0;
-    const washTitle = isExtra 
+    const washTitle = isExtra
       ? 'Lavado Extra (Regalo Membresía)'
       : 'Lavado y Secado (Membresía)';
 
@@ -2689,10 +2691,10 @@ const VisitRecorder = () => {
     const washItem = lineItems.find(item =>
       !item.isPlanWash &&
       ((item.nombre || '').toLowerCase().includes('lavado') ||
-      (item.nombre || '').toLowerCase().includes('secado') ||
-      String(item.service_id).includes('plan') ||
-      item.id === 'plan-washes' ||
-      item.id === 'plan-treatment')
+        (item.nombre || '').toLowerCase().includes('secado') ||
+        String(item.service_id).includes('plan') ||
+        item.id === 'plan-washes' ||
+        item.id === 'plan-treatment')
     );
     if (washItem) {
       return (washItem.precioAplicado * 1);
@@ -2902,7 +2904,7 @@ const VisitRecorder = () => {
       const prestamosCount = res.summary?.prestamosRegistrados || 0;
       const diffText = diffVal === 0 ? '🟢 Cuadre Perfecto (Sin diferencia)' : diffVal > 0 ? `🔷 Sobrante: + RD$ ${diffVal.toFixed(2)}` : `🔴 Faltante: - RD$ ${Math.abs(diffVal).toFixed(2)}`;
       const prestamosText = prestamosCount > 0 ? `\n\n🤝 Se registraron ${prestamosCount} préstamo(s) a empleadas automáticamente como Descuento / Deducción en nómina.` : '';
-      
+
       const closedRegId = activeRegister.id;
       setActiveRegister(null);
       setShowConfirmCloseModal(false);
@@ -3031,7 +3033,7 @@ const VisitRecorder = () => {
     }
   };
 
-    const handleSaveAndPrintPrecuenta = async () => {
+  const handleSaveAndPrintPrecuenta = async () => {
     if (lineItems.length === 0) {
       alert('⚠️ Agrega al menos un servicio para generar la precuenta.');
       return;
@@ -3171,7 +3173,8 @@ const VisitRecorder = () => {
     }
 
     // If user marked Credito Fiscal checkbox, validate that RNC/Cedula is filled and ensure Razón Social
-    if (isCreditoFiscal) {
+    const requiresRnc = selectedComprobanteType === 'B01' || isCreditoFiscal;
+    if (requiresRnc) {
       if (!clientRncInput.trim()) {
         alert('⚠️ Por favor ingresa el RNC o Cédula del receptor para emitir la Factura con Crédito Fiscal (B01).');
         return;
@@ -3188,18 +3191,19 @@ const VisitRecorder = () => {
     }
 
     const hasPlanWashCheck = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
-    const isPlanCanjeCheck = (finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty') || (hasPlanWashCheck && finalTotalAmount === 0)) && !isCreditoFiscal;
+    const isPlanCanjeCheck = (finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty') || (hasPlanWashCheck && finalTotalAmount === 0)) && !requiresRnc;
     const seqMap = sequenceAvailability?.byType || sequenceAvailability || {};
-    const hasConfiguredB02 = Boolean(seqMap.B02);
     const ncfTypeToUse = isPlanCanjeCheck
       ? 'NONE'
-      : (isCreditoFiscal ? 'B01' : (hasConfiguredB02 ? 'B02' : 'NONE'));
+      : (selectedComprobanteType && selectedComprobanteType !== 'NONE'
+          ? selectedComprobanteType
+          : (isCreditoFiscal ? 'B01' : 'NONE'));
 
     // Validación preventiva de agotamiento/vencimiento antes de iniciar el cobro o emitir factura
     if (ncfTypeToUse !== 'NONE' && seqMap[ncfTypeToUse] && (seqMap[ncfTypeToUse].isExhausted || seqMap[ncfTypeToUse].isExpired)) {
       setBlockedSequenceInfo({
         tipo_comprobante: ncfTypeToUse,
-        nombre_comprobante: ncfTypeToUse === 'B01' ? 'Factura de Crédito Fiscal (B01)' : 'Factura de Consumo (B02)',
+        nombre_comprobante: seqMap[ncfTypeToUse]?.nombre_comprobante || (ncfTypeToUse === 'B01' ? 'Factura de Crédito Fiscal (B01)' : `Comprobante (${ncfTypeToUse})`),
         message: seqMap[ncfTypeToUse].isExpired
           ? 'La secuencia configurada para este tipo de comprobante está vencida.\n\nNotifique al administrador para registrar una nueva secuencia vigente.'
           : 'No hay comprobantes disponibles en la secuencia configurada.\n\nSe agotaron los números del rango autorizado para este tipo de factura.\n\nFavor de notificar al administrador para agregar una nueva secuencia.'
@@ -3208,7 +3212,7 @@ const VisitRecorder = () => {
       return;
     }
 
-    await executeCheckout(null, ncfTypeToUse, isCreditoFiscal ? clientRncInput.trim() : '', isCreditoFiscal ? clientRazonSocialInput.trim() : '');
+    await executeCheckout(null, ncfTypeToUse, requiresRnc ? clientRncInput.trim() : '', requiresRnc ? clientRazonSocialInput.trim() : '');
   };
 
   const executeCheckout = async (customPayments = null, chosenNcfType = null, customRnc = null, customRazonSocial = null) => {
@@ -3276,14 +3280,15 @@ const VisitRecorder = () => {
       const finalClientId = clientFound?.id || selectedTicket?.client_id || 'INVITADO';
 
       const isPlanRedemptionCheck = (
-        finalTotalAmount === 0 || 
+        finalTotalAmount === 0 ||
         (activePayments.length === 1 && (activePayments[0].method === 'Plan Beauty' || activePayments[0].method === 'Plan')) ||
         (hasPlanWash && finalTotalAmount === 0) ||
         finalMetodoPago === 'Plan Beauty'
       ) && !isCreditoFiscal;
 
-      const seqMapExec = sequenceAvailability?.byType || sequenceAvailability || {};
-      const defaultCommercialType = isCreditoFiscal ? 'B01' : (seqMapExec.B02 ? 'B02' : 'NONE');
+      const defaultCommercialType = selectedComprobanteType && selectedComprobanteType !== 'NONE'
+        ? selectedComprobanteType
+        : (isCreditoFiscal ? 'B01' : 'NONE');
       const ncfTypeToSend = isPlanRedemptionCheck ? 'NONE' : (chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : defaultCommercialType);
       const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
       const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
@@ -3365,13 +3370,19 @@ const VisitRecorder = () => {
 
       await loadClientVisitsHistory(finalClientId || finalClientName);
 
-      const encfMsg = checkoutRes?.ncf ? `\n\n🛡️ e-NCF DGII: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad || 'Certificado'}` : '';
+      const isRealEcf = Boolean(checkoutRes?.ncf && String(checkoutRes.ncf).toUpperCase().startsWith('E') && checkoutRes?.codigo_seguridad);
+      const encfMsg = checkoutRes?.ncf
+        ? (isRealEcf
+            ? `\n\n🛡️ e-NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad}`
+            : `\n\n🧾 NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'Comprobante'})`)
+        : '';
 
       alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}${encfMsg}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);
 
       setShowOtpVerificationModal(false);
       setShowOtpModal(false);
       resetPosToBlankState();
+      await fetchSequenceAvailability();
       await fetchPendingTickets();
       await fetchTopServices();
     } catch (err) {
@@ -3418,7 +3429,7 @@ const VisitRecorder = () => {
     }
   };
 
-// Scope principal hoisted to line 290 to prevent TDZ
+  // Scope principal hoisted to line 290 to prevent TDZ
 
   return (
     <div style={{ maxWidth: '100%', width: '100%', margin: '0 auto', padding: '0', boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#ffffff', minHeight: '100%' }}>
@@ -3624,12 +3635,12 @@ const VisitRecorder = () => {
               clientFound?.status === 'Past_Due' ||
               clientFound?.status === 'Suspendido' ||
               clientFound?.status === 'Pendiente' ||
-              (clientContracts && clientContracts.length > 0 && clientContracts.some(c => 
-                c.status === 'Pending_Payment' || 
-                c.status === 'Pending_Retry' || 
-                c.status === 'Suspended' || 
-                c.status === 'Past_Due' || 
-                c.status === 'Suspendido' || 
+              (clientContracts && clientContracts.length > 0 && clientContracts.some(c =>
+                c.status === 'Pending_Payment' ||
+                c.status === 'Pending_Retry' ||
+                c.status === 'Suspended' ||
+                c.status === 'Past_Due' ||
+                c.status === 'Suspendido' ||
                 c.status === 'Pendiente'
               ) && (!activePlans || activePlans.length === 0))
             )
@@ -3795,38 +3806,38 @@ const VisitRecorder = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.35rem',
-                      background: isEmployeeClient 
-                        ? '#eff6ff' 
-                        : (isGuestClient 
-                          ? '#f1f5f9' 
-                          : (hasActivePlan 
-                            ? '#fdf4ff' 
-                            : (!isGuestClient && isPendingPayment 
-                              ? '#fffbeb' 
-                              : (!isGuestClient && isContractCancelled 
-                                ? '#fee2e2' 
+                      background: isEmployeeClient
+                        ? '#eff6ff'
+                        : (isGuestClient
+                          ? '#f1f5f9'
+                          : (hasActivePlan
+                            ? '#fdf4ff'
+                            : (!isGuestClient && isPendingPayment
+                              ? '#fffbeb'
+                              : (!isGuestClient && isContractCancelled
+                                ? '#fee2e2'
                                 : '#f8fafc')))),
-                      border: isEmployeeClient 
-                        ? '1px solid #bfdbfe' 
-                        : (isGuestClient 
-                          ? '1px solid #e2e8f0' 
-                          : (hasActivePlan 
-                            ? '1px solid #fce7f3' 
-                            : (!isGuestClient && isPendingPayment 
-                              ? '1.5px solid #fde68a' 
-                              : (!isGuestClient && isContractCancelled 
-                                ? '1.5px solid #fca5a5' 
+                      border: isEmployeeClient
+                        ? '1px solid #bfdbfe'
+                        : (isGuestClient
+                          ? '1px solid #e2e8f0'
+                          : (hasActivePlan
+                            ? '1px solid #fce7f3'
+                            : (!isGuestClient && isPendingPayment
+                              ? '1.5px solid #fde68a'
+                              : (!isGuestClient && isContractCancelled
+                                ? '1.5px solid #fca5a5'
                                 : '1px solid #e2e8f0')))),
-                      color: isEmployeeClient 
-                        ? '#1d4ed8' 
-                        : (isGuestClient 
-                          ? '#475569' 
-                          : (hasActivePlan 
-                            ? '#c026d3' 
-                            : (!isGuestClient && isPendingPayment 
-                              ? '#b45309' 
-                              : (!isGuestClient && isContractCancelled 
-                                ? '#dc2626' 
+                      color: isEmployeeClient
+                        ? '#1d4ed8'
+                        : (isGuestClient
+                          ? '#475569'
+                          : (hasActivePlan
+                            ? '#c026d3'
+                            : (!isGuestClient && isPendingPayment
+                              ? '#b45309'
+                              : (!isGuestClient && isContractCancelled
+                                ? '#dc2626'
                                 : '#64748b')))),
                       fontSize: '0.8rem',
                       fontWeight: 800,
@@ -3840,16 +3851,16 @@ const VisitRecorder = () => {
                       {!isGuestClient && isContractCancelled && !isPendingPayment && !hasActivePlan && <span style={{ fontSize: '0.85rem' }}>🚫</span>}
                       {!isEmployeeClient && !isGuestClient && !hasActivePlan && !isPendingPayment && !isContractCancelled && <span style={{ fontSize: '0.85rem' }}>👤</span>}
                       <span>
-                        {isEmployeeClient 
-                          ? 'Colaborador / Empleado' 
-                          : (isGuestClient 
-                            ? 'Cliente General' 
-                            : (hasActivePlan 
-                              ? 'Membresía Activo' 
-                              : (!isGuestClient && isPendingPayment 
-                                ? 'Suspendido falta de pago' 
-                                : (!isGuestClient && isContractCancelled 
-                                  ? 'Suscripción Cancelada' 
+                        {isEmployeeClient
+                          ? 'Colaborador / Empleado'
+                          : (isGuestClient
+                            ? 'Cliente General'
+                            : (hasActivePlan
+                              ? 'Membresía Activo'
+                              : (!isGuestClient && isPendingPayment
+                                ? 'Suspendido falta de pago'
+                                : (!isGuestClient && isContractCancelled
+                                  ? 'Suscripción Cancelada'
                                   : 'Cliente Registrado'))))}
                       </span>
                     </div>
@@ -4745,63 +4756,81 @@ const VisitRecorder = () => {
             </div>
           </div>
 
-          {/* FISCAL COMPROBANTE OPTION (DEFAULT: CONSUMO E32, OPTIONAL: CREDITO FISCAL E31) */}
-          {((finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty')) && !isCreditoFiscal) ? null : (
-            <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.55rem 0.75rem', borderRadius: '10px', background: isCreditoFiscal ? '#eff6ff' : '#f8fafc', border: `1.5px solid ${isCreditoFiscal ? '#3b82f6' : '#e2e8f0'}`, transition: 'all 0.15s ease' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', margin: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={isCreditoFiscal}
+          {/* SELECTOR EXPLÍCITO DE COMPROBANTE (RESPETA SELECCIÓN DEL OPERADOR: SIN COMPROBANTE O NCF CONVENCIONAL) */}
+          {((finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty')) && selectedComprobanteType === 'NONE' && !isCreditoFiscal) ? null : (() => {
+            const availList = (sequenceAvailability?.sequences || []).filter((s) => !s.is_electronic);
+            const uniqueTypes = [];
+            const seen = new Set();
+            availList.forEach((s) => {
+              if (!seen.has(s.tipo_comprobante)) {
+                seen.add(s.tipo_comprobante);
+                uniqueTypes.push(s);
+              }
+            });
+            const showRncFields = selectedComprobanteType === 'B01' || isCreditoFiscal;
+            return (
+              <div style={{ margin: '0.45rem 0 0.15rem', padding: '0.6rem 0.75rem', borderRadius: '10px', background: selectedComprobanteType !== 'NONE' ? '#eff6ff' : '#f8fafc', border: `1.5px solid ${selectedComprobanteType !== 'NONE' ? '#3b82f6' : '#e2e8f0'}`, transition: 'all 0.15s ease' }}>
+                <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#334155', marginBottom: '0.3rem', textTransform: 'uppercase' }}>
+                  Tipo de Comprobante
+                </label>
+                <select
+                  value={selectedComprobanteType}
                   onChange={(e) => {
-                    const checked = e.target.checked;
-                    setIsCreditoFiscal(checked);
-                    if (checked) {
+                    const val = e.target.value;
+                    setSelectedComprobanteType(val);
+                    const isB01 = val === 'B01';
+                    setIsCreditoFiscal(isB01);
+                    if (isB01) {
                       if (clientFound?.cedula && !clientRncInput) setClientRncInput(clientFound.cedula);
                       if ((clientFound?.nombre || clientFound?.name) && !clientRazonSocialInput) setClientRazonSocialInput(clientFound?.nombre || clientFound?.name);
                     }
                   }}
-                  style={{ width: '17px', height: '17px', accentColor: '#2563eb', cursor: 'pointer' }}
-                />
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: isCreditoFiscal ? '#1d4ed8' : '#334155' }}>
-                    ¿Factura con Crédito Fiscal (RNC)?
+                  style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.78rem', fontWeight: 700, background: '#ffffff', color: '#0f172a' }}
+                >
+                  <option value="NONE">Sin comprobante fiscal (Factura comercial)</option>
+                  {uniqueTypes.map((seq) => (
+                    <option key={seq.tipo_comprobante} value={seq.tipo_comprobante}>
+                      {seq.tipo_comprobante} - {seq.nombre_comprobante} ({seq.cantidad_disponible} disp.{seq.is_vencido ? ' · Vencida' : seq.is_agotado ? ' · Agotada' : ''})
+                    </option>
+                  ))}
+                </select>
+                {uniqueTypes.length === 0 && (
+                  <span style={{ display: 'block', marginTop: '0.3rem', fontSize: '0.68rem', color: '#64748b' }}>
+                    Sin secuencias NCF configuradas. Puedes facturar como comprobante comercial o configurar secuencias en Administración.
                   </span>
-                  <span style={{ fontSize: '0.675rem', color: isCreditoFiscal ? '#2563eb' : '#64748b' }}>
-                    {isCreditoFiscal ? '🔵 Emitir e-NCF E31 con valor fiscal' : '🟢 Por defecto: Factura de Consumo (E32)'}
-                  </span>
-                </div>
-              </label>
+                )}
 
-              {isCreditoFiscal && (
-                <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed #bfdbfe', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
-                      RNC / Cédula Receptor *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej: 131917038 o 001-0000000-0"
-                      value={clientRncInput}
-                      onChange={(e) => setClientRncInput(e.target.value)}
-                      style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
-                    />
+                {showRncFields && (
+                  <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed #bfdbfe', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
+                        RNC / Cédula Receptor *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: 000000000 o 001-0000000-0"
+                        value={clientRncInput}
+                        onChange={(e) => setClientRncInput(e.target.value)}
+                        style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
+                        Razón Social / Nombre Comercial * (Requerido para B01)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ej: Empresa SRL o Nombre"
+                        value={clientRazonSocialInput}
+                        onChange={(e) => setClientRazonSocialInput(e.target.value)}
+                        style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: '#1e40af', marginBottom: '2px' }}>
-                      Razón Social / Nombre Comercial * (Requerido para Crédito Fiscal E31)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ej: Empresa SRL o Nombre"
-                      value={clientRazonSocialInput}
-                      onChange={(e) => setClientRazonSocialInput(e.target.value)}
-                      style={{ width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '0.8rem', boxSizing: 'border-box', background: '#ffffff' }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            );
+          })()}
 
           {/* FINAL ACTION BUTTONS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.25rem' }}>
@@ -6813,16 +6842,16 @@ const VisitRecorder = () => {
               <button
                 onClick={handleCloseCashRegister}
                 disabled={loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01}
-                style={{ 
-                  flex: 1, 
-                  padding: '0.75rem', 
-                  borderRadius: '10px', 
-                  border: 'none', 
-                  background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : '#dc2626', 
-                  color: '#ffffff', 
-                  fontWeight: 800, 
-                  cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer', 
-                  opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1 
+                style={{
+                  flex: 1,
+                  padding: '0.75rem',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? '#94a3b8' : '#dc2626',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                  cursor: ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'not-allowed' : 'pointer',
+                  opacity: (loading || closeRegisterAmount === '' || ((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01) ? 0.6 : 1
                 }}
               >
                 {((parseFloat(closeRegisterAmount) || 0) - (registerSummary?.montoEstimadoEnCaja !== undefined ? Number(registerSummary.montoEstimadoEnCaja) : Number(activeRegister.monto_inicial || 0))) < -0.01 ? 'Bloqueado por faltante' : '🖨️ Cerrar e Imprimir Cuadre (Sobre 80mm)'}
@@ -7290,12 +7319,12 @@ const VisitRecorder = () => {
                           {isAvailable ? '✓' : '✕'}
                         </div>
                         <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isAvailable ? '#1e293b' : '#64748b' }}>
-                          {isPendingPayment 
-                            ? '0/4 Lavados y Secados (Suspendido)' 
-                            : (isContractCancelled 
-                              ? '0/4 Lavados y Secados (Cancelado)' 
-                              : (regCount > 0 
-                                ? `${regCount}/${totalAllowed} Lavados y Secados` 
+                          {isPendingPayment
+                            ? '0/4 Lavados y Secados (Suspendido)'
+                            : (isContractCancelled
+                              ? '0/4 Lavados y Secados (Cancelado)'
+                              : (regCount > 0
+                                ? `${regCount}/${totalAllowed} Lavados y Secados`
                                 : `0/${totalAllowed} Lavados y Secados (Agotados en este ciclo)`))}
                         </span>
                       </div>
@@ -7313,10 +7342,10 @@ const VisitRecorder = () => {
                           {isAvailable ? '✓' : '✕'}
                         </div>
                         <span style={{ fontSize: '0.95rem', fontWeight: 700, color: isAvailable ? '#1e293b' : '#64748b' }}>
-                          {(isPendingPayment || isContractCancelled) 
-                            ? 'Sin tratamientos bonificados' 
-                            : (extraCount > 0 
-                              ? `${extraCount}/1 Lavado y secado extra o 1 uso de tratamiento profundo` 
+                          {(isPendingPayment || isContractCancelled)
+                            ? 'Sin tratamientos bonificados'
+                            : (extraCount > 0
+                              ? `${extraCount}/1 Lavado y secado extra o 1 uso de tratamiento profundo`
                               : '0/1 Lavado y secado extra o tratamiento profundo (Agotado)')}
                         </span>
                       </div>

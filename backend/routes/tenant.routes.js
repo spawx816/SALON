@@ -48,6 +48,21 @@ function createTenantRouter(pool, options = {}) {
       }
 
       const branding = await tenantBrandingService.getBranding(tenantId);
+      if (pool) {
+        const [tRows] = await pool.query(
+          'SELECT business_name, rnc, address, phone FROM tenants WHERE id = ? LIMIT 1',
+          [tenantId]
+        ).catch(() => [[]]);
+        const tenantRow = tRows?.[0];
+        if (tenantRow) {
+          if (tenantRow.business_name && (branding.is_default || !branding.business_name || branding.business_name === 'SalonPro')) {
+            branding.business_name = tenantRow.business_name;
+          }
+          if (!branding.rnc && tenantRow.rnc) branding.rnc = tenantRow.rnc;
+          if (!branding.address && tenantRow.address) branding.address = tenantRow.address;
+          if (!branding.phone && tenantRow.phone) branding.phone = tenantRow.phone;
+        }
+      }
       res.json(branding);
     } catch (err) {
       console.error('Error fetching tenant branding:', err);

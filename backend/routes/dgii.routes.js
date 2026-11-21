@@ -190,11 +190,25 @@ function createDgiiRouter(pool) {
           };
         }
       });
+      const alerts = decorated
+        .filter((r) => !r.is_electronic && (r.is_agotado || r.is_vencido || r.is_alerta_minima))
+        .map((r) => ({
+          tipo_comprobante: r.tipo_comprobante,
+          level: r.is_agotado || r.is_vencido ? 'exhausted' : 'warning',
+          message: r.is_vencido
+            ? `Secuencia ${r.tipo_comprobante} vencida.`
+            : (r.is_agotado
+                ? `Secuencia ${r.tipo_comprobante} agotada (0 disponibles).`
+                : `Secuencia ${r.tipo_comprobante} por agotarse (${r.cantidad_disponible} disponibles).`),
+        }));
+
       res.json({
+        success: true,
         dgiiEnabled: electronicEnabled,
         dgiiElectronicEnabled: electronicEnabled,
         sequences: decorated,
         byType: map,
+        alerts,
       });
     } catch (err) {
       res.status(500).json({ error: err.message });

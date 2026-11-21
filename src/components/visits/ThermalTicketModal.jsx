@@ -307,7 +307,9 @@ export const ThermalTicketModal = ({
 
               {ticket.ncf && !ticket.isPrecuenta && (
                 <div style={{ display: 'flex', alignItems: 'baseline', marginBottom: '2px', background: '#f8fafc', border: '1px solid #000000', padding: '1px 3px', borderRadius: '2px' }}>
-                  <span style={{ fontWeight: 900, minWidth: '50px' }}>e-NCF:</span>
+                  <span style={{ fontWeight: 900, minWidth: '50px' }}>
+                    {String(ticket.ncf).toUpperCase().startsWith('E') ? 'e-NCF:' : 'NCF:'}
+                  </span>
                   <span style={{ fontWeight: 900, fontSize: '11px', letterSpacing: '0.5px' }}>
                     {ticket.ncf}
                   </span>

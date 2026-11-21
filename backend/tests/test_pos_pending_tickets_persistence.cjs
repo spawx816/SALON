@@ -374,13 +374,42 @@ async function main() {
     assert.strictEqual(billExpB01.status, 409);
     assert.strictEqual(billExpB01.body.code, 'NCF_SEQUENCE_EXPIRED');
 
-    // Consumir primer número B0200000001 en ticket comercial (sin DGII) + verificar protección de secuencia en uso
+    // Verificar que /api/tenant/branding devuelve business_name real (nunca fallback 'SalonPro') y /api/dgii/sequences/availability devuelve success: true
+    const brandingRes = await reqJson(baseUrl, 'GET', '/api/tenant/branding', { cookie: ownerA.cookie });
+    assert.strictEqual(brandingRes.status, 200);
+    assert.ok(String(brandingRes.body?.business_name || '').includes('POS Tickets A'), `Branding debe devolver nombre real de empresa, got ${brandingRes.body?.business_name}`);
+
+    const availBefore = await reqJson(baseUrl, 'GET', '/api/dgii/sequences/availability', { cookie: opA.cookie });
+    assert.strictEqual(availBefore.status, 200);
+    assert.strictEqual(availBefore.body.success, true, 'availability debe devolver success: true para que VisitRecorder cargue las secuencias');
+    assert.strictEqual(availBefore.body.byType.B02.remaining, 2, 'B02 debe reportar 2 disponibles antes de facturar');
+
+    // Precuenta NO consume secuencia B02
+    const precuentaRes = await reqJson(baseUrl, 'POST', '/api/visits/precuenta', {
+      cookie: opA.cookie,
+      body: { ticket_id: tktEcfBlock.body.id, salon_id: BRANCH_A, client_name: 'Cliente Precuenta', total: 800 },
+    });
+    assert.ok([200, 201].includes(precuentaRes.status));
+    const availAfterPrecuenta = await reqJson(baseUrl, 'GET', '/api/dgii/sequences/availability', { cookie: opA.cookie });
+    assert.strictEqual(availAfterPrecuenta.body.byType.B02.remaining, 2, 'Imprimir/registrar precuenta NO debe consumir B02');
+
+    // Consumir primer número B0200000001 en ticket comercial (sin DGII) + verificar que disponibilidad baja de 2 a 1
     const billB02One = await reqJson(baseUrl, 'POST', `/api/visits/${tktEcfBlock.body.id}/checkout`, {
       cookie: opA.cookie,
       body: { client_id: 'INVITADO', client_name: 'Cliente Consumo B02 #1', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], subtotal: 800, descuento: 0, total: 800, metodo_pago: 'Efectivo', pago_efectivo: 800, cash_register_id: CASH_REG_ID, ncf_type: 'B02' },
     });
     assert.strictEqual(billB02One.status, 200, `Facturar B02 #1 falló: ${billB02One.status} ${JSON.stringify(billB02One.body)}`);
     assert.strictEqual(billB02One.body.ncf, 'B0200000001');
+
+    const availAfterOne = await reqJson(baseUrl, 'GET', '/api/dgii/sequences/availability', { cookie: opA.cookie });
+    assert.strictEqual(availAfterOne.body.byType.B02.remaining, 1, 'Disponibilidad B02 debe bajar de 2 a 1 tras facturar');
+
+    // Reimpresión / consulta del documento persistido NO consume otro número (permanece en 1)
+    const reprintFetch = await reqJson(baseUrl, 'GET', `/api/cash-registers/${CASH_REG_ID}/invoices`, { cookie: opA.cookie });
+    assert.strictEqual(reprintFetch.status, 200);
+    assert.ok((reprintFetch.body || []).some((v) => v.ncf === 'B0200000001'), 'Factura persistida debe conservar NCF B0200000001');
+    const availAfterReprint = await reqJson(baseUrl, 'GET', '/api/dgii/sequences/availability', { cookie: opA.cookie });
+    assert.strictEqual(availAfterReprint.body.byType.B02.remaining, 1, 'Reimprimir/consultar factura NO debe consumir otro NCF');
 
     // Proteger secuencia con uso: no permitir eliminar ni retroceder secuencia_actual
     const delUsed = await reqJson(baseUrl, 'DELETE', `/api/dgii/sequences/${B02_SEQ_ID}`, { cookie: ownerA.cookie });
@@ -551,6 +580,8 @@ async function main() {
     await invPage.waitForFunction(() => document.body.innerText.includes('B0200000002'), { timeout: 15000 });
     const invBodyText = await invPage.evaluate(() => document.body.innerText);
     assert.ok(!invBodyText.includes('Aceptado por DGII'), 'Factura local no debe mostrar "Aceptado por DGII"');
+    assert.ok(!invBodyText.includes('Pendiente de Facturar ante la DGII'), 'Factura local no debe mostrar "Pendiente de Facturar ante la DGII"');
+    assert.ok(!invBodyText.includes('131917038'), 'No debe mostrar RNC hardcodeado 131917038');
     await browser.close();
     browser = null;
     console.log('  ✅ 3. Facturación concurrente (B02) sobre ticket mixto: B0200000002 único, bloqueo rango agotado (409), stock 10->8, comisión RD$80 y /facturas tras recarga PASS.');
