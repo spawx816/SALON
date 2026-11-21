@@ -52,8 +52,7 @@ const Payments = lazyWithRetry(() => import('./components/admin/Payments'), 'Pay
 const PlansModule = lazyWithRetry(() => import('./components/admin/PlansModule'), 'PlansModule');
 const ClientProfile = lazyWithRetry(() => import('./components/clients/ClientProfile'), 'ClientProfile');
 const MarketingModule = lazyWithRetry(() => import('./components/admin/MarketingModule'), 'MarketingModule');
-const ServiceAnalytics = lazyWithRetry(() => import('./components/admin/ServiceAnalytics'), 'ServiceAnalytics');
-const BusinessIntelligence = lazyWithRetry(() => import('./components/bi/BusinessIntelligence'), 'BusinessIntelligence');
+const AnalyticsContainer = lazyWithRetry(() => import('./components/admin/AnalyticsContainer'), 'AnalyticsContainer');
 const StaffModule = lazyWithRetry(() => import('./components/admin/StaffModule'), 'StaffModule');
 const SalonsModule = lazyWithRetry(() => import('./components/admin/SalonsModule'), 'SalonsModule');
 const SettingsModule = lazyWithRetry(() => import('./components/admin/SettingsModule'), 'SettingsModule');
@@ -1203,7 +1202,7 @@ const AppContent = () => {
                   <Route path="/planes" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!(isAdmin || user?.permissions?.manage_plans) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Suscripciones y Membresías B2C" /> : <PlansModule />))} />
                   <Route path="/pagos" element={isSuperAdmin ? <Navigate to="/saas" replace /> : (!(isAdmin || user?.permissions?.process_payments) ? <Navigate to="/" replace /> : (!hasProPlan ? <FeatureForbiddenGate featureName="El add-on de Cobros Recurrentes de Membresías" /> : <Payments />))} />
                   <Route path="/marketing" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.manage_marketing) ? <MarketingModule /> : <Navigate to="/" replace />)} />
-                  <Route path="/analitica" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <ServiceAnalytics /> : <Navigate to="/" />)} />
+                  <Route path="/analitica" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <AnalyticsContainer /> : <Navigate to="/" />)} />
                   <Route path="/bi" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />)} />
                   <Route path="/inteligencia-negocios" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || user?.permissions?.view_analytics) ? <Navigate to="/analitica?tab=bi_executive" replace /> : <Navigate to="/" />)} />
                   <Route path="/contabilidad" element={isSuperAdmin ? <Navigate to="/saas" replace /> : ((isAdmin || isAccountant) ? <Navigate to="/egresos" replace /> : <Navigate to="/" />)} />

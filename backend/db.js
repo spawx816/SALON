@@ -1,5 +1,4 @@
 const { Pool } = require('pg');
-const mysql = require('mysql2/promise');
 const path = require('path');
 if (process.env.NODE_ENV !== 'test') {
   require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -14,9 +13,24 @@ if (missingDbVars.length > 0) {
   throw new Error(fatalMsg);
 }
 
+const DB_TYPE_NORMALIZED = String(process.env.DB_TYPE || '').trim().toLowerCase();
+const RUNTIME_ENV = String(process.env.APP_ENV || process.env.NODE_ENV || '').trim().toLowerCase();
+const IS_PROTECTED_ENV = RUNTIME_ENV === 'production' || RUNTIME_ENV === 'staging';
+
+if (IS_PROTECTED_ENV && DB_TYPE_NORMALIZED !== 'postgres') {
+  const fatalMsg = `FATAL SECURITY DEFENSE: DB_TYPE="${process.env.DB_TYPE}" rechazado en entorno "${RUNTIME_ENV}". En staging/producción solo se permite DB_TYPE=postgres.`;
+  console.error(`\n❌ [SECURITY HALT] ${fatalMsg}\n`);
+  throw new Error(fatalMsg);
+}
+if (DB_TYPE_NORMALIZED !== 'postgres' && DB_TYPE_NORMALIZED !== 'mysql') {
+  const fatalMsg = `FATAL SECURITY DEFENSE: DB_TYPE="${process.env.DB_TYPE}" no reconocido. Valores válidos: "postgres" (canónico) o "mysql" (solo desarrollo legado).`;
+  console.error(`\n❌ [SECURITY HALT] ${fatalMsg}\n`);
+  throw new Error(fatalMsg);
+}
+
 let pool;
 
-if (process.env.DB_TYPE === 'postgres') {
+if (DB_TYPE_NORMALIZED === 'postgres') {
   const timeoutRole = process.env.DB_TIMEOUT_ROLE || process.env.DB_ROLE || 'runtime';
   let defaultStatementTimeout = 10000; // 10s for runtime
   let defaultLockTimeout = 5000;       // 5s for runtime
@@ -219,7 +233,8 @@ if (process.env.DB_TYPE === 'postgres') {
   };
 
   console.log(`🔌 [DB] Usando PostgreSQL Adapter (${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME})`);
-} else {
+} else if (DB_TYPE_NORMALIZED === 'mysql') {
+  const mysql = require('mysql2/promise');
   pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,

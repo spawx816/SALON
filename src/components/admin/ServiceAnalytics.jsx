@@ -10,7 +10,6 @@ import { dataService } from '../../utils/dataService';
 import { useTranslation } from '../../context/LanguageContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import InvoiceHistory from './InvoiceHistory';
-import BusinessIntelligence from '../bi/BusinessIntelligence';
 import { formatName } from '../../utils/formatters';
 
 const normalizeQuery = (text) => {
@@ -21,7 +20,7 @@ const normalizeQuery = (text) => {
     .trim();
 };
 
-const ServiceAnalytics = () => {
+const ServiceAnalytics = ({ renderBiView = null }) => {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [salons, setSalons] = useState([]);
@@ -138,7 +137,9 @@ const ServiceAnalytics = () => {
     switch (activeReport) {
       // 0. Nuevo Tablero BI Ejecutivo
       case 'bi_executive':
-        return <BusinessIntelligence standalone={false} />;
+        return typeof renderBiView === 'function'
+          ? renderBiView({ onOpenClassicView: () => handleTabChange('sales') })
+          : null;
 
       // 1. Facturas & Ventas (InvoiceHistory)
       case 'invoices':

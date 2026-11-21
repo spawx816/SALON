@@ -19,9 +19,8 @@ import { BIDetailTable } from './BIDetailTable';
 import { exportReportToExcel, exportReportToCSV, triggerPrintReport } from './biExport';
 import { dataService } from '../../utils/dataService';
 import { useSearchParams } from 'react-router-dom';
-import ServiceAnalytics from '../admin/ServiceAnalytics';
 
-export const BusinessIntelligence = ({ standalone = true }) => {
+export const BusinessIntelligence = ({ standalone = true, onOpenClassicView = null, renderClassicView = null }) => {
   const [searchParams] = useSearchParams();
   const urlCategory = searchParams ? searchParams.get('category') : null;
   const urlReport = searchParams ? searchParams.get('report') : null;
@@ -706,7 +705,7 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             ← Volver a Nuevo BI (30 Reportes)
           </button>
         </div>
-        <ServiceAnalytics />
+        {typeof renderClassicView === 'function' ? renderClassicView() : null}
       </div>
     );
   }
@@ -850,7 +849,13 @@ export const BusinessIntelligence = ({ standalone = true }) => {
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('classic')}
+              onClick={() => {
+                if (typeof onOpenClassicView === 'function') {
+                  onOpenClassicView();
+                } else {
+                  setViewMode('classic');
+                }
+              }}
               style={{
                 padding: '0.35rem 0.85rem',
                 fontSize: '0.8rem',

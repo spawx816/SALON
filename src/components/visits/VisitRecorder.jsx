@@ -4986,11 +4986,11 @@ const VisitRecorder = () => {
             {/* Header */}
             <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
               <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.85rem', fontSize: '1.75rem' }}>
-                &#128196;
+                📄
               </div>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a' }}>Cargar a N&oacute;mina</h3>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a' }}>Cargar a Nómina</h3>
               <p style={{ margin: '0.3rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
-                RD$ {finalTotalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })} ser&aacute; descontado de la pr&oacute;xima n&oacute;mina del colaborador.
+                RD$ {finalTotalAmount.toLocaleString('es-DO', { minimumFractionDigits: 2 })} será descontado de la próxima nómina del colaborador.
               </p>
             </div>
 
@@ -5774,7 +5774,7 @@ const VisitRecorder = () => {
           <div style={{ background: '#ffffff', width: '100%', maxWidth: '560px', borderRadius: '16px', padding: '1.5rem', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
               <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>
-                📋 Historial Completo de Visitas & Facturación
+                📋 Historial Completo de Visitas {'&'} Facturación
               </h3>
               <button onClick={() => setShowHistoryModal(false)} style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer' }}>
                 <X size={20} />

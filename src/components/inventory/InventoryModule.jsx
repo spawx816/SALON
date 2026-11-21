@@ -340,7 +340,7 @@ export default function InventoryModule() {
             color: activeTab === 'stock' ? '#2563eb' : '#64748b', fontWeight: 600, cursor: 'pointer'
           }}
         >
-          Existencias & Alertas (Base)
+          Existencias {'&'} Alertas (Base)
         </button>
         <button
           onClick={() => setActiveTab('movements')}
