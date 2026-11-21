@@ -94,23 +94,39 @@ function createDgiiRouter(pool) {
   router.post('/sequences', createQuarantineGuard(pool, 'ticket_sequences', req => req.body.id), async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { id, type_code, prefix, name, current_number, max_number, expiration_date, is_active = 1 } = req.body;
-      if (!type_code || !prefix) {
+      const {
+        id,
+        type_code, tipo_comprobante,
+        prefix, serie,
+        name, nombre_comprobante,
+        current_number, secuencia_actual,
+        max_number, secuencia_hasta,
+        expiration_date, fecha_vencimiento,
+        is_active = 1, estado
+      } = req.body;
+      const resolvedTipo = String(tipo_comprobante || type_code || '').trim();
+      const resolvedSerie = String(serie || prefix || (resolvedTipo ? resolvedTipo.charAt(0) : '')).trim();
+      if (!resolvedTipo || !resolvedSerie) {
         return res.status(400).json({ error: 'Código de tipo y prefijo son obligatorios' });
       }
+      const resolvedNombre = String(nombre_comprobante || name || resolvedTipo).trim();
+      const resolvedActual = Number(secuencia_actual ?? current_number) || 1;
+      const resolvedHasta = Number(secuencia_hasta ?? max_number) || 1000;
+      const resolvedVenc = fecha_vencimiento || expiration_date || '2026-12-31';
+      const resolvedEstado = estado || (is_active ? 'Activo' : 'Inactivo');
 
       if (id) {
         await pool.query(
           `UPDATE dgii_ncf_sequences SET
-             type_code = ?, prefix = ?, name = ?, current_number = ?, max_number = ?, expiration_date = ?, is_active = ?
+             tipo_comprobante = ?, serie = ?, nombre_comprobante = ?, secuencia_actual = ?, secuencia_hasta = ?, fecha_vencimiento = ?, estado = ?
            WHERE id = ? AND tenant_id = ?`,
-          [type_code, prefix, name || prefix, Number(current_number) || 1, Number(max_number) || 1000, expiration_date || '2026-12-31', is_active ? 1 : 0, id, tenantId]
+          [resolvedTipo, resolvedSerie, resolvedNombre, resolvedActual, resolvedHasta, resolvedVenc, resolvedEstado, id, tenantId]
         );
       } else {
         await pool.query(
-          `INSERT INTO dgii_ncf_sequences (tenant_id, type_code, prefix, name, current_number, max_number, expiration_date, is_active)
+          `INSERT INTO dgii_ncf_sequences (tenant_id, tipo_comprobante, serie, nombre_comprobante, secuencia_actual, secuencia_hasta, fecha_vencimiento, estado)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [tenantId, type_code, prefix, name || prefix, Number(current_number) || 1, Number(max_number) || 1000, expiration_date || '2026-12-31', is_active ? 1 : 0]
+          [tenantId, resolvedTipo, resolvedSerie, resolvedNombre, resolvedActual, resolvedHasta, resolvedVenc, resolvedEstado]
         );
       }
       res.json({ success: true });

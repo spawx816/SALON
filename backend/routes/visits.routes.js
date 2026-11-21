@@ -935,24 +935,44 @@ function createVisitsRouter(pool, helpers = {}) {
         return res.status(503).json({ error: 'SIMULATED_PROCESS_CRASH_ABORT', code: 'SIMULATED_CRASH' });
       }
 
-      // 8. Secuencia NCF dentro de la transacción
+      // 8. Secuencia NCF dentro de la transacción (solo si DGII está habilitado; una factura comercial nunca depende de DGII deshabilitada)
       let assignedNcf = null;
       let assignedNcfName = null;
-      if (ncf_type && ncf_type !== 'none' && ncf_type !== '00') {
+      const normalizedNcfType = String(ncf_type || '').trim().toUpperCase();
+      const dgiiEmissionEnabled =
+        process.env.DGII_ENABLED === 'true' &&
+        String(process.env.DGII_MODE || '').toLowerCase() !== 'disabled' &&
+        String(process.env.DGII_ENV || '').toLowerCase() !== 'disabled';
+      if (dgiiEmissionEnabled && normalizedNcfType && normalizedNcfType !== 'NONE' && normalizedNcfType !== '00') {
         const [seqRows] = await db.query(
-          'SELECT * FROM dgii_ncf_sequences WHERE tenant_id = ? AND type_code = ? AND is_active = 1 LIMIT 1 FOR UPDATE',
-          [tenantId, ncf_type]
+          `SELECT * FROM dgii_ncf_sequences
+           WHERE tenant_id = ?
+             AND tipo_comprobante = ?
+             AND (estado = 'Activo' OR estado = '1')
+             AND COALESCE(secuencia_actual, 1) <= COALESCE(secuencia_hasta, 0)
+           ORDER BY id ASC
+           LIMIT 1
+           FOR UPDATE`,
+          [tenantId, normalizedNcfType]
         );
         if (seqRows.length > 0) {
           const seq = seqRows[0];
-          const nextNum = Number(seq.current_number || 1);
-          const padLen = String(seq.prefix || '').startsWith('E') ? 10 : 8;
-          assignedNcf = `${seq.prefix}${String(nextNum).padStart(padLen, '0')}`;
-          assignedNcfName = seq.name;
+          const nextNum = Number(seq.secuencia_actual || 1);
+          const maxNum = Number(seq.secuencia_hasta || 0);
+          const prefix = String(seq.tipo_comprobante || seq.serie || normalizedNcfType).trim();
+          const padLen = prefix.startsWith('E') ? 10 : 8;
+          assignedNcf = `${prefix}${String(nextNum).padStart(padLen, '0')}`;
+          assignedNcfName = seq.nombre_comprobante || null;
+
+          const newSecuenciaActual = nextNum + 1;
+          const newCantidadUsada = Number(seq.cantidad_usada || 0) + 1;
+          const newEstado = (maxNum > 0 && newSecuenciaActual > maxNum) ? 'Agotado' : 'Activo';
 
           await db.query(
-            'UPDATE dgii_ncf_sequences SET current_number = current_number + 1 WHERE id = ? AND tenant_id = ?',
-            [seq.id, tenantId]
+            `UPDATE dgii_ncf_sequences
+             SET secuencia_actual = ?, cantidad_usada = ?, estado = ?
+             WHERE id = ? AND tenant_id = ?`,
+            [newSecuenciaActual, newCantidadUsada, newEstado, seq.id, tenantId]
           );
         }
       }
