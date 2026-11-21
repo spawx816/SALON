@@ -554,7 +554,7 @@ export default function SaasBillingModule() {
               {branchesLimit} {branchesLimit === 1 ? 'sucursal incluida' : 'sucursales incluidas'} · Hasta {usersLimit} usuarios
             </p>
             <p className="sb-meta-text" style={{ marginTop: '4px' }}>
-              Incluye POS, cajas, comprobantes DGII e-CF, Clientes/CRM, inventario avanzado, nómina, comisiones, marketing y reportes.
+              Incluye POS, cajas, facturación y gestión de comprobantes, Clientes/CRM, inventario avanzado, nómina, comisiones, marketing y reportes. Integración de facturación electrónica DGII: contratación y habilitación por separado.
             </p>
           </div>
         </section>

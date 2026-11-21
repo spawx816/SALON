@@ -305,7 +305,7 @@ async function main() {
     assert.strictEqual(Number(stockBefore.body.quantity), 10);
     assert.strictEqual(commBefore[0].cnt, 0);
 
-    // Facturar ticket solo-servicio con cliente INVITADO + ncf_type: 'E32' (caso exacto del fallo "column type_code does not exist")
+    // Facturar ticket solo-servicio con cliente INVITADO + ncf_type: 'NONE' (factura comercial sin DGII)
     const billSrv = await reqJson(baseUrl, 'POST', `/api/visits/${TKT_SRV_ID}/checkout`, {
       cookie: opA.cookie,
       body: {
@@ -320,51 +320,78 @@ async function main() {
         metodo_pago: 'Efectivo',
         pago_efectivo: 800,
         cash_register_id: CASH_REG_ID,
-        ncf_type: 'E32',
+        ncf_type: 'NONE',
       },
     });
-    assert.strictEqual(billSrv.status, 200, `Facturar ticket invitado (E32 con DGII disabled) falló: ${billSrv.status} ${JSON.stringify(billSrv.body)}`);
+    assert.strictEqual(billSrv.status, 200, `Facturar ticket invitado comercial falló: ${billSrv.status} ${JSON.stringify(billSrv.body)}`);
     assert.strictEqual(billSrv.body.status, 'Facturado');
-    assert.strictEqual(billSrv.body.ncf || null, null, 'Con DGII deshabilitado no debe emitir NCF fiscal');
+    assert.strictEqual(billSrv.body.ncf || null, null, 'Factura comercial sin secuencia no debe emitir NCF');
 
-    // Verificar contrato canónico de secuencias DGII (POST/GET /api/dgii/sequences) sin error type_code y sin consumo con DGII disabled
-    const saveSeq = await reqJson(baseUrl, 'POST', '/api/dgii/sequences', {
+    // Bloqueo explícito de e-CF electrónico (E32 / E31) cuando la integración electrónica DGII está deshabilitada
+    const tktEcfBlock = await reqJson(baseUrl, 'POST', '/api/visits/ticket', {
+      cookie: opA.cookie,
+      body: { clientId: 'INVITADO', clientName: 'Intento e-CF Bloqueado', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], total: 800 },
+    });
+    assert.strictEqual(tktEcfBlock.status, 201);
+    const billE32Blocked = await reqJson(baseUrl, 'POST', `/api/visits/${tktEcfBlock.body.id}/checkout`, {
+      cookie: opA.cookie,
+      body: { client_id: 'INVITADO', client_name: 'Intento e-CF Bloqueado', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], subtotal: 800, descuento: 0, total: 800, metodo_pago: 'Efectivo', pago_efectivo: 800, cash_register_id: CASH_REG_ID, ncf_type: 'E32' },
+    });
+    assert.strictEqual(billE32Blocked.status, 409, `e-CF sin integración debe bloquearse con 409: ${billE32Blocked.status}`);
+    assert.strictEqual(billE32Blocked.body.code, 'NCF_ECF_INTEGRATION_REQUIRED');
+
+    // Configurar secuencia comercial B02 (rango 1..2, alerta mínima 1) + validar solapamiento y aislamiento multi-tenant
+    const saveB02 = await reqJson(baseUrl, 'POST', '/api/dgii/sequences', {
       cookie: ownerA.cookie,
-      body: { type_code: 'E32', prefix: 'E', name: 'Factura de Consumo Electrónica', current_number: 1, max_number: 500, expiration_date: '2026-12-31', is_active: 1 },
+      body: { tipo_comprobante: 'B02', serie: 'B02', nombre_comprobante: 'Factura de Consumo', secuencia_desde: 1, secuencia_hasta: 2, secuencia_actual: 1, fecha_vencimiento: '2027-12-31', alerta_minima: 1 },
     });
-    assert.strictEqual(saveSeq.status, 200, `Guardar secuencia DGII canónica falló: ${saveSeq.status} ${JSON.stringify(saveSeq.body)}`);
-    const listSeq = await reqJson(baseUrl, 'GET', '/api/dgii/sequences', { cookie: ownerA.cookie });
-    assert.strictEqual(listSeq.status, 200);
-    assert.ok((listSeq.body || []).some((s) => s.tipo_comprobante === 'E32' && Number(s.secuencia_actual) === 1), 'Secuencia E32 debe persistirse en columnas canónicas');
+    assert.strictEqual(saveB02.status, 200, `Guardar secuencia B02 falló: ${saveB02.status} ${JSON.stringify(saveB02.body)}`);
+    const B02_SEQ_ID = saveB02.body.id;
 
-    // También validar modalidad E31 (Crédito Fiscal) y NONE (sin comprobante) con DGII disabled -> no consumen secuencia ni fallan
-    const tktE31 = await reqJson(baseUrl, 'POST', '/api/visits/ticket', {
-      cookie: opA.cookie,
-      body: { clientId: 'INVITADO', clientName: 'Cliente E31 Comercial', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], total: 800 },
+    // Solapamiento de rango -> 409 NCF_RANGE_OVERLAP
+    const overlapB02 = await reqJson(baseUrl, 'POST', '/api/dgii/sequences', {
+      cookie: ownerA.cookie,
+      body: { tipo_comprobante: 'B02', serie: 'B02', nombre_comprobante: 'B02 Solapada', secuencia_desde: 2, secuencia_hasta: 10, secuencia_actual: 2, fecha_vencimiento: '2027-12-31' },
     });
-    assert.strictEqual(tktE31.status, 201);
-    const billE31 = await reqJson(baseUrl, 'POST', `/api/visits/${tktE31.body.id}/checkout`, {
-      cookie: opA.cookie,
-      body: { client_id: 'INVITADO', client_name: 'Cliente E31 Comercial', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], subtotal: 800, descuento: 0, total: 800, metodo_pago: 'Transferencia', pago_transferencia: 800, cash_register_id: CASH_REG_ID, ncf_type: 'E31', rnc_cliente: '131000001', rzn_soc_cliente: 'Empresa Test SRL' },
-    });
-    assert.strictEqual(billE31.status, 200, `Facturar E31 con DGII disabled falló: ${billE31.status} ${JSON.stringify(billE31.body)}`);
-    assert.strictEqual(billE31.body.status, 'Facturado');
+    assert.strictEqual(overlapB02.status, 409);
+    assert.strictEqual(overlapB02.body.code, 'NCF_RANGE_OVERLAP');
 
-    const tktNone = await reqJson(baseUrl, 'POST', '/api/visits/ticket', {
-      cookie: opA.cookie,
-      body: { clientId: 'INVITADO', clientName: 'Cliente Sin NCF', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], total: 800 },
-    });
-    assert.strictEqual(tktNone.status, 201);
-    const billNone = await reqJson(baseUrl, 'POST', `/api/visits/${tktNone.body.id}/checkout`, {
-      cookie: opA.cookie,
-      body: { client_id: 'INVITADO', client_name: 'Cliente Sin NCF', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], subtotal: 800, descuento: 0, total: 800, metodo_pago: 'Tarjeta', pago_tarjeta: 800, cash_register_id: CASH_REG_ID, ncf_type: 'NONE' },
-    });
-    assert.strictEqual(billNone.status, 200, `Facturar NONE falló: ${billNone.status} ${JSON.stringify(billNone.body)}`);
-    assert.strictEqual(billNone.body.status, 'Facturado');
+    // Aislamiento entre empresas: Tenant B no ve secuencias de Tenant A
+    const listSeqB = await reqJson(baseUrl, 'GET', '/api/dgii/sequences', { cookie: ownerB.cookie });
+    assert.strictEqual(listSeqB.status, 200);
+    assert.strictEqual((listSeqB.body || []).length, 0, 'Tenant B no debe ver secuencias de Tenant A');
 
-    const [seqAfterDisabled] = await pool.query("SELECT secuencia_actual, cantidad_usada FROM dgii_ncf_sequences WHERE tenant_id = ? AND tipo_comprobante = 'E32'", [TENANT_A]);
-    assert.strictEqual(Number(seqAfterDisabled[0].secuencia_actual), 1, 'DGII deshabilitada no debe consumir secuencia fiscal');
-    assert.strictEqual(Number(seqAfterDisabled[0].cantidad_usada), 0, 'DGII deshabilitada no debe incrementar cantidad_usada');
+    // Secuencia vencida B01 -> checkout debe bloquearse con 409 NCF_SEQUENCE_EXPIRED
+    const saveExpB01 = await reqJson(baseUrl, 'POST', '/api/dgii/sequences', {
+      cookie: ownerA.cookie,
+      body: { tipo_comprobante: 'B01', serie: 'B01', nombre_comprobante: 'Crédito Fiscal Vencido', secuencia_desde: 1, secuencia_hasta: 10, secuencia_actual: 1, fecha_vencimiento: '2020-01-01' },
+    });
+    assert.strictEqual(saveExpB01.status, 200);
+    const billExpB01 = await reqJson(baseUrl, 'POST', `/api/visits/${tktEcfBlock.body.id}/checkout`, {
+      cookie: opA.cookie,
+      body: { client_id: 'INVITADO', client_name: 'Intento e-CF Bloqueado', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], subtotal: 800, descuento: 0, total: 800, metodo_pago: 'Efectivo', pago_efectivo: 800, cash_register_id: CASH_REG_ID, ncf_type: 'B01' },
+    });
+    assert.strictEqual(billExpB01.status, 409);
+    assert.strictEqual(billExpB01.body.code, 'NCF_SEQUENCE_EXPIRED');
+
+    // Consumir primer número B0200000001 en ticket comercial (sin DGII) + verificar protección de secuencia en uso
+    const billB02One = await reqJson(baseUrl, 'POST', `/api/visits/${tktEcfBlock.body.id}/checkout`, {
+      cookie: opA.cookie,
+      body: { client_id: 'INVITADO', client_name: 'Cliente Consumo B02 #1', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], subtotal: 800, descuento: 0, total: 800, metodo_pago: 'Efectivo', pago_efectivo: 800, cash_register_id: CASH_REG_ID, ncf_type: 'B02' },
+    });
+    assert.strictEqual(billB02One.status, 200, `Facturar B02 #1 falló: ${billB02One.status} ${JSON.stringify(billB02One.body)}`);
+    assert.strictEqual(billB02One.body.ncf, 'B0200000001');
+
+    // Proteger secuencia con uso: no permitir eliminar ni retroceder secuencia_actual
+    const delUsed = await reqJson(baseUrl, 'DELETE', `/api/dgii/sequences/${B02_SEQ_ID}`, { cookie: ownerA.cookie });
+    assert.strictEqual(delUsed.status, 409);
+    assert.strictEqual(delUsed.body.code, 'NCF_SEQUENCE_IN_USE');
+    const rewindUsed = await reqJson(baseUrl, 'PUT', `/api/dgii/sequences/${B02_SEQ_ID}`, {
+      cookie: ownerA.cookie,
+      body: { tipo_comprobante: 'B02', serie: 'B02', nombre_comprobante: 'Factura de Consumo', secuencia_desde: 1, secuencia_hasta: 2, secuencia_actual: 1, fecha_vencimiento: '2027-12-31' },
+    });
+    assert.strictEqual(rewindUsed.status, 409);
+    assert.strictEqual(rewindUsed.body.code, 'NCF_SEQUENCE_IN_USE');
 
     // Editar borrador sobre ticket ya Facturado -> 409 TICKET_NOT_EDITABLE
     const editFacturado = await reqJson(baseUrl, 'PUT', `/api/visits/${TKT_SRV_ID}/draft`, {
@@ -373,7 +400,7 @@ async function main() {
     });
     assert.strictEqual(editFacturado.status, 409);
     assert.strictEqual(editFacturado.body.code, 'TICKET_NOT_EDITABLE');
-    console.log('  ✅ 1. Ticket solo servicio (INVITADO) con E32/E31/NONE, idempotencia, persistencia PG sin cobro/stock previo, secuencias canónicas y bloqueo post-factura PASS.');
+    console.log('  ✅ 1. Factura comercial sin DGII, bloqueo e-CF sin integración (409), secuencias B02 (solapamiento/vencida/en-uso/aislamiento) y bloqueo post-factura PASS.');
 
     // 3. Crear ticket MIXTO (servicio + producto) para Clienta Real -> editar borrador -> verificar en navegador real con recarga + error 500 sin éxito falso
     const createMix = await reqJson(baseUrl, 'POST', '/api/visits/ticket', {
@@ -455,7 +482,7 @@ async function main() {
     browser = null;
     console.log('  ✅ 2. Ticket mixto editado persiste tras navegar fuera y recargar en navegador real (0 pageerrors).');
 
-    // 4. Dos operadores facturando concurrentemente el mismo ticket mixto (con ncf_type: 'E32') -> stock descontado 1 sola vez (10 -> 8) + verificación en /facturas en navegador
+    // 4. Dos operadores facturando concurrentemente el mismo ticket mixto con B02 -> consume exactamente B0200000002 (último del rango 1..2), stock 10->8, y tercer intento B02 se bloquea por agotamiento
     const checkoutPayload = {
       client_id: CLIENT_A,
       client_name: 'Clienta Ticket Real',
@@ -469,7 +496,7 @@ async function main() {
       pago_efectivo: 1800,
       cash_register_id: CASH_REG_ID,
       location_id: LOC_A_ID,
-      ncf_type: 'E32',
+      ncf_type: 'B02',
     };
     const [cOp1, cOp2] = await Promise.all([
       reqJson(baseUrl, 'POST', `/api/visits/${TKT_MIX_ID}/checkout`, { cookie: ownerA.cookie, body: checkoutPayload }),
@@ -478,6 +505,21 @@ async function main() {
     assert.strictEqual(cOp1.status, 200);
     assert.strictEqual(cOp2.status, 200);
     assert.strictEqual([cOp1.body.idempotent, cOp2.body.idempotent].filter(Boolean).length, 1, 'Solo una factura real y la segunda debe ser idempotente');
+    const assignedMixNcf = cOp1.body.ncf || cOp2.body.ncf;
+    assert.strictEqual(assignedMixNcf, 'B0200000002', 'La facturación concurrente debe asignar exactamente B0200000002 sin duplicar');
+
+    // Verificar bloqueo por rango agotado (B02 tenía 1..2 -> ya se consumieron ambos)
+    const tktExhaust = await reqJson(baseUrl, 'POST', '/api/visits/ticket', {
+      cookie: opA.cookie,
+      body: { clientId: 'INVITADO', clientName: 'Cliente Rango Agotado', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], total: 800 },
+    });
+    assert.strictEqual(tktExhaust.status, 201);
+    const billExhaust = await reqJson(baseUrl, 'POST', `/api/visits/${tktExhaust.body.id}/checkout`, {
+      cookie: opA.cookie,
+      body: { client_id: 'INVITADO', client_name: 'Cliente Rango Agotado', salon_id: BRANCH_A, servicios: ['Secado Express'], items_detail: [{ id: SRV_ID, nombre: 'Secado Express', precio: 800, precioAplicado: 800, cantidad: 1 }], subtotal: 800, descuento: 0, total: 800, metodo_pago: 'Efectivo', pago_efectivo: 800, cash_register_id: CASH_REG_ID, ncf_type: 'B02' },
+    });
+    assert.strictEqual(billExhaust.status, 409);
+    assert.strictEqual(billExhaust.body.code, 'NCF_SEQUENCE_EXHAUSTED');
 
     const stockAfter = await reqJson(baseUrl, 'GET', `/api/inventory/stock/${PROD_ID}?locationId=${LOC_A_ID}`, { cookie: ownerA.cookie });
     assert.strictEqual(Number(stockAfter.body.quantity), 8, 'Stock debe descontarse exactamente 1 vez (10 - 2 = 8)');
@@ -489,7 +531,7 @@ async function main() {
     assert.strictEqual(commAfter[0].cnt, 1, 'Debe registrarse exactamente 1 comisión para el ticket mixto');
     assert.strictEqual(Number(commAfter[0].total_comm), 80, 'Comisión esperada 10% de RD$800 = RD$80');
 
-    // Verificar documento persistido en /facturas tras recarga en navegador real
+    // Verificar documento persistido y número B0200000002 en /facturas tras recarga en navegador real (sin texto "Aceptado por DGII")
     browser = await puppeteer.launch({ headless: 'new', executablePath, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const invPage = await browser.newPage();
     await invPage.setViewport({ width: 1366, height: 900 });
@@ -504,12 +546,14 @@ async function main() {
       invPage.waitForFunction(() => !document.querySelector('input[type="password"]'), { timeout: 15000 }),
     ]);
     await invPage.goto(`${baseUrl}/facturas`, { waitUntil: 'networkidle2' });
-    await invPage.waitForFunction(() => document.body.innerText.includes('Clienta Ticket Real'), { timeout: 15000 });
+    await invPage.waitForFunction(() => document.body.innerText.includes('B0200000002'), { timeout: 15000 });
     await invPage.reload({ waitUntil: 'networkidle2' });
-    await invPage.waitForFunction(() => document.body.innerText.includes('Clienta Ticket Real'), { timeout: 15000 });
+    await invPage.waitForFunction(() => document.body.innerText.includes('B0200000002'), { timeout: 15000 });
+    const invBodyText = await invPage.evaluate(() => document.body.innerText);
+    assert.ok(!invBodyText.includes('Aceptado por DGII'), 'Factura local no debe mostrar "Aceptado por DGII"');
     await browser.close();
     browser = null;
-    console.log('  ✅ 3. Facturación concurrente (E32) sobre ticket mixto: stock 10->8, comisión RD$80 y factura persistida en /facturas tras recarga PASS.');
+    console.log('  ✅ 3. Facturación concurrente (B02) sobre ticket mixto: B0200000002 único, bloqueo rango agotado (409), stock 10->8, comisión RD$80 y /facturas tras recarga PASS.');
 
     // 5. Aislamiento por sucursal y cross-tenant + Anulación y bloqueo de checkout sobre ticket anulado
     const branchBBlocked = await reqJson(baseUrl, 'GET', `/api/visits/pending?salon_id=${BRANCH_B}`, { cookie: opA.cookie });
@@ -519,14 +563,17 @@ async function main() {
     const crossEdit = await reqJson(baseUrl, 'PUT', `/api/visits/${TKT_MIX_ID}/draft`, { cookie: ownerB.cookie, body: { total: 1 } });
     assert.strictEqual(crossEdit.status, 404);
 
-    // Anular ticket mixto -> stock vuelve a 10 y posterior intento de checkout -> 409 TICKET_VOIDED
+    // Anular ticket mixto (B0200000002) -> stock vuelve a 10, secuencia B02 NO se reutiliza (sigue Agotado) y posterior checkout -> 409 TICKET_VOIDED
     const voidRes = await reqJson(baseUrl, 'POST', `/api/visits/${TKT_MIX_ID}/void`, {
       cookie: ownerA.cookie,
       body: { reason: 'Prueba anulación sin regresiones' },
     });
     assert.strictEqual(voidRes.status, 200);
-    const stockRestored = await reqJson(baseUrl, 'GET', `/api/inventory/stock/${PROD_ID}?locationId=${LOC_A_ID}`, { cookie: ownerA.cookie });
+    const [stockRestored] = [await reqJson(baseUrl, 'GET', `/api/inventory/stock/${PROD_ID}?locationId=${LOC_A_ID}`, { cookie: ownerA.cookie })];
     assert.strictEqual(Number(stockRestored.body.quantity), 10, 'Anulación debe reponer stock a 10');
+    const [seqAfterVoid] = await pool.query('SELECT secuencia_actual, cantidad_usada, estado FROM dgii_ncf_sequences WHERE id = ? AND tenant_id = ?', [B02_SEQ_ID, TENANT_A]);
+    assert.strictEqual(Number(seqAfterVoid[0].secuencia_actual), 3, 'Anulación nunca debe reutilizar número de comprobante');
+    assert.strictEqual(seqAfterVoid[0].estado, 'Agotado', 'Secuencia agotada debe permanecer Agotado tras anular');
 
     const billVoided = await reqJson(baseUrl, 'POST', `/api/visits/${TKT_MIX_ID}/checkout`, { cookie: ownerA.cookie, body: checkoutPayload });
     assert.strictEqual(billVoided.status, 409);

@@ -3163,7 +3163,7 @@ const VisitRecorder = () => {
     // If user marked Credito Fiscal checkbox, validate that RNC/Cedula is filled and ensure Razón Social
     if (isCreditoFiscal) {
       if (!clientRncInput.trim()) {
-        alert('⚠️ Por favor ingresa el RNC o Cédula del receptor para emitir la Factura con Crédito Fiscal (E31).');
+        alert('⚠️ Por favor ingresa el RNC o Cédula del receptor para emitir la Factura con Crédito Fiscal (B01).');
         return;
       }
       if (!clientRazonSocialInput.trim()) {
@@ -3171,7 +3171,7 @@ const VisitRecorder = () => {
         if (fallbackName && fallbackName.trim().length >= 3 && !['cliente general', 'invitado'].includes(fallbackName.trim().toLowerCase())) {
           setClientRazonSocialInput(fallbackName.trim());
         } else {
-          alert('⚠️ Por favor ingresa la Razón Social del receptor para emitir la Factura de Crédito Fiscal (E31).');
+          alert('⚠️ Por favor ingresa la Razón Social del receptor para emitir la Factura de Crédito Fiscal (B01).');
           return;
         }
       }
@@ -3179,14 +3179,20 @@ const VisitRecorder = () => {
 
     const hasPlanWashCheck = lineItems.some(i => i.isPlanWash || (i.nombre && i.nombre.includes('Plan Beauty')));
     const isPlanCanjeCheck = (finalTotalAmount === 0 || (appliedPayments.length === 1 && appliedPayments[0].method === 'Plan Beauty') || (hasPlanWashCheck && finalTotalAmount === 0)) && !isCreditoFiscal;
-    const ncfTypeToUse = isPlanCanjeCheck ? 'NONE' : (isCreditoFiscal ? 'E31' : 'E32');
+    const seqMap = sequenceAvailability?.byType || sequenceAvailability || {};
+    const hasConfiguredB02 = Boolean(seqMap.B02);
+    const ncfTypeToUse = isPlanCanjeCheck
+      ? 'NONE'
+      : (isCreditoFiscal ? 'B01' : (hasConfiguredB02 ? 'B02' : 'NONE'));
 
-    // Validación preventiva de agotamiento antes de iniciar el cobro o emitir factura
-    if (ncfTypeToUse !== 'NONE' && sequenceAvailability && sequenceAvailability[ncfTypeToUse]?.isExhausted) {
+    // Validación preventiva de agotamiento/vencimiento antes de iniciar el cobro o emitir factura
+    if (ncfTypeToUse !== 'NONE' && seqMap[ncfTypeToUse] && (seqMap[ncfTypeToUse].isExhausted || seqMap[ncfTypeToUse].isExpired)) {
       setBlockedSequenceInfo({
         tipo_comprobante: ncfTypeToUse,
-        nombre_comprobante: ncfTypeToUse === 'E31' ? 'Factura de Crédito Fiscal Electrónico (E31)' : 'Factura de Consumo Electrónica (E32)',
-        message: 'No hay comprobantes fiscales disponibles.\n\nSe agotaron las secuencias autorizadas para este tipo de factura.\n\nFavor de notificar al administrador para agregar nuevas secuencias fiscales.\n\nPuede guardar o imprimir una precuenta, pero no finalizar la factura ni registrar el cobro.'
+        nombre_comprobante: ncfTypeToUse === 'B01' ? 'Factura de Crédito Fiscal (B01)' : 'Factura de Consumo (B02)',
+        message: seqMap[ncfTypeToUse].isExpired
+          ? 'La secuencia configurada para este tipo de comprobante está vencida.\n\nNotifique al administrador para registrar una nueva secuencia vigente.'
+          : 'No hay comprobantes disponibles en la secuencia configurada.\n\nSe agotaron los números del rango autorizado para este tipo de factura.\n\nFavor de notificar al administrador para agregar una nueva secuencia.'
       });
       setShowBlockedSequenceModal(true);
       return;
@@ -3266,7 +3272,9 @@ const VisitRecorder = () => {
         finalMetodoPago === 'Plan Beauty'
       ) && !isCreditoFiscal;
 
-      const ncfTypeToSend = isPlanRedemptionCheck ? 'NONE' : (chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : (isCreditoFiscal ? 'E31' : 'E32'));
+      const seqMapExec = sequenceAvailability?.byType || sequenceAvailability || {};
+      const defaultCommercialType = isCreditoFiscal ? 'B01' : (seqMapExec.B02 ? 'B02' : 'NONE');
+      const ncfTypeToSend = isPlanRedemptionCheck ? 'NONE' : (chosenNcfType !== null && chosenNcfType !== undefined ? chosenNcfType : defaultCommercialType);
       const rncToSend = customRnc !== null && customRnc !== undefined ? customRnc : (isCreditoFiscal ? clientRncInput.trim() : '');
       const razonSocialToSend = customRazonSocial !== null && customRazonSocial !== undefined ? customRazonSocial : (isCreditoFiscal ? clientRazonSocialInput.trim() : '');
 
@@ -3298,15 +3306,19 @@ const VisitRecorder = () => {
           return;
         }
 
-        const isFiscalRejection = (err.status === 409 && !isAlreadyBilled) || 
-          err.code === 'FISCAL_SEQUENCES_EXHAUSTED' || 
-          err.code === 'LOTE_AGOTADO' || 
-          err.code === 'LOTE_VENCIDO' || 
-          err.code === 'LOTE_INACTIVO' || 
-          err.code === 'LOTE_NO_AUTORIZADO' || 
-          err.code === 'LOTE_INEXISTENTE' || 
+        const isFiscalRejection = (err.status === 409 && !isAlreadyBilled) ||
+          err.code === 'FISCAL_SEQUENCES_EXHAUSTED' ||
+          err.code === 'NCF_SEQUENCE_EXHAUSTED' ||
+          err.code === 'NCF_SEQUENCE_EXPIRED' ||
+          err.code === 'NCF_SEQUENCE_NOT_CONFIGURED' ||
+          err.code === 'NCF_ECF_INTEGRATION_REQUIRED' ||
+          err.code === 'LOTE_AGOTADO' ||
+          err.code === 'LOTE_VENCIDO' ||
+          err.code === 'LOTE_INACTIVO' ||
+          err.code === 'LOTE_NO_AUTORIZADO' ||
+          err.code === 'LOTE_INEXISTENTE' ||
           err.code === 'ERROR_CORRESPONDENCIA_TIPO' ||
-          (err.data && (err.data.code === 'FISCAL_SEQUENCES_EXHAUSTED' || String(err.data.code || '').startsWith('LOTE_')));
+          (err.data && (err.data.code === 'FISCAL_SEQUENCES_EXHAUSTED' || String(err.data.code || '').startsWith('LOTE_') || String(err.data.code || '').startsWith('NCF_')));
 
         if (isFiscalRejection) {
           setBlockedSequenceInfo({

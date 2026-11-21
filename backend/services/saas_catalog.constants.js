@@ -132,7 +132,7 @@ const CANONICAL_PLANS_CATALOG = Object.freeze([
     extra_user_price: readConfiguredPrice('SAAS_EXTRA_USER_PRICE_USD'),
     branches_included: 1,
     description:
-      'Operación integral de la empresa: POS, cajas, comprobantes DGII e-CF, Clientes/CRM, inventario avanzado multisucursal, compras y proveedores, control de asistencia facial, nómina, comisiones, marketing y reportes.',
+      'Operación integral de la empresa: POS, cajas, facturación y gestión de comprobantes, Clientes/CRM, inventario avanzado multisucursal, compras y proveedores, control de asistencia facial, nómina, comisiones, marketing y reportes. Integración de facturación electrónica DGII: contratación y habilitación por separado.',
     features: CANONICAL_PLAN_FEATURES[SAAS_PLANS.PRINCIPAL],
     limits: DEFAULT_PLAN_LIMITS[SAAS_PLANS.PRINCIPAL],
   },

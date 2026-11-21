@@ -42,7 +42,7 @@ const MODULES_LIST = [
   {
     kicker: '01 · VENTAS Y FACTURACIÓN',
     title: 'Vende y factura desde un mismo lugar.',
-    desc: 'Gestiona ventas, cobros, cierres de caja, comprobantes fiscales NCF y reportes DGII (606, 607 e IT-1; e-CF en certificación).',
+    desc: 'Gestiona ventas, cobros, cierres de caja, facturación y gestión de comprobantes, y reportes operativos (606 y 607). Integración de facturación electrónica DGII: contratación y habilitación por separado.',
     flow: 'Ventas → Comisiones y reportes',
     Icon: Receipt
   },
@@ -617,14 +617,14 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
 
   const incFeatures = activePlan.included_features || {};
   const planFeaturesList = [
-    { label: 'Facturación electrónica e-CF y POS', included: incFeatures.pos !== false },
+    { label: 'Facturación y gestión de comprobantes (POS)', included: incFeatures.pos !== false },
     { label: 'Control de Cajas (apertura y cierre)', included: (incFeatures.cash_registers ?? incFeatures.cajas) !== false },
     { label: 'Clientes / CRM y fichas técnicas', included: incFeatures.clients !== false },
     { label: 'Recursos humanos', included: true },
     { label: 'Control de asistencia facial', included: incFeatures.attendance !== false },
     { label: 'Nómina y comisiones', included: incFeatures.payroll !== false },
     { label: 'Inventario avanzado multisucursal', included: incFeatures.inventory !== false },
-    { label: 'Contabilidad y reportes DGII (606, 607, IT-1)', included: incFeatures.dgii_ecf !== false },
+    { label: 'Reportes operativos y de comprobantes (606 y 607)', included: incFeatures.dgii_ecf !== false },
     { label: `${usersPerBranch} usuarios incluidos por sucursal`, included: true },
     { label: 'Soporte en línea', included: true }
   ];
@@ -1107,17 +1107,18 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
 
                 {planDetailsOpen && (
                   <div className="et-details-box">
-                    El Plan Principal incluye POS, cajas, Clientes/CRM, inventario avanzado multisucursal,
-                    control de asistencia facial, nómina, comisiones, marketing y reportes DGII (606, 607, IT-1).
-                    El módulo adicional de Suscripciones y Membresías B2C tiene un costo de US$99/mes por
-                    sucursal + implementación e integración con pasarela de pago (cotización por separado).
+                    El Plan Principal incluye POS, cajas, facturación y gestión de comprobantes, Clientes/CRM,
+                    inventario avanzado multisucursal, control de asistencia facial, nómina, comisiones, marketing
+                    y reportes (606 y 607). Integración de facturación electrónica DGII: contratación y habilitación
+                    por separado. El módulo adicional de Suscripciones y Membresías B2C tiene un costo de US$99/mes
+                    por sucursal + implementación e integración con pasarela de pago (cotización por separado).
                   </div>
                 )}
 
                 <p className="et-legal-note">
-                  Condiciones comerciales según acuerdo vigente. Facturación electrónica e-CF y
-                  pasarela CardNet en proceso de certificación; equipo biométrico e impuestos locales
-                  según alcance de contratación.
+                  Condiciones comerciales según acuerdo vigente. Integración de facturación electrónica DGII:
+                  contratación y habilitación por separado. Equipo biométrico e impuestos locales según alcance
+                  de contratación.
                 </p>
               </div>
 

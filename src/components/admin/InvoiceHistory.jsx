@@ -1348,7 +1348,7 @@ export default function InvoiceHistory() {
                               setShowInvoicePrintModal(true);
                             }}
                             style={{ background: '#09090b', color: '#ffffff', border: 'none', padding: '3px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
-                            title="Imprimir Factura Electrónica Oficial (RI - e-CF DGII)"
+                            title="Imprimir Factura / Comprobante"
                           >
                             <Printer size={10} />
                             <span>Factura</span>
@@ -1457,13 +1457,15 @@ export default function InvoiceHistory() {
                             {visit.ncf && (
                               <div style={{ marginTop: '0.65rem', padding: '0.55rem 0.85rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', color: '#1e40af', fontSize: '0.725rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                                 <div>
-                                  <strong>🛡️ COMPROBANTE FISCAL ELECTRÓNICO (e-CF):</strong> <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#1d4ed8' }}>{visit.ncf}</span> ({visit.ncf_name || 'DGII'})
-                                  {visit.codigo_seguridad_ecf && <span style={{ marginLeft: '10px' }}>• Cód. Seguridad: <strong>{visit.codigo_seguridad_ecf}</strong></span>}
+                                  <strong>🧾 COMPROBANTE ({visit.ncf_type || 'NCF'}):</strong> <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#1d4ed8' }}>{visit.ncf}</span> ({visit.ncf_name || 'Comprobante comercial'})
                                   {visit.rnc_cliente && <span style={{ marginLeft: '10px' }}>• RNC Cliente: <strong>{visit.rnc_cliente}</strong></span>}
+                                  {visit.dgii_track_id && visit.codigo_seguridad_ecf && (
+                                    <span style={{ marginLeft: '10px' }}>• Cód. Seguridad e-CF: <strong>{visit.codigo_seguridad_ecf}</strong></span>
+                                  )}
                                 </div>
-                                {visit.qr_code_url && (
+                                {visit.dgii_track_id && visit.qr_code_url && (
                                   <a href={visit.qr_code_url} target="_blank" rel="noreferrer" style={{ background: '#2563eb', color: '#ffffff', padding: '4px 10px', borderRadius: '6px', textDecoration: 'none', fontWeight: 800, fontSize: '0.675rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                    <span>Consultar en DGII</span> →
+                                    <span>Consultar e-CF</span> →
                                   </a>
                                 )}
                               </div>

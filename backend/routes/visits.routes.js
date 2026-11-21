@@ -935,46 +935,109 @@ function createVisitsRouter(pool, helpers = {}) {
         return res.status(503).json({ error: 'SIMULATED_PROCESS_CRASH_ABORT', code: 'SIMULATED_CRASH' });
       }
 
-      // 8. Secuencia NCF dentro de la transacción (solo si DGII está habilitado; una factura comercial nunca depende de DGII deshabilitada)
+      // 8. Secuencia de comprobante atómica dentro de la transacción
+      // Regla de producto:
+      // - Comprobantes comerciales/NCF tradicionales (B01, B02, B14, B15, etc.) funcionan sin integración electrónica DGII.
+      // - Comprobantes electrónicos e-CF (E31, E32, E33, E34, etc.) quedan bloqueados salvo que la integración e-CF esté contratada y habilitada.
       let assignedNcf = null;
       let assignedNcfName = null;
       const normalizedNcfType = String(ncf_type || '').trim().toUpperCase();
+      const isElectronicType = /^E\d{2}$/i.test(normalizedNcfType);
       const dgiiEmissionEnabled =
         process.env.DGII_ENABLED === 'true' &&
         String(process.env.DGII_MODE || '').toLowerCase() !== 'disabled' &&
         String(process.env.DGII_ENV || '').toLowerCase() !== 'disabled';
-      if (dgiiEmissionEnabled && normalizedNcfType && normalizedNcfType !== 'NONE' && normalizedNcfType !== '00') {
-        const [seqRows] = await db.query(
+
+      if (normalizedNcfType && normalizedNcfType !== 'NONE' && normalizedNcfType !== '00') {
+        if (isElectronicType && !dgiiEmissionEnabled) {
+          if (txConn) await txConn.query('ROLLBACK');
+          return res.status(409).json({
+            error: `La emisión de comprobantes electrónicos (${normalizedNcfType}) requiere la integración de facturación electrónica DGII contratada y habilitada por separado. Utilice un comprobante comercial/NCF tradicional (ej. B02, B01) o facture sin comprobante.`,
+            code: 'NCF_ECF_INTEGRATION_REQUIRED',
+            tipo_comprobante: normalizedNcfType,
+          });
+        }
+
+        const [allTypeSeqs] = await db.query(
           `SELECT * FROM dgii_ncf_sequences
-           WHERE tenant_id = ?
-             AND tipo_comprobante = ?
-             AND (estado = 'Activo' OR estado = '1')
-             AND COALESCE(secuencia_actual, 1) <= COALESCE(secuencia_hasta, 0)
+           WHERE tenant_id = ? AND tipo_comprobante = ?
            ORDER BY id ASC
-           LIMIT 1
            FOR UPDATE`,
           [tenantId, normalizedNcfType]
         );
-        if (seqRows.length > 0) {
-          const seq = seqRows[0];
-          const nextNum = Number(seq.secuencia_actual || 1);
-          const maxNum = Number(seq.secuencia_hasta || 0);
-          const prefix = String(seq.tipo_comprobante || seq.serie || normalizedNcfType).trim();
-          const padLen = prefix.startsWith('E') ? 10 : 8;
-          assignedNcf = `${prefix}${String(nextNum).padStart(padLen, '0')}`;
-          assignedNcfName = seq.nombre_comprobante || null;
 
-          const newSecuenciaActual = nextNum + 1;
-          const newCantidadUsada = Number(seq.cantidad_usada || 0) + 1;
-          const newEstado = (maxNum > 0 && newSecuenciaActual > maxNum) ? 'Agotado' : 'Activo';
-
-          await db.query(
-            `UPDATE dgii_ncf_sequences
-             SET secuencia_actual = ?, cantidad_usada = ?, estado = ?
-             WHERE id = ? AND tenant_id = ?`,
-            [newSecuenciaActual, newCantidadUsada, newEstado, seq.id, tenantId]
-          );
+        if (allTypeSeqs.length === 0) {
+          if (txConn) await txConn.query('ROLLBACK');
+          return res.status(409).json({
+            error: `No existe una secuencia configurada para el comprobante ${normalizedNcfType}. Configure una secuencia válida o facture sin comprobante.`,
+            code: 'NCF_SEQUENCE_NOT_CONFIGURED',
+            tipo_comprobante: normalizedNcfType,
+          });
         }
+
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const activeSeqs = allTypeSeqs.filter((s) => s.estado === 'Activo' || s.estado === '1');
+        const nonExpiredSeqs = activeSeqs.filter((s) => {
+          if (!s.fecha_vencimiento) return true;
+          const expStr = typeof s.fecha_vencimiento === 'string'
+            ? s.fecha_vencimiento.slice(0, 10)
+            : new Date(s.fecha_vencimiento).toISOString().slice(0, 10);
+          return expStr >= todayStr;
+        });
+        const availableSeq = nonExpiredSeqs.find((s) => {
+          const desde = Number(s.secuencia_desde || 1);
+          const actual = Number(s.secuencia_actual || desde);
+          const hasta = Number(s.secuencia_hasta || 0);
+          return actual >= desde && actual <= hasta;
+        });
+
+        if (!availableSeq) {
+          if (txConn) await txConn.query('ROLLBACK');
+          if (activeSeqs.length > 0 && nonExpiredSeqs.length === 0) {
+            return res.status(409).json({
+              error: `La secuencia configurada para ${normalizedNcfType} está vencida. Registre una nueva secuencia vigente antes de facturar.`,
+              code: 'NCF_SEQUENCE_EXPIRED',
+              tipo_comprobante: normalizedNcfType,
+            });
+          }
+          return res.status(409).json({
+            error: `La secuencia configurada para ${normalizedNcfType} está agotada o inactiva. Registre un nuevo rango autorizado antes de facturar.`,
+            code: 'NCF_SEQUENCE_EXHAUSTED',
+            tipo_comprobante: normalizedNcfType,
+          });
+        }
+
+        const nextNum = Number(availableSeq.secuencia_actual || availableSeq.secuencia_desde || 1);
+        const maxNum = Number(availableSeq.secuencia_hasta || 0);
+        const rawSerie = String(availableSeq.serie || availableSeq.tipo_comprobante || normalizedNcfType).trim().toUpperCase();
+        const prefix = rawSerie.length <= 1 ? normalizedNcfType : rawSerie;
+        const padLen = prefix.startsWith('E') ? 10 : 8;
+        assignedNcf = `${prefix}${String(nextNum).padStart(padLen, '0')}`;
+        assignedNcfName = availableSeq.nombre_comprobante || normalizedNcfType;
+
+        const [dupNcf] = await db.query(
+          'SELECT id FROM visits WHERE tenant_id = ? AND ncf = ? LIMIT 1',
+          [tenantId, assignedNcf]
+        );
+        if (dupNcf.length > 0) {
+          if (txConn) await txConn.query('ROLLBACK');
+          return res.status(409).json({
+            error: `El número de comprobante ${assignedNcf} ya fue asignado previamente en esta empresa.`,
+            code: 'NCF_DUPLICATE_NUMBER',
+            tipo_comprobante: normalizedNcfType,
+          });
+        }
+
+        const newSecuenciaActual = nextNum + 1;
+        const newCantidadUsada = Number(availableSeq.cantidad_usada || 0) + 1;
+        const newEstado = (maxNum > 0 && newSecuenciaActual > maxNum) ? 'Agotado' : 'Activo';
+
+        await db.query(
+          `UPDATE dgii_ncf_sequences
+           SET secuencia_actual = ?, cantidad_usada = ?, estado = ?
+           WHERE id = ? AND tenant_id = ?`,
+          [newSecuenciaActual, newCantidadUsada, newEstado, availableSeq.id, tenantId]
+        );
       }
 
       // 9. Persistencia de la venta (visits) con unidades menores exactas
