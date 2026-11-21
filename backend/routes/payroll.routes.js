@@ -1206,7 +1206,7 @@ function createPayrollRouter(pool) {
         INSERT INTO payroll_periods (period_name, start_date, end_date, sucursal, departamento, status, tenant_id)
         VALUES (?, ?, ?, ?, ?, 'En preparación', ?)
       `, [period_name, start_date, end_date, sucursal, departamento, tenantId]);
-      const payrollId = periodRes.insertId;
+      const payrollId = periodRes.insertId || periodRes[0]?.id;
 
       let sumTotalIngresos = 0;
       let sumTotalDescuentos = 0;
@@ -1232,7 +1232,7 @@ function createPayrollRouter(pool) {
           itemData.neto_pagar, JSON.stringify(itemData.detalles_json), tenantId
         ]);
 
-        itemData.id = resItem.insertId;
+        itemData.id = resItem.insertId || resItem[0]?.id;
         generatedItems.push(itemData);
 
         sumTotalIngresos = Number((sumTotalIngresos + itemData.total_ingresos).toFixed(2));
@@ -1840,7 +1840,7 @@ function createPayrollRouter(pool) {
           itemData.neto_pagar, JSON.stringify(itemData.detalles_json), tenantId
         ]);
 
-        itemData.id = resItem.insertId;
+        itemData.id = resItem.insertId || resItem[0]?.id;
         generatedItems.push(itemData);
 
         sumTotalIngresos = Number((sumTotalIngresos + itemData.total_ingresos).toFixed(2));

@@ -154,7 +154,7 @@ function createContactRouter(pool) {
         console.error('[CONTACT EMAIL ERROR]:', mailErr.message);
       }
 
-      res.json({ success: true, message: '¡Mensaje enviado con éxito! Nos comunicaremos contigo a la mayor brevedad.', id: result.insertId });
+      res.json({ success: true, message: '¡Mensaje enviado con éxito! Nos comunicaremos contigo a la mayor brevedad.', id: result.insertId || result[0]?.id });
     } catch (err) {
       console.error('[CONTACT POST ERROR]:', err);
       res.status(500).json({ error: 'Hubo un inconveniente al enviar tu mensaje. Por favor intenta de nuevo.' });

@@ -104,7 +104,7 @@ function createSecurityRouter(pool) {
 
       res.json({
         success: true,
-        requestId: result.insertId,
+        requestId: result.insertId || result[0]?.id,
         code: code,
         message: 'Solicitud de autorización generada exitosamente'
       });
@@ -290,7 +290,7 @@ function createSecurityRouter(pool) {
           vc.created_at,
           vc.expires_at
         FROM verification_codes vc
-        LEFT JOIN clients c ON vc.client_id = c.id AND c.tenant_id = vc.tenant_id
+        LEFT JOIN clients c ON vc.client_id::text = c.id::text AND c.tenant_id = vc.tenant_id
         WHERE vc.tenant_id = ?
           AND vc.is_used = 0 
           AND (vc.expires_at IS NULL OR vc.expires_at >= NOW())

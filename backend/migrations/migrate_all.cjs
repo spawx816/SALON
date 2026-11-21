@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { pool: defaultPool } = require('../db');
 
 const { runStructuralMigration } = require('./20261108_phase1_structural_multitenant.cjs');
@@ -37,6 +38,53 @@ const { up: upRbacHardening } = require('./20261115_rbac_hardening.cjs');
 const { up: upPlatformEmailSettings } = require('./20261116_platform_email_settings.cjs');
 const { up: upPrintTemplatesAndTurnTickets } = require('./20261116_print_templates_and_turn_tickets.cjs');
 const { up: upKioskDevicesHardening } = require('./20261117_kiosk_devices_hardening.cjs');
+const { up: upScheduleOverridesUnique } = require('./20261120_schedule_overrides_unique_tenant_emp_date.cjs');
+const { up: upReconcileSaasBillingDrift } = require('./20261121_reconcile_saas_billing_schema_drift.cjs');
+
+const MIGRATION_SOURCE_FILES = Object.freeze({
+  '20261100_canonical_baseline_schema': path.resolve(__dirname, '../backups/independent_schema.sql'),
+  '20261108_phase1_structural_multitenant': path.resolve(__dirname, './20261108_phase1_structural_multitenant.cjs'),
+  '20261108_phase1_historical_reconciliation': path.resolve(__dirname, './20261108_phase1_historical_reconciliation.cjs'),
+  '20261108_phase1_quarantine_triggers': path.resolve(__dirname, './20261108_phase1_quarantine_triggers.cjs'),
+  '20261108_phase1_verification_codes_hardening': path.resolve(__dirname, './20261108_phase1_verification_codes_hardening.cjs'),
+  '20261108_phase1_purge_plaintext_codes': path.resolve(__dirname, './20261108_phase1_purge_plaintext_codes.cjs'),
+  '20261108_phase1_enforce_tenant_not_null': path.resolve(__dirname, './20261108_phase1_enforce_tenant_not_null.cjs'),
+  '20261109_phase2a_saas_commercial_and_entitlements': path.resolve(__dirname, './20261109_phase2a_saas_commercial_and_entitlements.cjs'),
+  '20261109_phase2b_inventory_multitenant': path.resolve(__dirname, './20261109_phase2b_inventory_multitenant.cjs'),
+  '20261109_phase2d_saas_billing': path.resolve(__dirname, './20261109_phase2d_saas_billing.cjs'),
+  '20261109_financial_minor_currency_units': path.resolve(__dirname, './20261109_financial_minor_currency_units.cjs'),
+  '20261109_secure_admin_pin_hash': path.resolve(__dirname, './20261109_secure_admin_pin_hash.cjs'),
+  '20261110_create_tenant_branding': path.resolve(__dirname, './20261110_create_tenant_branding.sql'),
+  '20261110_phase2h_user_token_version': path.resolve(__dirname, './20261110_phase2h_user_token_version.cjs'),
+  '20261110_job_nonces_and_strict_idempotency': path.resolve(__dirname, './20261110_job_nonces_and_strict_idempotency.cjs'),
+  '20261110_phase3b_storage_and_portability': path.resolve(__dirname, './20261110_phase3b_storage_and_portability.cjs'),
+  '20261110_phase3b_p2p3_extensions': path.resolve(__dirname, './20261110_phase3b_p2p3_extensions.cjs'),
+  '20261111_phase3c_clients_in_base_plan': path.resolve(__dirname, './20261111_phase3c_clients_in_base_plan.cjs'),
+  '20261114_unify_catalog_inventory': path.resolve(__dirname, './20261114_unify_catalog_inventory.cjs'),
+  '20261114_catalog_categories_and_inventory_alerts': path.resolve(__dirname, './20261114_catalog_categories_and_inventory_alerts.cjs'),
+  '20261115_saas_fx_rates': path.resolve(__dirname, './20261115_saas_fx_rates.cjs'),
+  '20261115_tenant_terms_and_welcome': path.resolve(__dirname, './20261115_tenant_terms_and_welcome.cjs'),
+  '20261115_rbac_hardening': path.resolve(__dirname, './20261115_rbac_hardening.cjs'),
+  '20261116_platform_email_settings': path.resolve(__dirname, './20261116_platform_email_settings.cjs'),
+  '20261116_print_templates_and_turn_tickets': path.resolve(__dirname, './20261116_print_templates_and_turn_tickets.cjs'),
+  '20261117_kiosk_devices_hardening': path.resolve(__dirname, './20261117_kiosk_devices_hardening.cjs'),
+  '20261120_schedule_overrides_unique_tenant_emp_date': path.resolve(__dirname, './20261120_schedule_overrides_unique_tenant_emp_date.cjs'),
+  '20261121_reconcile_saas_billing_schema_drift': path.resolve(__dirname, './20261121_reconcile_saas_billing_schema_drift.cjs')
+});
+
+function computeMigrationChecksum(version, customContent = null) {
+  let content = customContent;
+  if (content === null || content === undefined) {
+    const filePath = MIGRATION_SOURCE_FILES[version];
+    if (!filePath || !fs.existsSync(filePath)) {
+      throw new Error(`No se encontró el archivo fuente para calcular checksum de la migración "${version}"`);
+    }
+    content = fs.readFileSync(filePath, 'utf8');
+  }
+  // Normalize CRLF -> LF so checksums are deterministic across Windows and Linux containers
+  const normalized = String(content).replace(/\r\n/g, '\n');
+  return crypto.createHash('sha256').update(normalized, 'utf8').digest('hex');
+}
 
 function parseSqlStatements(sqlContent) {
   const statements = [];
@@ -270,6 +318,26 @@ const MIGRATIONS_REGISTRY = [
     execute: async (targetPool, targetSchema) => {
       return upKioskDevicesHardening(targetPool, targetSchema);
     }
+  },
+  {
+    version: '20261120_schedule_overrides_unique_tenant_emp_date',
+    description: 'Archivo de duplicados schedule_overrides_dedup_archive e índice único (tenant_id, employee_id, date) en schedule_overrides',
+    execute: async (targetPool, targetSchema) => {
+      const c = await targetPool.getConnection();
+      try {
+        await c.query(`SET search_path TO "${targetSchema || 'public'}";`);
+        return await upScheduleOverridesUnique(c);
+      } finally {
+        c.release();
+      }
+    }
+  },
+  {
+    version: '20261121_reconcile_saas_billing_schema_drift',
+    description: 'Reconciliación incremental de deriva de esquema SaaS billing, backfills seguros sin activar recurrencia, saas_renewal_runs, saas_checkout_orders y checksums',
+    execute: async (targetPool, targetSchema) => {
+      return upReconcileSaasBillingDrift(targetPool, targetSchema);
+    }
   }
 ];
 
@@ -277,6 +345,7 @@ async function migrateAll(options = {}) {
   const targetPool = options.pool || defaultPool;
   const targetSchema = options.targetSchema || 'public';
   const quiet = Boolean(options.quiet);
+  const checksumOverrides = options.checksumOverrides || null;
 
   if (!quiet) {
     console.log('========================================================================');
@@ -297,30 +366,66 @@ async function migrateAll(options = {}) {
         return c;
       },
       async query(sql, params) {
+        await conn.query(`SET search_path TO "${schema}";`);
         return conn.query(sql, params);
       }
     };
 
-    // 1. Asegurar tabla schema_migrations
+    // 1. Asegurar tabla schema_migrations con soporte de checksum SHA-256
     await conn.query(`
       CREATE TABLE IF NOT EXISTS "${schema}".schema_migrations (
         version VARCHAR(100) PRIMARY KEY,
         applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         actor VARCHAR(100) NOT NULL,
-        status VARCHAR(50) NOT NULL
+        status VARCHAR(50) NOT NULL,
+        checksum VARCHAR(64)
       );
     `);
+    await conn.query(`
+      ALTER TABLE "${schema}".schema_migrations
+      ADD COLUMN IF NOT EXISTS checksum VARCHAR(64);
+    `);
 
-    // 2. Consultar migraciones ya aplicadas
-    const [appliedRows] = await conn.query(`SELECT version FROM "${schema}".schema_migrations WHERE status IN ('APPLIED', 'applied', 'RE_VERIFIED');`);
-    const appliedSet = new Set(appliedRows.map(r => r.version));
+    // 2. Consultar migraciones ya aplicadas y sus checksums
+    const [appliedRows] = await conn.query(
+      `SELECT version, checksum FROM "${schema}".schema_migrations WHERE status IN ('APPLIED', 'applied', 'RE_VERIFIED');`
+    );
+    const appliedMap = new Map(appliedRows.map(r => [r.version, r.checksum || null]));
 
     let executedCount = 0;
+    let adoptedChecksumsCount = 0;
 
     for (const mig of MIGRATIONS_REGISTRY) {
-      if (appliedSet.has(mig.version)) {
-        if (!quiet) {
-          console.log(`  ⏩ [OMITIDA] Migración "${mig.version}" ya aplicada.`);
+      const overrideContent = checksumOverrides && Object.prototype.hasOwnProperty.call(checksumOverrides, mig.version)
+        ? checksumOverrides[mig.version]
+        : null;
+      const currentChecksum = computeMigrationChecksum(mig.version, overrideContent);
+
+      if (appliedMap.has(mig.version)) {
+        const recordedChecksum = appliedMap.get(mig.version);
+        if (!recordedChecksum) {
+          // Adopción explícita y auditable del historial existente previo a la columna checksum
+          await conn.query(
+            `UPDATE "${schema}".schema_migrations SET checksum = ? WHERE version = ?`,
+            [currentChecksum, mig.version]
+          );
+          appliedMap.set(mig.version, currentChecksum);
+          adoptedChecksumsCount++;
+          if (!quiet) {
+            console.log(`  🔐 [CHECKSUM ADOPTADO] "${mig.version}" -> ${currentChecksum.slice(0, 12)}...`);
+          }
+        } else if (recordedChecksum !== currentChecksum) {
+          const err = new Error(
+            `MIGRATION_CHECKSUM_MISMATCH: La migración aplicada "${mig.version}" fue modificada después de su aplicación ` +
+            `(registrado=${recordedChecksum}, actual=${currentChecksum}). Cree una nueva migración incremental en lugar de editar el historial.`
+          );
+          err.code = 'MIGRATION_CHECKSUM_MISMATCH';
+          err.migrationVersion = mig.version;
+          err.recordedChecksum = recordedChecksum;
+          err.actualChecksum = currentChecksum;
+          throw err;
+        } else if (!quiet) {
+          console.log(`  ⏩ [OMITIDA / CHECKSUM OK] Migración "${mig.version}" ya aplicada.`);
         }
         continue;
       }
@@ -329,32 +434,35 @@ async function migrateAll(options = {}) {
         console.log(`\n▶️ [APLICANDO] ${mig.version}: ${mig.description}...`);
       }
 
+      await conn.query(`SET search_path TO "${schema}";`);
       await mig.execute(dedicatedTargetPool, schema);
+      await conn.query(`SET search_path TO "${schema}";`);
 
-      // Registrar versión aplicada
+      // Registrar versión aplicada con su checksum SHA-256
       await conn.query(`
-        INSERT INTO "${schema}".schema_migrations (version, actor, status)
-        VALUES (?, 'canonical_migrate_all_runner', 'applied')
+        INSERT INTO "${schema}".schema_migrations (version, actor, status, checksum)
+        VALUES (?, 'canonical_migrate_all_runner', 'applied', ?)
         ON CONFLICT (version) DO UPDATE
-        SET applied_at = NOW(), status = 'applied';
-      `, [mig.version]);
+        SET applied_at = NOW(), status = 'applied', checksum = EXCLUDED.checksum;
+      `, [mig.version, currentChecksum]);
 
-      appliedSet.add(mig.version);
+      appliedMap.set(mig.version, currentChecksum);
       executedCount++;
 
       if (!quiet) {
-        console.log(`  ✅ [OK] ${mig.version} completada y registrada en schema_migrations.`);
+        console.log(`  ✅ [OK] ${mig.version} completada y registrada en schema_migrations (sha256=${currentChecksum.slice(0, 12)}...).`);
       }
     }
 
     if (!quiet) {
-      console.log(`\n🎉 PROCESO DE MIGRACIÓN COMPLETADO: ${executedCount} migraciones ejecutadas (${appliedSet.size} registradas en total).\n`);
+      console.log(`\n🎉 PROCESO DE MIGRACIÓN COMPLETADO: ${executedCount} migraciones ejecutadas, ${adoptedChecksumsCount} checksums históricos adoptados (${appliedMap.size} registradas en total).\n`);
     }
 
     return {
       success: true,
       appliedCount: executedCount,
-      totalRegistered: appliedSet.size
+      adoptedChecksumsCount,
+      totalRegistered: appliedMap.size
     };
   } catch (err) {
     console.error('\n❌ [FATAL MIGRATION RUNNER ERROR]: Fallo durante la ejecución de migraciones:', err.message);
@@ -375,6 +483,8 @@ if (require.main === module) {
 
 module.exports = {
   migrateAll,
-  MIGRATIONS_REGISTRY
+  MIGRATIONS_REGISTRY,
+  MIGRATION_SOURCE_FILES,
+  computeMigrationChecksum
 };
 

@@ -27,6 +27,13 @@ function createQuarantineGuard(pool, tableName, idExtractor) {
       }
 
       const cleanRecordId = String(recordId).trim();
+      if (cleanRecordId.toLowerCase() === 'undefined' || cleanRecordId.toLowerCase() === 'null') {
+        return res.status(400).json({
+          error: `Identificador de recurso inválido ('${cleanRecordId}').`,
+          code: 'INVALID_RESOURCE_ID',
+          table: tableName
+        });
+      }
 
       // Check quarantine table
       const [rows] = await pool.query(

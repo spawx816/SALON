@@ -15,24 +15,17 @@ function createContractsRouter(pool) {
     }
   });
 
-  // POST /api/contracts/settings - Scoped by tenant
+  // POST /api/contracts/settings - Scoped by tenant (atomic upsert on tenant_id without hardcoded id = 1)
   router.post('/settings', async (req, res) => {
-    const { content } = req.body;
+    const { content } = req.body || {};
     try {
       const tenantId = req.tenantId;
-      if (pool.isPostgres) {
-        await pool.query(
-          `INSERT INTO contract_settings (tenant_id, content, updated_at)
-           VALUES (?, ?, CURRENT_TIMESTAMP)
-           ON CONFLICT (tenant_id) DO UPDATE SET content = EXCLUDED.content, updated_at = CURRENT_TIMESTAMP`,
-          [tenantId, content]
-        );
-      } else {
-        await pool.query(
-          'INSERT INTO contract_settings (id, tenant_id, content) VALUES (1, ?, ?) ON DUPLICATE KEY UPDATE content = ?',
-          [tenantId, content, content]
-        );
-      }
+      await pool.query(
+        `INSERT INTO contract_settings (tenant_id, content)
+         VALUES (?, ?)
+         ON CONFLICT (tenant_id) DO UPDATE SET content = EXCLUDED.content`,
+        [tenantId, content ?? '']
+      );
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

@@ -1,5 +1,53 @@
 const API_URL = '/api';
 
+/**
+ * Centraliza la verificación de estado HTTP y el parseo seguro de JSON, texto plano o HTML de error (Bloque 4).
+ * Impide que mutaciones continúen tras respuestas 4xx/5xx o que páginas HTML de gateway (502/504) lancen SyntaxError crudo.
+ */
+const parseApiResponse = async (res, fallbackErrorMsg = null) => {
+  const rawText = await res.text();
+  let data = null;
+
+  if (rawText && rawText.trim().length > 0) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      const strippedHtml = rawText
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 180);
+      if (!res.ok) {
+        const err = new Error(
+          fallbackErrorMsg
+            ? `${fallbackErrorMsg} (HTTP ${res.status}${strippedHtml ? `: ${strippedHtml}` : ''})`
+            : `Error del servidor (${res.status}${strippedHtml ? `: ${strippedHtml}` : ''})`
+        );
+        err.status = res.status;
+        err.rawText = rawText;
+        throw err;
+      }
+      throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
+    }
+  } else {
+    data = {};
+  }
+
+  if (!res.ok) {
+    const baseMsg = data?.error || data?.message || fallbackErrorMsg || `Error del servidor (${res.status})`;
+    const err = new Error(data?.error_id ? `${baseMsg} [Ref: ${data.error_id}]` : baseMsg);
+    err.status = res.status;
+    err.code = data?.code;
+    err.errorId = data?.error_id;
+    err.data = data;
+    throw err;
+  }
+
+  return data;
+};
+
 const saasFetch = async (path, options = {}) => {
   const headers = { ...(options.headers || {}) };
   if (options.body && !headers['Content-Type']) {
@@ -10,16 +58,7 @@ const saasFetch = async (path, options = {}) => {
     ...options,
     headers
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const baseMsg = data.error || `Error del servidor (${res.status})`;
-    const err = new Error(data.error_id ? `${baseMsg} [Ref: ${data.error_id}]` : baseMsg);
-    err.status = res.status;
-    err.code = data.code;
-    err.errorId = data.error_id;
-    throw err;
-  }
-  return data;
+  return parseApiResponse(res);
 };
 
 // In-memory cache for plans catalog (CL-12)
@@ -416,60 +455,29 @@ export const dataService = {
   },
 
   openCashRegister: async (data) => {
-    try {
-      const res = await fetch(`${API_URL}/cash-registers/open`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      const text = await res.text();
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch (err) {
-        throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
-      }
-      if (!res.ok) {
-        throw new Error(parsed.error || parsed.message || `Error del servidor (${res.status})`);
-      }
-      return parsed;
-    } catch (e) {
-      throw e;
-    }
+    const res = await fetch(`${API_URL}/cash-registers/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return parseApiResponse(res, 'Error al abrir la caja de jornada');
   },
 
   closeCashRegister: async (registerId, data) => {
-    try {
-      const res = await fetch(`${API_URL}/cash-registers/${registerId}/close`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      const text = await res.text();
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch (err) {
-        throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
-      }
-      if (!res.ok) {
-        throw new Error(parsed.error || parsed.message || `Error del servidor (${res.status})`);
-      }
-      return parsed;
-    } catch (e) {
-      throw e;
+    if (!registerId || String(registerId) === 'undefined' || String(registerId) === 'null') {
+      throw new Error('Identificador de caja activa inválido para el cierre.');
     }
+    const res = await fetch(`${API_URL}/cash-registers/${encodeURIComponent(String(registerId))}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return parseApiResponse(res, 'Error al cerrar la caja de jornada');
   },
 
   getCashRegisterCloseReport: async (registerId) => {
-    try {
-      const res = await fetch(`${API_URL}/cash-registers/${registerId}/close-report`);
-      if (!res.ok) throw new Error('Error al obtener reporte de cierre de caja');
-      return await res.json();
-    } catch (e) {
-      console.error('Error fetching cash register close report:', e);
-      throw e;
-    }
+    const res = await fetch(`${API_URL}/cash-registers/${encodeURIComponent(String(registerId))}/close-report`);
+    return parseApiResponse(res, 'Error al obtener reporte de cierre de caja');
   },
 
   getCashRegisterMovements: async (registerId) => {
@@ -484,26 +492,12 @@ export const dataService = {
   },
 
   addCashRegisterMovement: async (registerId, data) => {
-    try {
-      const res = await fetch(`${API_URL}/cash-registers/${registerId}/movements`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      const text = await res.text();
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch (err) {
-        throw new Error(`Respuesta del servidor no es JSON válido (${res.status})`);
-      }
-      if (!res.ok) {
-        throw new Error(parsed.error || parsed.message || `Error del servidor (${res.status})`);
-      }
-      return parsed;
-    } catch (e) {
-      throw e;
-    }
+    const res = await fetch(`${API_URL}/cash-registers/${encodeURIComponent(String(registerId))}/movements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return parseApiResponse(res, 'Error al registrar movimiento de caja');
   },
 
   sendEmployeeOtp: async (data) => {
@@ -3387,8 +3381,7 @@ export const dataService = {
         'x-tenant-id': tenantId
       }
     });
-    if (!res.ok) throw new Error('Error al obtener perfil de la empresa');
-    return await res.json();
+    return parseApiResponse(res, 'Error al obtener perfil de la empresa');
   },
 
   updateTenantProfile: async (profileData, targetTenantId = null) => {
@@ -3404,9 +3397,7 @@ export const dataService = {
       },
       body: JSON.stringify(profileData)
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al guardar perfil de la empresa');
-    return data;
+    return parseApiResponse(res, 'Error al guardar perfil de la empresa');
   },
 
   uploadTenantLogo: async (base64Image, targetTenantId = null) => {
@@ -3421,9 +3412,7 @@ export const dataService = {
       },
       body: JSON.stringify({ image: base64Image, tenant_id: tenantId })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al subir logotipo');
-    return data;
+    return parseApiResponse(res, 'Error al subir logotipo');
   },
 
   // ==========================================

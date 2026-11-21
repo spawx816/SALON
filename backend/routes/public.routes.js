@@ -7,6 +7,7 @@ const { TenantBrandingRepository } = require('../repositories/tenant_branding.re
 const { TenantBrandingService } = require('../services/tenant_branding.service');
 const { TermsAndWelcomeEmailService } = require('../services/terms_and_welcome_email.service');
 const { signAuthToken } = require('../middleware/auth.middleware');
+const { getPrivateStorageAdapter } = require('../services/private_storage_adapter');
 
 /**
  * Public Routes Router - Strictly unprivileged endpoints
@@ -420,6 +421,38 @@ function createPublicRouter(pool, options = {}) {
       res.status(500).json({ error: 'Ocurrió un error procesando el registro. Por favor intente más tarde.' });
     } finally {
       conn.release();
+    }
+  });
+
+  /**
+   * GET /api/public/branding/:tenantId/logo/:fileId
+   * Serves strictly visual tenant_logo assets stored in private_files so browser <img> tags
+   * in POS, receipts, and public pages can render logos without raw Base64 in relational tables.
+   */
+  router.get('/branding/:tenantId/logo/:fileId', async (req, res) => {
+    try {
+      const { tenantId, fileId } = req.params;
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!pool || !uuidPattern.test(String(tenantId || '')) || !uuidPattern.test(String(fileId || ''))) {
+        return res.status(404).json({ error: 'Logo not found' });
+      }
+      const [rows] = await pool.query(
+        `SELECT id FROM private_files
+         WHERE id = ? AND tenant_id = ? AND category = 'tenant_logo' AND deleted_at IS NULL
+         LIMIT 1`,
+        [fileId, tenantId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'Logo not found' });
+      }
+      const storage = getPrivateStorageAdapter({ pool });
+      const fileData = await storage.readFile({ tenantId, fileId });
+      res.setHeader('Content-Type', fileData.mimeType || 'image/png');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.send(fileData.buffer);
+    } catch (err) {
+      return res.status(404).json({ error: 'Logo not found' });
     }
   });
 

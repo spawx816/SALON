@@ -2862,15 +2862,36 @@ const VisitRecorder = () => {
 
   // Single Cash Register Open Check before checkout
   const handleOpenCashRegister = async () => {
+    const parsedInitial = Number(registerInitialAmount);
+    if (registerInitialAmount === '' || registerInitialAmount === null || !Number.isFinite(parsedInitial) || parsedInitial < 0) {
+      alert('Por favor ingresa un monto inicial válido mayor o igual a 0.');
+      return;
+    }
     setLoading(true);
     try {
       const res = await dataService.openCashRegister({
         salon_id: salonId,
         employee_id: currentUser?.id || 'EMP',
         employee_name: currentUser?.nombre || 'Cajero',
-        monto_inicial: parseFloat(registerInitialAmount) || 0
+        opening_balance: parsedInitial,
+        monto_inicial: parsedInitial
       });
-      setActiveRegister(res.register || { id: res.registerId, register_number: res.registerNumber });
+      if (!res || res.error) {
+        throw new Error(res?.error || 'No se recibió confirmación válida del servidor al abrir la caja.');
+      }
+      const resolvedRegister = res.register || res;
+      const resolvedId = resolvedRegister?.id || res?.id || res?.registerId;
+      if (!resolvedId) {
+        throw new Error('El servidor no devolvió un identificador UUID válido para la caja abierta.');
+      }
+      setActiveRegister({
+        ...resolvedRegister,
+        id: resolvedId,
+        register_number: resolvedRegister?.register_number || res?.registerNumber || `CAJA-${String(resolvedId).slice(0, 8).toUpperCase()}`,
+        opening_balance: resolvedRegister?.opening_balance ?? parsedInitial,
+        monto_inicial: resolvedRegister?.monto_inicial ?? parsedInitial
+      });
+      await fetchActiveRegister();
       setShowRegisterOpenModal(false);
     } catch (e) {
       alert('Error abriendo caja: ' + e.message);
@@ -2881,14 +2902,26 @@ const VisitRecorder = () => {
 
   const handleCloseCashRegister = async () => {
     if (!activeRegister) return;
+    let targetRegisterId = activeRegister?.id || activeRegister?.register?.id || activeRegister?.registerId;
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!targetRegisterId || !uuidPattern.test(String(targetRegisterId))) {
+      const refreshed = await dataService.getActiveCashRegister(salonId).catch(() => null);
+      if (refreshed?.id && uuidPattern.test(String(refreshed.id))) {
+        targetRegisterId = refreshed.id;
+        setActiveRegister(refreshed);
+      } else {
+        alert('Error cerrando caja: No se encontró un identificador UUID válido para la caja activa. Recargue el estado de la caja.');
+        return;
+      }
+    }
     const declared = parseFloat(closeRegisterAmount);
-    if (isNaN(declared) || closeRegisterAmount === '') {
+    if (isNaN(declared) || closeRegisterAmount === '' || declared < 0) {
       alert('Por favor ingresa el monto de dinero contado físicamente en caja.');
       return;
     }
     const expected = registerSummary?.montoEstimadoEnCaja !== undefined
       ? Number(registerSummary.montoEstimadoEnCaja)
-      : Number(activeRegister.monto_inicial || 0);
+      : Number(activeRegister.expected_cash ?? activeRegister.monto_inicial ?? activeRegister.opening_balance ?? 0);
     const diff = declared - expected;
     if (diff < -0.01) {
       alert(`⛔ NO SE PUEDE CERRAR LA CAJA CON UN FALTANTE DE EFECTIVO.\n\nEfectivo Esperado: RD$ ${expected.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nDinero Contado: RD$ ${declared.toLocaleString('es-DO', { minimumFractionDigits: 2 })}\nFaltante: - RD$ ${Math.abs(diff).toLocaleString('es-DO', { minimumFractionDigits: 2 })}\n\nPor favor revise las transacciones, gastos o justifique los movimientos antes de cerrar.`);
@@ -2896,16 +2929,23 @@ const VisitRecorder = () => {
     }
     setLoading(true);
     try {
-      const res = await dataService.closeCashRegister(activeRegister.id, {
+      const cleanNotes = closeRegisterNotes.trim();
+      const res = await dataService.closeCashRegister(targetRegisterId, {
+        closing_balance: declared,
         monto_final: declared,
-        observaciones: closeRegisterNotes.trim()
+        notes: cleanNotes,
+        observaciones: cleanNotes
       });
-      const diffVal = res.summary?.diferencia || 0;
+      if (!res || res.error || res.success === false) {
+        throw new Error(res?.error || 'El servidor rechazó el cierre de caja.');
+      }
+      const diffVal = Number(res.difference ?? res.diferencia ?? res.summary?.diferencia ?? 0);
       const prestamosCount = res.summary?.prestamosRegistrados || 0;
       const diffText = diffVal === 0 ? '🟢 Cuadre Perfecto (Sin diferencia)' : diffVal > 0 ? `🔷 Sobrante: + RD$ ${diffVal.toFixed(2)}` : `🔴 Faltante: - RD$ ${Math.abs(diffVal).toFixed(2)}`;
       const prestamosText = prestamosCount > 0 ? `\n\n🤝 Se registraron ${prestamosCount} préstamo(s) a empleadas automáticamente como Descuento / Deducción en nómina.` : '';
 
-      const closedRegId = activeRegister.id;
+      const closedRegId = targetRegisterId;
+      await fetchActiveRegister();
       setActiveRegister(null);
       setShowConfirmCloseModal(false);
       setShowRegisterDetailsModal(false);
@@ -3196,8 +3236,8 @@ const VisitRecorder = () => {
     const ncfTypeToUse = isPlanCanjeCheck
       ? 'NONE'
       : (selectedComprobanteType && selectedComprobanteType !== 'NONE'
-          ? selectedComprobanteType
-          : (isCreditoFiscal ? 'B01' : 'NONE'));
+        ? selectedComprobanteType
+        : (isCreditoFiscal ? 'B01' : 'NONE'));
 
     // Validación preventiva de agotamiento/vencimiento antes de iniciar el cobro o emitir factura
     if (ncfTypeToUse !== 'NONE' && seqMap[ncfTypeToUse] && (seqMap[ncfTypeToUse].isExhausted || seqMap[ncfTypeToUse].isExpired)) {
@@ -3373,8 +3413,8 @@ const VisitRecorder = () => {
       const isRealEcf = Boolean(checkoutRes?.ncf && String(checkoutRes.ncf).toUpperCase().startsWith('E') && checkoutRes?.codigo_seguridad);
       const encfMsg = checkoutRes?.ncf
         ? (isRealEcf
-            ? `\n\n🛡️ e-NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad}`
-            : `\n\n🧾 NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'Comprobante'})`)
+          ? `\n\n🛡️ e-NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'e-CF'})\nCódigo Seguridad: ${checkoutRes.codigo_seguridad}`
+          : `\n\n🧾 NCF: ${checkoutRes.ncf} (${checkoutRes.ncf_name || 'Comprobante'})`)
         : '';
 
       alert(`✅ Factura finalizada exitosamente.\n\nCliente: ${finalClientName}${encfMsg}\nTotal Facturado: RD$ ${finalTotalAmount.toFixed(2)}\nMétodos Aplicados: ${finalMetodoPago}${cambioAmount > 0 ? `\nCambio / Devuelta: RD$ ${cambioAmount.toFixed(2)}` : ''}`);

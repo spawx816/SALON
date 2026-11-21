@@ -27,11 +27,16 @@ const CANONICAL_MIGRATIONS = [
   '20261110_phase3b_storage_and_portability',
   '20261110_phase3b_p2p3_extensions',
   '20261111_phase3c_clients_in_base_plan',
+  '20261114_unify_catalog_inventory',
+  '20261114_catalog_categories_and_inventory_alerts',
   '20261115_saas_fx_rates',
   '20261115_tenant_terms_and_welcome',
+  '20261115_rbac_hardening',
   '20261116_platform_email_settings',
   '20261116_print_templates_and_turn_tickets',
-  '20261120_schedule_overrides_unique_tenant_emp_date'
+  '20261117_kiosk_devices_hardening',
+  '20261120_schedule_overrides_unique_tenant_emp_date',
+  '20261121_reconcile_saas_billing_schema_drift'
 ];
 
 // Global / Control Plane / System Tables
@@ -98,6 +103,9 @@ const TENANT_OWNED_TABLES = [
   'gift_cards',
   'holidays',
   'idempotency_keys',
+  'inventory_alert_overrides',
+  'inventory_alert_settings',
+  'inventory_alert_states',
   'inventory_locations',
   'inventory_movements',
   'inventory_physical_session_items',
@@ -111,6 +119,8 @@ const TENANT_OWNED_TABLES = [
   'inventory_transfers',
   'invoice_items',
   'invoices',
+  'kiosk_devices',
+  'kiosk_employee_sessions',
   'marketing_settings',
   'membership_contracts',
   'membership_plans',
@@ -127,12 +137,14 @@ const TENANT_OWNED_TABLES = [
   'roles',
   'saas_billing_events',
   'saas_billing_jobs',
+  'saas_checkout_orders',
   'saas_invoice_counters',
   'saas_invoice_items',
   'saas_invoices',
   'saas_payment_methods',
   'saas_payments',
   'saas_refunds',
+  'saas_renewal_runs',
   'saas_webhook_events',
   'salons',
   'schedule_overrides',
@@ -215,6 +227,8 @@ const CANONICAL_44_SEQUENCES = [
   'payroll_records_id_seq',
   'pending_tenant_reconciliations_id_seq',
   'roles_id_seq',
+  'saas_fx_rate_history_id_seq',
+  'saas_fx_rates_id_seq',
   'saas_plans_id_seq',
   'schedule_overrides_id_seq',
   'schedule_overrides_dedup_archive_archive_id_seq',
@@ -226,6 +240,7 @@ const CANONICAL_44_SEQUENCES = [
   'tenant_terms_acceptances_id_seq',
   'tenant_welcome_email_queue_id_seq',
   'ticket_sequences_id_seq',
+  'turn_ticket_counters_id_seq',
   'verification_codes_id_seq'
 ];
 

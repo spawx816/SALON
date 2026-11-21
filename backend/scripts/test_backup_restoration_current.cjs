@@ -85,7 +85,8 @@ function generateSyntheticCurrentDataset() {
       { id: '77777777-7777-4777-8777-777777777777', tenant_id: tenant1Id, name: 'Peluquería y Lavado' }
     ],
     services: [
-      { id: serviceId, tenant_id: tenant1Id, name: 'Lavado y Secado', category_id: '77777777-7777-4777-8777-777777777777', price: '600.00', is_active: true }
+      { id: serviceId, tenant_id: tenant1Id, name: 'Lavado y Secado', category_id: '77777777-7777-4777-8777-777777777777', price: '600.00', item_type: 'SERVICIO', is_active: true },
+      { id: 'aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa', tenant_id: tenant1Id, name: 'Shampoo Profesional 1L', category_id: '77777777-7777-4777-8777-777777777777', price: '600.00', item_type: 'PRODUCTO', sku: 'SHP-001', is_active: true }
     ],
     inventory_locations: [
       { id: '88888888-8888-4888-8888-888888888888', tenant_id: tenant1Id, name: 'Almacén Central Piantini', is_default: true, is_active: true }
@@ -98,6 +99,21 @@ function generateSyntheticCurrentDataset() {
     ],
     inventory_stock: [
       { id: 'bbbbbbbb-1111-4bbb-8bbb-bbbbbbbbbbbb', tenant_id: tenant1Id, product_id: 'aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa', location_id: '88888888-8888-4888-8888-888888888888', quantity: 24, average_cost: '450.00' }
+    ],
+    tenant_subscriptions: [
+      { id: 'cccccccc-1111-4ccc-8ccc-cccccccccccc', tenant_id: tenant1Id, plan_code: 'PRINCIPAL', status: 'active', currency: 'DOP', billing_cycle: 'monthly', periodicity_mode: 'fixed_30_days', auto_renew: false, extra_users_count: 0, addon_branches_count: 0, current_period_start: new Date(), current_period_end: new Date(Date.now() + 30 * 86400000) }
+    ],
+    saas_invoices: [
+      { id: 'dddddddd-1111-4ddd-8ddd-dddddddddddd', tenant_id: tenant1Id, subscription_id: 'cccccccc-1111-4ccc-8ccc-cccccccccccc', invoice_number: 'SAAS-2026-0001', plan_code: 'PRINCIPAL', billing_cycle: 'monthly', subtotal_minor: 594000, tax_minor: 0, total_minor: 594000, amount_paid_minor: 594000, amount_due_minor: 0, currency: 'DOP', status: 'paid', idempotency_key: 'synth_saas_inv_1', fx_rate_scaled: 600000, fx_rate_formatted: '60.0000' }
+    ],
+    saas_payments: [
+      { id: 'eeeeeeee-1111-4eee-8eee-eeeeeeeeeeee', tenant_id: tenant1Id, invoice_id: 'dddddddd-1111-4ddd-8ddd-dddddddddddd', amount_minor: 594000, refunded_amount_minor: 0, currency: 'DOP', status: 'success', idempotency_key: 'synth_saas_pay_1', attempt_number: 1, is_retriable: false, requires_reconciliation: false }
+    ],
+    saas_renewal_runs: [
+      { id: 'ffffffff-1111-4fff-8fff-ffffffffffff', tenant_id: tenant1Id, subscription_id: 'cccccccc-1111-4ccc-8ccc-cccccccccccc', invoice_id: 'dddddddd-1111-4ddd-8ddd-dddddddddddd', period_key: '2026-11', status: 'succeeded', attempts_count: 1 }
+    ],
+    saas_checkout_orders: [
+      { id: '12121212-1111-4212-8212-121212121212', order_number: 'ETSYNTH0001', tenant_id: tenant1Id, invoice_id: 'dddddddd-1111-4ddd-8ddd-dddddddddddd', plan_code: 'PRINCIPAL', currency: 'DOP', subtotal_minor: 594000, tax_minor: 0, total_minor: 594000, status: 'approved', auto_renew_enabled: false, idempotency_key: 'synth_chk_ord_1', expires_at: new Date(Date.now() + 1800000) }
     ],
     clients: [
       { id: clientId, tenant_id: tenant1Id, name: 'Ana María Sintética', email: 'ana_synth@example.com', phone: '8095551234' }
@@ -220,8 +236,8 @@ async function testCurrentBackupRestoration() {
       SELECT sequence_name FROM information_schema.sequences
       WHERE sequence_schema = ?;
     `, [sandboxSchema]);
-    assert.strictEqual(sequences.length, 44, `Expected exactly 44 sequences, found ${sequences.length}`);
-    console.log(`  📊 [PASS] Exactamente 44 secuencias creadas en "${sandboxSchema}".`);
+    assert.strictEqual(sequences.length, CANONICAL_44_SEQUENCES.length, `Expected exactly ${CANONICAL_44_SEQUENCES.length} sequences, found ${sequences.length}`);
+    console.log(`  📊 [PASS] Exactamente ${CANONICAL_44_SEQUENCES.length} secuencias creadas en "${sandboxSchema}".`);
 
     const [triggers] = await conn.query(`
       SELECT t.tgname FROM pg_trigger t

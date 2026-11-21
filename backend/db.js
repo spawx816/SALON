@@ -118,15 +118,15 @@ if (DB_TYPE_NORMALIZED === 'postgres') {
     // 8. Handle ON DUPLICATE KEY UPDATE for PostgreSQL
     if (/ON DUPLICATE KEY UPDATE/i.test(s)) {
       if (s.includes('ticket_sequences')) {
-        s = s.replace(/ON DUPLICATE KEY UPDATE prefix = VALUES\(prefix\)/gi, 'ON CONFLICT (salon_id) DO UPDATE SET prefix = EXCLUDED.prefix');
-        s = s.replace(/ON DUPLICATE KEY UPDATE prefix = prefix/gi, 'ON CONFLICT (salon_id) DO NOTHING');
+        s = s.replace(/ON DUPLICATE KEY UPDATE prefix = VALUES\(prefix\)/gi, 'ON CONFLICT (tenant_id, salon_id) DO UPDATE SET prefix = EXCLUDED.prefix');
+        s = s.replace(/ON DUPLICATE KEY UPDATE prefix = prefix/gi, 'ON CONFLICT (tenant_id, salon_id) DO NOTHING');
       } else if (s.includes('employee_commission_rules')) {
         s = s.replace(/ON DUPLICATE KEY UPDATE[\s\S]*$/i, 'ON CONFLICT (employee_id, service_name) DO UPDATE SET tipo_comision = EXCLUDED.tipo_comision, comision_valor = EXCLUDED.comision_valor');
       } else if (s.includes('contract_settings')) {
         s = s.replace(/ON DUPLICATE KEY UPDATE[\s\S]*$/i, (match) => {
           let setClause = match.replace(/ON DUPLICATE KEY UPDATE/i, '').trim();
           setClause = setClause.replace(/([a-zA-Z0-9_]+)\s*=\s*VALUES\(([a-zA-Z0-9_]+)\)/gi, '$1 = EXCLUDED.$2');
-          return `ON CONFLICT (id) DO UPDATE SET ${setClause}`;
+          return `ON CONFLICT (tenant_id) DO UPDATE SET ${setClause}`;
         });
       } else if (s.includes('holidays')) {
         s = s.replace(/ON DUPLICATE KEY UPDATE[\s\S]*$/i, (match) => {
@@ -147,6 +147,34 @@ if (DB_TYPE_NORMALIZED === 'postgres') {
     return s.trim().replace(/;\s*$/g, '');
   }
 
+  // Tablas sin columna `id` (o con PK compuesto / tenant_id) donde nunca se debe agregar RETURNING id
+  const NO_ID_TABLES = new Set([
+    'inventory_alert_settings',
+    'saas_features',
+    'saas_invoice_counters',
+    'saas_plan_features',
+    'schedule_overrides_dedup_archive',
+    'schema_migrations',
+    'company_ncf_counters',
+    'email_settings',
+    'contract_settings',
+    'security_settings'
+  ]);
+
+  function shouldAppendReturningId(pgSql) {
+    if (!/^\s*INSERT\s+INTO\s+/i.test(pgSql)) return false;
+    if (/\bRETURNING\b/i.test(pgSql)) return false;
+    // Evitar bloques multi-sentencia o DO $$
+    if (pgSql.includes(';')) return false;
+    const match = pgSql.match(/^\s*INSERT\s+INTO\s+(?:"?[a-zA-Z0-9_]+"?\.)?"?([a-zA-Z0-9_]+)"?/i);
+    if (!match) return false;
+    const tableName = match[1].toLowerCase();
+    if (NO_ID_TABLES.has(tableName) || tableName.endsWith('_dedup_archive')) {
+      return false;
+    }
+    return true;
+  }
+
   // Adapter that conforms to [rows, fields] return signature of mysql2/promise
   pool = {
     isPostgres: true,
@@ -154,19 +182,10 @@ if (DB_TYPE_NORMALIZED === 'postgres') {
     async query(sql, params = []) {
       const pgSql = normalizeSql(sql);
       const isInsert = /^\s*INSERT\s+INTO\s+/i.test(pgSql);
-      const shouldAppendReturning = isInsert && !/RETURNING/i.test(pgSql);
+      const shouldAppendReturning = shouldAppendReturningId(pgSql);
 
       try {
-        let result;
-        try {
-          result = await pgPool.query(shouldAppendReturning ? `${pgSql} RETURNING id` : pgSql, params);
-        } catch (queryErr) {
-          if (shouldAppendReturning && (queryErr.message.includes('column "id" does not exist') || queryErr.message.includes('syntax error'))) {
-            result = await pgPool.query(pgSql, params);
-          } else {
-            throw queryErr;
-          }
-        }
+        const result = await pgPool.query(shouldAppendReturning ? `${pgSql} RETURNING id` : pgSql, params);
         const rows = result.rows || [];
         rows.affectedRows = result.rowCount;
         rows.rowCount = result.rowCount;
@@ -188,19 +207,10 @@ if (DB_TYPE_NORMALIZED === 'postgres') {
         async query(sql, params = []) {
           const pgSql = normalizeSql(sql);
           const isInsert = /^\s*INSERT\s+INTO\s+/i.test(pgSql);
-          const isNoIdTable = /^\s*INSERT\s+INTO\s+(?:schema_migrations|company_ncf_counters|email_settings|contract_settings|security_settings)\b/i.test(pgSql);
-          const shouldAppendReturning = isInsert && !isNoIdTable && !/RETURNING/i.test(pgSql);
+          const shouldAppendReturning = shouldAppendReturningId(pgSql);
 
-          let result;
-          try {
-            result = await client.query(shouldAppendReturning ? `${pgSql} RETURNING id` : pgSql, params);
-          } catch (queryErr) {
-            if (shouldAppendReturning && (queryErr.message.includes('column "id" does not exist') || queryErr.message.includes('syntax error'))) {
-              result = await client.query(pgSql, params);
-            } else {
-              throw queryErr;
-            }
-          }
+          // NUNCA capturar 42703 ni reintentar dentro de una conexión (en PostgreSQL abortaría la transacción con 25P02)
+          const result = await client.query(shouldAppendReturning ? `${pgSql} RETURNING id` : pgSql, params);
           const rows = result.rows || [];
           rows.affectedRows = result.rowCount;
           if (isInsert && rows.length > 0 && rows[0].id !== undefined) {

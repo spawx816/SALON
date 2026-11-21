@@ -149,8 +149,8 @@ function createSettingsRouter(pool) {
   // POST /api/settings/contract
   router.post('/contract', async (req, res) => {
     const role = String(req.auth?.role || '').toLowerCase();
-    if (!['admin', 'administrador', 'owner', 'superadmin'].includes(role)) {
-      return res.status(403).json({ error: 'Solo administradores pueden modificar la configuración del contrato.' });
+    if (!['propietario', 'owner', 'admin', 'administrador', 'superadmin'].includes(role)) {
+      return res.status(403).json({ error: 'Solo propietarios o administradores pueden modificar la configuración del contrato.' });
     }
     const tenantId = req.tenantId;
     if (!tenantId) {
@@ -205,8 +205,8 @@ function createSettingsRouter(pool) {
   // POST /api/settings/contract/reset
   router.post('/contract/reset', async (req, res) => {
     const role = String(req.auth?.role || '').toLowerCase();
-    if (!['admin', 'administrador', 'owner', 'superadmin'].includes(role)) {
-      return res.status(403).json({ error: 'Solo administradores pueden restablecer la configuración del contrato.' });
+    if (!['propietario', 'owner', 'admin', 'administrador', 'superadmin'].includes(role)) {
+      return res.status(403).json({ error: 'Solo propietarios o administradores pueden restablecer la configuración del contrato.' });
     }
     const tenantId = req.tenantId;
     if (!tenantId) {

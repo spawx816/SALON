@@ -17,6 +17,142 @@ const escapeHtml = (v) => String(v ?? '')
 
 const fmtMoney = (n) => `RD$ ${Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidRegisterUuid(id) {
+  if (!id || typeof id !== 'string') return false;
+  return UUID_REGEX.test(id.trim());
+}
+
+/**
+ * Resolves a monetary field supporting canonical and legacy alias names,
+ * rejecting contradictory values and rejecting missing/invalid/negative numbers.
+ */
+function resolveAliasedAmount(body, canonicalKey, aliasKey, errorCode, fieldLabel) {
+  const safeBody = body && typeof body === 'object' ? body : {};
+  const hasCanonical = safeBody[canonicalKey] !== undefined;
+  const hasAlias = safeBody[aliasKey] !== undefined;
+
+  if (!hasCanonical && !hasAlias) {
+    return {
+      ok: false,
+      status: 400,
+      code: errorCode,
+      error: `El campo ${fieldLabel} (${canonicalKey} / ${aliasKey}) es obligatorio y no puede omitirse.`
+    };
+  }
+
+  const parseNum = (raw) => {
+    if (raw === null || raw === '' || typeof raw === 'boolean') return NaN;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  if (hasCanonical && hasAlias) {
+    const n1 = parseNum(safeBody[canonicalKey]);
+    const n2 = parseNum(safeBody[aliasKey]);
+    if (Number.isNaN(n1) || Number.isNaN(n2)) {
+      return {
+        ok: false,
+        status: 400,
+        code: errorCode,
+        error: `El campo ${fieldLabel} contiene un valor numérico inválido.`
+      };
+    }
+    if (Math.abs(n1 - n2) > 0.001) {
+      return {
+        ok: false,
+        status: 400,
+        code: 'CONTRADICTORY_PAYLOAD_FIELDS',
+        error: `Valores contradictorios entre '${canonicalKey}' (${n1}) y '${aliasKey}' (${n2}).`
+      };
+    }
+  }
+
+  const rawValue = hasCanonical ? safeBody[canonicalKey] : safeBody[aliasKey];
+  const parsed = parseNum(rawValue);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return {
+      ok: false,
+      status: 400,
+      code: errorCode,
+      error: `El campo ${fieldLabel} debe ser un número válido mayor o igual a 0.`
+    };
+  }
+
+  return { ok: true, value: parsed };
+}
+
+/**
+ * Resolves a text field supporting canonical and legacy alias names,
+ * rejecting contradictory non-empty values.
+ */
+function resolveAliasedText(body, canonicalKey, aliasKey) {
+  const safeBody = body && typeof body === 'object' ? body : {};
+  const hasCanonical = safeBody[canonicalKey] !== undefined && safeBody[canonicalKey] !== null;
+  const hasAlias = safeBody[aliasKey] !== undefined && safeBody[aliasKey] !== null;
+
+  if (hasCanonical && hasAlias) {
+    const s1 = String(safeBody[canonicalKey]).trim();
+    const s2 = String(safeBody[aliasKey]).trim();
+    if (s1 !== '' && s2 !== '' && s1 !== s2) {
+      return {
+        ok: false,
+        status: 400,
+        code: 'CONTRADICTORY_PAYLOAD_FIELDS',
+        error: `Valores contradictorios entre '${canonicalKey}' y '${aliasKey}'.`
+      };
+    }
+    return { ok: true, value: s1 || s2 };
+  }
+  if (hasCanonical) return { ok: true, value: String(safeBody[canonicalKey]).trim() };
+  if (hasAlias) return { ok: true, value: String(safeBody[aliasKey]).trim() };
+  return { ok: true, value: '' };
+}
+
+function buildCanonicalRegisterDto(register, summary = null) {
+  if (!register) return null;
+  const openingBalance = summary?.opening_balance !== undefined
+    ? Number(summary.opening_balance)
+    : Number(register.monto_inicial ?? register.opening_balance ?? 0);
+  const expectedCash = summary?.expected_cash !== undefined
+    ? Number(summary.expected_cash)
+    : (register.expected_balance_cents != null ? Number(register.expected_balance_cents) / 100 : openingBalance);
+  const closingBalance = register.monto_final != null
+    ? Number(register.monto_final)
+    : (register.closing_balance_cents != null ? Number(register.closing_balance_cents) / 100 : null);
+  const difference = register.diferencia != null
+    ? Number(register.diferencia)
+    : (register.difference_cents != null ? Number(register.difference_cents) / 100 : 0);
+  const notes = register.observaciones ?? register.notes ?? '';
+
+  const dto = {
+    ...register,
+    ...(summary || {}),
+    id: register.id,
+    registerId: register.id,
+    register_number: register.register_number || `CAJA-${String(register.id).slice(0, 8).toUpperCase()}`,
+    registerNumber: register.register_number || `CAJA-${String(register.id).slice(0, 8).toUpperCase()}`,
+    status: register.status,
+    opening_balance: openingBalance,
+    monto_inicial: openingBalance,
+    expected_balance: expectedCash,
+    expected_cash: expectedCash,
+    monto_esperado: expectedCash,
+    closing_balance: closingBalance,
+    monto_final: closingBalance,
+    difference,
+    diferencia: difference,
+    notes,
+    observaciones: notes,
+  };
+  return {
+    ...dto,
+    register: { ...dto },
+    summary: summary ? { ...summary, diferencia: difference, difference } : undefined
+  };
+}
+
 async function sendCashRegisterCloseEmail(pool, {
   tenantId,
   registerId,
@@ -35,11 +171,11 @@ async function sendCashRegisterCloseEmail(pool, {
 }) {
   try {
     const [tenantRows] = await pool.query(
-      'SELECT business_name, name, owner_email FROM tenants WHERE id = ? LIMIT 1',
+      'SELECT business_name, legal_name, owner_email, email FROM tenants WHERE id = ? LIMIT 1',
       [tenantId]
     );
     const tenant = tenantRows?.[0] || {};
-    const businessName = tenant.business_name || tenant.name || 'Etereas';
+    const businessName = tenant.business_name || tenant.legal_name || 'Etereas';
 
     const [adminUsers] = await pool.query(
       "SELECT email FROM users WHERE tenant_id = ? AND role IN ('propietario', 'admin') AND email IS NOT NULL AND email != ''",
@@ -294,21 +430,45 @@ function createCashRegistersRouter(pool) {
       const register = rows[0];
       const { summary } = await computeCanonicalRegisterSummary(pool, tenantId, register);
 
-      res.json({
-        ...register,
-        ...summary,
-      });
+      res.json(buildCanonicalRegisterDto(register, summary));
     } catch (err) {
       console.error('[CASH REGISTER ACTIVE ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 2. Abrir una nueva caja de jornada en el tenant autenticado (REM-P1-08)
+  // 2. Abrir una nueva caja de jornada en el tenant autenticado (REM-P1-08 & Bloque 2 DTO Canónico)
   router.post('/open', async (req, res) => {
     try {
       const tenantId = req.tenantId;
-      const { salon_id = 1, opening_balance = 0, notes = '' } = req.body || {};
+      const body = req.body || {};
+      const salon_id = body.salon_id ?? body.branch_id ?? 1;
+
+      const amountCheck = resolveAliasedAmount(
+        body,
+        'opening_balance',
+        'monto_inicial',
+        'INVALID_OPENING_BALANCE',
+        'monto inicial de apertura'
+      );
+      if (!amountCheck.ok) {
+        return res.status(amountCheck.status).json({
+          error: amountCheck.error,
+          code: amountCheck.code
+        });
+      }
+
+      const notesCheck = resolveAliasedText(body, 'notes', 'observaciones');
+      if (!notesCheck.ok) {
+        return res.status(notesCheck.status).json({
+          error: notesCheck.error,
+          code: notesCheck.code
+        });
+      }
+
+      const openingBalance = amountCheck.value;
+      const notes = notesCheck.value;
+
       if (!isBranchAuthorized(req, salon_id)) {
         return res.status(403).json({
           error: 'No tienes autorización para abrir cajas en esta sucursal.',
@@ -334,41 +494,86 @@ function createCashRegistersRouter(pool) {
       if (existing.length > 0) {
         return res.status(400).json({
           error: 'Ya existe una caja abierta para esta sucursal. Ciérrala antes de abrir una nueva.',
+          code: 'REGISTER_ALREADY_OPEN',
           register_id: existing[0].id
         });
       }
 
       const branchId = await resolveBranchIdForTenant(tenantId, salon_id);
       const numericSalonId = (salon_id && !isNaN(Number(salon_id))) ? Number(salon_id) : 1;
+      const openingBalanceCents = Math.round(openingBalance * 100);
 
       const [result] = await pool.query(
         `INSERT INTO cash_registers (tenant_id, branch_id, salon_id, monto_inicial, opening_balance_cents, opened_by_name, observaciones, status, opened_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'Abierta', NOW())
          RETURNING id`,
-        [tenantId, branchId, numericSalonId, Number(opening_balance) || 0, Math.round((Number(opening_balance) || 0) * 100), effectiveOpenedBy, notes]
+        [tenantId, branchId, numericSalonId, openingBalance, openingBalanceCents, effectiveOpenedBy, notes]
       );
 
       const newId = result.insertId || result[0]?.id;
       const [created] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ?', [newId, tenantId]);
-      res.json(created[0] || { id: newId, status: 'Abierta', opening_balance: Number(opening_balance) || 0 });
+      const createdReg = created[0] || {
+        id: newId,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        salon_id: numericSalonId,
+        status: 'Abierta',
+        monto_inicial: openingBalance,
+        opening_balance_cents: openingBalanceCents,
+        opened_by_name: effectiveOpenedBy,
+        observaciones: notes
+      };
+      const { summary } = await computeCanonicalRegisterSummary(pool, tenantId, createdReg);
+      res.json(buildCanonicalRegisterDto(createdReg, summary));
     } catch (err) {
       console.error('[CASH REGISTER OPEN ERROR]:', err);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // 3. Cerrar caja de jornada dentro del tenant autenticado (REM-P1-08 & REM-P2-02 & Addendum 2)
+  // 3. Cerrar caja de jornada dentro del tenant autenticado (REM-P1-08 & REM-P2-02 & Addendum 2 & Bloque 2)
   router.post('/:id/close', async (req, res) => {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+
+      if (!isValidRegisterUuid(id)) {
+        return res.status(400).json({
+          error: `Identificador de caja inválido ('${id}'). Debe ser un UUID válido.`,
+          code: 'INVALID_REGISTER_ID'
+        });
+      }
+
+      const body = req.body || {};
+      const amountCheck = resolveAliasedAmount(
+        body,
+        'closing_balance',
+        'monto_final',
+        'INVALID_CLOSING_BALANCE',
+        'monto final contado en caja'
+      );
+      if (!amountCheck.ok) {
+        return res.status(amountCheck.status).json({
+          error: amountCheck.error,
+          code: amountCheck.code
+        });
+      }
+
+      const notesCheck = resolveAliasedText(body, 'notes', 'observaciones');
+      if (!notesCheck.ok) {
+        return res.status(notesCheck.status).json({
+          error: notesCheck.error,
+          code: notesCheck.code
+        });
+      }
+
+      const closing_balance = amountCheck.value;
+      const notes = notesCheck.value;
       const {
-        closing_balance = 0,
-        notes = '',
         discrepancy_reason = '',
         double_confirmed = false,
         supervisor_pin = ''
-      } = req.body || {};
+      } = body;
 
       // Operador extraído estrictamente de req.auth para prevenir suplantación de identidad (REM-P1-08)
       const effectiveClosedBy = req.auth?.name || req.auth?.email || req.headers['x-user-name'] || req.body?.closed_by || 'Recepción';
@@ -380,7 +585,9 @@ function createCashRegistersRouter(pool) {
       }
 
       const register = rows[0];
-      if (!isBranchAuthorized(req, register.branch_id ?? register.salon_id)) {
+      const hasBranchScopeMetadata = req.auth?.allBranchesAccess !== undefined || req.auth?.authorizedBranchIds !== undefined || req.auth?.branchId !== undefined;
+      const targetBranchOrSalon = register.branch_id ?? (hasBranchScopeMetadata ? register.salon_id : null);
+      if (targetBranchOrSalon && !isBranchAuthorized(req, targetBranchOrSalon)) {
         return res.status(403).json({
           error: 'No tienes autorización para cerrar cajas de esta sucursal.',
           code: 'BRANCH_ACCESS_DENIED'
@@ -536,24 +743,58 @@ function createCashRegistersRouter(pool) {
         notes: notes || null,
       });
 
+      const [closedRows] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
+      const closedReg = closedRows[0] || {
+        ...register,
+        status: 'Cerrada',
+        monto_final: actualClosing,
+        closing_balance_cents: actualClosingCents,
+        expected_balance_cents: expectedBalanceCents,
+        diferencia: difference,
+        difference_cents: differenceCents,
+        observaciones: notes || register.observaciones || ''
+      };
+      const canonicalDto = buildCanonicalRegisterDto(closedReg, closeSummary);
+      const report = {
+        registerNumber: closedReg.register_number || `CAJA-${closedReg.id}`,
+        employeeName: effectiveClosedBy,
+        salonName: closedReg.salon_name || 'Sede Principal',
+        openedAt: closedReg.opened_at,
+        closedAt: closedReg.closed_at || new Date().toISOString(),
+        initialAmt: openingBalance,
+        finalAmt: actualClosing,
+        montoEsperado: expectedBalance,
+        diferencia: difference,
+        observaciones: closedReg.observaciones || '',
+        stats: closeSummary,
+      };
+
       res.json({
+        ...canonicalDto,
         success: true,
         id,
         closed_by: effectiveClosedBy,
         closed_by_user_id: closedByUserId,
         opening_balance: openingBalance,
+        monto_inicial: openingBalance,
         cash_sales: cashSales,
         ingresos_manuales: ingresos,
         salidas_manuales: salidas,
         expected_balance: expectedBalance,
+        expected_cash: expectedBalance,
         closing_balance: actualClosing,
+        monto_final: actualClosing,
         difference,
+        diferencia: difference,
         difference_amount_cents: differenceCents,
         discrepancy_reason: discrepancy_reason ? String(discrepancy_reason).trim() : null,
+        notes: closedReg.observaciones || '',
+        observaciones: closedReg.observaciones || '',
         supervisor_authorized: Boolean(supervisorUserId),
         authorization_event_type: authorizationEventType,
         correlation_id: correlationId,
         email_sent: Boolean(emailResult?.sent),
+        report,
       });
     } catch (err) {
       console.error('[CASH REGISTER CLOSE ERROR]:', err);
@@ -566,6 +807,9 @@ function createCashRegistersRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isValidRegisterUuid(id)) {
+        return res.status(400).json({ error: `Identificador de caja inválido ('${id}').`, code: 'INVALID_REGISTER_ID' });
+      }
       const [rows] = await pool.query(
         `SELECT cr.*, COALESCE(b.name, 'Sede Principal') AS salon_name
          FROM cash_registers cr
@@ -615,6 +859,9 @@ function createCashRegistersRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isValidRegisterUuid(id)) {
+        return res.status(400).json({ error: `Identificador de caja inválido ('${id}').`, code: 'INVALID_REGISTER_ID' });
+      }
       const [regCheck] = await pool.query('SELECT * FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
       if (regCheck.length === 0) {
         return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });
@@ -640,6 +887,9 @@ function createCashRegistersRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isValidRegisterUuid(id)) {
+        return res.status(400).json({ error: `Identificador de caja inválido ('${id}').`, code: 'INVALID_REGISTER_ID' });
+      }
       const { type = 'Salida', amount, concept, reason, payment_method = 'Efectivo' } = req.body;
 
       const [regCheck] = await pool.query('SELECT id FROM cash_registers WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
@@ -698,6 +948,9 @@ function createCashRegistersRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isValidRegisterUuid(id)) {
+        return res.status(400).json({ error: `Identificador de caja inválido ('${id}').`, code: 'INVALID_REGISTER_ID' });
+      }
       const [regRows] = await pool.query('SELECT id, branch_id, salon_id FROM cash_registers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (regRows.length === 0) {
         return res.status(404).json({ error: 'Caja no encontrada en esta empresa' });

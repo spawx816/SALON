@@ -245,24 +245,21 @@ export default function TenantCustomizationModule() {
     setSaveSuccess(false);
 
     try {
-      // 1. Si el logo es un data:image base64 nuevo, subirlo
+      // 1. Si el logo es un data:image base64 nuevo, subirlo obligatoriamente al almacenamiento canónico (sin fallback silencioso a base64)
       let finalLogoUrl = formData.logo_url;
       if (formData.logo_url && formData.logo_url.startsWith('data:image/')) {
-        try {
-          const uploadRes = await dataService.uploadTenantLogo(formData.logo_url, selectedTenantId);
-          if (uploadRes && uploadRes.logo_url) {
-            finalLogoUrl = uploadRes.logo_url;
-          }
-        } catch (uploadErr) {
-          console.warn('Error subiendo logo a servidor, se usará base64:', uploadErr);
+        const uploadRes = await dataService.uploadTenantLogo(formData.logo_url, selectedTenantId);
+        if (!uploadRes || !uploadRes.logo_url) {
+          throw new Error(uploadRes?.error || 'El servidor no devolvió una URL válida para el logotipo subido.');
         }
+        finalLogoUrl = uploadRes.logo_url;
       }
 
       // 2. Guardar branding canónico en /api/tenant/branding
       if (!isSuperAdmin) {
         await updateBranding({
           business_name: formData.business_name,
-          logo_url: finalLogoUrl,
+          logo_url: finalLogoUrl || null,
           logo_dark_url: formData.logo_dark_url || null,
           favicon_url: formData.favicon_url || null,
           primary_color: formData.primary_color,
@@ -276,16 +273,15 @@ export default function TenantCustomizationModule() {
         });
       }
 
-      // 3. Guardar perfil completo en backend
+      // 3. Guardar perfil completo en backend (sin silenciar errores HTTP 4xx/5xx)
       const payload = {
         ...formData,
         logo_url: finalLogoUrl
       };
 
-      try {
-        await dataService.updateTenantProfile(payload, selectedTenantId);
-      } catch (profErr) {
-        console.warn('Perfil adicional no persistido:', profErr.message);
+      const profileRes = await dataService.updateTenantProfile(payload, selectedTenantId);
+      if (profileRes && profileRes.error) {
+        throw new Error(profileRes.error);
       }
       
       // 4. Actualizar almacenamiento local para sincronizar el sidebar inmediatamente
@@ -307,6 +303,7 @@ export default function TenantCustomizationModule() {
       setTimeout(() => setSaveSuccess(false), 4000);
     } catch (err) {
       console.error('Error al guardar personalización:', err);
+      setSaveSuccess(false);
       showNotification(`Error: ${err.message || 'No se pudo guardar la personalización'}`, 'error');
     } finally {
       setSaving(false);
