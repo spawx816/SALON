@@ -112,19 +112,29 @@ async function resolveKioskDevice(pool, req) {
     `SELECT d.*, t.business_name, t.status AS tenant_status
      FROM kiosk_devices d
      JOIN tenants t ON t.id = d.tenant_id
-     WHERE d.token_hash = ? AND d.status = 'active' AND d.expires_at > NOW()
+     WHERE d.token_hash = ?
      LIMIT 1`,
     [tokenHash]
   );
   if (!rows || rows.length === 0) return null;
 
   const device = rows[0];
+  if (device.status !== 'active' || (device.expires_at && new Date(device.expires_at) <= new Date())) {
+    if (
+      String(device.revoked_reason || '').includes('SESSION_REPLACED') ||
+      String(device.revoked_reason || '').toLowerCase().includes('reemplazad')
+    ) {
+      return { device, replaced: true };
+    }
+    return null;
+  }
+
   if (String(device.tenant_status || '').toLowerCase() === 'pending' || String(device.tenant_status || '').toLowerCase() === 'suspended') {
     return { device, suspended: true };
   }
 
   // Si el dispositivo está vinculado a una cuenta dedicada 'kiosco_asistencia',
-  // verificar que la cuenta siga activa, mantenga el rol kiosco y pertenezca a la misma sucursal.
+  // verificar que la cuenta siga activa, mantenga el rol kiosco, pertenezca a la misma sucursal y conserve su sesión activa.
   if (device.bound_by_user_id) {
     try {
       const [uRows] = await pool.query(
@@ -141,6 +151,17 @@ async function resolveKioskDevice(pool, req) {
           const sameBranch = !boundUser.branch_id || String(boundUser.branch_id) === String(device.branch_id);
           if (!active || !sameBranch) {
             return null;
+          }
+          // Verificar que la cuenta kiosco tenga una sesión activa en user_sessions
+          const [kSessRows] = await pool.query(
+            'SELECT is_active, device_info FROM user_sessions WHERE user_id = ? AND tenant_id = ? ORDER BY created_at DESC LIMIT 2',
+            [String(device.bound_by_user_id), device.tenant_id]
+          ).catch(() => [[]]);
+          if (Array.isArray(kSessRows) && kSessRows.length > 0) {
+            const hasActiveSession = kSessRows.some((s) => Boolean(s.is_active));
+            if (!hasActiveSession) {
+              return null;
+            }
           }
         }
       }

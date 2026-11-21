@@ -6,7 +6,7 @@ import { LogIn, Mail, Lock, ShieldCheck } from 'lucide-react';
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { login } = useAuth();
+  const { login, sessionTerminatedReason } = useAuth();
   const { t, lang, changeLanguage } = useTranslation();
 
   const [error, setError] = useState('');
@@ -119,9 +119,9 @@ const Login = () => {
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>{t('login.subtitle')}</p>
         </div>
 
-        {error && (
-          <div style={{ padding: '1rem', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '12px', color: '#991b1b', fontSize: '0.875rem', fontWeight: 600, textAlign: 'center' }}>
-            {error}
+        {(sessionTerminatedReason || error) && (
+          <div role="alert" data-testid="session-terminated-alert" style={{ padding: '1rem', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '12px', color: '#991b1b', fontSize: '0.875rem', fontWeight: 600, textAlign: 'center' }}>
+            {error || sessionTerminatedReason}
           </div>
         )}
 

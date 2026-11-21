@@ -6,7 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { TenantBrandingRepository } = require('../repositories/tenant_branding.repository');
 const { TenantBrandingService } = require('../services/tenant_branding.service');
 const { TermsAndWelcomeEmailService } = require('../services/terms_and_welcome_email.service');
-const { signAuthToken } = require('../middleware/auth.middleware');
+const { signAuthToken, issueSingleActiveUserSession } = require('../middleware/auth.middleware');
 const { getPrivateStorageAdapter } = require('../services/private_storage_adapter');
 
 /**
@@ -138,21 +138,19 @@ function createPublicRouter(pool, options = {}) {
 
         await conn.commit();
 
-        const sessionId = crypto.randomBytes(24).toString('hex');
         const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
         const userAgent = req.headers['user-agent'] || 'unknown';
-        await pool.query(`
-          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
-          VALUES (?, ?, ?, 'owner', ?, ?, ?, 1, NOW(), NOW(), ?)
-        `, [
-          sessionId,
-          String(existing.user_id),
-          existing.name || owner_name || 'Propietario',
-          String(existing.branch_id),
-          clientIp,
+        const { sessionId } = await issueSingleActiveUserSession(pool, {
+          userId: String(existing.user_id),
+          tenantId: existing.tenant_id,
+          userName: existing.name || owner_name || 'Propietario',
+          role: 'owner',
+          salonId: String(existing.branch_id),
+          ipAddress: clientIp,
           userAgent,
-          existing.tenant_id,
-        ]);
+          isKioskAccount: false,
+          req
+        });
         const token = signAuthToken({
           sub: String(existing.user_id),
           id: String(existing.user_id),
@@ -323,21 +321,19 @@ function createPublicRouter(pool, options = {}) {
       await conn.commit();
 
       // Emitir sesión restringida al flujo de pago (todas las rutas operativas quedan bloqueadas con 402 hasta aprobar pago)
-      const sessionId = crypto.randomBytes(24).toString('hex');
       const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
       const userAgent = req.headers['user-agent'] || 'unknown';
-      await pool.query(`
-        INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
-        VALUES (?, ?, ?, 'owner', ?, ?, ?, 1, NOW(), NOW(), ?)
-      `, [
-        sessionId,
-        String(userId),
-        owner_name || 'Propietario',
-        String(branchId),
-        clientIp,
-        userAgent,
+      const { sessionId } = await issueSingleActiveUserSession(pool, {
+        userId: String(userId),
         tenantId,
-      ]);
+        userName: owner_name || 'Propietario',
+        role: 'owner',
+        salonId: String(branchId),
+        ipAddress: clientIp,
+        userAgent,
+        isKioskAccount: false,
+        req
+      });
       const token = signAuthToken({
         sub: String(userId),
         id: String(userId),

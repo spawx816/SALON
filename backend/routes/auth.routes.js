@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
-const { signAuthToken } = require('../middleware/auth.middleware');
+const { signAuthToken, issueSingleActiveUserSession, SESSION_REPLACED_MESSAGE } = require('../middleware/auth.middleware');
 const { resolveTransporterForTenant } = require('../services/platform_email.service');
 const {
   resolveAuthorizedPublicOrigin,
@@ -391,9 +391,13 @@ function createAuthRouter(pool, options = {}) {
           await pool.query(uQuery, uParams);
           // Revocar sesiones activas del usuario en user_sessions (mecanismo canónico adicional a token_version)
           if (rec.tenant_id) {
-            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND is_active = 1', [String(realUserId), rec.tenant_id]);
+            await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id = ? AND is_active = 1", [String(realUserId), rec.tenant_id]);
+            try {
+              const { revokeDevicesByKioskUser } = require('../services/kiosk_device.service');
+              await revokeDevicesByKioskUser(pool, { tenantId: rec.tenant_id, userId: String(realUserId), reason: 'Restablecimiento de contraseña' });
+            } catch { /* ignore */ }
           } else {
-            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1', [String(realUserId)]);
+            await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1", [String(realUserId)]);
           }
         } else if (resolvedUserId) {
           let cQuery = 'UPDATE clients SET password = ?, must_change_password = 0 WHERE id = ?';
@@ -407,9 +411,9 @@ function createAuthRouter(pool, options = {}) {
           await pool.query(cQuery, cParams);
           // Revocar sesiones B2C activas mediante el mecanismo canónico (user_sessions.is_active = 0)
           if (rec.tenant_id) {
-            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND is_active = 1', [String(resolvedUserId), rec.tenant_id]);
+            await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id = ? AND is_active = 1", [String(resolvedUserId), rec.tenant_id]);
           } else {
-            await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1', [String(resolvedUserId)]);
+            await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1", [String(resolvedUserId)]);
           }
         } else {
           return res.status(404).json({ error: 'No se encontró la cuenta vinculada al enlace.' });
@@ -547,6 +551,15 @@ function createAuthRouter(pool, options = {}) {
           uQuery += ' AND tenant_id IS NULL';
         }
         await pool.query(uQuery, uParams);
+        if (rec.tenant_id) {
+          await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id = ? AND is_active = 1", [String(realUserId), rec.tenant_id]);
+          try {
+            const { revokeDevicesByKioskUser } = require('../services/kiosk_device.service');
+            await revokeDevicesByKioskUser(pool, { tenantId: rec.tenant_id, userId: String(realUserId), reason: 'Restablecimiento de contraseña' });
+          } catch { /* ignore */ }
+        } else {
+          await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1", [String(realUserId)]);
+        }
         return res.json({ success: true, message: 'Contraseña actualizada exitosamente.' });
       }
 
@@ -562,9 +575,9 @@ function createAuthRouter(pool, options = {}) {
         await pool.query(cQuery, cParams);
         // Revocar sesiones B2C activas mediante el mecanismo canónico (user_sessions.is_active = 0)
         if (rec.tenant_id) {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND is_active = 1', [String(resolvedUserId), rec.tenant_id]);
+          await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id = ? AND is_active = 1", [String(resolvedUserId), rec.tenant_id]);
         } else {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1', [String(resolvedUserId)]);
+          await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'password_reset' WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1", [String(resolvedUserId)]);
         }
         return res.json({ success: true, message: 'Contraseña restablecida correctamente.' });
       }
@@ -1773,21 +1786,46 @@ function createAuthRouter(pool, options = {}) {
             }
           }
 
-          const sessionId = crypto.randomUUID();
-          // Inserción obligatoria de sesión (FAIL-CLOSED: Si falla la BD, no se emite token)
-          await pool.query(`
-            INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW(), ?)
-          `, [
-            sessionId,
-            String(u.id),
-            u.name || u.nombre,
-            effectiveRole,
-            u.branch_id ? String(u.branch_id) : (u.salon_id || '1'),
-            clientIp,
-            userAgent,
-            u.tenant_id || null
-          ]);
+          let resolvedPermissions = {};
+          const normalizedSysRole = normalizeRole(effectiveRole);
+          const isKioskAccount = normalizedSysRole === 'kiosco_asistencia';
+          const isAdminLike = !isKioskAccount && (isSuperAdmin || ['propietario', 'admin'].includes(normalizedSysRole));
+          const assignedBranchId = u.branch_id || u.salon_id || null;
+
+          if (isKioskAccount && !assignedBranchId) {
+            return res.status(403).json({
+              error: 'Esta cuenta Kiosco de Asistencia no tiene una sucursal asignada.',
+              code: 'KIOSK_BRANCH_REQUIRED'
+            });
+          }
+
+          let sessionId;
+          let kioskDeviceBind = null;
+          try {
+            const issued = await issueSingleActiveUserSession(pool, {
+              userId: String(u.id),
+              tenantId: u.tenant_id || null,
+              userName: u.name || u.nombre || u.email,
+              role: effectiveRole,
+              salonId: assignedBranchId ? String(assignedBranchId) : '1',
+              ipAddress: clientIp,
+              userAgent,
+              isKioskAccount,
+              assignedBranchId,
+              req
+            });
+            sessionId = issued.sessionId;
+            kioskDeviceBind = issued.kioskDeviceBind;
+          } catch (bindErr) {
+            if (isKioskAccount) {
+              console.error('[KIOSK_BIND_ERROR]:', bindErr);
+              return res.status(503).json({
+                error: 'No se pudo vincular este dispositivo al Kiosco de Asistencia. Intenta nuevamente.',
+                code: 'KIOSK_BIND_FAILED',
+              });
+            }
+            throw bindErr;
+          }
 
           const token = signAuthToken({
             sub: String(u.id),
@@ -1796,53 +1834,14 @@ function createAuthRouter(pool, options = {}) {
             name: u.name || u.nombre,
             role: effectiveRole,
             tenantId: isSuperAdmin ? null : u.tenant_id,
-            branchId: u.branch_id || u.salon_id || null,
+            branchId: assignedBranchId,
             sessionId,
             isSuperAdmin,
             tokenVersion: (u.token_version !== undefined && u.token_version !== null) ? Number(u.token_version) : 1
           });
 
-          let resolvedPermissions = {};
-          const normalizedSysRole = normalizeRole(effectiveRole);
-          const isKioskAccount = normalizedSysRole === 'kiosco_asistencia';
-          const isAdminLike = !isKioskAccount && (isSuperAdmin || ['propietario', 'admin'].includes(normalizedSysRole));
-          let kioskDeviceBind = null;
-
           if (isKioskAccount) {
             resolvedPermissions = {};
-            const assignedBranchId = u.branch_id || u.salon_id || null;
-            if (!assignedBranchId) {
-              return res.status(403).json({
-                error: 'Esta cuenta Kiosco de Asistencia no tiene una sucursal asignada.',
-                code: 'KIOSK_BRANCH_REQUIRED'
-              });
-            }
-            const {
-              KIOSK_DEVICE_COOKIE,
-              DEVICE_TTL_MS,
-              buildCookieOptions,
-              bindKioskDevice,
-            } = require('../services/kiosk_device.service');
-            try {
-              const bound = await bindKioskDevice(pool, {
-                tenantId: u.tenant_id,
-                branchId: String(assignedBranchId),
-                deviceName: `Kiosco · ${u.name || u.nombre || u.email}`,
-                actorUserId: String(u.id),
-                actorName: u.name || u.nombre || u.email,
-              });
-              kioskDeviceBind = {
-                cookieName: KIOSK_DEVICE_COOKIE,
-                rawToken: bound.rawToken,
-                cookieOptions: buildCookieOptions(req, DEVICE_TTL_MS),
-              };
-            } catch (bindErr) {
-              console.error('[KIOSK_BIND_ERROR]:', bindErr);
-              return res.status(503).json({
-                error: 'No se pudo vincular este dispositivo al Kiosco de Asistencia. Intenta nuevamente.',
-                code: 'KIOSK_BIND_FAILED',
-              });
-            }
           } else if (u.role_permissions) {
             resolvedPermissions = expandEffectivePermissions(u.role_permissions);
           } else if (isAdminLike) {
@@ -1941,20 +1940,17 @@ function createAuthRouter(pool, options = {}) {
           return res.status(401).json({ error: 'Contraseña incorrecta.' });
         }
 
-        const sessionId = crypto.randomUUID();
-        // Inserción obligatoria de sesión para cliente B2C (FAIL-CLOSED)
-        await pool.query(`
-          INSERT INTO user_sessions (id, user_id, user_name, role, salon_id, ip_address, user_agent, is_active, created_at, last_activity, tenant_id)
-          VALUES (?, ?, ?, 'client', ?, ?, ?, 1, NOW(), NOW(), ?)
-        `, [
-          sessionId,
-          String(client.id),
-          client.nombre || 'Cliente',
-          String(client.salon_id || '1'),
-          clientIp,
+        const { sessionId } = await issueSingleActiveUserSession(pool, {
+          userId: String(client.id),
+          tenantId: client.tenant_id || null,
+          userName: client.nombre || 'Cliente',
+          role: 'client',
+          salonId: String(client.salon_id || '1'),
+          ipAddress: clientIp,
           userAgent,
-          client.tenant_id || null
-        ]);
+          isKioskAccount: false,
+          req
+        });
 
         const token = signAuthToken({
           sub: String(client.id),
@@ -2013,9 +2009,9 @@ function createAuthRouter(pool, options = {}) {
       const userName = req.auth?.name;
       if (sessionId) {
         if (req.auth?.tenantId) {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id = ?', [sessionId, req.auth.tenantId]);
+          await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'user_logout' WHERE id = ? AND tenant_id = ?", [sessionId, req.auth.tenantId]);
         } else {
-          await pool.query('UPDATE user_sessions SET is_active = 0 WHERE id = ? AND tenant_id IS NULL', [sessionId]);
+          await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'user_logout' WHERE id = ? AND tenant_id IS NULL", [sessionId]);
         }
       }
       if (userId) {
@@ -2034,7 +2030,7 @@ function createAuthRouter(pool, options = {}) {
         }
         await logSecurityAudit(userId, userName, 'USER_LOGOUT', 'Cierre de sesión voluntario', req);
       }
-      res.clearCookie('auth_token');
+      res.clearCookie('auth_token', { path: '/' });
       res.json({ success: true, message: 'Sesión finalizada exitosamente.' });
     } catch (err) {
       res.status(500).json({ error: 'Error procesando cierre de sesión.' });
@@ -2043,6 +2039,81 @@ function createAuthRouter(pool, options = {}) {
 
   router.post('/auth/logout', handleLogout);
   router.post('/logout', handleLogout);
+
+  // Refresh session token without creating parallel sessions or reactivating revoked sessions
+  const handleRefreshSession = async (req, res) => {
+    try {
+      const auth = req.auth;
+      const sessionId = auth?.sessionId || null;
+      if (!auth || !auth.id || !sessionId) {
+        return res.status(401).json({
+          valid: false,
+          code: 'SESSION_REVOKED',
+          error: 'No existe una sesión activa válida para renovar.'
+        });
+      }
+
+      const [sessions] = await pool.query(
+        'SELECT is_active, user_id, device_info, tenant_id FROM user_sessions WHERE id = ? LIMIT 1',
+        [sessionId]
+      );
+      if (!sessions || sessions.length === 0 || !sessions[0].is_active || String(sessions[0].user_id) !== String(auth.id)) {
+        res.clearCookie('auth_token', { path: '/' });
+        const isReplaced = sessions?.[0]?.device_info === 'replaced_by_new_login';
+        return res.status(401).json({
+          valid: false,
+          reason: isReplaced ? 'session_replaced' : 'session_revoked',
+          code: isReplaced ? 'SESSION_REPLACED' : 'SESSION_REVOKED',
+          error: isReplaced ? SESSION_REPLACED_MESSAGE : 'La sesión ha sido revocada o cerrada remotamente.'
+        });
+      }
+
+      if (auth.tenantId) {
+        await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ? AND tenant_id = ? AND is_active = 1', [sessionId, auth.tenantId]);
+      } else {
+        await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ? AND tenant_id IS NULL AND is_active = 1', [sessionId]);
+      }
+
+      let tokenVersion = 1;
+      if (!auth.isClient) {
+        const [uRows] = await pool.query('SELECT token_version, is_active, estado FROM users WHERE id::text = ? LIMIT 1', [String(auth.id)]);
+        if (!uRows || uRows.length === 0 || uRows[0].is_active === false || String(uRows[0].estado || 'Activo').toLowerCase() === 'inactivo') {
+          res.clearCookie('auth_token', { path: '/' });
+          return res.status(401).json({ valid: false, reason: 'user_deleted', code: 'USER_INACTIVE', error: 'Usuario desactivado o eliminado.' });
+        }
+        tokenVersion = uRows[0].token_version !== undefined && uRows[0].token_version !== null ? Number(uRows[0].token_version) : 1;
+      }
+
+      const refreshedToken = signAuthToken({
+        sub: String(auth.id),
+        id: String(auth.id),
+        email: auth.email,
+        name: auth.name,
+        role: auth.role,
+        tenantId: auth.isSuperAdmin ? null : auth.tenantId,
+        branchId: auth.branchId || null,
+        sessionId,
+        isSuperAdmin: Boolean(auth.isSuperAdmin),
+        isClient: Boolean(auth.isClient),
+        tokenVersion
+      });
+
+      res.cookie('auth_token', refreshedToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 24 * 60 * 60 * 1000
+      });
+
+      return res.json({ valid: true, refreshed: true, sessionId });
+    } catch (err) {
+      return res.status(500).json({ valid: false, error: 'Error renovando sesión.' });
+    }
+  };
+
+  router.post('/auth/refresh', handleRefreshSession);
+  router.post('/refresh', handleRefreshSession);
 
   // Remote token revocation endpoint (REM-P1-01)
   const handleRevokeTokens = async (req, res) => {
@@ -2055,7 +2126,7 @@ function createAuthRouter(pool, options = {}) {
       }
 
       await pool.query('UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id::text = ?', [targetUserId]);
-      await pool.query('UPDATE user_sessions SET is_active = 0 WHERE user_id::text = ?', [targetUserId]);
+      await pool.query("UPDATE user_sessions SET is_active = 0, device_info = 'remote_revoked' WHERE user_id::text = ?", [targetUserId]);
 
       if (req.auth?.id) {
         await logSecurityAudit(req.auth.id, req.auth.name, 'TOKENS_REVOKED', `Tokens revocados para usuario ID: ${targetUserId}`, req);
@@ -2082,9 +2153,15 @@ function createAuthRouter(pool, options = {}) {
       const sessionId = auth.sessionId || null;
 
       if (sessionId) {
-        const [sessions] = await pool.query('SELECT is_active, tenant_id FROM user_sessions WHERE id = ? LIMIT 1', [sessionId]);
+        const [sessions] = await pool.query('SELECT is_active, tenant_id, device_info FROM user_sessions WHERE id = ? LIMIT 1', [sessionId]);
         if (!sessions || sessions.length === 0 || !sessions[0].is_active) {
-          return res.status(401).json({ valid: false, reason: 'remote_terminated', error: 'Sesión finalizada remotamente.' });
+          const isReplaced = sessions?.[0]?.device_info === 'replaced_by_new_login';
+          return res.status(401).json({
+            valid: false,
+            reason: isReplaced ? 'session_replaced' : 'remote_terminated',
+            code: isReplaced ? 'SESSION_REPLACED' : 'SESSION_REVOKED',
+            error: isReplaced ? SESSION_REPLACED_MESSAGE : 'Sesión finalizada remotamente.'
+          });
         }
         if (auth.tenantId) {
           await pool.query('UPDATE user_sessions SET last_activity = NOW() WHERE id = ? AND tenant_id = ?', [sessionId, auth.tenantId]);

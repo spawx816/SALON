@@ -47,7 +47,7 @@ function calculateContrast(hex1, hex2) {
 export default function TenantCustomizationModule() {
   const { showNotification } = useNotification();
   const { user } = useAuth();
-  const { branding, updateBranding, resetBranding } = useTenantBranding();
+  const { branding, updateBranding, resetBranding, refreshBranding } = useTenantBranding();
   const { hasMembershipsAddon } = useEntitlements();
   const fileInputRef = useRef(null);
 
@@ -106,10 +106,22 @@ export default function TenantCustomizationModule() {
     }
   }, [branding]);
 
-  // Métricas de accesibilidad WCAG en tiempo real
+  // Métricas de accesibilidad WCAG en tiempo real (Fondo, Superficie, Barra de Menú e Ítem Activo)
   const contrastBg = useMemo(() => calculateContrast(formData.text_color, formData.background_color), [formData.text_color, formData.background_color]);
   const contrastSurface = useMemo(() => calculateContrast(formData.text_color, formData.surface_color), [formData.text_color, formData.surface_color]);
-  const minContrast = Math.min(contrastBg, contrastSurface);
+  const sidebarTextColor = useMemo(() => {
+    const cWhite = calculateContrast('#ffffff', formData.primary_color);
+    const cDark = calculateContrast('#0f172a', formData.primary_color);
+    return cWhite >= cDark ? '#ffffff' : '#0f172a';
+  }, [formData.primary_color]);
+  const contrastSidebar = useMemo(() => calculateContrast(sidebarTextColor, formData.primary_color), [sidebarTextColor, formData.primary_color]);
+  const accentTextColor = useMemo(() => {
+    const cWhite = calculateContrast('#ffffff', formData.accent_color);
+    const cDark = calculateContrast('#0f172a', formData.accent_color);
+    return cWhite >= cDark ? '#ffffff' : '#0f172a';
+  }, [formData.accent_color]);
+  const contrastAccent = useMemo(() => calculateContrast(accentTextColor, formData.accent_color), [accentTextColor, formData.accent_color]);
+  const minContrast = Math.min(contrastBg, contrastSurface, contrastSidebar, contrastAccent);
 
   // Cargar lista de empresas si es SuperAdmin
   useEffect(() => {
@@ -144,8 +156,15 @@ export default function TenantCustomizationModule() {
           address: data.address || '',
           website: data.website || '',
           logo_url: data.logo_url || prev.logo_url || '',
+          logo_dark_url: data.logo_dark_url || prev.logo_dark_url || '',
+          favicon_url: data.favicon_url || prev.favicon_url || '',
           primary_color: data.primary_color || data.brand_color || prev.primary_color || '#0f172a',
           secondary_color: data.secondary_color || prev.secondary_color || '#d4af37',
+          accent_color: data.accent_color || prev.accent_color || '#3b82f6',
+          background_color: data.background_color || prev.background_color || '#f8fafc',
+          surface_color: data.surface_color || prev.surface_color || '#ffffff',
+          text_color: data.text_color || prev.text_color || '#0f172a',
+          receipt_header: data.receipt_header || prev.receipt_header || 'SalonPro - Sistema de Gestión',
           receipt_footer: data.receipt_footer || prev.receipt_footer || '¡Gracias por preferirnos! ♡',
           currency: data.currency || 'DOP'
         }));
@@ -282,6 +301,11 @@ export default function TenantCustomizationModule() {
       const profileRes = await dataService.updateTenantProfile(payload, selectedTenantId);
       if (profileRes && profileRes.error) {
         throw new Error(profileRes.error);
+      }
+
+      // 4. Sincronizar contexto de branding e hidratar variables CSS del sidebar real inmediatamente
+      if (!isSuperAdmin && typeof refreshBranding === 'function') {
+        await refreshBranding();
       }
       
       // 4. Actualizar almacenamiento local para sincronizar el sidebar inmediatamente
@@ -843,27 +867,30 @@ export default function TenantCustomizationModule() {
               </div>
 
               {/* WCAG Accessibility Badge */}
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.35rem 0.75rem',
-                borderRadius: '8px',
-                fontSize: '0.75rem',
-                fontWeight: '700',
-                background: minContrast >= 4.5 ? '#ecfdf5' : minContrast >= 3.0 ? '#fef3c7' : '#fef2f2',
-                color: minContrast >= 4.5 ? '#065f46' : minContrast >= 3.0 ? '#92400e' : '#991b1b',
-                border: `1px solid ${minContrast >= 4.5 ? '#a7f3d0' : minContrast >= 3.0 ? '#fde68a' : '#fecaca'}`
-              }}>
+              <div
+                title={`Menú: ${contrastSidebar.toFixed(1)}:1 · Activo: ${contrastAccent.toFixed(1)}:1 · Fondo: ${contrastBg.toFixed(1)}:1 · Superficie: ${contrastSurface.toFixed(1)}:1`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '8px',
+                  fontSize: '0.75rem',
+                  fontWeight: '700',
+                  background: minContrast >= 4.5 ? '#ecfdf5' : minContrast >= 3.0 ? '#fef3c7' : '#fef2f2',
+                  color: minContrast >= 4.5 ? '#065f46' : minContrast >= 3.0 ? '#92400e' : '#991b1b',
+                  border: `1px solid ${minContrast >= 4.5 ? '#a7f3d0' : minContrast >= 3.0 ? '#fde68a' : '#fecaca'}`
+                }}
+              >
                 {minContrast >= 4.5 ? (
                   <>
                     <ShieldCheck size={14} color="#059669" />
-                    <span>WCAG AA Óptimo ({minContrast.toFixed(1)}:1)</span>
+                    <span>WCAG AA Óptimo (Mín. {minContrast.toFixed(1)}:1 · Menú {contrastSidebar.toFixed(1)}:1)</span>
                   </>
                 ) : minContrast >= 3.0 ? (
                   <>
                     <AlertCircle size={14} color="#d97706" />
-                    <span>WCAG Aceptable ({minContrast.toFixed(1)}:1)</span>
+                    <span>WCAG Aceptable (Mín. {minContrast.toFixed(1)}:1 · Menú {contrastSidebar.toFixed(1)}:1)</span>
                   </>
                 ) : (
                   <>
@@ -878,7 +905,7 @@ export default function TenantCustomizationModule() {
               {/* Primary Color */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
-                  Color Primario (--tenant-primary)
+                  Color Primario / Fondo de Barra de Menú (--tenant-primary)
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <input
@@ -899,7 +926,7 @@ export default function TenantCustomizationModule() {
               {/* Secondary Color */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
-                  Color Secundario (--tenant-secondary)
+                  Color Secundario / Subtítulo de Identidad (--tenant-secondary)
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <input
@@ -920,7 +947,7 @@ export default function TenantCustomizationModule() {
               {/* Accent Color */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#334155', marginBottom: '0.35rem' }}>
-                  Color de Acento (--tenant-accent)
+                  Color de Acento / Ítem Activo del Menú (--tenant-accent)
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <input
@@ -1284,13 +1311,17 @@ export default function TenantCustomizationModule() {
               <div style={{ padding: '1.5rem', background: '#090d16', display: 'flex', justifyContent: 'center' }}>
                 <div style={{ 
                   width: '260px', 
-                  background: formData.primary_color || '#121826', 
+                  background: formData.primary_color || '#0f172a',
+                  color: sidebarTextColor,
                   borderRadius: '12px', 
                   padding: '1.25rem',
                   border: '1px solid rgba(255,255,255,0.08)',
                   boxShadow: '0 4px 16px rgba(0,0,0,0.3)'
                 }}>
-                  <div style={{ textAlign: 'center', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingBottom: '0.75rem' }}>
+                    <span style={{ fontWeight: 800, fontSize: '0.9rem', letterSpacing: '0.08em', color: sidebarTextColor }}>ETEREAS</span>
+                  </div>
+                  <div style={{ textAlign: 'center', padding: '0.75rem', borderRadius: '10px', background: sidebarTextColor === '#0f172a' ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.06)', border: `1px solid ${sidebarTextColor === '#0f172a' ? 'rgba(15,23,42,0.14)' : 'rgba(255,255,255,0.12)'}` }}>
                     {formData.logo_url ? (
                       <img 
                         src={formData.logo_url} 
@@ -1299,7 +1330,7 @@ export default function TenantCustomizationModule() {
                         style={{ maxWidth: '120px', maxHeight: '50px', objectFit: 'contain', margin: '0 auto 0.5rem', display: 'block' }} 
                       />
                     ) : null}
-                    <div style={{ color: '#ffffff', fontWeight: '900', fontSize: '0.95rem' }}>
+                    <div style={{ color: sidebarTextColor, fontWeight: '900', fontSize: '0.95rem' }}>
                       {formData.business_name || 'MI SALÓN'}
                     </div>
                     <div style={{ color: formData.secondary_color || '#d4af37', fontSize: '0.7rem', fontWeight: '700', marginTop: '2px' }}>
@@ -1308,13 +1339,13 @@ export default function TenantCustomizationModule() {
                   </div>
 
                   <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    <div style={{ background: formData.accent_color || '#3b82f6', color: '#fff', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
+                    <div style={{ background: formData.accent_color || '#3b82f6', color: accentTextColor, padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700' }}>
                       📊 Mi Panel de Empresa
                     </div>
-                    <div style={{ color: '#cbd5e1', padding: '0.45rem 0.75rem', fontSize: '0.75rem' }}>
+                    <div style={{ color: sidebarTextColor === '#0f172a' ? 'rgba(15,23,42,0.76)' : 'rgba(255,255,255,0.78)', padding: '0.45rem 0.75rem', fontSize: '0.75rem' }}>
                       🛒 Ventas & POS
                     </div>
-                    <div style={{ color: '#cbd5e1', padding: '0.45rem 0.75rem', fontSize: '0.75rem' }}>
+                    <div style={{ color: sidebarTextColor === '#0f172a' ? 'rgba(15,23,42,0.76)' : 'rgba(255,255,255,0.78)', padding: '0.45rem 0.75rem', fontSize: '0.75rem' }}>
                       👥 Equipo & Nómina
                     </div>
                   </div>

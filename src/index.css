@@ -3,7 +3,7 @@
 :root {
   --bg-canvas: #ffffff;
   --bg-surface: #ffffff;
-  --bg-sidebar: #09090b;
+  --bg-sidebar: var(--tenant-primary, #0f172a);
   --bg-hover: #f4f4f5;
   
   --text-primary: #09090b;
@@ -12,7 +12,7 @@
   --text-inverse-muted: #a1a1aa;
   
   --border-subtle: #e4e4e7;
-  --border-sidebar: rgba(255,255,255,0.05);
+  --border-sidebar: var(--tenant-sidebar-border, rgba(255,255,255,0.12));
   
   --brand-accent: #000000;
   --brand-gold: #c5a02d;
@@ -30,6 +30,13 @@
   --tenant-background: #ffffff;
   --tenant-surface: #ffffff;
   --tenant-text: #0f172a;
+  --tenant-sidebar-text: #ffffff;
+  --tenant-sidebar-muted: rgba(255, 255, 255, 0.78);
+  --tenant-sidebar-group: rgba(255, 255, 255, 0.62);
+  --tenant-sidebar-border: rgba(255, 255, 255, 0.12);
+  --tenant-sidebar-card-bg: rgba(255, 255, 255, 0.06);
+  --tenant-sidebar-hover: rgba(255, 255, 255, 0.08);
+  --tenant-accent-text: #ffffff;
 
   /* Immutable Semantic Status Colors (Out of tenant control for safety & accessibility) */
   --status-error: #ef4444;
@@ -82,7 +89,7 @@ a {
   width: 100vw;
   padding: 1rem;
   gap: 1rem;
-  background-color: var(--bg-canvas);
+  background-color: var(--tenant-background, var(--bg-canvas));
   overflow: hidden;
   position: relative;
 }
@@ -97,15 +104,16 @@ a {
 /* Sidebar */
 .floating-sidebar {
   width: 280px;
-  background: var(--bg-sidebar);
+  background-color: var(--tenant-primary, var(--bg-sidebar));
+  background: var(--tenant-primary, var(--bg-sidebar));
   border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
-  color: var(--text-inverse);
+  color: var(--tenant-sidebar-text, var(--text-inverse));
   flex-shrink: 0;
   overflow: hidden;
   box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-radius 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-radius 0.3s ease, background-color 0.2s ease;
   z-index: 1000;
 }
 
@@ -155,7 +163,7 @@ a {
   font-weight: 800;
   font-size: 1.15rem;
   letter-spacing: 0.08em;
-  color: #ffffff;
+  color: var(--tenant-sidebar-text, #ffffff);
   line-height: 1;
   white-space: nowrap;
 }
@@ -203,8 +211,8 @@ a {
 .sidebar-user,
 .sidebar-tenant-card {
   margin: 0.5rem 1.25rem 1rem;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--tenant-sidebar-card-bg, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--tenant-sidebar-border, rgba(255, 255, 255, 0.12));
   border-radius: 12px;
   padding: 0.75rem;
   display: flex;
@@ -220,14 +228,14 @@ a {
   height: 40px;
   flex-shrink: 0;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--tenant-sidebar-hover, rgba(255, 255, 255, 0.1));
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-size: 1rem;
-  color: #f8fafc;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--tenant-sidebar-text, #f8fafc);
+  border: 1px solid var(--tenant-sidebar-border, rgba(255, 255, 255, 0.14));
   overflow: hidden;
 }
 
@@ -256,20 +264,20 @@ a {
 .tenant-name {
   font-size: 0.92rem;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--tenant-sidebar-text, #ffffff);
   line-height: 1.25;
 }
 
 .tenant-role {
   font-size: 0.78rem;
-  font-weight: 500;
-  color: rgba(226, 232, 240, 0.72);
+  font-weight: 600;
+  color: var(--tenant-secondary, rgba(226, 232, 240, 0.85));
   line-height: 1.25;
   margin-top: 2px;
 }
 
 .user-name { font-size: 0.875rem; font-weight: 600; }
-.user-role { font-size: 0.75rem; color: var(--text-inverse-muted); text-transform: capitalize; }
+.user-role { font-size: 0.75rem; color: var(--tenant-secondary, var(--text-inverse-muted)); text-transform: capitalize; }
 
 @media (max-width: 768px) {
   .sidebar-header {
@@ -299,7 +307,7 @@ a {
 .nav-group-title {
   font-size: 0.65rem;
   font-weight: 800;
-  color: #52525b;
+  color: var(--tenant-sidebar-group, rgba(255, 255, 255, 0.62));
   text-transform: uppercase;
   letter-spacing: 0.15em;
   margin: 1.5rem 0.75rem 0.75rem;
@@ -310,7 +318,7 @@ a {
   align-items: center;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  color: var(--text-inverse-muted);
+  color: var(--tenant-sidebar-muted, var(--text-inverse-muted));
   border-radius: var(--radius-sm);
   transition: all 0.2s;
   font-weight: 500;
@@ -319,13 +327,14 @@ a {
 }
 
 .nav-link:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-inverse);
+  background: var(--tenant-sidebar-hover, rgba(255, 255, 255, 0.08));
+  color: var(--tenant-sidebar-text, var(--text-inverse));
 }
 
 .nav-link.active {
-  background: white;
-  color: black;
+  background-color: var(--tenant-accent, #3b82f6);
+  background: var(--tenant-accent, #3b82f6);
+  color: var(--tenant-accent-text, #ffffff);
   font-weight: 700;
 }
 
@@ -339,7 +348,7 @@ a {
   border: none;
   cursor: pointer;
   background: transparent;
-  color: var(--text-inverse-muted);
+  color: var(--tenant-sidebar-muted, var(--text-inverse-muted));
   font-weight: 500;
   font-size: 0.875rem;
   transition: all 0.2s;
@@ -348,13 +357,13 @@ a {
 }
 
 .nav-dropdown-header:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-inverse);
+  background: var(--tenant-sidebar-hover, rgba(255, 255, 255, 0.08));
+  color: var(--tenant-sidebar-text, var(--text-inverse));
 }
 
 .nav-dropdown-header.active {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff !important;
+  background: var(--tenant-sidebar-hover, rgba(255, 255, 255, 0.1));
+  color: var(--tenant-sidebar-text, #ffffff) !important;
   font-weight: 700;
 }
 
@@ -371,7 +380,7 @@ a {
   padding: 1rem;
   border: none;
   background: transparent;
-  color: var(--text-inverse-muted);
+  color: var(--tenant-sidebar-muted, var(--text-inverse-muted));
   font-weight: 600;
   font-size: 0.875rem;
   border-radius: var(--radius-sm);
@@ -380,14 +389,15 @@ a {
 }
 
 .logout-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: white;
+  background: var(--tenant-sidebar-hover, rgba(255, 255, 255, 0.08));
+  color: var(--tenant-sidebar-text, white);
 }
 
 /* Main Surface */
 .main-surface {
   flex: 1;
-  background: var(--bg-surface);
+  background: var(--tenant-surface, var(--bg-surface));
+  color: var(--tenant-text, var(--text-primary));
   border-radius: var(--radius-xl);
   border: 1px solid var(--border-subtle);
   display: flex;

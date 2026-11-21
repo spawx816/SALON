@@ -121,7 +121,7 @@ const EtereasLogoMark = ({ className = 'et-brand-symbol' }) => (
 );
 
 const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
-  const { login } = useAuth();
+  const { login, sessionTerminatedReason } = useAuth();
 
   const isStagingHost =
     typeof window !== 'undefined' && window.location.hostname.startsWith('staging.');
@@ -752,9 +752,9 @@ const Landing = ({ initialIsLogin = true, initialAuthModal = false }) => {
               <h2 id="login-card-title">Tu empresa te espera.</h2>
               <p className="et-login-subtitle">Entra a tu espacio de trabajo.</p>
 
-              {loginError && (
-                <div className="et-alert-error" role="alert">
-                  {loginError}
+              {(sessionTerminatedReason || loginError) && (
+                <div className="et-alert-error" role="alert" data-testid="session-terminated-alert">
+                  {loginError || sessionTerminatedReason}
                 </div>
               )}
 

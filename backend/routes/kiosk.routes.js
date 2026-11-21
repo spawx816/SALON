@@ -123,6 +123,19 @@ function createKioskRouter(pool, { authenticate }) {
           code: 'KIOSK_DEVICE_UNBOUND',
         });
       }
+      if (resolved.replaced) {
+        res.clearCookie(KIOSK_DEVICE_COOKIE, { path: '/' });
+        res.clearCookie(KIOSK_SELF_SERVICE_COOKIE, { path: '/' });
+        res.clearCookie('auth_token', { path: '/' });
+        return res.status(401).json({
+          valid: false,
+          bound: false,
+          replaced: true,
+          reason: 'session_replaced',
+          code: 'SESSION_REPLACED',
+          error: 'Tu sesión se cerró porque se inició sesión con esta cuenta en otro dispositivo.',
+        });
+      }
       if (resolved.suspended) {
         return res.status(403).json({
           error: 'La empresa asociada a este kiosco se encuentra suspendida o pendiente de activación.',
@@ -303,6 +316,18 @@ function createKioskRouter(pool, { authenticate }) {
       const resolved = await resolveKioskDevice(pool, req);
       if (!resolved) {
         return res.json({ bound: false });
+      }
+      if (resolved.replaced) {
+        res.clearCookie(KIOSK_DEVICE_COOKIE, { path: '/' });
+        res.clearCookie(KIOSK_SELF_SERVICE_COOKIE, { path: '/' });
+        res.clearCookie('auth_token', { path: '/' });
+        return res.json({
+          bound: false,
+          replaced: true,
+          reason: 'session_replaced',
+          code: 'SESSION_REPLACED',
+          error: 'Tu sesión se cerró porque se inició sesión con esta cuenta en otro dispositivo.'
+        });
       }
       if (resolved.suspended) {
         return res.json({ bound: false, suspended: true });

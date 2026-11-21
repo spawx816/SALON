@@ -382,12 +382,12 @@ function createSecurityRouter(pool) {
 
       if (sessionId) {
         await pool.query(
-          'UPDATE user_sessions SET is_active = 0 WHERE id = ? AND (tenant_id = ? OR ?::boolean = true)',
+          "UPDATE user_sessions SET is_active = 0, device_info = 'remote_revoked' WHERE id = ? AND (tenant_id = ? OR ?::boolean = true)",
           [sessionId, tenantId || '00000000-0000-0000-0000-000000000000', Boolean(isSuperAdmin)]
         );
       } else if (userId) {
         await pool.query(
-          'UPDATE user_sessions SET is_active = 0 WHERE user_id = ? AND (tenant_id = ? OR ?::boolean = true)',
+          "UPDATE user_sessions SET is_active = 0, device_info = 'remote_revoked' WHERE user_id = ? AND (tenant_id = ? OR ?::boolean = true)",
           [userId, tenantId || '00000000-0000-0000-0000-000000000000', Boolean(isSuperAdmin)]
         );
       }

@@ -140,6 +140,17 @@ const AttendanceKiosk = () => {
       }
       const sessData = sessRes.ok ? await sessRes.json().catch(() => ({ bound: false })) : { bound: false };
 
+      if (sessData?.replaced) {
+        setKioskActive(false);
+        setKioskSessionInfo(null);
+        setKioskLoadError(sessData.error || 'Tu sesión se cerró porque se inició sesión con esta cuenta en otro dispositivo.');
+        try {
+          localStorage.removeItem('salon_pro_user');
+          sessionStorage.setItem('etereas_session_notice', 'Tu sesión se cerró porque se inició sesión con esta cuenta en otro dispositivo.');
+        } catch { /* ignore */ }
+        return;
+      }
+
       if (sessData?.bound) {
         setKioskActive(true);
         setKioskSessionInfo(sessData);

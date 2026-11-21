@@ -40,8 +40,29 @@ const parseApiResponse = async (res, fallbackErrorMsg = null) => {
     const err = new Error(data?.error_id ? `${baseMsg} [Ref: ${data.error_id}]` : baseMsg);
     err.status = res.status;
     err.code = data?.code;
+    err.reason = data?.reason;
     err.errorId = data?.error_id;
     err.data = data;
+
+    if (
+      res.status === 401 &&
+      typeof window !== 'undefined' &&
+      (data?.code === 'SESSION_REPLACED' ||
+        data?.reason === 'session_replaced' ||
+        data?.code === 'SESSION_REVOKED' ||
+        data?.code === 'TOKEN_REVOKED')
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('etereas:session-invalidated', {
+          detail: {
+            code: data?.code,
+            reason: data?.reason,
+            message: data?.error || baseMsg
+          }
+        })
+      );
+    }
+
     throw err;
   }
 
@@ -2597,6 +2618,7 @@ export const dataService = {
         const errData = await res.json().catch(() => ({}));
         return {
           valid: false,
+          code: errData.code || null,
           reason: errData.reason || (res.status === 403 ? 'tenant_suspended' : 'session_invalid'),
           error: errData.error || 'Sesión no válida.'
         };

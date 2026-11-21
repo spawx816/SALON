@@ -1,5 +1,162 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { expandEffectivePermissions } = require('../domain/rbac_catalog');
+
+const SESSION_REPLACED_MESSAGE = 'Tu sesión se cerró porque se inició sesión con esta cuenta en otro dispositivo.';
+
+// Per-user mutex to serialize concurrent login attempts within the Node process
+const userSessionLocks = new Map();
+
+async function withUserSessionLock(lockKey, fn) {
+  const key = String(lockKey || 'global');
+  const prev = userSessionLocks.get(key) || Promise.resolve();
+  let release;
+  const next = new Promise((resolve) => {
+    release = resolve;
+  });
+  const chain = prev.then(() => next);
+  userSessionLocks.set(key, chain);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (userSessionLocks.get(key) === chain) {
+      userSessionLocks.delete(key);
+    }
+  }
+}
+
+/**
+ * Atomically creates a new active session in `user_sessions` and revokes all prior active sessions
+ * for the same user. Serializes concurrent logins per user (in-memory mutex + PostgreSQL advisory xact lock).
+ * For kiosk accounts (`isKioskAccount === true`), atomically revokes prior bound `kiosk_devices` and
+ * subordinate brief `kiosk_employee_sessions`, then binds the new kiosk device.
+ */
+async function issueSingleActiveUserSession(pool, {
+  userId,
+  tenantId = null,
+  userName = 'Usuario',
+  role = 'empleado',
+  salonId = '1',
+  ipAddress = '127.0.0.1',
+  userAgent = 'Unknown',
+  isKioskAccount = false,
+  assignedBranchId = null,
+  req = null
+}) {
+  const cleanUserId = String(userId || '').trim();
+  if (!cleanUserId) {
+    throw new Error('userId es requerido para emitir una sesión.');
+  }
+  const cleanTenantId = tenantId ? String(tenantId).trim() : null;
+  const lockKey = `session_lock:${cleanTenantId || 'global'}:${cleanUserId}`;
+
+  return withUserSessionLock(lockKey, async () => {
+    const sessionId = crypto.randomUUID();
+    let conn = null;
+    const useDedicatedConn = Boolean(
+      pool &&
+      pool.isPostgres &&
+      !pool.isInMemory &&
+      typeof pool.getConnection === 'function'
+    );
+
+    try {
+      const runner = useDedicatedConn ? (conn = await pool.getConnection()) : pool;
+      if (useDedicatedConn && typeof conn.beginTransaction === 'function') {
+        await conn.beginTransaction();
+      }
+
+      if (useDedicatedConn) {
+        await runner.query('SELECT pg_advisory_xact_lock(hashtext(?))', [lockKey]);
+      }
+
+      // 1. Revocar todas las sesiones activas previas de este mismo usuario
+      if (cleanTenantId) {
+        await runner.query(
+          `UPDATE user_sessions
+           SET is_active = 0, device_info = 'replaced_by_new_login'
+           WHERE user_id = ? AND tenant_id = ? AND is_active = 1`,
+          [cleanUserId, cleanTenantId]
+        );
+      } else {
+        await runner.query(
+          `UPDATE user_sessions
+           SET is_active = 0, device_info = 'replaced_by_new_login'
+           WHERE user_id = ? AND tenant_id IS NULL AND is_active = 1`,
+          [cleanUserId]
+        );
+      }
+
+      // 2. Si es cuenta Kiosco de Asistencia, revocar dispositivos previos y sesiones breves subordinadas, y vincular el nuevo
+      let kioskDeviceBind = null;
+      if (isKioskAccount && cleanTenantId && assignedBranchId) {
+        const {
+          KIOSK_DEVICE_COOKIE,
+          DEVICE_TTL_MS,
+          buildCookieOptions,
+          bindKioskDevice,
+          revokeDevicesByKioskUser
+        } = require('../services/kiosk_device.service');
+
+        await revokeDevicesByKioskUser(runner, {
+          tenantId: cleanTenantId,
+          userId: cleanUserId,
+          reason: 'SESSION_REPLACED'
+        });
+
+        const bound = await bindKioskDevice(runner, {
+          tenantId: cleanTenantId,
+          branchId: String(assignedBranchId),
+          deviceName: `Kiosco · ${userName}`,
+          actorUserId: cleanUserId,
+          actorName: userName
+        });
+
+        kioskDeviceBind = {
+          cookieName: KIOSK_DEVICE_COOKIE,
+          rawToken: bound.rawToken,
+          cookieOptions: req ? buildCookieOptions(req, DEVICE_TTL_MS) : { httpOnly: true, path: '/', maxAge: DEVICE_TTL_MS },
+          device: bound.device
+        };
+      }
+
+      // 3. Insertar la nueva sesión única activa
+      await runner.query(
+        `INSERT INTO user_sessions (
+           id, user_id, user_name, role, salon_id, ip_address, user_agent,
+           device_info, is_active, created_at, last_activity, tenant_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active_session', 1, NOW(), NOW(), ?)`,
+        [
+          sessionId,
+          cleanUserId,
+          userName || 'Usuario',
+          String(role || 'empleado').toLowerCase(),
+          String(salonId || '1'),
+          ipAddress || '127.0.0.1',
+          userAgent || 'Unknown',
+          cleanTenantId
+        ]
+      );
+
+      if (useDedicatedConn && typeof conn.commit === 'function') {
+        await conn.commit();
+      }
+
+      return { sessionId, kioskDeviceBind };
+    } catch (err) {
+      if (conn && typeof conn.rollback === 'function') {
+        await conn.rollback().catch(() => {});
+      }
+      throw err;
+    } finally {
+      if (conn && typeof conn.release === 'function') {
+        conn.release();
+      }
+    }
+  });
+}
 
 /**
  * Validates the JWT secret on startup.
@@ -154,24 +311,73 @@ function createAuthMiddleware(pool) {
       const sessionId = decoded.sessionId || null;
       if (sessionId) {
         const [sessionRows] = await pool.query(
-          'SELECT is_active, user_id FROM user_sessions WHERE id = ? LIMIT 1',
+          'SELECT is_active, user_id, device_info FROM user_sessions WHERE id = ? LIMIT 1',
           [sessionId]
         );
         if (!sessionRows || sessionRows.length === 0 || !sessionRows[0].is_active) {
+          let isReplaced = sessionRows?.[0]?.device_info === 'replaced_by_new_login';
+          if (
+            !isReplaced &&
+            sessionRows?.[0] &&
+            !['user_logout', 'remote_revoked', 'password_reset'].includes(String(sessionRows[0].device_info || ''))
+          ) {
+            const [otherActive] = await pool.query(
+              'SELECT id FROM user_sessions WHERE user_id = ? AND id != ? AND is_active = 1 LIMIT 1',
+              [userId, sessionId]
+            ).catch(() => [[]]);
+            if (otherActive && otherActive.length > 0) {
+              isReplaced = true;
+            }
+          }
+
+          if (typeof res.clearCookie === 'function') {
+            res.clearCookie('auth_token', { path: '/' });
+          }
+
+          if (isReplaced) {
+            return res.status(401).json({
+              valid: false,
+              reason: 'session_replaced',
+              code: 'SESSION_REPLACED',
+              error: SESSION_REPLACED_MESSAGE
+            });
+          }
+
           return res.status(401).json({
             valid: false,
-            error: 'La sesión ha sido revocada o cerrada remotamente.',
-            code: 'SESSION_REVOKED'
+            reason: 'session_revoked',
+            code: 'SESSION_REVOKED',
+            error: 'La sesión ha sido revocada o cerrada remotamente.'
           });
         }
 
         // Verificación estricta de pertenencia de sesión
         if (sessionRows[0].user_id && String(sessionRows[0].user_id) !== String(userId)) {
+          if (typeof res.clearCookie === 'function') {
+            res.clearCookie('auth_token', { path: '/' });
+          }
           return res.status(401).json({
             valid: false,
             error: 'Violación de seguridad: La sesión en base de datos no pertenece al usuario del token.',
             code: 'SESSION_USER_MISMATCH'
           });
+        }
+      } else {
+        // Si el JWT no incluye sessionId (ej. tokens de prueba), verificar si existen sesiones registradas para el usuario y todas fueron revocadas
+        const [userSessRows] = await pool.query(
+          'SELECT is_active, device_info FROM user_sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 5',
+          [userId]
+        ).catch(() => [[]]);
+        if (Array.isArray(userSessRows) && userSessRows.length > 0) {
+          const hasAnyActive = userSessRows.some((r) => Boolean(r.is_active));
+          if (!hasAnyActive) {
+            return res.status(401).json({
+              valid: false,
+              reason: 'session_revoked',
+              code: 'SESSION_REVOKED',
+              error: 'La sesión ha sido revocada o cerrada remotamente.'
+            });
+          }
         }
       }
 
@@ -530,7 +736,9 @@ function createAuthMiddleware(pool) {
     signAuthToken,
     verifyAuthToken,
     extractTokenFromRequest,
-    getJwtSecret
+    getJwtSecret,
+    issueSingleActiveUserSession,
+    SESSION_REPLACED_MESSAGE
   };
 }
 
@@ -571,5 +779,7 @@ module.exports = {
   signAuthToken,
   verifyAuthToken,
   extractTokenFromRequest,
-  getJwtSecret
+  getJwtSecret,
+  issueSingleActiveUserSession,
+  SESSION_REPLACED_MESSAGE
 };
