@@ -14,35 +14,36 @@ function createVisitsRouter(pool, helpers = {}) {
   // Multi-Tenant Financial Idempotency Guard (charges, checkouts, voids)
   router.use(createIdempotencyMiddleware());
 
-  // Helper: Generate sequential ticket number per branch within the tenant
+  // Helper: Generate sequential ticket number per branch within the tenant (atomic on last_sequence)
   const getNextTicketNumber = async (salonId = 1, tenantId = null) => {
     const cleanSalonId = String(salonId || '1');
     const prefix = (cleanSalonId === '2' || cleanSalonId === '4') ? 'VM' : 'SD';
     try {
       const [rows] = await pool.query(
-        'SELECT last_number FROM ticket_sequences WHERE tenant_id = ? AND salon_id = ? LIMIT 1',
-        [tenantId, cleanSalonId]
+        `INSERT INTO ticket_sequences (tenant_id, salon_id, prefix, last_sequence)
+         VALUES (?, ?, ?, 1)
+         ON CONFLICT (tenant_id, salon_id)
+         DO UPDATE SET last_sequence = COALESCE(ticket_sequences.last_sequence, 0) + 1
+         RETURNING last_sequence`,
+        [tenantId, cleanSalonId, prefix]
       );
-      let nextNum = 1;
-      if (rows.length > 0) {
-        nextNum = (parseInt(rows[0].last_number) || 0) + 1;
-        await pool.query(
-          'UPDATE ticket_sequences SET last_number = ? WHERE tenant_id = ? AND salon_id = ?',
-          [nextNum, tenantId, cleanSalonId]
-        );
-      } else {
-        const [maxRows] = await pool.query(
-          'SELECT COUNT(*) as cnt FROM visits WHERE tenant_id = ? AND salon_id::text = ?',
-          [tenantId, cleanSalonId]
-        );
-        nextNum = (parseInt(maxRows[0]?.cnt) || 0) + 1;
-        await pool.query(
-          'INSERT INTO ticket_sequences (tenant_id, salon_id, prefix, last_number) VALUES (?, ?, ?, ?) ON CONFLICT (tenant_id, salon_id) DO UPDATE SET last_number = EXCLUDED.last_number',
-          [tenantId, cleanSalonId, prefix, nextNum]
-        );
-      }
+      const nextNum = parseInt(rows?.[0]?.last_sequence, 10) || 1;
       return `${prefix}-${String(nextNum).padStart(5, '0')}`;
     } catch (e) {
+      // Fallback en caso de índice único legacy solo sobre salon_id
+      try {
+        const [upd] = await pool.query(
+          `UPDATE ticket_sequences
+           SET last_sequence = COALESCE(last_sequence, 0) + 1
+           WHERE tenant_id = ? AND salon_id = ?
+           RETURNING last_sequence`,
+          [tenantId, cleanSalonId]
+        );
+        if (upd && upd.length > 0) {
+          const nextNum = parseInt(upd[0].last_sequence, 10) || 1;
+          return `${prefix}-${String(nextNum).padStart(5, '0')}`;
+        }
+      } catch (_) {}
       return `${prefix}-${Date.now().toString().slice(-5)}`;
     }
   };
@@ -309,20 +310,33 @@ function createVisitsRouter(pool, helpers = {}) {
     try {
       const tenantId = req.tenantId;
       const { salon_id } = req.query;
+      const scope = getBranchScope(req);
+
+      if (salon_id && salon_id !== 'all' && !isBranchAuthorized(req, salon_id)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para consultar tickets pendientes de esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+
       let query = `
         SELECT v.*,
                COALESCE(v.client_name, c.nombre, 'Cliente General') as client_name,
                c.cedula as client_cedula,
                c.telefono as client_phone
         FROM visits v
-        LEFT JOIN clients c ON v.client_id = c.id AND c.tenant_id = v.tenant_id
+        LEFT JOIN clients c ON v.client_id::text = c.id::text AND c.tenant_id = v.tenant_id
         WHERE v.tenant_id = ? AND v.status IN ('Pendiente', 'Abierto', 'En Proceso', 'Pre-cuenta')
       `;
       const params = [tenantId];
 
       if (salon_id && salon_id !== 'all') {
-        query += ' AND (v.salon_id::text = ? OR v.salon_id IS NULL)';
+        query += ' AND v.salon_id::text = ?';
         params.push(String(salon_id));
+      } else if (!scope.allBranches && Array.isArray(scope.branchIds) && scope.branchIds.length > 0) {
+        const ph = scope.branchIds.map(() => '?').join(', ');
+        query += ` AND v.salon_id::text IN (${ph})`;
+        params.push(...scope.branchIds.map(String));
       }
 
       query += ' ORDER BY v.visited_at DESC';
@@ -359,6 +373,12 @@ function createVisitsRouter(pool, helpers = {}) {
   });
 
   // 4. POST /api/visits/ticket - Open a new pending ticket in reception within the authenticated tenant
+  const isSpecialGuestOrEmpClientId = (cid) => {
+    if (!cid) return true;
+    const s = String(cid).trim().toUpperCase();
+    return s === '' || s === 'INVITADO' || s === 'EMPLEADO' || s.startsWith('INVITADO') || s.startsWith('EMP-');
+  };
+
   router.post('/ticket', async (req, res) => {
     try {
       const tenantId = req.tenantId;
@@ -367,30 +387,91 @@ function createVisitsRouter(pool, helpers = {}) {
         clientId,
         client_name,
         clientName,
-        salon_id = 1,
+        salon_id,
         salonId,
         servicios = [],
         items_detail = [],
+        draft_data = {},
         total = 0,
-        recepcionista = 'Recepción',
-        empleado_peluquera = 'No asignada',
+        recepcionista,
+        empleado_peluquera,
+        empleadoPeluquera,
         empleado_lava_pelo = 'No asignada',
         empleado_manicurista = 'No asignada',
-        notes = ''
-      } = req.body;
+        notes,
+        nota,
+        client_request_id
+      } = req.body || {};
 
-      const targetSalon = salon_id || salonId || 1;
+      const targetSalon = String(salon_id || salonId || req.auth?.branchId || '1');
+      if (!isBranchAuthorized(req, targetSalon)) {
+        return res.status(403).json({
+          error: 'No tienes autorización para crear tickets en esta sucursal.',
+          code: 'BRANCH_ACCESS_DENIED'
+        });
+      }
+
       const targetClient = client_id || clientId || null;
-      const targetClientName = client_name || clientName || 'Cliente General';
+      if (!isSpecialGuestOrEmpClientId(targetClient)) {
+        const [clientRows] = await pool.query(
+          'SELECT id FROM clients WHERE id::text = ? AND tenant_id = ? LIMIT 1',
+          [String(targetClient), tenantId]
+        );
+        if (!clientRows || clientRows.length === 0) {
+          return res.status(404).json({
+            error: 'El cliente especificado no pertenece a esta empresa.',
+            code: 'CLIENT_NOT_FOUND'
+          });
+        }
+      }
+
+      const reqIdemKey = String(req.headers['idempotency-key'] || client_request_id || '').trim();
+      if (reqIdemKey) {
+        const [existingDup] = await pool.query(
+          `SELECT * FROM visits
+           WHERE tenant_id = ? AND status IN ('Pendiente', 'Abierto', 'En Proceso', 'Pre-cuenta')
+             AND draft_data->>'client_request_id' = ?
+           ORDER BY visited_at DESC LIMIT 1`,
+          [tenantId, reqIdemKey]
+        );
+        if (existingDup && existingDup.length > 0) {
+          const row = existingDup[0];
+          return res.status(200).json({
+            success: true,
+            id: row.id,
+            ticket_number: row.ticket_number,
+            ticketNumber: row.ticket_number,
+            salon_id: row.salon_id,
+            status: row.status,
+            idempotent: true
+          });
+        }
+      }
+
+      const targetClientName = String(client_name || clientName || 'Cliente General').trim() || 'Cliente General';
+      const actorName = String(req.auth?.name || req.auth?.email || recepcionista || 'Recepción').trim();
+      const actorId = req.auth?.userId || req.user?.id || null;
+      const targetPeluquera = empleado_peluquera || empleadoPeluquera || 'No asignada';
+      const targetNota = nota !== undefined ? String(nota) : (notes !== undefined ? String(notes) : '');
+      const numTotal = Number(total) || 0;
+      const totalCents = Math.round(numTotal * 100);
+
+      const safeDraftObj = (draft_data && typeof draft_data === 'object' && !Array.isArray(draft_data))
+        ? { ...draft_data }
+        : {};
+      safeDraftObj.recepcionista = actorName;
+      if (actorId) safeDraftObj.actor_id = String(actorId);
+      if (reqIdemKey) safeDraftObj.client_request_id = reqIdemKey;
+
       const visitId = `VIS-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
       const ticketNumber = await getNextTicketNumber(targetSalon, tenantId);
 
       await pool.query(
         `INSERT INTO visits (
            id, tenant_id, ticket_number, client_id, client_name, salon_id,
-           servicios, items_detail, total, status, recepcionista,
-           empleado_peluquera, empleado_lava_pelo, empleado_manicurista, notes, visited_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?, ?, ?, ?, NOW())`,
+           servicios, items_detail, draft_data, total, total_cents, currency, status,
+           empleado_peluquera, empleado_lava_pelo, empleado_manicurista, nota, visited_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, 'DOP', 'Pendiente', ?, ?, ?, ?, NOW())`,
         [
           visitId,
           tenantId,
@@ -400,19 +481,22 @@ function createVisitsRouter(pool, helpers = {}) {
           targetSalon,
           JSON.stringify(Array.isArray(servicios) ? servicios : []),
           JSON.stringify(Array.isArray(items_detail) ? items_detail : []),
-          Number(total) || 0,
-          recepcionista,
-          empleado_peluquera,
+          JSON.stringify(safeDraftObj),
+          numTotal,
+          totalCents,
+          targetPeluquera,
           empleado_lava_pelo,
           empleado_manicurista,
-          notes
+          targetNota
         ]
       );
 
-      res.json({
+      res.status(201).json({
         success: true,
         id: visitId,
         ticket_number: ticketNumber,
+        ticketNumber: ticketNumber,
+        salon_id: targetSalon,
         status: 'Pendiente'
       });
     } catch (err) {
@@ -431,44 +515,77 @@ function createVisitsRouter(pool, helpers = {}) {
         client_name,
         servicios,
         items_detail,
+        draft_data,
         total,
         empleado_peluquera,
         empleado_lava_pelo,
         empleado_manicurista,
-        recepcionista,
-        notes
-      } = req.body;
+        notes,
+        nota
+      } = req.body || {};
+
+      const [existingRows] = await pool.query(
+        'SELECT id, status, salon_id, draft_data FROM visits WHERE id = ? AND tenant_id = ? LIMIT 1',
+        [id, tenantId]
+      );
+      if (!existingRows || existingRows.length === 0) {
+        return res.status(404).json({ error: 'Ticket no encontrado en esta empresa.', code: 'TICKET_NOT_FOUND' });
+      }
+      const existing = existingRows[0];
+      if (existing.salon_id && !isBranchAuthorized(req, existing.salon_id)) {
+        return res.status(403).json({ error: 'No tienes autorización para editar tickets de esta sucursal.', code: 'BRANCH_ACCESS_DENIED' });
+      }
+      const editableStatuses = new Set(['Pendiente', 'Abierto', 'En Proceso', 'Pre-cuenta']);
+      if (!editableStatuses.has(String(existing.status || '').trim())) {
+        return res.status(409).json({
+          error: `Este ticket ya está en estado "${existing.status}" y no puede modificarse como borrador.`,
+          code: 'TICKET_NOT_EDITABLE'
+        });
+      }
+
+      let mergedDraftJson = null;
+      if (draft_data !== undefined) {
+        const prevDraft = (existing.draft_data && typeof existing.draft_data === 'object') ? existing.draft_data : {};
+        const nextDraft = (typeof draft_data === 'string') ? JSON.parse(draft_data || '{}') : (draft_data || {});
+        mergedDraftJson = JSON.stringify({ ...prevDraft, ...nextDraft });
+      }
+
+      const targetNota = nota !== undefined ? String(nota) : (notes !== undefined ? String(notes) : null);
+      const numTotal = total !== undefined ? Number(total) : null;
+      const totalCents = numTotal !== null && Number.isFinite(numTotal) ? Math.round(numTotal * 100) : null;
 
       await pool.query(
         `UPDATE visits SET
            client_id = COALESCE(?, client_id),
            client_name = COALESCE(?, client_name),
-           servicios = COALESCE(?, servicios),
-           items_detail = COALESCE(?, items_detail),
+           servicios = COALESCE(?::jsonb, servicios),
+           items_detail = COALESCE(?::jsonb, items_detail),
+           draft_data = COALESCE(?::jsonb, draft_data),
            total = COALESCE(?, total),
+           total_cents = COALESCE(?, total_cents),
            empleado_peluquera = COALESCE(?, empleado_peluquera),
            empleado_lava_pelo = COALESCE(?, empleado_lava_pelo),
            empleado_manicurista = COALESCE(?, empleado_manicurista),
-           recepcionista = COALESCE(?, recepcionista),
-           notes = COALESCE(?, notes)
-         WHERE id = ? AND tenant_id = ?`,
+           nota = COALESCE(?, nota)
+         WHERE id = ? AND tenant_id = ? AND status IN ('Pendiente', 'Abierto', 'En Proceso', 'Pre-cuenta')`,
         [
           client_id !== undefined ? client_id : null,
           client_name !== undefined ? client_name : null,
           servicios !== undefined ? (typeof servicios === 'string' ? servicios : JSON.stringify(servicios)) : null,
           items_detail !== undefined ? (typeof items_detail === 'string' ? items_detail : JSON.stringify(items_detail)) : null,
-          total !== undefined ? Number(total) : null,
+          mergedDraftJson,
+          numTotal,
+          totalCents,
           empleado_peluquera !== undefined ? empleado_peluquera : null,
           empleado_lava_pelo !== undefined ? empleado_lava_pelo : null,
           empleado_manicurista !== undefined ? empleado_manicurista : null,
-          recepcionista !== undefined ? recepcionista : null,
-          notes !== undefined ? notes : null,
+          targetNota,
           id,
           tenantId
         ]
       );
 
-      res.json({ success: true, id });
+      res.json({ success: true, id, status: existing.status });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -544,8 +661,14 @@ function createVisitsRouter(pool, helpers = {}) {
         });
       }
 
-      // 2. Idempotencia natural: si la visita ya fue facturada, retornar sin duplicar stock/comisiones/pagos
+      // 2. Idempotencia natural y protección de tickets anulados
       const [existingRows] = await pool.query('SELECT * FROM visits WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+      if (existingRows.length > 0 && String(existingRows[0].status || '').trim() === 'Anulado') {
+        return res.status(409).json({
+          error: 'No se puede facturar un ticket que fue anulado.',
+          code: 'TICKET_VOIDED'
+        });
+      }
       if (existingRows.length > 0 && String(existingRows[0].status || '').trim() === 'Facturado') {
         return res.json({
           success: true,
@@ -558,8 +681,8 @@ function createVisitsRouter(pool, helpers = {}) {
         });
       }
 
-      // 3. Validar integridad multi-tenant de client_id si se proporcionó
-      if (client_id) {
+      // 3. Validar integridad multi-tenant de client_id si es un cliente real (excluir invitados/empleados)
+      if (!isSpecialGuestOrEmpClientId(client_id)) {
         const [clientRows] = await pool.query(
           'SELECT id FROM clients WHERE id::text = ? AND tenant_id = ? LIMIT 1',
           [String(client_id), tenantId]
@@ -733,11 +856,18 @@ function createVisitsRouter(pool, helpers = {}) {
       }
       const db = txConn || pool;
 
-      // Re-verificar idempotencia bajo bloqueo dentro de la transacción
+      // Re-verificar idempotencia y anulación bajo bloqueo dentro de la transacción
       const [txExisting] = await db.query(
         'SELECT id, status, ticket_number, ncf, ncf_name FROM visits WHERE id = ? AND tenant_id = ? FOR UPDATE',
         [id, tenantId]
       );
+      if (txExisting.length > 0 && String(txExisting[0].status || '').trim() === 'Anulado') {
+        if (txConn) await txConn.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'No se puede facturar un ticket que fue anulado.',
+          code: 'TICKET_VOIDED'
+        });
+      }
       if (txExisting.length > 0 && String(txExisting[0].status || '').trim() === 'Facturado') {
         if (txConn) await txConn.query('COMMIT');
         return res.json({

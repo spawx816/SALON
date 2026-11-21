@@ -1285,6 +1285,7 @@ const VisitRecorder = () => {
 
   const handleCreateNewTicket = async (e) => {
     e.preventDefault();
+    if (loading) return;
     if (!activeRegister) {
       alert('🔒 DEBE ABRIR LA CAJA DE JORNADA PRIMERO\n\nNo se pueden generar nuevos tickets de servicio si no existe una caja abierta para el turno actual.');
       setShowNewTicketModal(false);
@@ -1374,9 +1375,10 @@ const VisitRecorder = () => {
         } catch (e) { }
       }
 
-      // Trigger Physical Ticket Print Layout
+      // Trigger Physical Ticket Print Layout (solo tras persistencia confirmada en backend)
+      const persistedTicketNumber = res.ticket_number || res.ticketNumber;
       setPrintableTicketData({
-        ticketNumber: res.ticketNumber,
+        ticketNumber: persistedTicketNumber,
         salonName: res.salonName || 'Sucursal San Vicente de Paúl',
         clientName: finalName,
         receptionistName: currentUser?.nombre || currentUser?.name || 'Staff Recepción',

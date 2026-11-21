@@ -217,14 +217,25 @@ export const dataService = {
     }
   },
 
-  createPendingTicket: async (ticketData) => {
+  createPendingTicket: async (ticketData, options = {}) => {
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (options.idempotencyKey || ticketData?.client_request_id) {
+        headers['Idempotency-Key'] = String(options.idempotencyKey || ticketData.client_request_id);
+      }
       const res = await fetch(`${API_URL}/visits/ticket`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(ticketData)
       });
-      return await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.id) {
+        const error = new Error(data.error || data.message || `Error ${res.status} al guardar el ticket pendiente.`);
+        error.status = res.status;
+        error.code = data.code;
+        throw error;
+      }
+      return data;
     } catch (e) {
       console.error("Error en createPendingTicket:", e);
       throw e;
@@ -238,7 +249,14 @@ export const dataService = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draftData)
       });
-      return await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const error = new Error(data.error || data.message || `Error ${res.status} al actualizar el borrador del ticket.`);
+        error.status = res.status;
+        error.code = data.code;
+        throw error;
+      }
+      return data;
     } catch (e) {
       console.error("Error en saveDraftTicket:", e);
       throw e;
