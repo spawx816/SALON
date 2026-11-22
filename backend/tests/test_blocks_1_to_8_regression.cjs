@@ -512,7 +512,7 @@ async function runTests() {
     );
 
     // 1. Cancelación / token ausente en confirm-cardnet -> 400 INVALID_TOKEN
-    const cancelCard = await requestJson(baseUrl, 'POST', '/api/saas-billing/payment-methods/confirm-cardnet', {
+    const cancelCard = await requestJson(baseUrl, 'POST', '/api/saas/billing/payment-methods/confirm-cardnet', {
       token: ownerToken,
       body: { customerId: 'cust_orig', tokenPayload: {} },
     });
@@ -520,7 +520,7 @@ async function runTests() {
     assert.strictEqual(cancelCard.body.code, 'INVALID_TOKEN');
 
     // 2. Token manual ficticio en POST /payment-methods -> 400 SYNTHETIC_TOKENS_FORBIDDEN
-    const manualCard = await requestJson(baseUrl, 'POST', '/api/saas-billing/payment-methods', {
+    const manualCard = await requestJson(baseUrl, 'POST', '/api/saas/billing/payment-methods', {
       token: ownerToken,
       body: { paymentMethodToken: 'tok_manual_fake', last4: '9999', brand: 'mastercard', expMonth: 10, expYear: 2029 },
     });
@@ -528,7 +528,7 @@ async function runTests() {
     assert.strictEqual(manualCard.body.code, 'SYNTHETIC_TOKENS_FORBIDDEN');
 
     // Verificar método anterior 4242 intacto y default
-    const pmList = await requestJson(baseUrl, 'GET', '/api/saas-billing/payment-methods', { token: ownerToken });
+    const pmList = await requestJson(baseUrl, 'GET', '/api/saas/billing/payment-methods', { token: ownerToken });
     assert.strictEqual(pmList.status, 200);
     const methods = pmList.body.paymentMethods || pmList.body.methods || pmList.body || [];
     assert.ok(Array.isArray(methods) && methods.length === 1 && methods[0].last4 === '4242', 'Método de pago anterior 4242 debe conservarse intacto');
@@ -576,7 +576,7 @@ async function runTests() {
     );
 
     // Cotizar asignación de 3 sucursales dentro del bloque ya adquirido (sin cobro adicional)
-    const q3 = await requestJson(baseUrl, 'POST', '/api/saas-billing/addons/memberships/quote', {
+    const q3 = await requestJson(baseUrl, 'POST', '/api/saas/billing/addons/memberships/quote', {
       token: ownerToken,
       body: { branch_ids: [branch1Id, branch2Id, branch3Id] },
     });
@@ -584,7 +584,7 @@ async function runTests() {
     assert.strictEqual(Number(q3.body.quote?.additionalBlocksRequired ?? q3.body.additionalBlocksRequired ?? 0), 0, '3 sucursales dentro de 1 bloque adquirido no requieren bloque adicional');
 
     // Cotizar 4 sucursales (excede capacidad de 3 -> requiere 1 bloque adicional = 2 bloques totales)
-    const q4 = await requestJson(baseUrl, 'POST', '/api/saas-billing/addons/memberships/quote', {
+    const q4 = await requestJson(baseUrl, 'POST', '/api/saas/billing/addons/memberships/quote', {
       token: ownerToken,
       body: { branch_ids: [branch1Id, branch2Id, branch3Id, branch4Id] },
     });
