@@ -158,8 +158,8 @@ async function runTests() {
     );
     const schemeId = schemeIns[0].id;
     await pool.query(
-      `INSERT INTO commission_scheme_rules (tenant_id, scheme_id, rule_type, service_name, porcentaje_comision, prioridad)
-       VALUES (?, ?, 'service', 'Alisado Gravado Exc', 30, 1)`,
+      `INSERT INTO commission_scheme_rules (tenant_id, scheme_id, rule_type, service_name, porcentaje_comision, valor, prioridad)
+       VALUES (?, ?, 'servicio', 'Alisado Gravado Exc', 30, 30, 1)`,
       [tenantId, schemeId]
     );
 
