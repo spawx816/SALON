@@ -241,8 +241,8 @@ async function runModule7ClientsAcceptance() {
     // Insert a visit for clientA1Id
     const visitId = crypto.randomUUID();
     await pool.query(
-      `INSERT INTO visits (id, tenant_id, salon_id, client_id, total, subtotal, payment_method, visited_at)
-       VALUES (?, ?, ?, ?, 1500, 1500, 'Efectivo', NOW())`,
+      `INSERT INTO visits (id, tenant_id, salon_id, client_id, total, subtotal, visited_at)
+       VALUES (?, ?, ?, ?, 1500, 1500, NOW())`,
       [visitId, tenantA, branchA1, clientA1Id]
     );
 
