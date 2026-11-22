@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { dataService } from '../../utils/dataService';
 import { getCardNetErrorMessage } from '../../utils/cardnetErrors';
@@ -248,6 +248,8 @@ const ClientProfile = () => {
   const contract = contracts.find(c => c.status === 'Active' || c.status === 'Pending_Retry') || contracts[0];
 
   const [isEditing, setIsEditing] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const saveEditInFlightRef = useRef(false);
   const [editForm, setEditForm] = useState({ nombre: '', email: '', telefono: '', cedula: '', salon_id: 1 });
   
   // Card Update states
@@ -389,6 +391,9 @@ const ClientProfile = () => {
   };
 
   const handleSaveEdit = async () => {
+    if (saveEditInFlightRef.current) return;
+    saveEditInFlightRef.current = true;
+    setSavingEdit(true);
     try {
       const cleanBday = editForm.fecha_nacimiento ? editForm.fecha_nacimiento.split('T')[0] : '';
       const formattedClientName = formatName(editForm.nombre);
@@ -406,6 +411,9 @@ const ClientProfile = () => {
       showNotification('Perfil actualizado con éxito', 'success');
     } catch (e) {
       showNotification('Error al actualizar: ' + e.message, 'error');
+    } finally {
+      saveEditInFlightRef.current = false;
+      setSavingEdit(false);
     }
   };
 
@@ -1233,7 +1241,7 @@ const ClientProfile = () => {
                       </select>
                     </div>
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
-                      <button onClick={handleSaveEdit} className="btn-primary" style={{ flex: 1, padding: '0.5rem' }}>Guardar</button>
+                      <button onClick={handleSaveEdit} disabled={savingEdit} className="btn-primary" style={{ flex: 1, padding: '0.5rem' }}>{savingEdit ? 'Guardando...' : 'Guardar'}</button>
                       <button onClick={() => setIsEditing(false)} className="btn-secondary" style={{ flex: 1, padding: '0.5rem' }}>Cancelar</button>
                     </div>
                   </div>

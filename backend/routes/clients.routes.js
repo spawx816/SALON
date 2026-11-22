@@ -9,6 +9,18 @@ const MEMBERSHIP_RESPONSE_FIELDS = Object.freeze([
   'signed_at', 'precio_mensual'
 ]);
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function buildAddressFallback(body = {}) {
+  if (body.direccion !== undefined && body.direccion !== null && String(body.direccion).trim() !== '') {
+    return String(body.direccion).trim();
+  }
+  const parts = [body.calle, body.numero ? `#${String(body.numero).trim()}` : '', body.sector, body.ciudad]
+    .map((v) => (v !== undefined && v !== null ? String(v).trim() : ''))
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : '';
+}
+
 function createClientsRouter(pool, options = {}) {
   const router = express.Router();
   const { entitlementsService } = options;
@@ -336,6 +348,7 @@ function createClientsRouter(pool, options = {}) {
         email,
         direccion,
         fecha_nacimiento,
+        fechaNacimiento,
         salon_id,
         password,
         status,
@@ -343,7 +356,8 @@ function createClientsRouter(pool, options = {}) {
         plan_name
       } = req.body;
 
-      if (!nombre) {
+      const cleanNombre = nombre ? String(nombre).trim() : '';
+      if (!cleanNombre) {
         return res.status(400).json({ error: 'El nombre del cliente es obligatorio.' });
       }
 
@@ -367,9 +381,10 @@ function createClientsRouter(pool, options = {}) {
         }
       }
 
-      const isUuid = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str));
-      const clientId = (id && isUuid(id)) ? id : require('crypto').randomUUID();
-      const cleanBirthDate = fecha_nacimiento && String(fecha_nacimiento).trim() !== '' ? String(fecha_nacimiento).split('T')[0] : null;
+      const clientId = (id && UUID_RE.test(String(id))) ? id : require('crypto').randomUUID();
+      const rawBirth = fecha_nacimiento !== undefined ? fecha_nacimiento : fechaNacimiento;
+      const cleanBirthDate = rawBirth && String(rawBirth).trim() !== '' ? String(rawBirth).split('T')[0] : null;
+      const resolvedDireccion = buildAddressFallback({ ...req.body, direccion });
 
       let hashedPass = null;
       if (password && String(password).trim() !== '') {
@@ -379,16 +394,16 @@ function createClientsRouter(pool, options = {}) {
       }
 
       let validatedSalonId = null;
-      if (salon_id) {
+      if (salon_id !== undefined && salon_id !== null && String(salon_id).trim() !== '') {
         const [validBranch] = await pool.query(
           'SELECT id::text AS id FROM branches WHERE id::text = ? AND tenant_id = ? UNION SELECT id::text AS id FROM salons WHERE id::text = ? AND tenant_id = ? LIMIT 1',
           [String(salon_id), tenantId, String(salon_id), tenantId]
         );
-        if (validBranch.length > 0) {
-          validatedSalonId = String(validBranch[0].id);
+        if (validBranch.length === 0) {
+          return res.status(400).json({ error: 'La sucursal especificada no pertenece a esta empresa.' });
         }
-      }
-      if (!validatedSalonId) {
+        validatedSalonId = String(validBranch[0].id);
+      } else {
         const [defaultBranch] = await pool.query(
           'SELECT id FROM branches WHERE tenant_id = ? ORDER BY is_main DESC, created_at ASC LIMIT 1',
           [tenantId]
@@ -404,15 +419,15 @@ function createClientsRouter(pool, options = {}) {
         [
           clientId,
           tenantId,
-          nombre.trim(),
-          nombre.trim(),
+          cleanNombre,
+          cleanNombre,
           cleanCedula,
           cleanCedula,
           telefono || '',
           telefono || '',
           email || '',
-          direccion || '',
-          direccion || '',
+          resolvedDireccion,
+          resolvedDireccion,
           cleanBirthDate,
           validatedSalonId,
           hashedPass,
@@ -448,6 +463,9 @@ function createClientsRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!UUID_RE.test(String(id || ''))) {
+        return res.status(404).json({ error: 'Cliente no encontrado en esta empresa.' });
+      }
       const {
         nombre,
         cedula,
@@ -455,6 +473,7 @@ function createClientsRouter(pool, options = {}) {
         email,
         direccion,
         fecha_nacimiento,
+        fechaNacimiento,
         salon_id,
         status,
         password,
@@ -474,13 +493,37 @@ function createClientsRouter(pool, options = {}) {
         return rejectMembershipFeature(res);
       }
 
-      const cleanBirthDate = fecha_nacimiento !== undefined
-        ? (fecha_nacimiento && String(fecha_nacimiento).trim() !== '' ? String(fecha_nacimiento).split('T')[0] : null)
+      const cleanNombre = nombre !== undefined ? String(nombre).trim() : undefined;
+      if (cleanNombre !== undefined && !cleanNombre) {
+        return res.status(400).json({ error: 'El nombre del cliente no puede estar vacío.' });
+      }
+
+      const cleanCedula = cedula !== undefined ? (cedula ? String(cedula).trim() : null) : undefined;
+      if (cleanCedula) {
+        const digitsOnly = cleanCedula.replace(/\D/g, '');
+        const [dupRows] = await pool.query(
+          `SELECT id, nombre FROM clients
+           WHERE tenant_id = ? AND id <> ? AND (cedula = ? OR (LENGTH(?) >= 8 AND REPLACE(cedula, '-', '') = ?)) LIMIT 1`,
+          [tenantId, id, cleanCedula, digitsOnly, digitsOnly]
+        );
+        if (dupRows.length > 0) {
+          return res.status(400).json({
+            error: `Ya existe otro cliente registrado con la cédula ${cleanCedula} (${dupRows[0].nombre}).`
+          });
+        }
+      }
+
+      const rawBirth = fecha_nacimiento !== undefined ? fecha_nacimiento : fechaNacimiento;
+      const cleanBirthDate = rawBirth !== undefined
+        ? (rawBirth && String(rawBirth).trim() !== '' ? String(rawBirth).split('T')[0] : null)
         : undefined;
+
+      const hasAddressFields = direccion !== undefined || req.body.calle !== undefined || req.body.sector !== undefined || req.body.ciudad !== undefined;
+      const resolvedDireccion = hasAddressFields ? buildAddressFallback({ ...req.body, direccion }) : undefined;
 
       let validatedSalonId = undefined;
       if (salon_id !== undefined) {
-        if (salon_id === null) {
+        if (salon_id === null || String(salon_id).trim() === '') {
           validatedSalonId = null;
         } else {
           const [validBranch] = await pool.query(
@@ -497,19 +540,27 @@ function createClientsRouter(pool, options = {}) {
       let query = `
         UPDATE clients SET
           nombre = COALESCE(?, nombre),
+          name = COALESCE(?, name),
           cedula = COALESCE(?, cedula),
+          cedula_rnc = COALESCE(?, cedula_rnc),
           telefono = COALESCE(?, telefono),
+          phone = COALESCE(?, phone),
           email = COALESCE(?, email),
           direccion = COALESCE(?, direccion),
+          address = COALESCE(?, address),
           salon_id = COALESCE(?, salon_id),
           status = COALESCE(?, status)
       `;
       const params = [
-        nombre !== undefined ? nombre : null,
-        cedula !== undefined ? cedula : null,
+        cleanNombre !== undefined ? cleanNombre : null,
+        cleanNombre !== undefined ? cleanNombre : null,
+        cleanCedula !== undefined ? cleanCedula : null,
+        cleanCedula !== undefined ? cleanCedula : null,
+        telefono !== undefined ? telefono : null,
         telefono !== undefined ? telefono : null,
         email !== undefined ? email : null,
-        direccion !== undefined ? direccion : null,
+        resolvedDireccion !== undefined ? resolvedDireccion : null,
+        resolvedDireccion !== undefined ? resolvedDireccion : null,
         validatedSalonId !== undefined ? validatedSalonId : null,
         status !== undefined ? status : null
       ];
@@ -591,6 +642,9 @@ function createClientsRouter(pool, options = {}) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!UUID_RE.test(String(id || ''))) {
+        return res.status(404).json({ error: 'Cliente no encontrado' });
+      }
 
       // 404 explícito para clientes inexistentes o de otro tenant (antes devolvía 200 sin borrar nada).
       const [ownedRows] = await pool.query('SELECT id FROM clients WHERE id = ? AND tenant_id = ? LIMIT 1', [id, tenantId]);
@@ -612,9 +666,26 @@ function createClientsRouter(pool, options = {}) {
         }
       }
 
+      // Preservar historial contable/comercial: si el cliente tiene visitas registradas, archivar en lugar de borrar físicamente.
+      const [visitRefs] = await pool.query(
+        'SELECT 1 FROM visits WHERE tenant_id = ? AND client_id::text = ? LIMIT 1',
+        [tenantId, String(id)]
+      );
+      if (visitRefs && visitRefs.length > 0) {
+        await pool.query(
+          "UPDATE clients SET status = 'Inactive' WHERE id = ? AND tenant_id = ?",
+          [id, tenantId]
+        );
+        return res.json({
+          success: true,
+          archived: true,
+          message: 'El cliente posee historial de visitas y fue archivado (Inactivo) para preservar la integridad histórica.'
+        });
+      }
+
       await pool.query('DELETE FROM contracts WHERE client_id = ? AND tenant_id = ?', [id, tenantId]);
       await pool.query('DELETE FROM clients WHERE id = ? AND tenant_id = ?', [id, tenantId]);
-      res.json({ success: true });
+      res.json({ success: true, archived: false });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

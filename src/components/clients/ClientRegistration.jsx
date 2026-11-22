@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { User, Phone, CreditCard, Mail, Calendar, Sparkles, ArrowRight, MapPin } from 'lucide-react';
 import { dataService } from '../../utils/dataService';
@@ -15,6 +15,8 @@ const ClientRegistration = ({ initialClient = null, onClientSaved = null, submit
   const { user } = useAuth();
   const [salons, setSalons] = useState([]);
   const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const submitInFlightRef = useRef(false);
 
   useEffect(() => {
     const loadSalons = async () => {
@@ -47,6 +49,9 @@ const ClientRegistration = ({ initialClient = null, onClientSaved = null, submit
   };
 
   const onSubmit = async (data) => {
+    if (submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
+    setSubmitting(true);
     try {
       const isAdmin = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'administrador';
       const source = isAdmin ? 'Admin' : 'Reception';
@@ -76,14 +81,14 @@ const ClientRegistration = ({ initialClient = null, onClientSaved = null, submit
         setStep(1);
       }
     } catch (err) {
-      if (err.message && err.message.includes('Duplicate entry')) {
+      if (err.message && (err.message.includes('Duplicate entry') || err.message.includes('Ya existe un cliente'))) {
         showNotification(`Ups, la Cédula "${data.cedula}" ya se encuentra registrada.`, 'error');
       } else {
         showNotification('Error de servidor: ' + (err.message || err), 'error');
-        if (onClientSaved) {
-          onClientSaved({ ...(initialClient || {}), ...data });
-        }
       }
+    } finally {
+      submitInFlightRef.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -279,8 +284,8 @@ const ClientRegistration = ({ initialClient = null, onClientSaved = null, submit
                   <ArrowRight size={18} />
                 </button>
               ) : (
-                <button type="button" onClick={handleSubmit(onSubmit)} className="btn-primary">
-                  {submitButtonText || 'Crear Perfil'}
+                <button type="button" onClick={handleSubmit(onSubmit)} disabled={submitting} className="btn-primary">
+                  {submitting ? 'Guardando...' : (submitButtonText || 'Crear Perfil')}
                   <ArrowRight size={18} />
                 </button>
               )}
