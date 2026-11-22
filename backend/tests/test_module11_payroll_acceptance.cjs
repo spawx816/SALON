@@ -111,8 +111,8 @@ async function runModule11PayrollAcceptance() {
 
     // Seed 1 pending commission (RD$ 500) and 1 pending discount (RD$ 200) inside 2026-11-01..2026-11-15
     const [commRow] = await pool.query(
-      `INSERT INTO employee_commissions_log (tenant_id, employee_id, employee_name, service_name, commission_amount, status, created_at)
-       VALUES (?, ?, 'Estilista M11', 'Corte M11', 500, 'Pendiente', '2026-11-05 12:00:00') RETURNING id`,
+      `INSERT INTO employee_commissions_log (tenant_id, employee_id, employee_name, service_name, monto_comision, commission_amount, status, created_at)
+       VALUES (?, ?, 'Estilista M11', 'Corte M11', 500, 500, 'Pendiente', '2026-11-05 12:00:00') RETURNING id`,
       [tenantA, String(empId)]
     );
     const [discRow] = await pool.query(
