@@ -176,7 +176,7 @@ async function runModule12AccountingAcceptance() {
     );
     const rep607 = await reqJson(baseUrl, 'GET', '/api/dgii/report-607?periodo=202611');
     assert.strictEqual(rep607.status, 200);
-    const repIt1 = await reqJson(baseUrl, 'GET', '/api/dgii/report-it1?periodo=202611');
+    const repIt1 = await reqJson(baseUrl, 'GET', '/api/dgii/it1?periodo=202611');
     assert.strictEqual(repIt1.status, 200);
     console.log('  ✅ [PASS M12-C3]');
 
