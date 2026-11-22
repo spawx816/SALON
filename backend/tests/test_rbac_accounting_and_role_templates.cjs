@@ -59,7 +59,7 @@ async function runTests() {
 
   await migrateAll({ pool, targetSchema: 'public', quiet: true });
 
-  const app = createApp(pool);
+  const app = createApp({ pool });
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
