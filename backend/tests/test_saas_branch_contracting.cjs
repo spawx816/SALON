@@ -589,8 +589,10 @@ async function runBranchContractingTests() {
     assert.strictEqual(db.branches.length, initialBranchesCount, 'Rejected request must not create branches');
     assert.strictEqual(db.orders.length, 0, 'Rejected request must not create checkout orders');
     assert.strictEqual(db.tenant.licensed_branches, initialLicensedBranches, 'Rejected request must not alter licensed_branches');
-    assert.strictEqual((billingRepo.invoices || []).length, 0, 'Rejected request must not generate invoices');
-    assert.strictEqual((billingRepo.payments || []).length, 0, 'Rejected request must not execute payments');
+    const invCount = billingRepo.invoices instanceof Map ? billingRepo.invoices.size : (Array.isArray(billingRepo.invoices) ? billingRepo.invoices.length : 0);
+    const payCount = billingRepo.payments instanceof Map ? billingRepo.payments.size : (Array.isArray(billingRepo.payments) ? billingRepo.payments.length : 0);
+    assert.strictEqual(invCount, 0, 'Rejected request must not generate invoices');
+    assert.strictEqual(payCount, 0, 'Rejected request must not execute payments');
     passed++;
     console.log('✓ Scenario 8: RBAC enforcement rejecting non-owner with OWNER_ONLY_SAAS_BILLING and zero side effects passed');
   }
