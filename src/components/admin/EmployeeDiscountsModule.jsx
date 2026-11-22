@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   DollarSign, Users, Plus, Search, Filter, Calendar, FileSpreadsheet, 
   Trash2, Edit3, CheckCircle2, Clock, XCircle, AlertCircle, RefreshCw,
@@ -85,6 +85,7 @@ const EmployeeDiscountsModule = () => {
     status: 'Pendiente'
   });
   const [saving, setSaving] = useState(false);
+  const saveInFlightRef = useRef(false);
   const [useEmployee20Discount, setUseEmployee20Discount] = useState(true);
   const [serviceBasePrice, setServiceBasePrice] = useState('');
 
@@ -193,9 +194,11 @@ const EmployeeDiscountsModule = () => {
 
   const handleSaveDiscount = async (e) => {
     e.preventDefault();
+    if (saveInFlightRef.current) return;
     if (!formData.employee_id) return alert('Debes seleccionar un colaborador.');
     if (!formData.amount || Number(formData.amount) <= 0) return alert('Debes ingresar un monto válido mayor a 0.');
 
+    saveInFlightRef.current = true;
     setSaving(true);
     try {
       const selectedEmp = employees.find(emp => String(emp.id) === String(formData.employee_id));
@@ -214,6 +217,7 @@ const EmployeeDiscountsModule = () => {
     } catch (err) {
       alert('Error al guardar: ' + err.message);
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   };

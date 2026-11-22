@@ -81,6 +81,9 @@ function createEmployeeSecurityRouter(pool) {
     }
   });
 
+  const ALLOWED_DISCOUNT_STATUSES = new Set(['Pendiente', 'Aplicado', 'Anulado']);
+  const isPositiveIntId = (v) => /^\d+$/.test(String(v || '').trim()) && Number(v) > 0;
+
   router.post('/employee-discounts', async (req, res) => {
     try {
       const tenantId = req.tenantId;
@@ -89,8 +92,16 @@ function createEmployeeSecurityRouter(pool) {
       }
 
       const { employee_id, employee_name, type, amount, date, notes, status, created_by } = req.body;
-      if (!employee_id || !amount || Number(amount) <= 0) {
-        return res.status(400).json({ error: 'Colaborador y monto válido son requeridos.' });
+      const numAmount = Number(amount);
+      if (!employee_id || !Number.isFinite(numAmount) || numAmount <= 0) {
+        return res.status(400).json({ error: 'Colaborador y monto válido mayor a 0 son requeridos.', code: 'INVALID_DISCOUNT_INPUT' });
+      }
+      if (!isPositiveIntId(employee_id)) {
+        return res.status(404).json({ error: 'Colaborador no encontrado en esta empresa.', code: 'EMPLOYEE_NOT_FOUND' });
+      }
+      const targetStatus = status ? String(status).trim() : 'Pendiente';
+      if (!ALLOWED_DISCOUNT_STATUSES.has(targetStatus)) {
+        return res.status(400).json({ error: `Estatus inválido ('${targetStatus}').`, code: 'INVALID_DISCOUNT_STATUS' });
       }
 
       const cleanDate = date ? (String(date).includes('T') ? String(date).split('T')[0] : String(date).split(' ')[0]) : new Date().toISOString().split('T')[0];
@@ -103,8 +114,9 @@ function createEmployeeSecurityRouter(pool) {
 
       const [result] = await pool.query(
         `INSERT INTO employee_discounts (tenant_id, employee_id, employee_name, type, amount, date, notes, status, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [tenantId, employee_id, empName, type || 'Consumo_Servicio', amount, cleanDate, notes || '', status || 'Pendiente', actorName]
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+         RETURNING id`,
+        [tenantId, employee_id, empName, type || 'Consumo_Servicio', numAmount, cleanDate, notes || '', targetStatus, actorName]
       );
 
       res.json({ success: true, id: result.insertId || result[0]?.id, message: 'Descuento registrado exitosamente' });
@@ -117,14 +129,47 @@ function createEmployeeSecurityRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isPositiveIntId(id)) {
+        return res.status(404).json({ error: 'Descuento no encontrado en esta empresa.' });
+      }
       const { employee_id, employee_name, type, amount, date, notes, status } = req.body;
 
       const [check] = await pool.query('SELECT id, status FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (check.length === 0) {
         return res.status(404).json({ error: 'Descuento no encontrado en esta empresa.' });
       }
-      if (String(check[0].status || '').toLowerCase() === 'saldado') {
+      const curStatus = String(check[0].status || '').toLowerCase();
+      if (curStatus === 'saldado') {
         return res.status(409).json({ error: 'No se puede modificar un descuento ya saldado en nómina.', code: 'DISCOUNT_ALREADY_SETTLED' });
+      }
+      if (curStatus === 'anulado') {
+        return res.status(409).json({ error: 'No se puede modificar un descuento anulado.', code: 'DISCOUNT_VOIDED' });
+      }
+
+      let numAmount = null;
+      if (amount !== undefined && amount !== null && amount !== '') {
+        numAmount = Number(amount);
+        if (!Number.isFinite(numAmount) || numAmount <= 0) {
+          return res.status(400).json({ error: 'El monto del descuento debe ser mayor a 0.', code: 'INVALID_DISCOUNT_AMOUNT' });
+        }
+      }
+      let nextStatus = null;
+      if (status !== undefined && status !== null && String(status).trim() !== '') {
+        nextStatus = String(status).trim();
+        if (!ALLOWED_DISCOUNT_STATUSES.has(nextStatus)) {
+          return res.status(400).json({ error: `Estatus inválido ('${nextStatus}').`, code: 'INVALID_DISCOUNT_STATUS' });
+        }
+      }
+      let resolvedEmpName = employee_name || null;
+      if (employee_id !== undefined && employee_id !== null && String(employee_id).trim() !== '') {
+        if (!isPositiveIntId(employee_id)) {
+          return res.status(404).json({ error: 'Colaborador no encontrado en esta empresa.', code: 'EMPLOYEE_NOT_FOUND' });
+        }
+        const [emp] = await pool.query('SELECT id, nombre FROM staff_records WHERE id = ? AND tenant_id = ? LIMIT 1', [employee_id, tenantId]);
+        if (!emp || emp.length === 0) {
+          return res.status(404).json({ error: 'Colaborador no encontrado en esta empresa.', code: 'EMPLOYEE_NOT_FOUND' });
+        }
+        resolvedEmpName = emp[0].nombre || resolvedEmpName;
       }
 
       let cleanDate = date;
@@ -142,7 +187,7 @@ function createEmployeeSecurityRouter(pool) {
            notes = COALESCE(?, notes),
            status = COALESCE(?, status)
          WHERE id = ? AND tenant_id = ?`,
-        [employee_id || null, employee_name || null, type || null, amount || null, cleanDate || null, notes || null, status || null, id, tenantId]
+        [employee_id || null, resolvedEmpName, type || null, numAmount, cleanDate || null, notes !== undefined ? notes : null, nextStatus, id, tenantId]
       );
 
       res.json({ success: true, message: 'Descuento actualizado exitosamente' });
@@ -155,12 +200,19 @@ function createEmployeeSecurityRouter(pool) {
     try {
       const tenantId = req.tenantId;
       const { id } = req.params;
+      if (!isPositiveIntId(id)) {
+        return res.status(404).json({ error: 'Descuento no encontrado en esta empresa.' });
+      }
       const [check] = await pool.query('SELECT id, status FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
       if (check.length === 0) {
         return res.status(404).json({ error: 'Descuento no encontrado en esta empresa.' });
       }
-      if (String(check[0].status || '').toLowerCase() === 'saldado') {
-        return res.status(409).json({ error: 'No se puede modificar un descuento ya saldado en nómina.', code: 'DISCOUNT_ALREADY_SETTLED' });
+      const curStatus = String(check[0].status || '').toLowerCase();
+      if (curStatus === 'saldado') {
+        return res.status(409).json({ error: 'No se puede eliminar un descuento ya saldado en nómina.', code: 'DISCOUNT_ALREADY_SETTLED' });
+      }
+      if (curStatus === 'anulado') {
+        return res.status(409).json({ error: 'No se puede eliminar un descuento anulado para preservar trazabilidad.', code: 'DISCOUNT_VOIDED' });
       }
 
       await pool.query('DELETE FROM employee_discounts WHERE id = ? AND tenant_id = ?', [id, tenantId]);
