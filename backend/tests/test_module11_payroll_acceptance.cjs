@@ -103,7 +103,7 @@ async function runModule11PayrollAcceptance() {
 
     // Seed active employee hired before period start with fixed salary RD$ 20,000/mo (10,000/quincena)
     const [stRows] = await pool.query(
-      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, fecha_ingreso, estatus)
+      `INSERT INTO staff_records (tenant_id, nombre, posicion, localidad, salario_base, fecha_entrada, status)
        VALUES (?, 'Estilista M11', 'Estilista', 'Sucursal M11 A1', 20000, '2025-01-01', 'Activo') RETURNING id`,
       [tenantA]
     );
