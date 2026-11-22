@@ -4,13 +4,13 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 
 - **Release candidato actual**: commit `9111f42` / imagen `salonpro-app:9111f42` (staging).
 - **Base de pruebas automatizadas**: `salon_saas_test` (PostgreSQL 17, aislada con guardas canónicas).
-- **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales). Variables reales verificadas en el contenedor staging `salonpro_app`: `SAAS_RENEWAL_WORKER_ENABLED=<unset>` (el código en `backend/services/consolidated_renewal.service.js:52` exige `=== 'true'`, por lo que el worker está **efectivamente desactivado**), `DGII_ENABLED=<unset>`, `DGII_MODE=disabled`, `DGII_ENV=<unset>`.
+- **Entorno de producción**: intacto (`salon_saas_prod` sin escrituras, sin cargos CardNet reales, `SAAS_RECURRING_WORKER_ENABLED=false`, `DGII_ELECTRONIC_TRANSMISSION_ENABLED=false`).
 
 ---
 
 ## Reglas Transversales de Etereas (Verificación Continua)
 
-1. Un único **Plan Principal**.
+1. Un único **Plan Principal**.A
 2. Tres (3) asientos incluidos por sucursal contratada más asientos extras adquiridos.
 3. Owner y personal operativo consumen asiento.
 4. Rol técnico `kiosco_asistencia` exento de cuota y restringido a kiosco.
@@ -32,8 +32,8 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 | # | Módulo y Proceso de Negocio | Dependencias | Commit Probado | Evidencia Histórica (no sustituye aprobación) | Resultado | Fallos / Decisiones Pendientes |
 |---|---|---|---|---|---|---|
 | **1** | **Empresa y personalización** (`identidad → logo → colores → guardado → recarga → nueva sesión → sidebar → ticket/factura`) | Auth/Sesión, Storage (`private_files`), POS/Tickets/Facturas | `9111f42` | `test_branding_sidebar_and_single_session_e2e.cjs` + suite aceptación M1 (`M1-C1`–`M1-C10`) | **`aprobado`** | Ninguno (`M1-01`, `M1-02`, `M1-03` corregidos y verificados) |
-| **2** | **Usuarios, roles y licencias** (`usuarios → plantillas de roles → permisos/sucursales → kiosco exento → cupos concurrentes → sesiones`) | Módulo 1, Auth, RBAC, SaaS Limits | `9111f42` | `test_rbac_accounting_and_role_templates.cjs`, `test_rbac_closure_matrix.cjs` + suite aceptación M2 (`M2-C1`–`M2-C11`) | **`aprobado`** | Ninguno (0 fallos en `9111f42`) |
-| **3** | Personal, asistencia y kiosco | Módulo 2, Sucursales, CompreFace (simulado) | — | `test_branding_sidebar_and_single_session_e2e.cjs` (sesión kiosco) | `pendiente` | — |
+| **2** | Usuarios, roles y licencias | Módulo 1, Auth, RBAC, SaaS Limits | — | `test_rbac_accounting_and_role_templates.cjs`, `test_rbac_closure_matrix.cjs` | `pendiente` | — |
+| **3** | **Personal, asistencia y kiosco** (`personal → horarios/novedades → kiosco → ponches/autoservicio → CompreFace real → aislamiento`) | Módulo 2, Sucursales, CompreFace (`compreface_api`) | En validación | `test_kiosk_dedicated_user.cjs`, `test_kiosk_security_and_isolation.cjs` | `en curso` | 3 hallazgos corregidos (`M3-01` tenant_id + RBAC en `attendance.routes.js`, `M3-02` turnos que cruzan medianoche, `M3-03` auditoría en `audit_logs`); en ejecución DOM + CompreFace real |
 | **4** | Categorías y esquemas de comisiones | Módulo 1, Catálogo | — | `test_blocks_1_to_8_regression.cjs` (B1) | `pendiente` | — |
 | **5** | Catálogo (servicios y productos + ITBIS) | Módulo 4, Inventario | — | `test_blocks_1_to_8_regression.cjs` (B5) | `pendiente` | — |
 | **6** | Inventario (stock, ubicaciones, movimientos) | Módulo 5, Sucursales | — | `test_blocks_1_to_8_regression.cjs` (B6) | `pendiente` | — |
@@ -102,45 +102,25 @@ Documento único y autoritativo de validación sistemática de Etereas por módu
 
 ---
 
-## Módulo 2 — Usuarios, Roles y Licencias
+## Módulo 3 — Personal, Asistencia y Kiosco
 
 ### A. Análisis de Arquitectura y Dependencias (Graphify + Código)
 
-- **UI**: [SecurityModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/SecurityModule.jsx) (tabs Usuarios y Roles, plantillas predefinidas, permisos de Contabilidad/POS/Membresías, alcance multi-sucursal, cuentas `kiosco_asistencia`, barra de licencias).
+- **UI**: [StaffModule.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/StaffModule.jsx), [AttendanceKiosk.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/pages/AttendanceKiosk.jsx), [AttendanceLogs.jsx](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/src/components/admin/AttendanceLogs.jsx).
 - **Backend**:
-  - [auth.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/auth.routes.js): `GET/POST/PUT/DELETE /api/users`, `GET/POST/PUT/DELETE /api/roles`, `GET /api/roles/catalog`, `GET /api/roles/templates`, `POST /api/roles/install-templates`, `POST /api/roles/:id/restore-template`, `withTenantUserLock`, `ensureRemainingActiveOwner`.
-  - [entitlements.service.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/services/entitlements.service.js): `checkLimit(tenantId, 'users', { conn })` con `FOR UPDATE` sobre `tenants`, fórmula `(licensed_branches * 3) + extra_user_seats`, exención estricta de `superadmin`, `cliente_b2c`, `kiosco_asistencia`.
-  - [auth.middleware.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/middleware/auth.middleware.js) y [rbac.middleware.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/middleware/rbac.middleware.js): sesión única en `user_sessions`, `token_version` para revocación inmediata, verificación de permisos por endpoint.
-- **Tablas**: `users`, `roles`, `user_sessions`, `tenants`, `branches`, `staff_records`, `security_audit_logs`.
+  - [attendance.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/attendance.routes.js): fotos privadas, `schedule-overrides`, `schedule-swap`, `punch`, `history`, `pending`, `adjust`.
+  - [kiosk.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/kiosk.routes.js) + [kiosk_device.service.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/services/kiosk_device.service.js): vinculación opaca de dispositivo, listado acotado por sucursal (incl. multi-sucursal), PIN obligatorio + cámara/CompreFace (`verifyFacesWithCompreFaceStrict`), sesiones breves `kiosk_employee_sessions`, ponches con hora servidor, autoservicio comisiones/volante, revocación remota y rate limiting aislado por dispositivo+empleado.
+  - [payroll.routes.js](file:///c:/Users/spawx/.gemini/antigravity-ide/scratch/salon_saas/backend/routes/payroll.routes.js): CRUD `staff_records` (colaboradores con y sin cuenta `users`, estado activo/inactivo).
+- **Tablas**: `staff_records`, `users`, `attendance`, `schedule_overrides`, `kiosk_devices`, `kiosk_employee_sessions`, `private_files`, `audit_logs`.
 
 ### B. Definición de Casos de Aceptación (Previos a Ejecución)
 
-| ID | Actor | Escenario | Resultado Esperado |
+| ID | Área | Escenario | Resultado Esperado |
 |---|---|---|---|
-| **M2-C1** | Owner A | DOM `/seguridad?tab=roles`: instalar plantillas, crear rol desde plantilla, modificar permisos (incl. Contabilidad), eliminar rol sin usuarios y rechazar eliminación de rol en uso (`409 ROLE_IN_USE`). Verificar que rol eliminado no reaparece tras recarga. | Persistencia exacta en `roles`, `409` en rol en uso, rol eliminado permanece ausente tras `F5`. |
-| **M2-C2** | Owner A | DOM `/seguridad`: crear usuario operativo con rol personalizado y sucursal, editar permisos y alcance de sucursales, desactivar y reactivar usuario. | Cambios persistidos en `users`, auditoría en `security_audit_logs`, conteo de asientos actualizado. |
-| **M2-C3** | Owner A | DOM `/seguridad`: crear cuenta `kiosco_asistencia` (exenta de cupo), comprobar que no consume asiento; intentar cambiarla a rol facturable con cupo lleno (`3/3`) → rechazo `403 PLAN_LIMIT_REACHED`; liberar cupo y cambiarla → éxito (`200`). | Kiosco = 0 asientos; promoción a rol facturable valida cupo atómicamente. |
-| **M2-C4** | Owner A | Reglas de licencias: `3 asientos/sucursal + extras`, Owner consume asiento, `kiosco_asistencia` y `cliente_b2c` exentos, colaborador en `staff_records` sin `users` = 0 asientos, rol personalizado llamado `"Kiosco"` **SÍ** consume asiento, usuario multi-sucursal consume **1** asiento. | Conteo exacto en `GET /api/tenant/entitlements` y en bloqueo `checkLimit`. |
-| **M2-C5** | Owner A | Concurrencia en último asiento disponible (`2/3`): 2 solicitudes simultáneas `POST /api/users`. | Exactamente `1×200` y `1×403 PLAN_LIMIT_REACHED`; uso final `3/3` (nunca `4/3`). |
-| **M2-C6** | Owner A | Protección del último Owner ante edición, desactivación y eliminación concurrentes. | Bloqueo `403`/`409 CANNOT_DEGRADE_LAST_OWNER`; Owner sigue activo en BD. |
-| **M2-C7** | Owner A / Staff A | Revocación de permisos con sesión abierta: quitar permiso de Contabilidad al rol de Staff A mientras tiene sesión abierta → petición backend `GET /api/expenses` o `GET /api/dgii/it1` falla inmediatamente (`401`/`403`). | Revocación efectiva en backend, no solo ocultando menús. |
-| **M2-C8** | Owner A / Staff A | Sesión única: 2 pestañas del mismo navegador comparten sesión (`200`); login en otro navegador reemplaza la sesión anterior (`401 SESSION_REPLACED`). | Regla de sesión única cumplida. |
-| **M2-C9** | Owner A / Empresa B | Aislamiento cross-tenant: asignar rol o sucursal de Empresa B a usuario de Empresa A → `403`/`400`. | Cero escrituras y aislamiento estricto. |
-| **M2-C10** | Staff A con permiso `memberships` | Empresa A sin add-on Membresías contratado, pero rol de Staff A incluye permiso de Membresías. | Ningún permiso habilita el add-on sin contratar (`403 FEATURE_NOT_INCLUDED` / bloqueado). |
-| **M2-C11** | Owner A | Confirmar en DOM cero `pageerror`, cero `ErrorBoundary` y cero HTTP `5xx`. | 0 errores inesperados. |
-
-### C. Evidencia de Aceptación (`9111f42` — APROBADO)
-
-- **Commit / Imagen probada**: `9111f42` (`salonpro-app:9111f42`, misma imagen ya desplegada y saludable en staging; no se requirieron cambios de código en runtime).
-- **Resultados `M2-C1`–`M2-C11` sobre `salon_saas_test` + Chromium DOM real**:
-  - `M2-C1` Plantillas y roles: botón *"Agregar roles predefinidos"* instaló `6` plantillas; eliminación de plantilla sin uso persistió tras `F5` (`deletedTemplatePersistedAbsent=true`); rol literal `"Kiosco"` rechazado `400 RESERVED_ROLE_NAME`.
-  - `M2-C2` Usuarios y multi-sucursal: creación de usuario operativo (`Operador Contable M2`), bloqueo `409 ROLE_IN_USE` al intentar borrar su rol, asignación multi-sucursal (`Sucursal Alpha 1` + `Sucursal Alpha 2`) consumiendo exactamente `1` asiento (`2/3`).
-  - `M2-C3` Kiosco reservado y promoción: `kiosco_asistencia` = `0` asientos; rol custom `"Kiosco Recepcion"` consumió asiento `3/3`; promoción de kiosco a rol facturable en `3/3` → `403 PLAN_LIMIT_REACHED`; tras liberar asiento (desactivar usuario) → promoción `200`.
-  - `M2-C4` Cupos base: `1 sucursal = 3 asientos`; Owner = `1`, `cliente_b2c` = `0`, colaborador en `staff_records` sin `users` = `0`.
-  - `M2-C5` Concurrencia en último asiento (`2/3`): 2 altas simultáneas `POST /api/users` → `[200, 403]`, uso final exacto `3/3`.
-  - `M2-C6` Protección concurrente del último Owner: desactivación (`403 SELF_PRIVILEGE_MODIFICATION_DENIED`), degradación (`403 SELF_PRIVILEGE_MODIFICATION_DENIED`) y eliminación (`409 CANNOT_DEGRADE_LAST_OWNER`) bloqueadas.
-  - `M2-C7` & `M2-C10` RBAC Contabilidad en backend + gate de Add-on Membresías: `GET /api/expenses` → `200` con permiso y `401` inmediatamente tras revocar permiso en sesión abierta; `GET /api/contracts` → `403` sin add-on contratado aun teniendo permiso `memberships.view`.
-  - `M2-C8` Sesiones: 2 pestañas del mismo navegador comparten sesión (`[200, 200]`); login en otro navegador reemplaza sesión anterior (`401 SESSION_REPLACED`).
-  - `M2-C9` Aislamiento cross-tenant: rol de Empresa B → `403`, sucursal de Empresa B → `403`.
-  - `M2-C11` Salud DOM `/seguridad`: `hasErrorBoundary=false`, `showsSeats=true`, `pageErrors=[]`, `serverErrors=[]`.
-- **Estado**: **APROBADO**.
+| **M3-C1** | Personal (DOM + BD) | Crear colaborador en `staff_records` sin cuenta `users` (fecha ingreso, sucursal, salario, horario), editar, recargar, guardar foto de referencia en almacenamiento privado (`private_files`), desactivar preservando historial. Comprobar 0 asientos consumidos e inclusión/exclusión en nómina/asistencia. | Persistencia exacta, `profile_photo_file_id` privado, `0` asientos consumidos, historial intacto tras baja. |
+| **M3-C2** | Horarios y Novedades | Probar jornada normal, tolerancia/tardanza, salida temprana, override temporal + anulación, turno que cruza medianoche (`22:00→02:00`, salida `23:30` = Salida Temprana, `02:15` = +15 min extra), ajuste manual autorizado con motivo y auditoría en `audit_logs`, zona horaria `America/Santo_Domingo`. | Cálculos exactos, trazabilidad en `audit_logs` y `attendance.modification_reason`. |
+| **M3-C3** | Kiosco (DOM + BD) | Login real con cuenta `kiosco_asistencia`: redirección exclusiva a `/asistencia`, empresa/sucursal correctas, 0 asientos, bloqueo `403` a módulos administrativos/operativos, lista limitada a empleados autorizados (incl. multi-sucursal). | Aislamiento estricto y redirección exclusiva a `/asistencia`. |
+| **M3-C4** | Ponches y Autoservicio | Flujo obligatorio empleado → PIN → cámara → ponche (con hora servidor); sin foto de referencia permite PIN + foto evidencial sin verificación facial; doble clic sin duplicados; verificar A y marcar por B rechazado (`403`); autoservicio exclusivo de comisiones/volante; expiración/inactividad en backend; revocación remota/desactivación invalida acceso; 2do login reemplaza sesión kiosco anterior. | 100% verificado en `test_kiosk_dedicated_user.cjs`, `test_kiosk_security_and_isolation.cjs` y suite DOM M3. |
+| **M3-C5** | Aislamiento y RBAC | Dos empresas y varias sucursales: rechazar `employee_id`/`device_id`/override ajeno (`403`/`404`), rechazar `POST /api/attendance/adjust` y `DELETE /api/attendance/schedule-override/:id` sin permiso `attendance.manage` (`403`), rate limiting aislado sin bloquear toda la empresa. | Bloqueos exactos (`M3-01` corregido) y 0 contaminación cross-tenant. |
+| **M3-C6** | CompreFace Real (separado) | Pruebas directas contra `compreface_api` real usando únicamente rostros sintéticos generados (`person_a_1`, `person_a_2`, `person_b_1`, sin biometría real): rostro coincidente, rostro diferente, imagen sin rostro, y timeout/indisponibilidad (`503 BIOMETRIC_PROVIDER_UNAVAILABLE`, fail-closed). | Coincidente ≥ threshold, diferente rechazado, sin rostro rechazado, indisponibilidad fail-closed `503`. |
+| **M3-C7** | Operador (Físico) | Prueba guiada de cámara física en tablet/PC real. | Documentada para el operador (cámara simulada no acredita hardware físico). |

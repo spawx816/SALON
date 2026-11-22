@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const nodemailer = require('nodemailer');
 const { getPrivateStorageAdapter } = require('../services/private_storage_adapter');
+const { requirePermission } = require('../middleware/rbac.middleware');
 
 /**
  * Attendance and Facial Recognition Module for Empresa Pro & Plan Beauty RD
@@ -27,7 +28,7 @@ function createAttendanceRouter(pool) {
   // === ATTENDANCE / PONCHEO ===
 
   // PUT /api/users/:id/profile-photo - Save profile photo encrypted in private storage
-  router.put('/users/:id/profile-photo', async (req, res) => {
+  router.put('/users/:id/profile-photo', requirePermission('staff.manage'), async (req, res) => {
     try {
       const { id } = req.params;
       const { profile_photo } = req.body;
@@ -138,7 +139,7 @@ function createAttendanceRouter(pool) {
   });
 
   // GET /api/attendance/schedule-overrides - Fetch all schedule overrides (audit log)
-  router.get('/schedule-overrides', async (req, res) => {
+  router.get('/schedule-overrides', requirePermission('attendance.view'), async (req, res) => {
     try {
       const { salonId } = req.query;
       const tenantId = req.verifiedTenantId || req.tenantId;
@@ -257,7 +258,7 @@ function createAttendanceRouter(pool) {
   }
 
   // POST /api/attendance/schedule-swap - Swap shifts/schedules between two employees OR self-swap dates
-  router.post('/schedule-swap', async (req, res) => {
+  router.post('/schedule-swap', requirePermission('attendance.manage'), async (req, res) => {
     const tenantId = req.verifiedTenantId || req.tenantId;
     const connection = await pool.getConnection();
     try {
@@ -408,7 +409,7 @@ function createAttendanceRouter(pool) {
   });
 
   // POST /api/attendance/schedule-override - Create or update a schedule override / Assign extraordinary rest day
-  router.post('/schedule-override', async (req, res) => {
+  router.post('/schedule-override', requirePermission('attendance.manage'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId || req.tenantId;
       const { employeeId, date, newHoraEntrada, newHoraSalida, isDescanso, reason, createdBy, adminPin } = req.body;
@@ -498,17 +499,23 @@ function createAttendanceRouter(pool) {
     }
   });
 
-  // DELETE /api/attendance/schedule-override/:id - Delete (annul) a schedule override
-  router.delete('/schedule-override/:id', async (req, res) => {
+  // DELETE /api/attendance/schedule-override/:id - Delete (annul) a schedule override (Scoped strictly by tenant_id + RBAC)
+  router.delete('/schedule-override/:id', requirePermission('attendance.manage'), async (req, res) => {
     try {
       const { id } = req.params;
+      const tenantId = req.verifiedTenantId;
       const [result] = await pool.query(
-        "UPDATE schedule_overrides SET status = 'Anulado' WHERE id = ?",
-        [String(id)]
+        "UPDATE schedule_overrides SET status = 'Anulado' WHERE id = ? AND tenant_id = ?",
+        [String(id), tenantId]
       );
       if (result.affectedRows === 0) {
         return res.status(404).json({ error: 'Cambio de horario no encontrado.' });
       }
+      await pool.query(
+        `INSERT INTO audit_logs (tenant_id, entity_type, entity_id, action, reason, user_name, details, created_at)
+         VALUES (?, 'schedule_override', ?, 'SCHEDULE_OVERRIDE_VOID', 'Anulación de cambio de horario', ?, ?, NOW())`,
+        [tenantId, String(id), req.auth?.name || req.user?.name || 'Admin', `Override #${id} anulado`]
+      ).catch(() => {});
       res.json({ success: true, message: 'Cambio de horario anulado con éxito.' });
     } catch (err) {
       console.error('[ATTENDANCE ERROR]:', err.message);
@@ -827,7 +834,7 @@ function createAttendanceRouter(pool) {
   });
 
   // GET /api/attendance/history - Fetch historical attendance logs for admin panel (Scoped by tenant_id)
-  router.get('/history', async (req, res) => {
+  router.get('/history', requirePermission('attendance.view'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
       const { startDate, endDate, employeeId, salonId } = req.query;
@@ -977,7 +984,7 @@ function createAttendanceRouter(pool) {
   });
 
   // GET /api/attendance/pending - Fetch all pending attendance records (missing check-in/out)
-  router.get('/pending', async (req, res) => {
+  router.get('/pending', requirePermission('attendance.view'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
       const { startDate, endDate, employeeId, salonId } = req.query;
@@ -1141,8 +1148,8 @@ function createAttendanceRouter(pool) {
     }
   });
 
-  // POST /api/attendance/adjust - Manually adjust missing check-in/out with audit log (Scoped by tenant_id)
-  router.post('/adjust', async (req, res) => {
+  // POST /api/attendance/adjust - Manually adjust missing check-in/out with audit log (Scoped by tenant_id + RBAC)
+  router.post('/adjust', requirePermission('attendance.manage'), async (req, res) => {
     try {
       const tenantId = req.verifiedTenantId;
       const { employeeId, date, checkInTime, checkOutTime, reason, modifiedBy } = req.body;
@@ -1231,12 +1238,12 @@ function createAttendanceRouter(pool) {
         const timestampStr = `${date} ${checkOutTime}:00`;
 
         let [employees] = await pool.query(
-          'SELECT id, nombre, hora_salida, dias_laborables FROM staff_records WHERE id::text = ? AND tenant_id = ?',
+          'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables FROM staff_records WHERE id::text = ? AND tenant_id = ?',
           [String(employeeId), tenantId]
         );
         if (employees.length === 0) {
           const [users] = await pool.query(
-            'SELECT id, nombre, hora_salida, dias_laborables FROM users WHERE id::text = ? AND tenant_id = ?',
+            'SELECT id, nombre, hora_entrada, hora_salida, dias_laborables FROM users WHERE id::text = ? AND tenant_id = ?',
             [String(employeeId), tenantId]
           );
           employees = users;
@@ -1244,13 +1251,15 @@ function createAttendanceRouter(pool) {
         const emp = employees[0];
 
         const [overrides] = await pool.query(
-          "SELECT new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo' AND tenant_id = ?",
+          "SELECT new_hora_entrada, new_hora_salida FROM schedule_overrides WHERE employee_id = ? AND date = ? AND status = 'Activo' AND tenant_id = ?",
           [String(employeeId), date, tenantId]
         );
 
+        let expectedEntradaForOut = emp ? emp.hora_entrada : '09:00:00';
         let expectedSalida = emp ? emp.hora_salida : '18:00:00';
         if (overrides.length > 0) {
-          expectedSalida = overrides[0].new_hora_salida;
+          if (overrides[0].new_hora_entrada) expectedEntradaForOut = overrides[0].new_hora_entrada;
+          if (overrides[0].new_hora_salida) expectedSalida = overrides[0].new_hora_salida;
         }
 
         let extraMinutes = 0;
@@ -1259,7 +1268,18 @@ function createAttendanceRouter(pool) {
           try {
             const [expH, expM] = expectedSalida.split(':').map(Number);
             const [actH, actM] = checkOutTime.split(':').map(Number);
-            const diff = (actH * 60 + actM) - (expH * 60 + expM);
+            let expOutMin = expH * 60 + expM;
+            let actOutMin = actH * 60 + actM;
+            if (expectedEntradaForOut) {
+              const [inH, inM] = expectedEntradaForOut.split(':').map(Number);
+              const expInMin = inH * 60 + inM;
+              // Turno nocturno que cruza medianoche (ej. 22:00 -> 02:00)
+              if (expOutMin < expInMin) {
+                expOutMin += 1440;
+                if (actOutMin < expInMin) actOutMin += 1440;
+              }
+            }
+            const diff = actOutMin - expOutMin;
             if (diff > 0) extraMinutes = diff;
             else if (diff < 0) outStatus = 'Salida Temprana';
           } catch (e) { }
@@ -1281,6 +1301,18 @@ function createAttendanceRouter(pool) {
           );
         }
       }
+
+      await pool.query(
+        `INSERT INTO audit_logs (tenant_id, entity_type, entity_id, action, reason, user_name, details, created_at)
+         VALUES (?, 'attendance', ?, 'ATTENDANCE_ADJUST', ?, ?, ?, NOW())`,
+        [
+          tenantId,
+          String(employeeId),
+          reason,
+          req.auth?.name || req.user?.name || modifiedBy,
+          `Ajuste manual asistencia fecha=${date} in=${checkInTime || '-'} out=${checkOutTime || '-'}`
+        ]
+      ).catch(() => {});
 
       res.json({ success: true, message: 'Registro de asistencia regularizado con éxito.' });
     } catch (err) {
