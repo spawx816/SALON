@@ -105,6 +105,7 @@ async function runPaginationCursorTests() {
     let currentAuthTenant = tenantA;
     app.use((req, res, next) => {
       req.tenantId = currentAuthTenant;
+      req.auth = { role: 'owner', tenantId: currentAuthTenant, permissions: { 'clients.view': true } };
       next();
     });
     app.use('/api/clients', createClientsRouter(pool));
